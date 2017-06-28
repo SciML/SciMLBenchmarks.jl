@@ -33,6 +33,8 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [ROBER Work-Precision Diagrams](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/ROBER.ipynb)
 - Parallelism
   - [Multithreaded Runge-Kutta Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Parallelism/Multithreaded%20Runge-Kutta%20Methods.ipynb)
+- Nonstiff SDEs
+  - [Nonstiff SDE Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/BasicSDEWorkPrecision.ipynb)
   
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
