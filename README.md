@@ -31,6 +31,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 - Stiff ODEs
   - [Van der Pol Work-Precision Diagrams](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/VanDerPol.ipynb)
   - [ROBER Work-Precision Diagrams](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/ROBER.ipynb)
+  - [Filament PDE Discretization Work-Precision Diagrams](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/Filament.ipynb)
 - Dynamical ODEs
   - [Henon-Heiles Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.ipynb)
   - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.ipynb)
@@ -42,7 +43,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Mackey%20and%20Glass.ipynb)
   - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Quorum%20Sensing.ipynb)
   - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
-  
+
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
