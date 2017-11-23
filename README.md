@@ -38,7 +38,10 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 - Parallelism
   - [Multithreaded Runge-Kutta Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Parallelism/Multithreaded%20Runge-Kutta%20Methods.ipynb)
 - Nonstiff SDEs
-  - [Nonstiff SDE Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/BasicSDEWorkPrecision.ipynb)
+  - [Nonstiff SDE Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWorkPrecision.ipynb)
+- Stiff SDEs
+  - [Stochastic Heat Equation Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/StochasticHeat.ipynb)
+  - [Quadratic Diffusion Noise Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/QuadraticStiffness.ipynb)
 - Constant Delay DDEs
   - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Mackey%20and%20Glass.ipynb)
   - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Quorum%20Sensing.ipynb)
