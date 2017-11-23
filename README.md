@@ -41,7 +41,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Nonstiff SDE Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/BasicSDEWorkPrecision.ipynb)
 - Constant Delay DDEs
   - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Mackey%20and%20Glass.ipynb)
-  - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Quorum%20Sensing.ipynb)
+  - [Stiff Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Quorum%20Sensing.ipynb)
   - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
