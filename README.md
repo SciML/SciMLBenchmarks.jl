@@ -57,6 +57,7 @@ The following tests were developed for the paper *Adaptive Methods for Stochasti
 
 - SDE Adaptivity
   - [Oval2 Long Run](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongRun.ipynb)
+  - [Oval2 Long Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongTimes.ipynb))
   - [Oval2 Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2Timings.ipynb)
   - [qmax Determination Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/qmaxDetermination.ipynb)
   - [Adaptive Efficiency Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/AdaptiveEfficiencyTests.ipynb)
