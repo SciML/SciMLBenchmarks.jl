@@ -48,10 +48,12 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 - Stiff SDEs
   - [Stochastic Heat Equation Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/StochasticHeat.ipynb)
   - [Quadratic Diffusion Noise Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/QuadraticStiffness.ipynb)
-- Constant Delay DDEs
-  - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Mackey%20and%20Glass.ipynb)
-  - [Stiff Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Quorum%20Sensing.ipynb)
-  - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
+- Nonstiff DDEs
+  - Constant Delay DDEs
+    - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Mackey%20and%20Glass.ipynb)
+    - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
+- Stiff DDEs
+  - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffDDE/Quorum%20Sensing.ipynb)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
