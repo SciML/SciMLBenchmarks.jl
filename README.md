@@ -48,6 +48,9 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 - Stiff SDEs
   - [Stochastic Heat Equation Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/StochasticHeat.ipynb)
   - [Quadratic Diffusion Noise Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/QuadraticStiffness.ipynb)
+  - [Oval2 Long Run](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongRun.ipynb)
+  - [Oval2 Long Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongTimes.ipynb)
+  - [Oval2 Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2Timings.ipynb)
 - Nonstiff DDEs
   - Constant Delay DDEs
     - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Mackey%20and%20Glass.ipynb)
@@ -58,8 +61,83 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
-  - [Oval2 Long Run](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongRun.ipynb)
-  - [Oval2 Long Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongTimes.ipynb)
-  - [Oval2 Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2Timings.ipynb)
+
   - [qmax Determination Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/qmaxDetermination.ipynb)
   - [Adaptive Efficiency Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/AdaptiveEfficiencyTests.ipynb)
+
+## Current Summary
+
+The following is a quick summary of the benchmarks. These paint broad strokes
+over the set of tested equations and some specific examples may differ.
+
+### Non-Stiff ODEs
+
+- OrdinaryDiffEq.jl's methods are the most efficient by a good amount
+- The `Vern` methods tend to do the best in every benchmark of this category
+- At lower tolerances, `Tsit5` does well consistently.
+- ARKODE and Hairer's `dopri5`/`dop853` perform very similarly, but are both
+  far less efficient than the `Vern` methods.
+- The multistep methods, `CVODE_Adams` and `lsoda`, tend to not do very well.
+- The ODEInterface multistep method `ddeabm` does not do as well as the other
+  multistep methods.
+- ODE.jl's methods are not able to consistently solve the problems.
+- Fixed time step methods are less efficient than the adaptive methods.
+
+### Stiff ODEs
+
+- In this category, the best methods are much more problem dependent.
+- For smaller problems:
+  - `Rosenbrock23`, `lsoda`, and `TRBDF2` tend to be the most efficient at high  
+    tolerances.
+  - `Rodas4` and `Rodas5` tend to be the most efficient at low tolerances.
+- For larger problems (Filament PDE):
+  - `CVODE_BDF` does the best at all tolerances.
+  - The ESDIRK methods like `TRBDF2` and `KenCarp4` can come close.
+- `radau` is always the most efficient when tolerances go to the low extreme
+  (`1e-13`)
+- Fixed time step methods tend to diverge on every tested problem because the
+  high stiffness results in divergence of the Newton solvers.
+- ARKODE is very inconsistent and requires a lot of tweaking in order to not
+  diverge on many of the tested problems. When it doesn't diverge, the similar
+  algorithms in OrdinaryDiffEq.jl (`KenCarp4`) are much more efficient in most
+  cases.
+- ODE.jl and GeometricIntegrators.jl fail to converge on any of the tested
+  problems.
+
+### Dynamical ODEs
+
+- Higher order (generally order >=6) symplectic integrators are much more
+  efficient than the lower order counterparts.
+- For high accuracy, using a symplectic integrator is not preferred. Their extra
+  cost is not necessary since the other integrators are able to not drift simply
+  due to having low enough error.
+- In this class, the `DPRKN` methods are by far the most efficient. The `Vern`
+  methods do well for not being specific to the domain.
+
+### Non-Stiff SDEs
+
+- For simple 1-dimensional SDEs at low accuracy, the `EM` and `RKMil` methods
+  can do well. Beyond that, they are simply outclassed.
+- The `SRA` and `SRI` methods both are very similar within-class on the simple
+  SDEs.
+- `SRA3` is the most efficient when applicable and the tolerances are low.
+- Generally, only low accuracy is necessary to get to sampling error of the mean.
+- The adaptive method is very conservative with error estimates.
+
+### Stiff SDEs
+
+- The high order adaptive methods (`SRIW1`) generally do well on stiff problems.
+- The "standard" low-order implicit methods, `ImplicitEM` and `ImplicitRK`, do
+  not do well on all stiff problems. Some exceptions apply to well-behaved
+  problems like the Stochastic Heat Equation.
+
+### Non-Stiff DDEs
+
+- The efficiency ranking tends to match the ODE Tests, but the cutoff from
+  low to high tolerance is lower.
+- `Tsit5` does well in a large class of problems here.
+- The `Vern` methods do well in low tolerance cases.
+
+### Stiff DDEs
+
+- The Rosenbrock methods, specifically `Rodas5`, perform well.
