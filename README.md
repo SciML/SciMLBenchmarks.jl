@@ -57,6 +57,8 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
     - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
 - Stiff DDEs
   - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffDDE/Quorum%20Sensing.ipynb)
+- Parameter Estimation
+  - [Chaotic Lorenz Equation Parameter Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LorenzParameterEstimation.ipynb)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
