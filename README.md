@@ -60,6 +60,8 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffDDE/Quorum%20Sensing.ipynb)
 - Parameter Estimation
   - [Chaotic Lorenz Equation Parameter Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LorenzParameterEstimation.ipynb)
+  - [Bayesian Lotka-Volterra Parameter Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/StanandTuringLotkaVolterraTest.ipynb)
+  - [Bayesian Lorenz Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/StanLorenz.ipynb)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
