@@ -146,3 +146,22 @@ over the set of tested equations and some specific examples may differ.
 ### Stiff DDEs
 
 - The Rosenbrock methods, specifically `Rodas5`, perform well.
+
+### Parameter Estimation
+
+- Broadly two different approaches have been used, Bayesian Inference and Optimisation 
+  algorithms.
+- In general it seems that the optimisation algorithms perform more accurately but that can be 
+  attributed to the larger number of data points being used in the optimisation cases, Bayesian 
+  approach tends to be slower of the two and hence lesser data points are used, accuracy can 
+  increase if proper data is used.
+- Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM 
+  for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package 
+  perform the best.
+- The choice of global versus local optimization make a huge difference in the timings. BBO tends to find 
+  the correct solution for a global optimization setup. For local optimization, most methods in NLopt, 
+  like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
+- The different backends options available for Bayesian method offer some tradeoffs beteween
+  time, accuracy and control. It is observed that sufficiently high accuracy can be observed with 
+  any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
+  priors and number of iterations being passed. 
