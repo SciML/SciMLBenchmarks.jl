@@ -65,6 +65,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Bayesian FitzHugh-Nagumo Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesFitzHughNagumo.ipynb)
   - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LotkaVolterraParameterEstimation.ipynb)
   - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/FitzHughNagumoParameterEstimation.ipynb)
+  
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
