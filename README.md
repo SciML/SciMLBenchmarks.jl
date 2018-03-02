@@ -161,6 +161,8 @@ over the set of tested equations and some specific examples may differ.
 - Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM 
   for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package 
   perform the best.
+- Another algorithm being used is the [QuadDIRECT](https://github.com/timholy/QuadDIRECT.jl) algorithm, it gives very good results in the shorter problem case 
+  but doesn't do very well in the case of the longer problems.
 - The choice of global versus local optimization make a huge difference in the timings. BBO tends to find 
   the correct solution for a global optimization setup. For local optimization, most methods in NLopt, 
   like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
