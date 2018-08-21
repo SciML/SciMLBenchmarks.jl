@@ -58,6 +58,11 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
     - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
 - Stiff DDEs
   - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffDDE/Quorum%20Sensing.ipynb)
+- Jump Equations
+  - [Diffusion Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/Diffusion_CTRW.ipynb)
+  - [Mendes Multistate Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/Mendes_multistate_example.ipynb)
+  - [Negative Feedback Gene Expression Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/NegFeedback_GeneExpr.ipynb)
+  - [Negative Feedback Marchetti Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/NegFeedback_GeneExpr_Marchetti.ipynb)
 - Parameter Estimation
   - [Lorenz Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LorenzParameterEstimation.ipynb)
   - [Bayesian Lotka-Volterra Parameter Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesLotkaVolterra.ipynb)
