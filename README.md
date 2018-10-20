@@ -14,7 +14,7 @@ commands (requires [IJulia](https://github.com/JuliaLang/IJulia.jl)):
 using Pkg
 #Pkg.add("IJulia") # Need to do this the first time to install IJulia!
 pkg"add https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
-using IJulia, DiffEqTutorials
+using IJulia, DiffEqBenchmarks
 notebook(dir = joinpath(dirname(pathof(DiffEqBenchmarks)),".."))
 ```
 
