@@ -11,9 +11,11 @@ To view the notebooks locally and interact with the contents, use the following
 commands (requires [IJulia](https://github.com/JuliaLang/IJulia.jl)):
 
 ```julia
-Pkg.clone("https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl")
-using IJulia
-notebook(dir=Pkg.dir("DiffEqBenchmarks"))
+using Pkg
+#Pkg.add("IJulia") # Need to do this the first time to install IJulia!
+pkg"add https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
+using IJulia, DiffEqTutorials
+notebook(dir = joinpath(dirname(pathof(DiffEqBenchmarks)),".."))
 ```
 
 ## Table of Contents
