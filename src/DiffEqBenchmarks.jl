@@ -50,16 +50,14 @@ function bench_footer(folder,file)
 
   To locally run this benchmark, do the following commands:
 
-  ```julia
   using DiffEqBenchmarks
   DiffEqBenchmarks.weave_file("$folder","$file")
-  ```
 
   """)
-  println("Computer Information:")
+  println("Computer Information:\n")
   Main.versioninfo()
   println()
-  println("Package Information:")
+  println("Package Information:\n")
   DiffEqBenchmarks.Pkg.status()
 end
 
