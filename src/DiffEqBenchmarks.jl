@@ -34,7 +34,6 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf))
   end
 end
 
-
 #=
 # Needs two arg form
 function weave_all()
@@ -53,15 +52,15 @@ function bench_footer(folder,file)
 
   ```julia
   using DiffEqBenchmarks
-  DiffEqBenchmarks.weave_file($folder,$file)
+  DiffEqBenchmarks.weave_file("$folder","$file")
   ```
 
   """)
   println("Computer Information:")
-  versioninfo()
+  Main.versioninfo()
   println()
   println("Package Information:")
-  Pkg.status()
+  DiffEqBenchmarks.Pkg.status()
 end
 
 end
