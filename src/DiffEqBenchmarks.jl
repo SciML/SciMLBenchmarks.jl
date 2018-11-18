@@ -4,16 +4,6 @@ using Weave, Pkg
 
 repo_directory = joinpath(@__DIR__,"..")
 
-function dir_exists(dir)
-  exists = true
-  try
-    readdir(dir)
-  catch err
-    exists = false
-  end
-  exists
-end
-
 function weave_file(folder,file,build_list=(:script,:html,:pdf))
   println("File: $file")
   tmp = joinpath(repo_directory,"benchmarks",folder,file)
@@ -21,25 +11,25 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf))
   if :script ∈ build_list
     println("Building Script")
     dir = joinpath(repo_directory,"script",folder)
-    dir_exists(dir) || mkdir(dir)
+    isdir(dir) || mkdir(dir)
     tangle(tmp;out_path=dir)
   end
   if :html ∈ build_list
     println("Building HTML")
     dir = joinpath(repo_directory,"html",folder)
-    dir_exists(dir) || mkdir(dir)
+    isdir(dir) || mkdir(dir)
     weave(tmp,doctype = "md2html",out_path=dir,args=args)
   end
   if :pdf ∈ build_list
     println("Building PDF")
     dir = joinpath(repo_directory,"pdf",folder)
-    dir_exists(dir) || mkdir(dir)
+    isdir(dir) || mkdir(dir)
     weave(tmp,doctype="md2pdf",out_path=dir,args=args)
   end
   if :github ∈ build_list
     println("Building Github Markdown")
     dir = joinpath(repo_directory,"markdown",folder)
-    dir_exists(dir) || mkdir(dir)
+    isdir(dir) || mkdir(dir)
     weave(tmp,doctype = "github",out_path=dir,args=args)
   end
 end
