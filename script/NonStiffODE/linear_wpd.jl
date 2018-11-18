@@ -110,3 +110,7 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=names,
                       save_everystep=false,verbose=false)
 plot(wp)
 
+
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+
