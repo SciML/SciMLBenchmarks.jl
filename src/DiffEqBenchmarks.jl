@@ -1,10 +1,10 @@
 module DiffEqBenchmarks
 
-using Weave, Pkg
+using Weave, Pkg, IJulia
 
 repo_directory = joinpath(@__DIR__,"..")
 
-function weave_file(folder,file,build_list=(:script,:html,:pdf))
+function weave_file(folder,file,build_list=(:script,:html,:pdf,:notebook))
   println("File: $file")
   tmp = joinpath(repo_directory,"benchmarks",folder,file)
   args = Dict{Symbol,String}(:folder=>folder,:file=>file)
@@ -32,15 +32,26 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf))
     isdir(dir) || mkdir(dir)
     weave(tmp,doctype = "github",out_path=dir,args=args)
   end
+  if :notebook ∈ build_list
+    println("Building Notebook")
+    dir = joinpath(repo_directory,"notebook",folder)
+    isdir(dir) || mkdir(dir)
+    Weave.notebook(tmp,dir)
+  end
 end
 
-#=
-# Needs two arg form
 function weave_all()
-  foreach(weave_file,
-          file for file in readdir("tutorials") if endswith(file, ".jmd"))
+  for folder in readdir(joinpath(repo_directory,"benchmarks"))
+    folder == "test.jmd" && continue
+    for file in readdir(joinpath(repo_directory,"benchmarks",folder))
+      println("Building $(joinpath(folder,file)))")
+      try
+        weave_file(folder,file)
+      catch
+      end
+    end
+  end
 end
-=#
 
 function bench_footer(folder,file)
   println("""
