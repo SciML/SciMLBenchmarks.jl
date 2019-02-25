@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<HTML lang = "en">
+<HEAD>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Fitzhugh-Nagumo Work-Precision Diagrams</title>
+  
+
+  <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]},
+      TeX: { equationNumbers: { autoNumber: "AMS" } }
+    });
+  </script>
+
+  <script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+
+  <style type="text/css">
+  @font-face {
+  font-style: normal;
+  font-weight: 300;
+}
+@font-face {
+  font-style: normal;
+  font-weight: 400;
+}
+@font-face {
+  font-style: normal;
+  font-weight: 600;
+}
+html {
+  font-family: sans-serif; /* 1 */
+  -ms-text-size-adjust: 100%; /* 2 */
+  -webkit-text-size-adjust: 100%; /* 2 */
+}
+body {
+  margin: 0;
+}
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+main,
+menu,
+nav,
+section,
+summary {
+  display: block;
+}
+audio,
+canvas,
+progress,
+video {
+  display: inline-block; /* 1 */
+  vertical-align: baseline; /* 2 */
+}
+audio:not([controls]) {
+  display: none;
+  height: 0;
+}
+[hidden],
+template {
+  display: none;
+}
+a:active,
+a:hover {
+  outline: 0;
+}
+abbr[title] {
+  border-bottom: 1px dotted;
+}
+b,
+strong {
+  font-weight: bold;
+}
+dfn {
+  font-style: italic;
+}
+h1 {
+  font-size: 2em;
+  margin: 0.67em 0;
+}
+mark {
+  background: #ff0;
+  color: #000;
+}
+small {
+  font-size: 80%;
+}
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+sup {
+  top: -0.5em;
+}
+sub {
+  bottom: -0.25em;
+}
+img {
+  border: 0;
+}
+svg:not(:root) {
+  overflow: hidden;
+}
+figure {
+  margin: 1em 40px;
+}
+hr {
+  -moz-box-sizing: content-box;
+  box-sizing: content-box;
+  height: 0;
+}
+pre {
+  overflow: auto;
+}
+code,
+kbd,
+pre,
+samp {
+  font-family: monospace, monospace;
+  font-size: 1em;
+}
+button,
+input,
+optgroup,
+select,
+textarea {
+  color: inherit; /* 1 */
+  font: inherit; /* 2 */
+  margin: 0; /* 3 */
+}
+button {
+  overflow: visible;
+}
+button,
+select {
+  text-transform: none;
+}
+button,
+html input[type="button"], /* 1 */
+input[type="reset"],
+input[type="submit"] {
+  -webkit-appearance: button; /* 2 */
+  cursor: pointer; /* 3 */
+}
+button[disabled],
+html input[disabled] {
+  cursor: default;
+}
+button::-moz-focus-inner,
+input::-moz-focus-inner {
+  border: 0;
+  padding: 0;
+}
+input {
+  line-height: normal;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  box-sizing: border-box; /* 1 */
+  padding: 0; /* 2 */
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  height: auto;
+}
+input[type="search"] {
+  -webkit-appearance: textfield; /* 1 */
+  -moz-box-sizing: content-box;
+  -webkit-box-sizing: content-box; /* 2 */
+  box-sizing: content-box;
+}
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+fieldset {
+  border: 1px solid #c0c0c0;
+  margin: 0 2px;
+  padding: 0.35em 0.625em 0.75em;
+}
+legend {
+  border: 0; /* 1 */
+  padding: 0; /* 2 */
+}
+textarea {
+  overflow: auto;
+}
+optgroup {
+  font-weight: bold;
+}
+table {
+  font-family: monospace, monospace;
+  font-size : 0.8em;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+td,
+th {
+  padding: 0;
+}
+thead th {
+    border-bottom: 1px solid black;
+    background-color: white;
+}
+tr:nth-child(odd){
+  background-color: rgb(248,248,248);
+}
+
+
+/*
+* Skeleton V2.0.4
+* Copyright 2014, Dave Gamache
+* www.getskeleton.com
+* Free to use under the MIT license.
+* http://www.opensource.org/licenses/mit-license.php
+* 12/29/2014
+*/
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+  box-sizing: border-box; }
+.column,
+.columns {
+  width: 100%;
+  float: left;
+  box-sizing: border-box; }
+@media (min-width: 400px) {
+  .container {
+    width: 85%;
+    padding: 0; }
+}
+@media (min-width: 550px) {
+  .container {
+    width: 80%; }
+  .column,
+  .columns {
+    margin-left: 4%; }
+  .column:first-child,
+  .columns:first-child {
+    margin-left: 0; }
+
+  .one.column,
+  .one.columns                    { width: 4.66666666667%; }
+  .two.columns                    { width: 13.3333333333%; }
+  .three.columns                  { width: 22%;            }
+  .four.columns                   { width: 30.6666666667%; }
+  .five.columns                   { width: 39.3333333333%; }
+  .six.columns                    { width: 48%;            }
+  .seven.columns                  { width: 56.6666666667%; }
+  .eight.columns                  { width: 65.3333333333%; }
+  .nine.columns                   { width: 74.0%;          }
+  .ten.columns                    { width: 82.6666666667%; }
+  .eleven.columns                 { width: 91.3333333333%; }
+  .twelve.columns                 { width: 100%; margin-left: 0; }
+
+  .one-third.column               { width: 30.6666666667%; }
+  .two-thirds.column              { width: 65.3333333333%; }
+
+  .one-half.column                { width: 48%; }
+
+  /* Offsets */
+  .offset-by-one.column,
+  .offset-by-one.columns          { margin-left: 8.66666666667%; }
+  .offset-by-two.column,
+  .offset-by-two.columns          { margin-left: 17.3333333333%; }
+  .offset-by-three.column,
+  .offset-by-three.columns        { margin-left: 26%;            }
+  .offset-by-four.column,
+  .offset-by-four.columns         { margin-left: 34.6666666667%; }
+  .offset-by-five.column,
+  .offset-by-five.columns         { margin-left: 43.3333333333%; }
+  .offset-by-six.column,
+  .offset-by-six.columns          { margin-left: 52%;            }
+  .offset-by-seven.column,
+  .offset-by-seven.columns        { margin-left: 60.6666666667%; }
+  .offset-by-eight.column,
+  .offset-by-eight.columns        { margin-left: 69.3333333333%; }
+  .offset-by-nine.column,
+  .offset-by-nine.columns         { margin-left: 78.0%;          }
+  .offset-by-ten.column,
+  .offset-by-ten.columns          { margin-left: 86.6666666667%; }
+  .offset-by-eleven.column,
+  .offset-by-eleven.columns       { margin-left: 95.3333333333%; }
+
+  .offset-by-one-third.column,
+  .offset-by-one-third.columns    { margin-left: 34.6666666667%; }
+  .offset-by-two-thirds.column,
+  .offset-by-two-thirds.columns   { margin-left: 69.3333333333%; }
+
+  .offset-by-one-half.column,
+  .offset-by-one-half.columns     { margin-left: 52%; }
+
+}
+html {
+  font-size: 62.5%; }
+body {
+  font-size: 1.5em; /* currently ems cause chrome bug misinterpreting rems on body element */
+  line-height: 1.6;
+  font-weight: 400;
+  font-family: "Raleway", "HelveticaNeue", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #222; }
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  margin-bottom: 2rem;
+  font-weight: 300; }
+h1 { font-size: 3.6rem; line-height: 1.2;  letter-spacing: -.1rem;}
+h2 { font-size: 3.4rem; line-height: 1.25; letter-spacing: -.1rem; }
+h3 { font-size: 3.2rem; line-height: 1.3;  letter-spacing: -.1rem; }
+h4 { font-size: 2.8rem; line-height: 1.35; letter-spacing: -.08rem; }
+h5 { font-size: 2.4rem; line-height: 1.5;  letter-spacing: -.05rem; }
+h6 { font-size: 1.5rem; line-height: 1.6;  letter-spacing: 0; }
+
+p {
+  margin-top: 0; }
+a {
+  color: #1EAEDB; }
+a:hover {
+  color: #0FA0CE; }
+.button,
+button,
+input[type="submit"],
+input[type="reset"],
+input[type="button"] {
+  display: inline-block;
+  height: 38px;
+  padding: 0 30px;
+  color: #555;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 38px;
+  letter-spacing: .1rem;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  background-color: transparent;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  cursor: pointer;
+  box-sizing: border-box; }
+.button:hover,
+button:hover,
+input[type="submit"]:hover,
+input[type="reset"]:hover,
+input[type="button"]:hover,
+.button:focus,
+button:focus,
+input[type="submit"]:focus,
+input[type="reset"]:focus,
+input[type="button"]:focus {
+  color: #333;
+  border-color: #888;
+  outline: 0; }
+.button.button-primary,
+button.button-primary,
+input[type="submit"].button-primary,
+input[type="reset"].button-primary,
+input[type="button"].button-primary {
+  color: #FFF;
+  background-color: #33C3F0;
+  border-color: #33C3F0; }
+.button.button-primary:hover,
+button.button-primary:hover,
+input[type="submit"].button-primary:hover,
+input[type="reset"].button-primary:hover,
+input[type="button"].button-primary:hover,
+.button.button-primary:focus,
+button.button-primary:focus,
+input[type="submit"].button-primary:focus,
+input[type="reset"].button-primary:focus,
+input[type="button"].button-primary:focus {
+  color: #FFF;
+  background-color: #1EAEDB;
+  border-color: #1EAEDB; }
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="text"],
+input[type="tel"],
+input[type="url"],
+input[type="password"],
+textarea,
+select {
+  height: 38px;
+  padding: 6px 10px; /* The 6px vertically centers text on FF, ignored by Webkit */
+  background-color: #fff;
+  border: 1px solid #D1D1D1;
+  border-radius: 4px;
+  box-shadow: none;
+  box-sizing: border-box; }
+/* Removes awkward default styles on some inputs for iOS */
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="text"],
+input[type="tel"],
+input[type="url"],
+input[type="password"],
+textarea {
+  -webkit-appearance: none;
+     -moz-appearance: none;
+          appearance: none; }
+textarea {
+  min-height: 65px;
+  padding-top: 6px;
+  padding-bottom: 6px; }
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="text"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+  border: 1px solid #33C3F0;
+  outline: 0; }
+label,
+legend {
+  display: block;
+  margin-bottom: .5rem;
+  font-weight: 600; }
+fieldset {
+  padding: 0;
+  border-width: 0; }
+input[type="checkbox"],
+input[type="radio"] {
+  display: inline; }
+label > .label-body {
+  display: inline-block;
+  margin-left: .5rem;
+  font-weight: normal; }
+ul {
+  list-style: circle; }
+ol {
+  list-style: decimal; }
+ul ul,
+ul ol,
+ol ol,
+ol ul {
+  margin: 1.5rem 0 1.5rem 3rem;
+  font-size: 90%; }
+li {
+  margin-bottom: 1rem; }
+th,
+td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid #E1E1E1; }
+th:first-child,
+td:first-child {
+  padding-left: 0; }
+th:last-child,
+td:last-child {
+  padding-right: 0; }
+button,
+.button {
+  margin-bottom: 1rem; }
+input,
+textarea,
+select,
+fieldset {
+  margin-bottom: 1.5rem; }
+pre,
+blockquote,
+dl,
+figure,
+table,
+p,
+ul,
+ol,
+form {
+  margin-bottom: 2.5rem; }
+.u-full-width {
+  width: 100%;
+  box-sizing: border-box; }
+.u-max-full-width {
+  max-width: 100%;
+  box-sizing: border-box; }
+.u-pull-right {
+  float: right; }
+.u-pull-left {
+  float: left; }
+hr {
+  margin-top: 3rem;
+  margin-bottom: 3.5rem;
+  border-width: 0;
+  border-top: 1px solid #E1E1E1; }
+.container:after,
+.row:after,
+.u-cf {
+  content: "";
+  display: table;
+  clear: both; }
+
+pre {
+  display: block;
+  padding: 9.5px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.42857143;
+  color: #333;
+  word-break: break-all;
+  word-wrap: break-word;
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+pre.sourceCode.julia {
+  display: block;
+  padding: 9.5px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.42857143;
+  color: #333;
+  word-break: break-all;
+  word-wrap: break-word;
+  background-color: #f5f5f5;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+pre.julia-error {
+  color : red
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+code {
+  padding: 2px 4px;
+  font-size: 90%;
+
+  background-color: #ffffff;
+  border-radius: 4px;
+}
+
+@media (min-width: 400px) {}
+@media (min-width: 550px) {}
+@media (min-width: 750px) {}
+@media (min-width: 1000px) {}
+@media (min-width: 1200px) {}
+
+h1.title {margin-top : 20px}
+img {max-width : 100%}
+div.title {text-align: center;}
+
+  </style>
+
+  
+<style>
+pre.hljl {
+    border: 1px solid #ccc;
+    margin: 5px;
+    padding: 5px;
+    overflow-x: auto;
+    color: rgb(68,68,68); background-color: rgb(251,251,251); }
+pre.hljl > span.hljl-t { }
+pre.hljl > span.hljl-w { }
+pre.hljl > span.hljl-e { }
+pre.hljl > span.hljl-eB { }
+pre.hljl > span.hljl-o { }
+pre.hljl > span.hljl-k { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kc { color: rgb(59,151,46); font-style: italic; }
+pre.hljl > span.hljl-kd { color: rgb(214,102,97); font-style: italic; }
+pre.hljl > span.hljl-kn { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kp { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kr { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kt { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-n { }
+pre.hljl > span.hljl-na { }
+pre.hljl > span.hljl-nb { }
+pre.hljl > span.hljl-nbp { }
+pre.hljl > span.hljl-nc { }
+pre.hljl > span.hljl-ncB { }
+pre.hljl > span.hljl-nd { color: rgb(214,102,97); }
+pre.hljl > span.hljl-ne { }
+pre.hljl > span.hljl-neB { }
+pre.hljl > span.hljl-nf { color: rgb(66,102,213); }
+pre.hljl > span.hljl-nfm { color: rgb(66,102,213); }
+pre.hljl > span.hljl-np { }
+pre.hljl > span.hljl-nl { }
+pre.hljl > span.hljl-nn { }
+pre.hljl > span.hljl-no { }
+pre.hljl > span.hljl-nt { }
+pre.hljl > span.hljl-nv { }
+pre.hljl > span.hljl-nvc { }
+pre.hljl > span.hljl-nvg { }
+pre.hljl > span.hljl-nvi { }
+pre.hljl > span.hljl-nvm { }
+pre.hljl > span.hljl-l { }
+pre.hljl > span.hljl-ld { color: rgb(148,91,176); font-style: italic; }
+pre.hljl > span.hljl-s { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sa { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sb { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sc { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sd { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sdB { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sdC { color: rgb(201,61,57); }
+pre.hljl > span.hljl-se { color: rgb(59,151,46); }
+pre.hljl > span.hljl-sh { color: rgb(201,61,57); }
+pre.hljl > span.hljl-si { }
+pre.hljl > span.hljl-so { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sr { color: rgb(201,61,57); }
+pre.hljl > span.hljl-ss { color: rgb(201,61,57); }
+pre.hljl > span.hljl-ssB { color: rgb(201,61,57); }
+pre.hljl > span.hljl-nB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nbB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nfB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nh { color: rgb(59,151,46); }
+pre.hljl > span.hljl-ni { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nil { color: rgb(59,151,46); }
+pre.hljl > span.hljl-noB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-oB { color: rgb(102,102,102); font-weight: bold; }
+pre.hljl > span.hljl-ow { color: rgb(102,102,102); font-weight: bold; }
+pre.hljl > span.hljl-p { }
+pre.hljl > span.hljl-c { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-ch { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cm { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cp { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cpB { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cs { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-csB { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-g { }
+pre.hljl > span.hljl-gd { }
+pre.hljl > span.hljl-ge { }
+pre.hljl > span.hljl-geB { }
+pre.hljl > span.hljl-gh { }
+pre.hljl > span.hljl-gi { }
+pre.hljl > span.hljl-go { }
+pre.hljl > span.hljl-gp { }
+pre.hljl > span.hljl-gs { }
+pre.hljl > span.hljl-gsB { }
+pre.hljl > span.hljl-gt { }
+</style>
+
+
+
+</HEAD>
+  <BODY>
+    <div class ="container">
+      <div class = "row">
+        <div class = "col-md-12 twelve columns">
+
+          <div class="title">
+            <h1 class="title">Fitzhugh-Nagumo Work-Precision Diagrams</h1>
+            <h5>Chris Rackauckas</h5>
+            
+          </div>
+
+          <h2>Fitzhugh-Nagumo</h2>
+<p>The purpose of this is to see how the errors scale on a standard nonlinear problem.</p>
+
+
+<pre class='hljl'>
+<span class='hljl-k'>using</span><span class='hljl-t'> </span><span class='hljl-n'>DifferentialEquations</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>ParameterizedFunctions</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>ODE</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>ODEInterfaceDiffEq</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>LSODA</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: ArgumentError: Package ODE not found in current path:
+- Run &#96;import Pkg; Pkg.add&#40;&quot;ODE&quot;&#41;&#96; to install the ODE package.
+
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>f</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nd'>@ode_def</span><span class='hljl-t'> </span><span class='hljl-n'>FitzhughNagumo</span><span class='hljl-t'> </span><span class='hljl-k'>begin</span><span class='hljl-t'>
+  </span><span class='hljl-n'>dv</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>v</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-t'> </span><span class='hljl-n'>v</span><span class='hljl-oB'>^</span><span class='hljl-ni'>3</span><span class='hljl-oB'>/</span><span class='hljl-ni'>3</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-n'>w</span><span class='hljl-t'> </span><span class='hljl-oB'>+</span><span class='hljl-t'> </span><span class='hljl-n'>l</span><span class='hljl-t'>
+  </span><span class='hljl-n'>dw</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>τinv</span><span class='hljl-oB'>*</span><span class='hljl-p'>(</span><span class='hljl-n'>v</span><span class='hljl-t'> </span><span class='hljl-oB'>+</span><span class='hljl-t'>  </span><span class='hljl-n'>a</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-t'> </span><span class='hljl-n'>b</span><span class='hljl-oB'>*</span><span class='hljl-n'>w</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-k'>end</span><span class='hljl-t'> </span><span class='hljl-n'>a</span><span class='hljl-t'> </span><span class='hljl-n'>b</span><span class='hljl-t'> </span><span class='hljl-n'>τinv</span><span class='hljl-t'> </span><span class='hljl-n'>l</span><span class='hljl-t'>
+
+</span><span class='hljl-n'>p</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.8</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-oB'>/</span><span class='hljl-nfB'>12.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>prob</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>ODEProblem</span><span class='hljl-p'>(</span><span class='hljl-n'>f</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>;</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>],(</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>10.0</span><span class='hljl-p'>),</span><span class='hljl-n'>p</span><span class='hljl-p'>)</span><span class='hljl-t'>
+
+</span><span class='hljl-n'>abstols</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>1.0</span><span class='hljl-t'> </span><span class='hljl-oB'>./</span><span class='hljl-t'> </span><span class='hljl-nfB'>10.0</span><span class='hljl-t'> </span><span class='hljl-oB'>.^</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>6</span><span class='hljl-oB'>:</span><span class='hljl-ni'>13</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>reltols</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>1.0</span><span class='hljl-t'> </span><span class='hljl-oB'>./</span><span class='hljl-t'> </span><span class='hljl-nfB'>10.0</span><span class='hljl-t'> </span><span class='hljl-oB'>.^</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>3</span><span class='hljl-oB'>:</span><span class='hljl-ni'>10</span><span class='hljl-p'>);</span><span class='hljl-t'>
+</span><span class='hljl-n'>sol</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>solve</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern7</span><span class='hljl-p'>(),</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1</span><span class='hljl-oB'>/</span><span class='hljl-ni'>10</span><span class='hljl-oB'>^</span><span class='hljl-ni'>14</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1</span><span class='hljl-oB'>/</span><span class='hljl-ni'>10</span><span class='hljl-oB'>^</span><span class='hljl-ni'>14</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>test_sol</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>TestSolution</span><span class='hljl-p'>(</span><span class='hljl-n'>sol</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: TestSolution not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-k'>using</span><span class='hljl-t'> </span><span class='hljl-n'>Plots</span><span class='hljl-p'>;</span><span class='hljl-t'> </span><span class='hljl-nf'>gr</span><span class='hljl-p'>()</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>sol</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>solve</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>sol</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<img src="data:image/png;base64,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"  />
+
+<h2>Low Order</h2>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>setups</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>DP5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-cs'>#Dict(:alg=&gt;ode45()) #fails</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>dopri5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>BS5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Tsit5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern6</span><span class='hljl-p'>())</span><span class='hljl-t'>
+</span><span class='hljl-p'>]</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: dopri5 not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>wp</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>WorkPrecisionSet</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-n'>abstols</span><span class='hljl-p'>,</span><span class='hljl-n'>reltols</span><span class='hljl-p'>,</span><span class='hljl-n'>setups</span><span class='hljl-p'>;</span><span class='hljl-n'>appxsol</span><span class='hljl-oB'>=</span><span class='hljl-n'>test_sol</span><span class='hljl-p'>,</span><span class='hljl-n'>save_everystep</span><span class='hljl-oB'>=</span><span class='hljl-kc'>false</span><span class='hljl-p'>,</span><span class='hljl-n'>numruns</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>maxiters</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: test_sol not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>wp</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: wp not defined
+</pre>
+
+
+<h3>Interpolation</h3>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>setups</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>DP5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-cs'>#Dict(:alg=&gt;ode45()) # fails</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>BS5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Tsit5</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern6</span><span class='hljl-p'>())</span><span class='hljl-t'>
+</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>wp</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>WorkPrecisionSet</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-n'>abstols</span><span class='hljl-p'>,</span><span class='hljl-n'>reltols</span><span class='hljl-p'>,</span><span class='hljl-n'>setups</span><span class='hljl-p'>;</span><span class='hljl-n'>appxsol</span><span class='hljl-oB'>=</span><span class='hljl-n'>test_sol</span><span class='hljl-p'>,</span><span class='hljl-n'>numruns</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>maxiters</span><span class='hljl-oB'>=</span><span class='hljl-ni'>10000</span><span class='hljl-p'>,</span><span class='hljl-n'>error_estimate</span><span class='hljl-oB'>=:</span><span class='hljl-n'>L2</span><span class='hljl-p'>,</span><span class='hljl-n'>dense_errors</span><span class='hljl-oB'>=</span><span class='hljl-kc'>true</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: test_sol not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>wp</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: wp not defined
+</pre>
+
+
+<h2>Higher Order</h2>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>setups</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>DP8</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-cs'>#Dict(:alg=&gt;ode78()) # fails</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern7</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern8</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>dop853</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern6</span><span class='hljl-p'>())</span><span class='hljl-t'>
+</span><span class='hljl-p'>]</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: dop853 not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>wp</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>WorkPrecisionSet</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-n'>abstols</span><span class='hljl-p'>,</span><span class='hljl-n'>reltols</span><span class='hljl-p'>,</span><span class='hljl-n'>setups</span><span class='hljl-p'>;</span><span class='hljl-n'>appxsol</span><span class='hljl-oB'>=</span><span class='hljl-n'>test_sol</span><span class='hljl-p'>,</span><span class='hljl-n'>save_everystep</span><span class='hljl-oB'>=</span><span class='hljl-kc'>false</span><span class='hljl-p'>,</span><span class='hljl-n'>numruns</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>maxiters</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: test_sol not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>wp</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: wp not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>setups</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>DP8</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern7</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>CVODE_Adams</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>ARKODE</span><span class='hljl-p'>(</span><span class='hljl-n'>Sundials</span><span class='hljl-oB'>.</span><span class='hljl-nf'>Explicit</span><span class='hljl-p'>(),</span><span class='hljl-n'>order</span><span class='hljl-oB'>=</span><span class='hljl-ni'>6</span><span class='hljl-p'>))</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>lsoda</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>odex</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>ddeabm</span><span class='hljl-p'>())</span><span class='hljl-t'>
+</span><span class='hljl-p'>]</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: CVODE_Adams not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>wp</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>WorkPrecisionSet</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-n'>abstols</span><span class='hljl-p'>,</span><span class='hljl-n'>reltols</span><span class='hljl-p'>,</span><span class='hljl-n'>setups</span><span class='hljl-p'>;</span><span class='hljl-n'>appxsol</span><span class='hljl-oB'>=</span><span class='hljl-n'>test_sol</span><span class='hljl-p'>,</span><span class='hljl-n'>save_everystep</span><span class='hljl-oB'>=</span><span class='hljl-kc'>false</span><span class='hljl-p'>,</span><span class='hljl-n'>numruns</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>maxiters</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: test_sol not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>wp</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: wp not defined
+</pre>
+
+
+<h3>Interpolation</h3>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>setups</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>DP8</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-cs'>#Dict(:alg=&gt;ode78()) # fails</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern7</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern8</span><span class='hljl-p'>())</span><span class='hljl-t'>
+          </span><span class='hljl-nf'>Dict</span><span class='hljl-p'>(</span><span class='hljl-sc'>:alg</span><span class='hljl-oB'>=&gt;</span><span class='hljl-nf'>Vern6</span><span class='hljl-p'>())</span><span class='hljl-t'>
+</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>wp</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>WorkPrecisionSet</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-n'>abstols</span><span class='hljl-p'>,</span><span class='hljl-n'>reltols</span><span class='hljl-p'>,</span><span class='hljl-n'>setups</span><span class='hljl-p'>;</span><span class='hljl-n'>appxsol</span><span class='hljl-oB'>=</span><span class='hljl-n'>test_sol</span><span class='hljl-p'>,</span><span class='hljl-n'>numruns</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>maxiters</span><span class='hljl-oB'>=</span><span class='hljl-ni'>1000</span><span class='hljl-p'>,</span><span class='hljl-n'>error_estimate</span><span class='hljl-oB'>=:</span><span class='hljl-n'>L2</span><span class='hljl-p'>,</span><span class='hljl-n'>dense_errors</span><span class='hljl-oB'>=</span><span class='hljl-kc'>true</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: test_sol not defined
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>wp</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="julia-error">
+ERROR: UndefVarError: wp not defined
+</pre>
+
+
+<h2>Conclusion</h2>
+<p>As expected, the algorithms are all pretty matched on time for this problem. However, you can clearly see the OrdinaryDiffEq.jl algorithms solving to a much higher accuracy and still faster, especially when the interpolations are involved.</p>
+
+
+
+          <HR/>
+          <div class="footer"><p>
+          Published from <a href="FitzhughNagumo_wpd.jmd">FitzhughNagumo_wpd.jmd</a> using
+          <a href="http://github.com/mpastell/Weave.jl">Weave.jl</a>
+           on 2019-02-25.
+          <p></div>
+
+
+        </div>
+      </div>
+    </div>
+  </BODY>
+</HTML>
