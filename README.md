@@ -42,8 +42,6 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Single Pendulum Comparison Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/single_pendulums.ipynb)
   - [Henon-Heiles Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.ipynb)
   - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.ipynb)
-- Parallelism
-  - [Multithreaded Runge-Kutta Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Parallelism/Multithreaded%20Runge-Kutta%20Methods.ipynb)
 - Nonstiff SDEs
   - [Simple Nonstiff SDE Strong Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWorkPrecision.ipynb)
   - [Simple Nonstiff SDE Weak Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWeakWorkPrecision.ipynb)
@@ -72,7 +70,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Bayesian FitzHugh-Nagumo Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesFitzHughNagumo.ipynb)
   - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LotkaVolterraParameterEstimation.ipynb)
   - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/FitzHughNagumoParameterEstimation.ipynb)
-  
+
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
@@ -159,21 +157,21 @@ over the set of tested equations and some specific examples may differ.
 
 ### Parameter Estimation
 
-- Broadly two different approaches have been used, Bayesian Inference and Optimisation 
+- Broadly two different approaches have been used, Bayesian Inference and Optimisation
   algorithms.
-- In general it seems that the optimisation algorithms perform more accurately but that can be 
-  attributed to the larger number of data points being used in the optimisation cases, Bayesian 
-  approach tends to be slower of the two and hence lesser data points are used, accuracy can 
+- In general it seems that the optimisation algorithms perform more accurately but that can be
+  attributed to the larger number of data points being used in the optimisation cases, Bayesian
+  approach tends to be slower of the two and hence lesser data points are used, accuracy can
   increase if proper data is used.
-- Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM 
-  for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package 
+- Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM
+  for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package
   perform the best.
-- Another algorithm being used is the [QuadDIRECT](https://github.com/timholy/QuadDIRECT.jl) algorithm, it gives very good results in the shorter problem case 
+- Another algorithm being used is the [QuadDIRECT](https://github.com/timholy/QuadDIRECT.jl) algorithm, it gives very good results in the shorter problem case
   but doesn't do very well in the case of the longer problems.
-- The choice of global versus local optimization make a huge difference in the timings. BBO tends to find 
-  the correct solution for a global optimization setup. For local optimization, most methods in NLopt, 
+- The choice of global versus local optimization make a huge difference in the timings. BBO tends to find
+  the correct solution for a global optimization setup. For local optimization, most methods in NLopt,
   like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
 - The different backends options available for Bayesian method offer some tradeoffs beteween
-  time, accuracy and control. It is observed that sufficiently high accuracy can be observed with 
+  time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
-  priors and number of iterations being passed. 
+  priors and number of iterations being passed.

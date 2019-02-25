@@ -1,0 +1,109 @@
+---
+title: Lotka-Volterra Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+## Lotka-Volterra
+
+The purpose of this problem is to test the performance on easy problems. Since it's periodic, the error is naturally low, and so most of the difference will come down to startup times and, when measuring the interpolations, the algorithm choices.
+
+```julia
+using DifferentialEquations, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA
+
+f = @ode_def LotkaVolterra begin
+  dx = a*x - b*x*y
+  dy = -c*y + d*x*y
+end a b c d
+
+p = [1.5,1.0,3.0,1.0]
+prob = ODEProblem(f,[1.0;1.0],(0.0,10.0),p)
+
+abstols = 1./10.^(6:13)
+reltols = 1./10.^(3:10);
+sol = solve(prob,Vern7(),abstol=1/10^14,reltol=1/10^14)
+test_sol = TestSolution(sol)
+using Plots; gr()
+```
+
+```julia
+sol = solve(prob)
+plot(sol)
+```
+
+### Low Order
+
+```julia
+setups = [Dict(:alg=>DP5())
+          #Dict(:alg=>ode45()) # fail
+          Dict(:alg=>dopri5())
+          Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern6())
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=10000)
+plot(wp)
+```
+
+Here we see the OrdinaryDiffEq.jl algorithms once again far in the lead.
+
+### Interpolation Error
+
+Since the problem is periodic, the real measure of error is the error throughout the solution.
+
+```julia
+setups = [Dict(:alg=>DP5())
+          #Dict(:alg=>ode45())
+          Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern6())
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=1000,maxiters=10000,error_estimate=:L2,dense_errors=true)
+plot(wp)
+```
+
+Here we see the power of algorithm specific interpolations. The ODE.jl algorithm is only able to reach $10^{-7}$ error even at a tolerance of $10^{-13}$, while the DifferentialEquations.jl algorithms are below $10^{-10}$
+
+## Higher Order
+
+```julia
+setups = [Dict(:alg=>DP8())
+          #Dict(:alg=>ode78()) # fails
+          Dict(:alg=>Vern7())
+          Dict(:alg=>Vern8())
+          Dict(:alg=>dop853())
+          Dict(:alg=>Vern6())
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>odex())
+          Dict(:alg=>ddeabm())
+          Dict(:alg=>Vern7())
+          Dict(:alg=>Vern8())
+          Dict(:alg=>CVODE_Adams())
+          Dict(:alg=>lsoda())
+          Dict(:alg=>Vern6())
+          Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+plot(wp)
+```
+
+Again we look at interpolations:
+
+```julia
+setups = [Dict(:alg=>DP8())
+          #Dict(:alg=>ode78())
+          Dict(:alg=>Vern7())
+          Dict(:alg=>Vern8())
+          Dict(:alg=>Vern6())
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=true,numruns=1000,maxiters=1000,error_estimate=:L2)
+plot(wp)
+```
+
+Again, the ODE.jl algorithms suffer when measuring the interpolations due to relying on an order 3 Hermite polynomial instead of an algorithm-specific order matching interpolation which uses the timesteps.
+
+## Conclusion
+
+The OrdinaryDiffEq.jl are quicker and still solve to a much higher accuracy, especially when the interpolations are involved. ODE.jl errors a lot.

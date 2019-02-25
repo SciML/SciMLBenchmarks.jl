@@ -1,0 +1,226 @@
+---
+title: SDE Basic Weak Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+# SDE Basic Weak Work-Precision Diagrams
+
+In this notebook we will run some benchmarks for the weak error on some simple sample SDEs. The weak error is defined as:
+
+$$ E_W = \mathbb{E}[Y_\delta(t)] - \mathbb{E}[Y(t)] $$
+
+and is thus a measure of how close the mean of the numerical solution is to the mean of the true solution. Other moments can be measured as well, but the mean is a good stand-in for other properties. Note that convergence of the mean is calculated on a sample. Thus there's acutally two sources of error. We have not only the error between the numerical and actual results, but we also have the error of the mean to the true mean due to only taking a finite sample. Using the normal confidence interval of the mean due to the Central Limit Theorem, the error due to finite sampling is
+
+$$ E_S = V[Y(t)]/\sqrt(N)$$
+
+for $N$ being the number of samples. In practice,
+
+$$ E = minimum(E_W,E_S)$$
+
+Thus in each case, we will determine the variance of the true solution and use that to estimate the sample error, and the goal is to thus find the numerical method that achieves the sample error most efficiently.
+
+```julia
+using StochasticDiffEq, DiffEqDevTools, ParameterizedFunctions, DiffEqProblemLibrary
+using Plots; gr()
+```
+
+### Additive Noise Problem
+
+\begin{equation}
+dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
+\end{equation}
+where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
+\begin{equation}
+X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).
+\end{equation}
+
+```julia
+prob = prob_sde_additive
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+setups = [
+          Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) + 1),:adaptive=>false)
+          Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) + 1),:adaptive=>false)
+          Dict(:alg=>SRA1())
+          Dict(:alg=>SRIW1())
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+```
+
+```julia
+sample_size = Int[10;1e2;1e3;1e4;1e5]
+se = get_sample_errors(prob,numruns=sample_size)
+```
+
+```julia
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+```julia
+prob = prob_sde_additive
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+setups = [
+          Dict(:alg=>SRA1())
+          Dict(:alg=>SRA2())
+          Dict(:alg=>SRA3())
+          Dict(:alg=>SOSRA())
+          Dict(:alg=>SOSRA2())
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([2e-5;2e-5],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+### Scalar Noise
+
+We will use a the linear SDE (also known as the Black-Scholes equation)
+
+\begin{equation}
+dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
+\end{equation}
+where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
+\begin{equation}
+X_{t}=X_{0}e^{\left(\beta-\frac{\alpha^{2}}{2}\right)t+\alpha W_{t}}.
+\end{equation}
+
+```julia
+prob = prob_sde_linear
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+
+setups = [Dict(:alg=>SRIW1())
+          Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) + 1),:adaptive=>false)
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+```
+
+```julia
+sample_size = Int[10;1e2;1e3;1e4;1e5]
+se = get_sample_errors(prob,numruns=sample_size)
+```
+
+```julia
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+```julia
+prob = prob_sde_linear
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+
+setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) + 2))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) + 2))
+          Dict(:alg=>SRI())
+          Dict(:alg=>SRIW1())
+          Dict(:alg=>SRIW2())
+          Dict(:alg=>SOSRI())
+          Dict(:alg=>SOSRI2())
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+sample_size = Int[10;1e2;1e3;1e4;1e5]
+se = get_sample_errors(prob,numruns=sample_size)
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+## Scalar Wave SDE
+
+\begin{equation}
+dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
+\end{equation}
+Actual Solution:
+\begin{equation}
+X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).
+\end{equation}
+
+```julia
+prob = prob_sde_wave
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+
+setups = [
+          Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) + 1))
+          Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) + 1),:adaptive=>false)
+          Dict(:alg=>SRIW1())
+          ]
+
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+```
+
+```julia
+sample_size = Int[10;1e2;1e3;1e4;1e5]
+se = get_sample_errors(prob,numruns=sample_size)
+```
+
+```julia
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+```julia
+prob = prob_sde_wave
+
+reltols = 1.0./10.0.^(1:5)
+abstols = reltols#[0.0 for i in eachindex(reltols)]
+
+setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) + 2))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) + 2))
+          Dict(:alg=>SRI())
+          Dict(:alg=>SRIW1())
+          Dict(:alg=>SRIW2())
+          Dict(:alg=>SOSRI())
+          Dict(:alg=>SOSRI2())
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=100,
+                      save_everystep = false,
+                      parallel_type = :threads,
+                      error_estimate=:weak_final)
+plot(wp)
+sample_size = Int[10;1e2;1e3;1e4;1e5]
+se = get_sample_errors(prob,numruns=sample_size)
+times = [wp[i].times for i in 1:length(wp)]
+times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+```
+
+## Summary
+
+In the additive noise problem, the `EM` and `RKMil` algorithms are not effective at reaching the sample error. In the other two problems, the `EM` and `RKMil` algorithms are as efficient as the higher order methods at achieving the maximal weak error.

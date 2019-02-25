@@ -1,0 +1,129 @@
+---
+title: Lorenz Bayesian Parameter Estimation Benchmarks
+author: Vaibhav Dixit, Chris Rackauckas
+---
+
+## Parameter estimation of Lorenz Equation using DiffEqBayes.jl
+
+```julia
+using DiffEqBayes
+using Distributions
+using DifferentialEquations
+using Plots
+using ContinuousTransformations
+```
+
+```julia
+gr(fmt=:png)
+```
+
+#### Initializing the problem
+
+```julia
+g1 = @ode_def_bare LorenzExample begin
+  dx = σ*(y-x)
+  dy = x*(ρ-z) - y
+  dz = x*y - β*z
+end σ ρ β
+```
+
+```julia
+r0 = [1.0; 0.0; 0.0]
+tspan = (0.0, 30.0)
+p = [10.0,28.0,2.66]
+```
+
+```julia
+prob = ODEProblem(g1,r0,tspan,p)
+@time sol = solve(prob,Tsit5())
+```
+
+#### Generating data for bayesian estimation of parameters from the obtained solutions using the `Tsit5` algorithm by adding random noise to it.
+
+```julia
+t = collect(linspace(1,30,30))
+sig = 0.49
+data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(3)) for i in 1:length(t)]))
+```
+
+#### Plots of the generated data and the actual data.
+
+```julia
+Plots.scatter(t, data[1,:],markersize=4,color=:purple)
+Plots.scatter!(t, data[2,:],markersize=4,color=:yellow)
+Plots.scatter!(t, data[3,:],markersize=4,color=:black)
+plot!(sol)
+```
+
+#### Uncertainity Quantification plot is used to decide the tolerance for the differential equation.
+
+```julia
+cb = AdaptiveProbIntsUncertainty(5)
+monte_prob = MonteCarloProblem(prob)
+sim = solve(monte_prob,Tsit5(),num_monte=100,callback=cb,reltol=1e-5,abstol=1e-5)
+plot(sim,vars=(0,1),linealpha=0.4)
+```
+
+```julia
+cb = AdaptiveProbIntsUncertainty(5)
+monte_prob = MonteCarloProblem(prob)
+sim = solve(monte_prob,Tsit5(),num_monte=100,callback=cb,reltol=1e-6,abstol=1e-6)
+plot(sim,vars=(0,1),linealpha=0.4)
+```
+
+```julia
+cb = AdaptiveProbIntsUncertainty(5)
+monte_prob = MonteCarloProblem(prob)
+sim = solve(monte_prob,Tsit5(),num_monte=100,callback=cb,reltol=1e-8,abstol=1e-8)
+plot(sim,vars=(0,1),linealpha=0.4)
+```
+
+```julia
+priors = [Truncated(Normal(10,2),1,15),Truncated(Normal(30,5),1,45),Truncated(Normal(2.5,0.5),1,4)]
+```
+
+## Parameter Estimation using Stan.jl backend.
+
+Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainity plots. Use of Truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
+
+```julia
+@time bayesian_result = stan_inference(prob,t,data,priors;num_samples=100,num_warmup=500,reltol=1e-8,abstol=1e-8,vars =(StanODEData(),InverseGamma(3,2)))
+```
+
+```julia
+Mamba.describe(bayesian_result.chain_results)
+```
+
+```julia
+plot_chain(bayesian_result)
+```
+
+### Parameter estimation using DynamicHMC.jl backend
+
+```julia
+@time bayesian_result = dynamichmc_inference(prob, data, priors, t, [bridge(ℝ, ℝ⁺, ),bridge(ℝ, ℝ⁺, ),bridge(ℝ, ℝ⁺, )];initial=[10.0,30.0,2.5])
+```
+
+```julia
+DynamicHMC.NUTS_statistics(bayesian_result[2]),bayesian_result[3],mean(bayesian_result[1][1]),mean(bayesian_result[1][2]),mean(bayesian_result[1][3])
+```
+
+```julia
+plot(bayesian_result[1][1], label="a", xlab= "Iterations")
+```
+
+```julia
+plot(bayesian_result[1][2], label="b",xlab= "Iterations")
+```
+
+```julia
+plot(bayesian_result[1][3], label="c", xlab= "Iterations")
+```
+
+## Conclusion
+
+Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors. Its uncertainity plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainity small enough to be trusted in `(0,30)` time span.
+
+The behaviour is estimation using Stan.jl backend is as expected and it gives more accurate results as we decrease the tolerance, for 1e-8 we obtain quite accurate results as compared to higher tolerance values but lowering the tolerance leads to longer sampling time, incase of 1e-8 it took 11 hours. We also pass 500 warmup samples for proper convergence, as the plots provide evidence of non-convergence without it which observed over multiple runs.
+
+DynamicHMC.jl backend takes significantly lesser time but also gives less accurate results, it took approximately 4 minutes in case of step size `0.001` and passed initial values. The accuracy can be increased by using different initial values and step sizes.
