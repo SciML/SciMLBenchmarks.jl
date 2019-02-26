@@ -2,20 +2,18 @@
 
 [![Join the chat at https://gitter.im/JuliaDiffEq/Lobby](https://badges.gitter.im/JuliaDiffEq/Lobby.svg)](https://gitter.im/JuliaDiffEq/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-DiffEqBenchmarks.jl holds Jupyter notebooks showing the benchmarks for the
-JuliaDiffEq ecosystem.
+DiffEqBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
+for the JuliaDiffEq ecosystem.
 
-## Viewing the Notebooks Locally
+## Interactive Notebooks
 
-To view the notebooks locally and interact with the contents, use the following
-commands (requires [IJulia](https://github.com/JuliaLang/IJulia.jl)):
+To run the tutorials interactively via Jupyter notebooks and benchmark on your
+own machine, install the package and open the tutorials like:
 
 ```julia
-using Pkg
-#Pkg.add("IJulia") # Need to do this the first time to install IJulia!
-pkg"add https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
-using IJulia, DiffEqBenchmarks
-notebook(dir = joinpath(dirname(pathof(DiffEqBenchmarks)),".."))
+]add "https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
+using DiffEqBenchmarks
+DiffEqBenchmarks.open_notebooks()
 ```
 
 ## Table of Contents
@@ -175,3 +173,25 @@ over the set of tested equations and some specific examples may differ.
   time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
   priors and number of iterations being passed.
+
+## Contributing
+
+All of the files are generated from the Weave.jl files in the `benchmarks` folder. To run the generation process, do for example:
+
+```julia
+using DiffEqBenchmarks
+DiffEqBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
+```
+
+To generate all of the notebooks, do:
+
+```julia
+DiffEqBenchmarks.weave_all()
+```
+
+Each of the benchmarks displays the computer characteristics at the bottom of
+the benchmark. Since performance-necessary computations are normally performed on
+compute clusters, the official benchmarks use a workstation with an
+Intel Xeon CPU E5-2680 v4 @ 2.40GHz to match the performance characteristics of
+a standard node in a high performance computing (HPC) cluster or cloud computing
+setup.

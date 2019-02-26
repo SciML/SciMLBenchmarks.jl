@@ -76,4 +76,10 @@ function bench_footer(folder,file)
   DiffEqBenchmarks.Pkg.status()
 end
 
+function open_notebooks()
+  Base.eval(Main, Meta.parse("import IJulia"))
+  path = joinpath(repo_directory,"notebook")
+  IJulia.notebook(;dir=path)
+end
+
 end
