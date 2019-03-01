@@ -36,7 +36,7 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf,:notebook))
     println("Building Notebook")
     dir = joinpath(repo_directory,"notebook",folder)
     isdir(dir) || mkdir(dir)
-    Weave.notebook(tmp,dir)
+    Weave.convert_doc(tmp,joinpath(dir,file[1:end-4]*".ipynb"))
   end
 end
 
@@ -57,23 +57,44 @@ function weave_folder(folder)
   end
 end
 
-function bench_footer(folder,file)
-  println("""
-  These benchmarks are part of the DiffEqBenchmarks.jl repository, found at:
+function tutorial_footer(folder=nothing, file=nothing)
+    display("text/markdown", """
+    ## Appendix
 
-  https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl
+     These benchmarks are part of the DiffEqBenchmarks.jl repository, found at: <https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl>
+    """)
+    if folder !== nothing && file !== nothing
+        display("text/markdown", """
+        To locally run this tutorial, do the following commands:
+        ```
+        using DiffEqBenchmarks
+        DiffEqBenchmarks.weave_file("$folder","$file")
+        ```
+        """)
+    end
+    display("text/markdown", "Computer Information:")
+    vinfo = sprint(InteractiveUtils.versioninfo)
+    display("text/markdown",  """
+    ```
+    $(vinfo)
+    ```
+    """)
 
-  To locally run this benchmark, do the following commands:
+    ctx = Pkg.API.Context()
+    pkgs = Pkg.Display.status(Pkg.API.Context(), use_as_api=true);
 
-  using DiffEqBenchmarks
-  DiffEqBenchmarks.weave_file("$folder","$file")
+    display("text/markdown", """
+    Package Information:
+    """)
 
-  """)
-  println("Computer Information:\n")
-  Main.versioninfo()
-  println()
-  println("Package Information:\n")
-  DiffEqBenchmarks.Pkg.status()
+    md = ""
+    md *= "```\nStatus `$(ctx.env.project_file)`\n"
+
+    for pkg in pkgs
+        md *= "[$(pkg.uuid)] $(pkg.name) $(pkg.old.ver)\n"
+    end
+    md *= "```"
+    display("text/markdown", md)
 end
 
 function open_notebooks()
