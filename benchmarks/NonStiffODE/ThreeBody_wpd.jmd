@@ -4,12 +4,13 @@ author: Chris Rackauckas
 ---
 
 ```julia
-using DifferentialEquations, ODE, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEq, ODE, ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools
 
 ## Define the ThreeBody Problem
 const threebody_μ = parse(Float64,"0.012277471"); const threebody_μ′ = 1 - threebody_μ
 
 f = (du,u,p,t) -> begin
+  @inbounds begin
   # 1 = y₁
   # 2 = y₂
   # 3 = y₁'
@@ -20,6 +21,7 @@ f = (du,u,p,t) -> begin
   du[2] = u[4]
   du[3] = u[1] + 2u[4] - threebody_μ′*(u[1]+threebody_μ)/D₁ - threebody_μ*(u[1]-threebody_μ′)/D₂
   du[4] = u[2] - 2u[3] - threebody_μ′*u[2]/D₁ - threebody_μ*u[2]/D₂
+  end
 end
 
 
@@ -38,7 +40,7 @@ using Plots; gr()
 See that it's periodic in the chosen timespan:
 
 ```julia
-sol = solve(prob,abstol=1e-14,reltol=1e-14)
+sol = solve(prob,Vern9(),abstol=1e-14,reltol=1e-14)
 @show sol[1] - sol[end]
 @show sol[end] - prob.u0;
 ```
@@ -161,3 +163,8 @@ Again, on cheap function calculations the Adams methods are shown to not be effi
 ### Conclusion
 
 As in the other tests, the OrdinaryDiffEq.jl algorithms with the Verner Efficient methods are the most efficient solvers at stringent tolerances for most of the tests, while the order 5 methods do well at cruder tolerances. ODE.jl fails to run the test problems without erroring.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

@@ -10,7 +10,7 @@ This notebook is to document benchmarks between the Runge-Kutta solvers implemen
 First, let's define our problems:
 
 ```julia
-using DifferentialEquations, ODE, ODEInterfaceDiffEq
+using OrdinaryDiffEq, ODE, ODEInterfaceDiffEq, DiffEqDevTools
 tspan = (0.0,1.0)
 # Linear ODE
 f = (u,p,t) -> (1.01*u)
@@ -19,7 +19,7 @@ probnum = ODEProblem(f,1/2,tspan)
 
 # 2D Linear ODE
 f = (du,u,p,t) -> begin
-  for i in 1:length(u)
+  @inbounds for i in eachindex(u)
     du[i] = 1.01*u[i]
   end
 end
@@ -48,7 +48,7 @@ shoot = Shootout(probnum,setups;dt=1/2^(6),names=names);
 
 Here, we define:
 
-$$ Efficiency = \frac{1}{Error \times Time} $$
+$$\text{Efficiency} = \frac{1}{\text{Error} \times \text{Time}}$$
 
 Thus if an algorithm results in less error or faster runtimes, it's calculated as more efficient. These results show that DifferentialEquations' `:RK4` is 100x as efficient as ODE.jl's `:ode4`. We can get more information by printing the results:
 
@@ -99,3 +99,8 @@ In this case, `DP5` is about 2x times as fast as the other algorithms and still 
 ### Conclusions
 
 As you can see, a lot of time has been spent on OrdinaryDiffEq.jl's non-stiff solvers are not only feature-filled, but also very efficient. ODEs in one variable are special-cased in OrdinaryDiffEq.jl's algorithms to give maximal efficiency. All of the methods can work on arbitrary-sized arrays, and the methods are fully devectorized and utilize caching to have nearly zero allocations during the core loop. Tweaks on stepsize stabilization methods are also included, resulting in an even more efficient stepsize method. Thus even in the odd cases (non-adaptive algorithms, scalar ODEs, etc.) the OrdinaryDiffEq.jl algorithms are much faster than the ODE.jl and classic Fortran algorithms.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

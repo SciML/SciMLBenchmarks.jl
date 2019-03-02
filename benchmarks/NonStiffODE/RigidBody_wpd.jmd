@@ -4,14 +4,15 @@ author: Chris Rackauckas
 ---
 
 ```julia
-using DifferentialEquations, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEq, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA,
+      Sundials, DiffEqDevTools
 
-f(t) = 0.25*sin(t)^2
+k(t) = 0.25*sin(t)^2
 
 g = @ode_def RigidBody begin
   dy1  = I₁*y2*y3
   dy2  = I₂*y1*y3
-  dy3  = I₃*y1*y2 + f(t)
+  dy3  = I₃*y1*y2 + k(t)
 end I₁ I₂ I₃
 
 p = [-2.0,1.25,-0.5]
@@ -25,7 +26,6 @@ using Plots; gr()
 ```
 
 ```julia
-sol = solve(prob,Vern7())
 plot(sol)
 ```
 
@@ -36,7 +36,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=true,numruns=1000,maxiters=10000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=true,numruns=100,maxiters=10000)
 plot(wp)
 ```
 
@@ -52,7 +52,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>dop853())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
@@ -65,10 +65,15 @@ setups = [Dict(:alg=>Vern7())
           Dict(:alg=>ddeabm())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
 ### Conclusion
 
 Once again, the OrdinaryDiffEq.jl pull far ahead in terms of speed and accuracy.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

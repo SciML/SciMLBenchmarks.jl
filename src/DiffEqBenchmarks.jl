@@ -1,6 +1,6 @@
 module DiffEqBenchmarks
 
-using Weave, Pkg, IJulia
+using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
 repo_directory = joinpath(@__DIR__,"..")
 
@@ -57,44 +57,49 @@ function weave_folder(folder)
   end
 end
 
-function tutorial_footer(folder=nothing, file=nothing)
-    display("text/markdown", """
+function bench_footer(folder=nothing, file=nothing)
+    display(md"""
     ## Appendix
 
-     These benchmarks are part of the DiffEqBenchmarks.jl repository, found at: <https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl>
+    These benchmarks are a part of the DiffEqBenchmarks.jl repository, found at: <https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl>
     """)
     if folder !== nothing && file !== nothing
-        display("text/markdown", """
+        display(Markdown.parse("""
         To locally run this tutorial, do the following commands:
         ```
         using DiffEqBenchmarks
         DiffEqBenchmarks.weave_file("$folder","$file")
         ```
-        """)
+        """))
     end
-    display("text/markdown", "Computer Information:")
+    display(md"Computer Information:")
     vinfo = sprint(InteractiveUtils.versioninfo)
-    display("text/markdown",  """
+    display(Markdown.parse("""
     ```
     $(vinfo)
     ```
-    """)
+    """))
 
     ctx = Pkg.API.Context()
     pkgs = Pkg.Display.status(Pkg.API.Context(), use_as_api=true);
 
-    display("text/markdown", """
+    display(md"""
     Package Information:
     """)
 
-    md = ""
-    md *= "```\nStatus `$(ctx.env.project_file)`\n"
-
+    io = IOBuffer()
     for pkg in pkgs
-        md *= "[$(pkg.uuid)] $(pkg.name) $(pkg.old.ver)\n"
+        ver = pkg.new.ver === nothing ? "" : pkg.new.ver
+        println(io, "[$(pkg.uuid)] $(pkg.name) $ver")
     end
-    md *= "```"
-    display("text/markdown", md)
+    proj = String(take!(io))
+    md = """
+    ```
+    Status: `$(ctx.env.project_file)`
+    $(chomp(proj))
+    ```
+    """
+    display(Markdown.parse(md))
 end
 
 function open_notebooks()

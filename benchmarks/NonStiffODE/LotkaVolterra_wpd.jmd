@@ -8,7 +8,8 @@ author: Chris Rackauckas
 The purpose of this problem is to test the performance on easy problems. Since it's periodic, the error is naturally low, and so most of the difference will come down to startup times and, when measuring the interpolations, the algorithm choices.
 
 ```julia
-using DifferentialEquations, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEq, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA,
+      Sundials, DiffEqDevTools
 
 f = @ode_def LotkaVolterra begin
   dx = a*x - b*x*y
@@ -26,7 +27,6 @@ using Plots; gr()
 ```
 
 ```julia
-sol = solve(prob)
 plot(sol)
 ```
 
@@ -39,7 +39,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=10000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,maxiters=10000,numruns=100)
 plot(wp)
 ```
 
@@ -55,7 +55,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=1000,maxiters=10000,error_estimate=:L2,dense_errors=true)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,maxiters=10000,error_estimate=:L2,dense_errors=true,numruns=100)
 plot(wp)
 ```
 
@@ -71,7 +71,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>dop853())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,maxiters=1000,numruns=100)
 plot(wp)
 ```
 
@@ -85,7 +85,7 @@ setups = [Dict(:alg=>odex())
           Dict(:alg=>Vern6())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
           ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=1000,maxiters=1000)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,maxiters=1000,numruns=100)
 plot(wp)
 ```
 
@@ -98,7 +98,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8())
           Dict(:alg=>Vern6())
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=true,numruns=1000,maxiters=1000,error_estimate=:L2)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=true,maxiters=1000,error_estimate=:L2,numruns=100)
 plot(wp)
 ```
 
@@ -107,3 +107,8 @@ Again, the ODE.jl algorithms suffer when measuring the interpolations due to rel
 ## Conclusion
 
 The OrdinaryDiffEq.jl are quicker and still solve to a much higher accuracy, especially when the interpolations are involved. ODE.jl errors a lot.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
