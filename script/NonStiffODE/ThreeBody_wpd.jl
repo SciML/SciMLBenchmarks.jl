@@ -1,9 +1,4 @@
----
-title: Three Body Work-Precision Diagrams
-author: Chris Rackauckas
----
 
-```julia
 using OrdinaryDiffEq, ODE, ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools, Plots; gr()
 
 ## Define the ThreeBody Problem
@@ -32,29 +27,19 @@ prob = ODEProblem(f,[0.994, 0.0, 0.0, parse(Float64,"-2.001585106379082522405378
 
 test_sol = TestSolution(T,[prob.u0])
 abstols = 1.0 ./ 10.0 .^ (3:13); reltols = 1.0 ./ 10.0 .^ (0:10);
-```
 
-See that it's periodic in the chosen timespan:
 
-```julia
 sol = solve(prob,Vern9(),abstol=1e-14,reltol=1e-14)
 @show sol[1] - sol[end]
 @show sol[end] - prob.u0;
-```
 
-```julia
+
 apr = appxtrue(sol,test_sol)
 @show sol[end]
 @show apr.u[end]
 @show apr.errors
-```
-
-This three-body problem is known to be a tough problem. Let's see how the algorithms fair at standard tolerances.
-
-### 5th Order Runge-Kutta Methods
 
 
-```julia
 setups = [Dict(:alg=>DP5())
           #Dict(:alg=>ode45()) #fails
           Dict(:alg=>BS5())
@@ -62,11 +47,8 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
-```
 
-#### Full save, but no dense
 
-```julia
 setups = [Dict(:alg=>DP5(),:dense=>false)
           #Dict(:alg=>ode45()) # Fails
           Dict(:alg=>BS5(),:dense=>false)
@@ -74,11 +56,8 @@ setups = [Dict(:alg=>DP5(),:dense=>false)
           Dict(:alg=>dopri5())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
-```
 
-#### Dense
 
-```julia
 setups = [Dict(:alg=>DP5())
           #Dict(:alg=>ode45()) #fails
           Dict(:alg=>BS5())
@@ -86,13 +65,8 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
-```
 
-In these tests we see that most of the algorithms are close,with `BS5` and `DP5` showing much better than `Tsit5`. `ode45` errors.
 
-### Higher Order Algorithms
-
-```julia
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern6())
           Dict(:alg=>Vern7())
@@ -103,9 +77,8 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern9())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
-```
 
-```julia
+
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern6())
           Dict(:alg=>Vern7())
@@ -116,9 +89,8 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern9())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100,verbose=false)
 plot(wp)
-```
 
-```julia
+
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern6())
           Dict(:alg=>Vern7())
@@ -129,21 +101,13 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern9())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
-```
 
-In this test we see `Vern7` and `Vern8` shine.
 
-### Other Algorithms
-
-Once again we separate ODE.jl because it fails. We also separate Sundials' `CVODE_Adams` since it fails at high tolerances.
-
-```julia
 setups = [Dict(:alg=>ode78())
           Dict(:alg=>CVODE_Adams())];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100)
-```
 
-```julia
+
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>lsoda())
           Dict(:alg=>Vern8())
@@ -153,15 +117,8 @@ setups = [Dict(:alg=>DP5())
     ];
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
-```
 
-Again, on cheap function calculations the Adams methods are shown to not be efficient once the error is sufficiently small. Also, as seen in other places, the extrapolation methods do not fare as well as the Runge-Kutta methods.
 
-### Conclusion
-
-As in the other tests, the OrdinaryDiffEq.jl algorithms with the Verner Efficient methods are the most efficient solvers at stringent tolerances for most of the tests, while the order 5 methods do well at cruder tolerances. ODE.jl fails to run the test problems without erroring.
-
-```julia{echo=false}
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+
