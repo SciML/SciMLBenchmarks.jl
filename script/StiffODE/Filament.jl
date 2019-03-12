@@ -1,35 +1,18 @@
----
-title: Filament Work-Precision Diagrams
-author: \@dextorious, Chris Rackauckas
----
 
-# Filament Benchmark
-
-In this notebook we will benchmark a real-world biological model from a paper entitled [Magnetic dipole with a flexible tail as a self-propelling microdevice](https://doi.org/10.1103/PhysRevE.85.041502). This is a system of PDEs representing a Kirchhoff model of an elastic rod, where the equations of motion are given by the Rouse approximation with free boundary conditions.
-
-## Model Implementation
-
-First we will show the full model implementation. It is not necessary to understand the full model specification in order to understand the benchmark results, but it's all contained here for completeness. The model is highly optimized, with all internal vectors pre-cached, loops unrolled for efficiency (along with `@simd` annotations), a pre-defined Jacobian, matrix multiplications are all in-place, etc. Thus this model is a good stand-in for other optimized PDE solving cases.
-
-The model is thus defined as follows:
-
-```julia
 using OrdinaryDiffEq, ODEInterfaceDiffEq, Sundials, DiffEqDevTools, LSODA
 using LinearAlgebra
 using Plots
 gr()
-```
 
-```julia
+
 const T = Float64
 abstract type AbstractFilamentCache end
 abstract type AbstractMagneticForce end
 abstract type AbstractInextensibilityCache end
 abstract type AbstractSolver end
 abstract type AbstractSolverCache end
-```
 
-```julia
+
 struct FerromagneticContinuous <: AbstractMagneticForce
     ω :: T
     F :: Vector{T}
@@ -51,9 +34,8 @@ mutable struct FilamentCache{
     F  :: MagneticForce
     Sc :: SolverCache
 end
-```
 
-```julia
+
 struct NoHydroProjectionCache <: AbstractInextensibilityCache
     J         :: Matrix{T}
     P         :: Matrix{T}
@@ -69,18 +51,16 @@ struct NoHydroProjectionCache <: AbstractInextensibilityCache
         zeros(N, 3*(N+1))
     )
 end
-```
 
-```julia
+
 struct DiffEqSolverCache <: AbstractSolverCache
     S1 :: Vector{T}
     S2 :: Vector{T}
 
     DiffEqSolverCache(N::Integer) = new(zeros(T,3*(N+1)), zeros(T,3*(N+1)))
 end
-```
 
-```julia
+
 function FilamentCache(N=20; Cm=32, ω=200, Solver=SolverDiffEq)
     InextensibilityCache = NoHydroProjectionCache
     SolverCache = DiffEqSolverCache
@@ -93,9 +73,8 @@ function FilamentCache(N=20; Cm=32, ω=200, Solver=SolverDiffEq)
         SolverCache(N)
     )
 end
-```
 
-```julia
+
 function stiffness_matrix!(f::AbstractFilamentCache)
     N, μ, A = f.N, f.μ, f.A
     @inbounds for j in axes(A, 2), i in axes(A, 1)
@@ -131,9 +110,8 @@ function stiffness_matrix!(f::AbstractFilamentCache)
     rmul!(A, -μ^4)
     nothing
 end
-```
 
-```julia
+
 function update_separate_coordinates!(f::AbstractFilamentCache, r)
     N, x, y, z = f.N, f.x, f.y, f.z
     @inbounds for i in 1 : length(x)
@@ -159,9 +137,8 @@ function update_united_coordinates(f::AbstractFilamentCache)
     update_united_coordinates!(f, r)
     r
 end
-```
 
-```julia
+
 function initialize!(initial_conf_type::Symbol, f::AbstractFilamentCache)
     N, x, y, z = f.N, f.x, f.y, f.z
     if initial_conf_type == :StraightX
@@ -173,9 +150,8 @@ function initialize!(initial_conf_type::Symbol, f::AbstractFilamentCache)
     end
     update_united_coordinates(f)
 end
-```
 
-```julia
+
 function magnetic_force!(::FerromagneticContinuous, f::AbstractFilamentCache, t)
     # TODO: generalize this for different magnetic fields as well
     N, μ, Cm, ω, F = f.N, f.μ, f.Cm, f.F.ω, f.F.F
@@ -185,9 +161,8 @@ function magnetic_force!(::FerromagneticContinuous, f::AbstractFilamentCache, t)
     F[3*(N+1)-1] =  μ * Cm * sin(ω*t)
     nothing
 end
-```
 
-```julia
+
 struct SolverDiffEq <: AbstractSolver end
 
 function (f::FilamentCache)(dr, r, p, t)
@@ -204,9 +179,8 @@ function (f::FilamentCache)(dr, r, p, t)
     copy!(dr, S2)
     return dr
 end
-```
 
-```julia
+
 function jacobian!(f::FilamentCache)
     N, x, y, z, J = f.N, f.x, f.y, f.z, f.P.J
     @inbounds for i in 1 : N
@@ -219,9 +193,8 @@ function jacobian!(f::FilamentCache)
     end
     nothing
 end
-```
 
-```julia
+
 function projection!(f::FilamentCache)
     # implement P[:] = I - J'/(J*J')*J in an optimized way to avoid temporaries
     J, P, J_JT, J_JT_LDLT, P0 = f.P.J, f.P.P, f.P.J_JT, f.P.J_JT_LDLT, f.P.P0
@@ -232,9 +205,8 @@ function projection!(f::FilamentCache)
     subtract_from_identity!(P)
     nothing
 end
-```
 
-```julia
+
 function subtract_from_identity!(A)
     lmul!(-1, A)
     @inbounds for i in 1 : size(A,1)
@@ -242,9 +214,8 @@ function subtract_from_identity!(A)
     end
     nothing
 end
-```
 
-```julia
+
 function LDLt_inplace!(L::LinearAlgebra.LDLt{T,SymTridiagonal{T}}, A::Matrix{T}) where {T<:Real}
     n = size(A,1)
     dv, ev = L.data.dv, L.data.ev
@@ -260,13 +231,8 @@ function LDLt_inplace!(L::LinearAlgebra.LDLt{T,SymTridiagonal{T}}, A::Matrix{T})
     end
     L
 end
-```
 
-# Investigating the model
 
-Let's take a look at what results of the model look like:
-
-```julia
 function run(::SolverDiffEq; N=20, Cm=32, ω=200, time_end=1., solver=TRBDF2(autodiff=false), reltol=1e-6, abstol=1e-6)
     f = FilamentCache(N, Solver=SolverDiffEq, Cm=Cm, ω=ω)
     r0 = initialize!(:StraightX, f)
@@ -274,22 +240,12 @@ function run(::SolverDiffEq; N=20, Cm=32, ω=200, time_end=1., solver=TRBDF2(aut
     prob = ODEProblem(ODEFunction(f, jac=(J, u, p, t)->(mul!(J, f.P.P, f.A); nothing)), r0, (0., time_end))
     sol = solve(prob, solver, dense=false, reltol=reltol, abstol=abstol)
 end
-```
 
-This method runs the model with the `TRBDF2` method and the default parameters.
 
-```julia
 sol = run(SolverDiffEq())
 plot(sol,vars = (0,25))
-```
 
-The model quickly falls into a highly oscillatory mode which then dominates throughout the rest of the solution.
 
-# Work-Precision Diagrams
-
-Now let's build the problem and solve it once at high accuracy to get a reference solution:
-
-```julia
 N=20
 f = FilamentCache(N, Solver=SolverDiffEq)
 r0 = initialize!(:StraightX, f)
@@ -298,14 +254,8 @@ prob = ODEProblem(f, r0, (0., 0.01))
 
 sol = solve(prob, Vern9(), reltol=1e-14, abstol=1e-14)
 test_sol = TestSolution(sol);
-```
 
-## High Tolerance (Low Accuracy)
 
-### Endpoint Error
-
-ODEInterfaceDiffEq solvers failed to run.
-```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -342,9 +292,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
-```
 
-```julia
+
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -377,11 +326,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
-```
 
-### Timeseries Error
 
-```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -410,11 +356,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol, dense = false,
                       maxiters=Int(1e6), verbose = false, error_estimate=:l2)
 plot(wp)
-```
 
-By looking at the previous plots, we can see that `TRBDF2` is the quicker one and `lsoda` is the slower one (the colors are similar!)
 
-```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -445,11 +388,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
-```
 
-### Dense Error
 
-```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -472,9 +412,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol, dense=true,
                       maxiters=Int(1e6), verbose = false, dense_errors = true, error_estimate=:L2)
 plot(wp)
-```
 
-```julia
+
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -503,11 +442,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, dense_errors = true, error_estimate=:L2)
 plot(wp)
-```
 
-## Low Tolerance (High Accuracy)
 
-```julia
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
@@ -531,9 +467,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
-```
 
-```julia
+
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
@@ -565,13 +500,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                                     maxiters=Int(1e6), verbose = false)
 plot(wp)
-```
 
-By looking at the previous plots, we can see that `KenCarp3` is the quicker one and `lsoda` is the slower one (the colors are similar!)
 
-### Timeseries Error
-
-```julia
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
@@ -603,11 +533,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, error_estimate = :l2)
 plot(wp)
-```
 
-### Dense Error
 
-```julia
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
@@ -635,15 +562,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, dense_errors=true, error_estimate = :L2)
 plot(wp)
-```
 
-# No Jacobian Work-Precision Diagrams
 
-In the previous cases the analytical Jacobian is given and is used by the solvers. Now we will solve the same problem without the analytical Jacobian.
-
-Note that the pre-caching means that the model is not compatible with autodifferentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=false` to use DiffEqDiffTools.jl's numerical differentiation backend. We'll only benchmark the methods that did well before.
-
-```julia
 N=20
 f = FilamentCache(N, Solver=SolverDiffEq)
 r0 = initialize!(:StraightX, f)
@@ -652,11 +572,8 @@ prob = ODEProblem((t,r,dr)-> f(t,r,dr), r0, (0., 0.01))
 
 sol = solve(prob, Vern9(), reltol=1e-14, abstol=1e-14)
 test_sol = TestSolution(sol.t, sol.u);
-```
 
-## High Tolerance (Low Accuracy)
 
-```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -681,13 +598,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = true,numruns = 10)
 plot(wp)
-```
 
-It looks like `radau` fails on this problem with low accuracy if the Jacobian is not passed, so its values should be ignored since it exits early.
 
-## Low Tolerance (High Accuracy)
-
-```julia
 abstols=1 ./ 10 .^(6:12)
 reltols=1 ./ 10 .^(6:12)
 setups = [
@@ -712,13 +624,8 @@ names = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = true,numruns = 10)
 plot(wp)
-```
 
-## Conclusion
 
-Sundials' `CVODE_BDF` does the best in this test. When the Jacobian is given, the ESDIRK methods `TRBDF2` and `KenCarp3` are able to do almost as well as it until `<1e-6` error is needed. When Jacobians are not given, Sundials is the fastest without competition.
-
-```julia{echo=false}
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+

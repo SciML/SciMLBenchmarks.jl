@@ -1,9 +1,4 @@
----
-title: POLLU Work-Precision Diagrams
-author: Chris Rackauckas
----
 
-```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots, ODE, ODEInterfaceDiffEq, LSODA
 gr() # gr(fmt=:png)
 
@@ -203,25 +198,14 @@ sol = solve(prob,Rodas5(),abstol=1/10^14,reltol=1/10^14)
 test_sol = TestSolution(sol)
 abstols = 1.0 ./ 10.0 .^ (4:11)
 reltols = 1.0 ./ 10.0 .^ (1:8);
-```
 
-```julia
+
 plot(sol)
-```
 
-```julia
+
 plot(sol,tspan=(0.0,5.0))
-```
 
-## Omissions
 
-The following were omitted from the tests due to convergence failures. ODE.jl's
-adaptivity is not able to stabilize its algorithms, while
-GeometricIntegratorsDiffEq has not upgraded to Julia 1.0.
-GeometricIntegrators.jl's methods used to be either fail to converge at
-comparable dts (or on some computers errors due to type conversions).
-
-```julia
 #sol = solve(prob,ode23s()); println("Total ODE.jl steps: $(length(sol))")
 #using GeometricIntegratorsDiffEq
 #try
@@ -229,13 +213,8 @@ comparable dts (or on some computers errors due to type conversions).
 #catch e
 #    println(e)
 #end
-```
 
-## High Tolerances
 
-This is the speed when you just want the answer.
-
-```julia
 solve(prob, ddebdf())
 solve(prob, rodas())
 solve(prob, radau())
@@ -251,21 +230,18 @@ setups = [Dict(:alg=>Rosenbrock23()),
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;dense = false,verbose = false,
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Kvaerno3()),
           Dict(:alg=>CVODE_BDF()),
@@ -277,21 +253,18 @@ setups = [Dict(:alg=>Rosenbrock23()),
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;dense = false,verbose = false,
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>KenCarp5()),
           Dict(:alg=>KenCarp4()),
@@ -303,13 +276,8 @@ names = ["Rosenbrock23" "KenCarp5" "KenCarp4" "KenCarp3" "ARKODE5" "ARKODE4" "AR
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
-```
 
-### Low Tolerances
 
-This is the speed at lower tolerances, measuring what's good when accuracy is needed.
-
-```julia
 abstols = 1.0 ./ 10.0 .^ (7:13)
 reltols = 1.0 ./ 10.0 .^ (4:10)
 
@@ -324,21 +292,18 @@ setups = [Dict(:alg=>GRK4A()),
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 setups = [
           Dict(:alg=>Rodas5()),
           Dict(:alg=>Kvaerno4()),
@@ -351,23 +316,18 @@ setups = [
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
 plot(wp)
-```
 
-```julia
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
-```
 
-The following algorithms were removed since they failed.
 
-```julia
 #setups = [#Dict(:alg=>Hairer4()),
           #Dict(:alg=>Hairer42()),
           #Dict(:alg=>Rodas3()),
@@ -376,13 +336,8 @@ The following algorithms were removed since they failed.
 #wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 #                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 #plot(wp)
-```
 
-### Conclusion
 
-Sundials `CVODE_BDF` the best here. `lsoda` does well at high tolerances but then grows fast when tolerances get too low. `KenCarp4` or `Rodas5` is a decent substitute when necessary.
-
-```julia{echo=false}
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+
