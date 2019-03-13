@@ -1,58 +1,4 @@
----
-title: Single Pedulum Comparison
-author: Gen Kuroki (黒木玄), Chris Rackauckas
----
 
-# Table of Contents
- <p><div class="lev1 toc-item"><a href="#Solving-single-pendulums-by-DifferentialEquations.jl" data-toc-modified-id="Solving-single-pendulums-by-DifferentialEquations.jl-1"><span class="toc-item-num">1&nbsp;&nbsp;</span>Solving single pendulums by DifferentialEquations.jl</a></div><div class="lev2 toc-item"><a href="#Tests" data-toc-modified-id="Tests-11"><span class="toc-item-num">1.1&nbsp;&nbsp;</span>Tests</a></div><div class="lev2 toc-item"><a href="#Comparison-of-symplectic-Integrators" data-toc-modified-id="Comparison-of-symplectic-Integrators-12"><span class="toc-item-num">1.2&nbsp;&nbsp;</span>Comparison of symplectic Integrators</a></div>
-
-# Solving single pendulums by DifferentialEquations.jl
-
-In this notebook, we shall solve the single pendulum equation:
-
-$$
-\ddot q = -\sin q,
-$$
-
-where $q$ means the angle.
-
-Hamiltonian:
-
-$$
-H(q,p) = \frac{1}{2}p^2 - \cos q + 1.
-$$
-
-Canonical equation:
-
-$$
-\dot q = p, \quad \dot p = - \sin q.
-$$
-
-Initial condition:
-
-$$
-q(0) = 0, \quad p(0) = 2k.
-$$
-
-Exact solution:
-
-$$
-q(t) = 2\arcsin(k\,\mathrm{sn}(t,k)).
-$$
-
-Maximum of $q(t)$:
-
-$$
-\sin(q_{\max}/2) = k, \quad q_{\max} = \max\{q(t)\}.
-$$
-
-Define $y(t)$ by
-
-$$
-y(t) = \sin(q(t)/2) = k\,\mathrm{sn}(t,k), \quad y_{\max} = k.
-$$
-
-```julia
 # Single pendulums shall be solved numerically.
 #
 using OrdinaryDiffEq, Elliptic, Printf, DiffEqPhysics, Statistics
@@ -193,24 +139,16 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
 
     tight_layout()
 end
-```
 
-## Tests
 
-http://docs.juliadiffeq.org/latest/types/dynamical_types.html#Hamiltonian-Problems-1
-
-http://docs.juliadiffeq.org/latest/solvers/dynamical_solve.html
-
-```julia
 # Single pendulum
 
 k = rand()
 integrator = VelocityVerlet()
 Δt = 0.1
 singlependulum(k, integrator, Δt, t0=-20.0, t1=20.0)
-```
 
-```julia
+
 # Two single pendulums
 
 H(q,p,param) = sum(p.^2/2 .- cos.(q) .+ 1)
@@ -225,13 +163,8 @@ integrator = VelocityVerlet()
 
 sleep(0.1)
 plotsolenergy(H, integrator, Δt, sol)
-```
 
-## Comparison of symplectic Integrators
 
-http://docs.juliadiffeq.org/latest/solvers/dynamical_solve.html#Symplectic-Integrators-1
-
-```julia
 SymplecticIntegrators = [
     SymplecticEuler(),
     VelocityVerlet(),
@@ -257,27 +190,23 @@ k = 0.999
 for integrator in SymplecticIntegrators
     singlependulum(k, integrator, Δt)
 end
-```
 
-```julia
+
 k = 0.999
 Δt = 0.01
 for integrator in SymplecticIntegrators[1:4]
     singlependulum(k, integrator, Δt)
 end
-```
 
-```julia
+
 k = 0.999
 Δt = 0.001
 singlependulum(k, SymplecticEuler(), Δt)
-```
 
-```julia
+
 k = 0.999
 Δt = 0.0001
 singlependulum(k, SymplecticEuler(), Δt)
-```
 
-```julia
-```
+
+
