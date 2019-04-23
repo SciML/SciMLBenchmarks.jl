@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<HTML lang = "en">
+<HEAD>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>FitzHugh-Nagumo Parameter Estimation Benchmarks</title>
+  
+
+  <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]},
+      TeX: { equationNumbers: { autoNumber: "AMS" } }
+    });
+  </script>
+
+  <script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+
+  <style type="text/css">
+  @font-face {
+  font-style: normal;
+  font-weight: 300;
+}
+@font-face {
+  font-style: normal;
+  font-weight: 400;
+}
+@font-face {
+  font-style: normal;
+  font-weight: 600;
+}
+html {
+  font-family: sans-serif; /* 1 */
+  -ms-text-size-adjust: 100%; /* 2 */
+  -webkit-text-size-adjust: 100%; /* 2 */
+}
+body {
+  margin: 0;
+}
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+main,
+menu,
+nav,
+section,
+summary {
+  display: block;
+}
+audio,
+canvas,
+progress,
+video {
+  display: inline-block; /* 1 */
+  vertical-align: baseline; /* 2 */
+}
+audio:not([controls]) {
+  display: none;
+  height: 0;
+}
+[hidden],
+template {
+  display: none;
+}
+a:active,
+a:hover {
+  outline: 0;
+}
+abbr[title] {
+  border-bottom: 1px dotted;
+}
+b,
+strong {
+  font-weight: bold;
+}
+dfn {
+  font-style: italic;
+}
+h1 {
+  font-size: 2em;
+  margin: 0.67em 0;
+}
+mark {
+  background: #ff0;
+  color: #000;
+}
+small {
+  font-size: 80%;
+}
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+sup {
+  top: -0.5em;
+}
+sub {
+  bottom: -0.25em;
+}
+img {
+  border: 0;
+}
+svg:not(:root) {
+  overflow: hidden;
+}
+figure {
+  margin: 1em 40px;
+}
+hr {
+  -moz-box-sizing: content-box;
+  box-sizing: content-box;
+  height: 0;
+}
+pre {
+  overflow: auto;
+}
+code,
+kbd,
+pre,
+samp {
+  font-family: monospace, monospace;
+  font-size: 1em;
+}
+button,
+input,
+optgroup,
+select,
+textarea {
+  color: inherit; /* 1 */
+  font: inherit; /* 2 */
+  margin: 0; /* 3 */
+}
+button {
+  overflow: visible;
+}
+button,
+select {
+  text-transform: none;
+}
+button,
+html input[type="button"], /* 1 */
+input[type="reset"],
+input[type="submit"] {
+  -webkit-appearance: button; /* 2 */
+  cursor: pointer; /* 3 */
+}
+button[disabled],
+html input[disabled] {
+  cursor: default;
+}
+button::-moz-focus-inner,
+input::-moz-focus-inner {
+  border: 0;
+  padding: 0;
+}
+input {
+  line-height: normal;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  box-sizing: border-box; /* 1 */
+  padding: 0; /* 2 */
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  height: auto;
+}
+input[type="search"] {
+  -webkit-appearance: textfield; /* 1 */
+  -moz-box-sizing: content-box;
+  -webkit-box-sizing: content-box; /* 2 */
+  box-sizing: content-box;
+}
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+fieldset {
+  border: 1px solid #c0c0c0;
+  margin: 0 2px;
+  padding: 0.35em 0.625em 0.75em;
+}
+legend {
+  border: 0; /* 1 */
+  padding: 0; /* 2 */
+}
+textarea {
+  overflow: auto;
+}
+optgroup {
+  font-weight: bold;
+}
+table {
+  font-family: monospace, monospace;
+  font-size : 0.8em;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+td,
+th {
+  padding: 0;
+}
+thead th {
+    border-bottom: 1px solid black;
+    background-color: white;
+}
+tr:nth-child(odd){
+  background-color: rgb(248,248,248);
+}
+
+
+/*
+* Skeleton V2.0.4
+* Copyright 2014, Dave Gamache
+* www.getskeleton.com
+* Free to use under the MIT license.
+* http://www.opensource.org/licenses/mit-license.php
+* 12/29/2014
+*/
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+  box-sizing: border-box; }
+.column,
+.columns {
+  width: 100%;
+  float: left;
+  box-sizing: border-box; }
+@media (min-width: 400px) {
+  .container {
+    width: 85%;
+    padding: 0; }
+}
+@media (min-width: 550px) {
+  .container {
+    width: 80%; }
+  .column,
+  .columns {
+    margin-left: 4%; }
+  .column:first-child,
+  .columns:first-child {
+    margin-left: 0; }
+
+  .one.column,
+  .one.columns                    { width: 4.66666666667%; }
+  .two.columns                    { width: 13.3333333333%; }
+  .three.columns                  { width: 22%;            }
+  .four.columns                   { width: 30.6666666667%; }
+  .five.columns                   { width: 39.3333333333%; }
+  .six.columns                    { width: 48%;            }
+  .seven.columns                  { width: 56.6666666667%; }
+  .eight.columns                  { width: 65.3333333333%; }
+  .nine.columns                   { width: 74.0%;          }
+  .ten.columns                    { width: 82.6666666667%; }
+  .eleven.columns                 { width: 91.3333333333%; }
+  .twelve.columns                 { width: 100%; margin-left: 0; }
+
+  .one-third.column               { width: 30.6666666667%; }
+  .two-thirds.column              { width: 65.3333333333%; }
+
+  .one-half.column                { width: 48%; }
+
+  /* Offsets */
+  .offset-by-one.column,
+  .offset-by-one.columns          { margin-left: 8.66666666667%; }
+  .offset-by-two.column,
+  .offset-by-two.columns          { margin-left: 17.3333333333%; }
+  .offset-by-three.column,
+  .offset-by-three.columns        { margin-left: 26%;            }
+  .offset-by-four.column,
+  .offset-by-four.columns         { margin-left: 34.6666666667%; }
+  .offset-by-five.column,
+  .offset-by-five.columns         { margin-left: 43.3333333333%; }
+  .offset-by-six.column,
+  .offset-by-six.columns          { margin-left: 52%;            }
+  .offset-by-seven.column,
+  .offset-by-seven.columns        { margin-left: 60.6666666667%; }
+  .offset-by-eight.column,
+  .offset-by-eight.columns        { margin-left: 69.3333333333%; }
+  .offset-by-nine.column,
+  .offset-by-nine.columns         { margin-left: 78.0%;          }
+  .offset-by-ten.column,
+  .offset-by-ten.columns          { margin-left: 86.6666666667%; }
+  .offset-by-eleven.column,
+  .offset-by-eleven.columns       { margin-left: 95.3333333333%; }
+
+  .offset-by-one-third.column,
+  .offset-by-one-third.columns    { margin-left: 34.6666666667%; }
+  .offset-by-two-thirds.column,
+  .offset-by-two-thirds.columns   { margin-left: 69.3333333333%; }
+
+  .offset-by-one-half.column,
+  .offset-by-one-half.columns     { margin-left: 52%; }
+
+}
+html {
+  font-size: 62.5%; }
+body {
+  font-size: 1.5em; /* currently ems cause chrome bug misinterpreting rems on body element */
+  line-height: 1.6;
+  font-weight: 400;
+  font-family: "Raleway", "HelveticaNeue", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #222; }
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  margin-bottom: 2rem;
+  font-weight: 300; }
+h1 { font-size: 3.6rem; line-height: 1.2;  letter-spacing: -.1rem;}
+h2 { font-size: 3.4rem; line-height: 1.25; letter-spacing: -.1rem; }
+h3 { font-size: 3.2rem; line-height: 1.3;  letter-spacing: -.1rem; }
+h4 { font-size: 2.8rem; line-height: 1.35; letter-spacing: -.08rem; }
+h5 { font-size: 2.4rem; line-height: 1.5;  letter-spacing: -.05rem; }
+h6 { font-size: 1.5rem; line-height: 1.6;  letter-spacing: 0; }
+
+p {
+  margin-top: 0; }
+a {
+  color: #1EAEDB; }
+a:hover {
+  color: #0FA0CE; }
+.button,
+button,
+input[type="submit"],
+input[type="reset"],
+input[type="button"] {
+  display: inline-block;
+  height: 38px;
+  padding: 0 30px;
+  color: #555;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 38px;
+  letter-spacing: .1rem;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  background-color: transparent;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  cursor: pointer;
+  box-sizing: border-box; }
+.button:hover,
+button:hover,
+input[type="submit"]:hover,
+input[type="reset"]:hover,
+input[type="button"]:hover,
+.button:focus,
+button:focus,
+input[type="submit"]:focus,
+input[type="reset"]:focus,
+input[type="button"]:focus {
+  color: #333;
+  border-color: #888;
+  outline: 0; }
+.button.button-primary,
+button.button-primary,
+input[type="submit"].button-primary,
+input[type="reset"].button-primary,
+input[type="button"].button-primary {
+  color: #FFF;
+  background-color: #33C3F0;
+  border-color: #33C3F0; }
+.button.button-primary:hover,
+button.button-primary:hover,
+input[type="submit"].button-primary:hover,
+input[type="reset"].button-primary:hover,
+input[type="button"].button-primary:hover,
+.button.button-primary:focus,
+button.button-primary:focus,
+input[type="submit"].button-primary:focus,
+input[type="reset"].button-primary:focus,
+input[type="button"].button-primary:focus {
+  color: #FFF;
+  background-color: #1EAEDB;
+  border-color: #1EAEDB; }
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="text"],
+input[type="tel"],
+input[type="url"],
+input[type="password"],
+textarea,
+select {
+  height: 38px;
+  padding: 6px 10px; /* The 6px vertically centers text on FF, ignored by Webkit */
+  background-color: #fff;
+  border: 1px solid #D1D1D1;
+  border-radius: 4px;
+  box-shadow: none;
+  box-sizing: border-box; }
+/* Removes awkward default styles on some inputs for iOS */
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="text"],
+input[type="tel"],
+input[type="url"],
+input[type="password"],
+textarea {
+  -webkit-appearance: none;
+     -moz-appearance: none;
+          appearance: none; }
+textarea {
+  min-height: 65px;
+  padding-top: 6px;
+  padding-bottom: 6px; }
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="text"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+  border: 1px solid #33C3F0;
+  outline: 0; }
+label,
+legend {
+  display: block;
+  margin-bottom: .5rem;
+  font-weight: 600; }
+fieldset {
+  padding: 0;
+  border-width: 0; }
+input[type="checkbox"],
+input[type="radio"] {
+  display: inline; }
+label > .label-body {
+  display: inline-block;
+  margin-left: .5rem;
+  font-weight: normal; }
+ul {
+  list-style: circle; }
+ol {
+  list-style: decimal; }
+ul ul,
+ul ol,
+ol ol,
+ol ul {
+  margin: 1.5rem 0 1.5rem 3rem;
+  font-size: 90%; }
+li {
+  margin-bottom: 1rem; }
+th,
+td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid #E1E1E1; }
+th:first-child,
+td:first-child {
+  padding-left: 0; }
+th:last-child,
+td:last-child {
+  padding-right: 0; }
+button,
+.button {
+  margin-bottom: 1rem; }
+input,
+textarea,
+select,
+fieldset {
+  margin-bottom: 1.5rem; }
+pre,
+blockquote,
+dl,
+figure,
+table,
+p,
+ul,
+ol,
+form {
+  margin-bottom: 2.5rem; }
+.u-full-width {
+  width: 100%;
+  box-sizing: border-box; }
+.u-max-full-width {
+  max-width: 100%;
+  box-sizing: border-box; }
+.u-pull-right {
+  float: right; }
+.u-pull-left {
+  float: left; }
+hr {
+  margin-top: 3rem;
+  margin-bottom: 3.5rem;
+  border-width: 0;
+  border-top: 1px solid #E1E1E1; }
+.container:after,
+.row:after,
+.u-cf {
+  content: "";
+  display: table;
+  clear: both; }
+
+pre {
+  display: block;
+  padding: 9.5px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.42857143;
+  color: #333;
+  word-break: break-all;
+  word-wrap: break-word;
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+pre.sourceCode.julia {
+  display: block;
+  padding: 9.5px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.42857143;
+  color: #333;
+  word-break: break-all;
+  word-wrap: break-word;
+  background-color: #f5f5f5;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+pre.output {
+  filter : brightness(90%);
+  border : none;
+  /* matching hard-coded values in Highlights.jl */
+  margin : 5px;  
+  padding : 5px;
+}
+
+pre.julia-error {
+  color : red
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+code {
+  padding: 2px 4px;
+  font-size: 90%;
+
+  background-color: #ffffff;
+  border-radius: 4px;
+}
+
+@media (min-width: 400px) {}
+@media (min-width: 550px) {}
+@media (min-width: 750px) {}
+@media (min-width: 1000px) {}
+@media (min-width: 1200px) {}
+
+h1.title {margin-top : 20px}
+img {max-width : 100%}
+div.title {text-align: center;}
+
+  </style>
+
+  
+<style>
+pre.hljl {
+    border: 1px solid #ccc;
+    margin: 5px;
+    padding: 5px;
+    overflow-x: auto;
+    color: rgb(68,68,68); background-color: rgb(251,251,251); }
+pre.hljl > span.hljl-t { }
+pre.hljl > span.hljl-w { }
+pre.hljl > span.hljl-e { }
+pre.hljl > span.hljl-eB { }
+pre.hljl > span.hljl-o { }
+pre.hljl > span.hljl-k { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kc { color: rgb(59,151,46); font-style: italic; }
+pre.hljl > span.hljl-kd { color: rgb(214,102,97); font-style: italic; }
+pre.hljl > span.hljl-kn { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kp { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kr { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-kt { color: rgb(148,91,176); font-weight: bold; }
+pre.hljl > span.hljl-n { }
+pre.hljl > span.hljl-na { }
+pre.hljl > span.hljl-nb { }
+pre.hljl > span.hljl-nbp { }
+pre.hljl > span.hljl-nc { }
+pre.hljl > span.hljl-ncB { }
+pre.hljl > span.hljl-nd { color: rgb(214,102,97); }
+pre.hljl > span.hljl-ne { }
+pre.hljl > span.hljl-neB { }
+pre.hljl > span.hljl-nf { color: rgb(66,102,213); }
+pre.hljl > span.hljl-nfm { color: rgb(66,102,213); }
+pre.hljl > span.hljl-np { }
+pre.hljl > span.hljl-nl { }
+pre.hljl > span.hljl-nn { }
+pre.hljl > span.hljl-no { }
+pre.hljl > span.hljl-nt { }
+pre.hljl > span.hljl-nv { }
+pre.hljl > span.hljl-nvc { }
+pre.hljl > span.hljl-nvg { }
+pre.hljl > span.hljl-nvi { }
+pre.hljl > span.hljl-nvm { }
+pre.hljl > span.hljl-l { }
+pre.hljl > span.hljl-ld { color: rgb(148,91,176); font-style: italic; }
+pre.hljl > span.hljl-s { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sa { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sb { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sc { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sd { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sdB { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sdC { color: rgb(201,61,57); }
+pre.hljl > span.hljl-se { color: rgb(59,151,46); }
+pre.hljl > span.hljl-sh { color: rgb(201,61,57); }
+pre.hljl > span.hljl-si { }
+pre.hljl > span.hljl-so { color: rgb(201,61,57); }
+pre.hljl > span.hljl-sr { color: rgb(201,61,57); }
+pre.hljl > span.hljl-ss { color: rgb(201,61,57); }
+pre.hljl > span.hljl-ssB { color: rgb(201,61,57); }
+pre.hljl > span.hljl-nB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nbB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nfB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nh { color: rgb(59,151,46); }
+pre.hljl > span.hljl-ni { color: rgb(59,151,46); }
+pre.hljl > span.hljl-nil { color: rgb(59,151,46); }
+pre.hljl > span.hljl-noB { color: rgb(59,151,46); }
+pre.hljl > span.hljl-oB { color: rgb(102,102,102); font-weight: bold; }
+pre.hljl > span.hljl-ow { color: rgb(102,102,102); font-weight: bold; }
+pre.hljl > span.hljl-p { }
+pre.hljl > span.hljl-c { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-ch { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cm { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cp { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cpB { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-cs { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-csB { color: rgb(153,153,119); font-style: italic; }
+pre.hljl > span.hljl-g { }
+pre.hljl > span.hljl-gd { }
+pre.hljl > span.hljl-ge { }
+pre.hljl > span.hljl-geB { }
+pre.hljl > span.hljl-gh { }
+pre.hljl > span.hljl-gi { }
+pre.hljl > span.hljl-go { }
+pre.hljl > span.hljl-gp { }
+pre.hljl > span.hljl-gs { }
+pre.hljl > span.hljl-gsB { }
+pre.hljl > span.hljl-gt { }
+</style>
+
+
+
+</HEAD>
+  <BODY>
+    <div class ="container">
+      <div class = "row">
+        <div class = "col-md-12 twelve columns">
+
+          <div class="title">
+            <h1 class="title">FitzHugh-Nagumo Parameter Estimation Benchmarks</h1>
+            <h5>Vaibhav Dixit, Chris Rackauckas</h5>
+            
+          </div>
+
+          <h1>Parameter estimation of FitzHugh-Nagumo model using optimisation methods</h1>
+
+
+<pre class='hljl'>
+<span class='hljl-k'>using</span><span class='hljl-t'> </span><span class='hljl-n'>ParameterizedFunctions</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>OrdinaryDiffEq</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>DiffEqParamEstim</span><span class='hljl-t'>
+</span><span class='hljl-k'>using</span><span class='hljl-t'> </span><span class='hljl-n'>BlackBoxOptim</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>Plots</span><span class='hljl-p'>,</span><span class='hljl-n'>QuadDIRECT</span><span class='hljl-t'>
+</span><span class='hljl-nf'>gr</span><span class='hljl-p'>(</span><span class='hljl-n'>fmt</span><span class='hljl-oB'>=:</span><span class='hljl-n'>png</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Plots.GRBackend&#40;&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>loc_bounds</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Tuple</span><span class='hljl-p'>{</span><span class='hljl-n'>Float64</span><span class='hljl-p'>,</span><span class='hljl-n'>Float64</span><span class='hljl-p'>}[(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>1</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>1</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>1</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>1</span><span class='hljl-p'>)]</span><span class='hljl-t'>
+</span><span class='hljl-n'>glo_bounds</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Tuple</span><span class='hljl-p'>{</span><span class='hljl-n'>Float64</span><span class='hljl-p'>,</span><span class='hljl-n'>Float64</span><span class='hljl-p'>}[(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>5</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>5</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>5</span><span class='hljl-p'>),</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>5</span><span class='hljl-p'>)]</span><span class='hljl-t'>
+</span><span class='hljl-n'>loc_init</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>glo_init</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nfB'>2.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>2.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>2.5</span><span class='hljl-p'>,</span><span class='hljl-nfB'>2.5</span><span class='hljl-p'>]</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>fitz</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nd'>@ode_def</span><span class='hljl-t'> </span><span class='hljl-n'>FitzhughNagumo</span><span class='hljl-t'> </span><span class='hljl-k'>begin</span><span class='hljl-t'>
+  </span><span class='hljl-n'>dv</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>v</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-t'> </span><span class='hljl-n'>v</span><span class='hljl-oB'>^</span><span class='hljl-ni'>3</span><span class='hljl-oB'>/</span><span class='hljl-ni'>3</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-n'>w</span><span class='hljl-t'> </span><span class='hljl-oB'>+</span><span class='hljl-t'> </span><span class='hljl-n'>l</span><span class='hljl-t'>
+  </span><span class='hljl-n'>dw</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>τinv</span><span class='hljl-oB'>*</span><span class='hljl-p'>(</span><span class='hljl-n'>v</span><span class='hljl-t'> </span><span class='hljl-oB'>+</span><span class='hljl-t'>  </span><span class='hljl-n'>a</span><span class='hljl-t'> </span><span class='hljl-oB'>-</span><span class='hljl-t'> </span><span class='hljl-n'>b</span><span class='hljl-oB'>*</span><span class='hljl-n'>w</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-k'>end</span><span class='hljl-t'> </span><span class='hljl-n'>a</span><span class='hljl-t'> </span><span class='hljl-n'>b</span><span class='hljl-t'> </span><span class='hljl-n'>τinv</span><span class='hljl-t'> </span><span class='hljl-n'>l</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>p</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.8</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.08</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>]</span><span class='hljl-t'>              </span><span class='hljl-cs'># Parameters used to construct the dataset</span><span class='hljl-t'>
+</span><span class='hljl-n'>r0</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>;</span><span class='hljl-t'> </span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>]</span><span class='hljl-t'>                     </span><span class='hljl-cs'># initial value</span><span class='hljl-t'>
+</span><span class='hljl-n'>tspan</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-nfB'>30.0</span><span class='hljl-p'>)</span><span class='hljl-t'>                 </span><span class='hljl-cs'># sample of 3000 observations over the (0,30) timespan</span><span class='hljl-t'>
+</span><span class='hljl-n'>prob</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>ODEProblem</span><span class='hljl-p'>(</span><span class='hljl-n'>fitz</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>r0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>tspan</span><span class='hljl-p'>,</span><span class='hljl-n'>p</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>tspan2</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-nfB'>3.0</span><span class='hljl-p'>)</span><span class='hljl-t'>                 </span><span class='hljl-cs'># sample of 300 observations with a timestep of 0.01</span><span class='hljl-t'>
+</span><span class='hljl-n'>prob_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>ODEProblem</span><span class='hljl-p'>(</span><span class='hljl-n'>fitz</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>r0</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>tspan2</span><span class='hljl-p'>,</span><span class='hljl-n'>p</span><span class='hljl-p'>)</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>dt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>30.0</span><span class='hljl-oB'>/</span><span class='hljl-ni'>3000</span><span class='hljl-t'>
+</span><span class='hljl-n'>tf</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>30.0</span><span class='hljl-t'>
+</span><span class='hljl-n'>tinterval</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-ni'>0</span><span class='hljl-oB'>:</span><span class='hljl-n'>dt</span><span class='hljl-oB'>:</span><span class='hljl-n'>tf</span><span class='hljl-t'>
+</span><span class='hljl-n'>t</span><span class='hljl-t'>  </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>collect</span><span class='hljl-p'>(</span><span class='hljl-n'>tinterval</span><span class='hljl-p'>)</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>h</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>0.01</span><span class='hljl-t'>
+</span><span class='hljl-n'>M</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-ni'>300</span><span class='hljl-t'>
+</span><span class='hljl-n'>tstart</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>0.0</span><span class='hljl-t'>
+</span><span class='hljl-n'>tstop</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>tstart</span><span class='hljl-t'> </span><span class='hljl-oB'>+</span><span class='hljl-t'> </span><span class='hljl-n'>M</span><span class='hljl-t'> </span><span class='hljl-oB'>*</span><span class='hljl-t'> </span><span class='hljl-n'>h</span><span class='hljl-t'>
+</span><span class='hljl-n'>tinterval_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-ni'>0</span><span class='hljl-oB'>:</span><span class='hljl-n'>h</span><span class='hljl-oB'>:</span><span class='hljl-n'>tstop</span><span class='hljl-t'>
+</span><span class='hljl-n'>t_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>collect</span><span class='hljl-p'>(</span><span class='hljl-n'>tinterval_short</span><span class='hljl-p'>)</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-cs'>#Generate Data</span><span class='hljl-t'>
+</span><span class='hljl-n'>data_sol_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>solve</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-n'>saveat</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>data_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>convert</span><span class='hljl-p'>(</span><span class='hljl-n'>Array</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>data_sol_short</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-cs'># This operation produces column major dataset obs as columns, equations as rows</span><span class='hljl-t'>
+</span><span class='hljl-n'>data_sol</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>solve</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-n'>saveat</span><span class='hljl-oB'>=</span><span class='hljl-n'>t</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>data</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>convert</span><span class='hljl-p'>(</span><span class='hljl-n'>Array</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>data_sol</span><span class='hljl-p'>)</span>
+</pre>
+
+
+
+<h4>Plot of the solution</h4>
+<h5>Short Solution</h5>
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>data_sol_short</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<img src="data:image/png;base64,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"  />
+
+<h5>Longer Solution</h5>
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>plot</span><span class='hljl-p'>(</span><span class='hljl-n'>data_sol</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<img src="data:image/png;base64,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"  />
+
+<h2>Local Solution from the short data set</h2>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Tsit5</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>data_short</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>res1</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>bboptimize</span><span class='hljl-p'>(</span><span class='hljl-n'>obj_short</span><span class='hljl-p'>;</span><span class='hljl-n'>SearchRange</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>glo_bounds</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>MaxSteps</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>7e3</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Starting optimization with optimizer BlackBoxOptim.DiffEvoOpt&#123;BlackBoxOptim
+.FitPopulation&#123;Float64&#125;,BlackBoxOptim.RadiusLimitedSelector,BlackBoxOptim.A
+daptiveDiffEvoRandBin&#123;3&#125;,BlackBoxOptim.RandomBound&#123;BlackBoxOptim.RangePerDi
+mSearchSpace&#125;&#125;
+0.00 secs, 0 evals, 0 steps
+0.50 secs, 1736 evals, 1648 steps, improv/step: 0.263 &#40;last &#61; 0.2633&#41;, fitn
+ess&#61;0.046172657
+1.00 secs, 3648 evals, 3560 steps, improv/step: 0.201 &#40;last &#61; 0.1464&#41;, fitn
+ess&#61;0.021984202
+1.50 secs, 5714 evals, 5626 steps, improv/step: 0.170 &#40;last &#61; 0.1171&#41;, fitn
+ess&#61;0.000380267
+
+Optimization stopped after 7001 steps and 1.836867094039917 seconds
+Termination reason: Max number of steps &#40;7000&#41; reached
+Steps per second &#61; 3811.3808139500925
+Function evals per second &#61; 3859.288471660078
+Improvements/step &#61; 0.16142857142857142
+Total function evaluations &#61; 7089
+
+
+Best candidate found: &#91;0.335025, 0.749594, 0.119288, 0.499943&#93;
+
+Fitness: 0.000057967
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-cs'># Lower tolerance could lead to smaller fitness (more accuracy)</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Tsit5</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>data_short</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>res1</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>bboptimize</span><span class='hljl-p'>(</span><span class='hljl-n'>obj_short</span><span class='hljl-p'>;</span><span class='hljl-n'>SearchRange</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>glo_bounds</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>MaxSteps</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>7e3</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Starting optimization with optimizer BlackBoxOptim.DiffEvoOpt&#123;BlackBoxOptim
+.FitPopulation&#123;Float64&#125;,BlackBoxOptim.RadiusLimitedSelector,BlackBoxOptim.A
+daptiveDiffEvoRandBin&#123;3&#125;,BlackBoxOptim.RandomBound&#123;BlackBoxOptim.RangePerDi
+mSearchSpace&#125;&#125;
+0.00 secs, 0 evals, 0 steps
+0.50 secs, 2016 evals, 1906 steps, improv/step: 0.220 &#40;last &#61; 0.2198&#41;, fitn
+ess&#61;0.096210176
+1.00 secs, 4036 evals, 3927 steps, improv/step: 0.168 &#40;last &#61; 0.1197&#41;, fitn
+ess&#61;0.024551856
+1.50 secs, 6071 evals, 5963 steps, improv/step: 0.149 &#40;last &#61; 0.1130&#41;, fitn
+ess&#61;0.000148160
+
+Optimization stopped after 7001 steps and 1.752614974975586 seconds
+Termination reason: Max number of steps &#40;7000&#41; reached
+Steps per second &#61; 3994.6024083798125
+Function evals per second &#61; 4055.0834618419262
+Improvements/step &#61; 0.14842857142857144
+Total function evaluations &#61; 7107
+
+
+Best candidate found: &#91;0.791543, 0.883046, 0.0798279, 0.500219&#93;
+
+Fitness: 0.000028308
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-cs'># Change in tolerance makes it worse</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>data_short</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>res1</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>bboptimize</span><span class='hljl-p'>(</span><span class='hljl-n'>obj_short</span><span class='hljl-p'>;</span><span class='hljl-n'>SearchRange</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>glo_bounds</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>MaxSteps</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>7e3</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Starting optimization with optimizer BlackBoxOptim.DiffEvoOpt&#123;BlackBoxOptim
+.FitPopulation&#123;Float64&#125;,BlackBoxOptim.RadiusLimitedSelector,BlackBoxOptim.A
+daptiveDiffEvoRandBin&#123;3&#125;,BlackBoxOptim.RandomBound&#123;BlackBoxOptim.RangePerDi
+mSearchSpace&#125;&#125;
+0.00 secs, 0 evals, 0 steps
+0.50 secs, 1649 evals, 1529 steps, improv/step: 0.262 &#40;last &#61; 0.2616&#41;, fitn
+ess&#61;0.096497628
+1.00 secs, 3329 evals, 3210 steps, improv/step: 0.190 &#40;last &#61; 0.1249&#41;, fitn
+ess&#61;0.003551431
+1.50 secs, 4964 evals, 4845 steps, improv/step: 0.163 &#40;last &#61; 0.1095&#41;, fitn
+ess&#61;0.000142969
+2.00 secs, 6545 evals, 6426 steps, improv/step: 0.154 &#40;last &#61; 0.1278&#41;, fitn
+ess&#61;0.000001087
+
+Optimization stopped after 7001 steps and 2.184602975845337 seconds
+Termination reason: Max number of steps &#40;7000&#41; reached
+Steps per second &#61; 3204.7013015218236
+Function evals per second &#61; 3259.1734419133527
+Improvements/step &#61; 0.15528571428571428
+Total function evaluations &#61; 7120
+
+
+Best candidate found: &#91;0.667771, 0.790215, 0.0818976, 0.500033&#93;
+
+Fitness: 0.000001087
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-cs'># using the moe accurate Vern9() reduces the fitness marginally and leads to some increase in time taken</span>
+</pre>
+
+
+
+<h2>Using NLopt</h2>
+<h4>Global Optimisation</h4>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>data_short</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span>
+</pre>
+
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ORIG_DIRECT_L</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+2.905493 seconds &#40;12.94 M allocations: 1.156 GiB, 10.02&#37; gc time&#41;
+&#40;0.11016600768053908, &#91;0.192044, 1.13169, 1.11111, 0.509578&#93;, :XTOL_REACHED
+&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_CRS2_LM</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+2.986420 seconds &#40;13.41 M allocations: 1.199 GiB, 10.24&#37; gc time&#41;
+&#40;3.172386310240739e-14, &#91;0.700002, 0.8, 0.0799999, 0.5&#93;, :MAXEVAL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ISRES</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+2.963639 seconds &#40;13.41 M allocations: 1.199 GiB, 9.97&#37; gc time&#41;
+&#40;0.014540158883062867, &#91;4.88552, 3.82717, 0.0415995, 0.508172&#93;, :MAXEVAL_RE
+ACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ESCH</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+2.970191 seconds &#40;13.41 M allocations: 1.199 GiB, 10.04&#37; gc time&#41;
+&#40;0.007721132655303023, &#91;3.07127, 2.78539, 0.065985, 0.504515&#93;, :MAXEVAL_REA
+CHED&#41;
+</pre>
+
+
+<p>Now local optimization algorithms are used to check the global ones, these use the local constraints, different intial values and time step</p>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_BOBYQA</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.720314 seconds &#40;3.18 M allocations: 290.917 MiB, 9.80&#37; gc time&#41;
+&#40;5.28611876473971e-24, &#91;0.7, 0.8, 0.08, 0.5&#93;, :SUCCESS&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_NELDERMEAD</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.296068 seconds &#40;1.24 M allocations: 113.667 MiB, 11.57&#37; gc time&#41;
+&#40;8.965505337540987e-5, &#91;1.0, 1.0, 0.0735509, 0.500405&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LD_SLSQP</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.584728 seconds &#40;2.44 M allocations: 216.328 MiB, 10.25&#37; gc time&#41;
+&#40;3.732246654524026e-14, &#91;0.699986, 0.799998, 0.080001, 0.5&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_COBYLA</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+2.998466 seconds &#40;13.41 M allocations: 1.199 GiB, 10.08&#37; gc time&#41;
+&#40;0.0007533012926827143, &#91;0.182327, 0.834403, 0.195088, 0.500362&#93;, :MAXEVAL_
+REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_NEWUOA_BOUND</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.125620 seconds &#40;311.13 k allocations: 28.479 MiB, 4.46&#37; gc time&#41;
+&#40;0.0003911847251197023, &#91;0.320842, 0.439003, 0.078888, 0.499177&#93;, :SUCCESS&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_PRAXIS</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.300467 seconds &#40;1.25 M allocations: 114.771 MiB, 9.31&#37; gc time&#41;
+&#40;4.890413512906367e-25, &#91;0.7, 0.8, 0.08, 0.5&#93;, :SUCCESS&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_SBPLX</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+3.008117 seconds &#40;13.41 M allocations: 1.199 GiB, 10.07&#37; gc time&#41;
+&#40;8.350546444056411e-15, &#91;0.700007, 0.800002, 0.0799996, 0.5&#93;, :MAXEVAL_REAC
+HED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LD_MMA</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj_short</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+26.731639 seconds &#40;120.39 M allocations: 10.780 GiB, 10.16&#37; gc time&#41;
+&#40;9.930463767834086e-5, &#91;0.231856, 0.706134, 0.130932, 0.49972&#93;, :MAXEVAL_RE
+ACHED&#41;
+</pre>
+
+
+<h3>Now the longer problem is solved for a global solution</h3>
+<p>Vern9 solver with reltol&#61;1e-9 and abstol&#61;1e-9 is used and the dataset is increased to 3000 observations per variable with the same integration time step of 0.01.</p>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t</span><span class='hljl-p'>,</span><span class='hljl-n'>data</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>res1</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>bboptimize</span><span class='hljl-p'>(</span><span class='hljl-n'>obj</span><span class='hljl-p'>;</span><span class='hljl-n'>SearchRange</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>glo_bounds</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>MaxSteps</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nfB'>4e3</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Starting optimization with optimizer BlackBoxOptim.DiffEvoOpt&#123;BlackBoxOptim
+.FitPopulation&#123;Float64&#125;,BlackBoxOptim.RadiusLimitedSelector,BlackBoxOptim.A
+daptiveDiffEvoRandBin&#123;3&#125;,BlackBoxOptim.RandomBound&#123;BlackBoxOptim.RangePerDi
+mSearchSpace&#125;&#125;
+0.00 secs, 0 evals, 0 steps
+0.51 secs, 158 evals, 94 steps, improv/step: 0.404 &#40;last &#61; 0.4043&#41;, fitness
+&#61;2375.077980855
+1.01 secs, 325 evals, 220 steps, improv/step: 0.395 &#40;last &#61; 0.3889&#41;, fitnes
+s&#61;1629.212930592
+1.51 secs, 487 evals, 376 steps, improv/step: 0.356 &#40;last &#61; 0.3013&#41;, fitnes
+s&#61;940.066811899
+2.02 secs, 651 evals, 540 steps, improv/step: 0.320 &#40;last &#61; 0.2378&#41;, fitnes
+s&#61;940.066811899
+2.52 secs, 817 evals, 706 steps, improv/step: 0.302 &#40;last &#61; 0.2410&#41;, fitnes
+s&#61;940.066811899
+3.02 secs, 985 evals, 874 steps, improv/step: 0.279 &#40;last &#61; 0.1845&#41;, fitnes
+s&#61;675.366681030
+3.52 secs, 1153 evals, 1043 steps, improv/step: 0.251 &#40;last &#61; 0.1065&#41;, fitn
+ess&#61;675.366681030
+4.02 secs, 1323 evals, 1213 steps, improv/step: 0.232 &#40;last &#61; 0.1118&#41;, fitn
+ess&#61;675.366681030
+4.52 secs, 1492 evals, 1382 steps, improv/step: 0.216 &#40;last &#61; 0.1065&#41;, fitn
+ess&#61;675.366681030
+5.02 secs, 1660 evals, 1550 steps, improv/step: 0.212 &#40;last &#61; 0.1726&#41;, fitn
+ess&#61;639.065188214
+5.52 secs, 1828 evals, 1718 steps, improv/step: 0.205 &#40;last &#61; 0.1488&#41;, fitn
+ess&#61;428.636072050
+6.02 secs, 1998 evals, 1888 steps, improv/step: 0.200 &#40;last &#61; 0.1471&#41;, fitn
+ess&#61;428.636072050
+6.53 secs, 2168 evals, 2058 steps, improv/step: 0.194 &#40;last &#61; 0.1235&#41;, fitn
+ess&#61;428.636072050
+7.03 secs, 2338 evals, 2228 steps, improv/step: 0.189 &#40;last &#61; 0.1294&#41;, fitn
+ess&#61;421.467654570
+7.53 secs, 2506 evals, 2396 steps, improv/step: 0.188 &#40;last &#61; 0.1786&#41;, fitn
+ess&#61;421.467654570
+8.03 secs, 2677 evals, 2567 steps, improv/step: 0.184 &#40;last &#61; 0.1228&#41;, fitn
+ess&#61;116.717098757
+8.54 secs, 2848 evals, 2738 steps, improv/step: 0.178 &#40;last &#61; 0.0877&#41;, fitn
+ess&#61;116.717098757
+9.04 secs, 3018 evals, 2908 steps, improv/step: 0.172 &#40;last &#61; 0.0706&#41;, fitn
+ess&#61;116.717098757
+9.55 secs, 3189 evals, 3079 steps, improv/step: 0.169 &#40;last &#61; 0.1228&#41;, fitn
+ess&#61;116.717098757
+10.06 secs, 3360 evals, 3250 steps, improv/step: 0.168 &#40;last &#61; 0.1462&#41;, fit
+ness&#61;77.559939475
+10.56 secs, 3530 evals, 3420 steps, improv/step: 0.167 &#40;last &#61; 0.1471&#41;, fit
+ness&#61;55.775174323
+11.06 secs, 3697 evals, 3587 steps, improv/step: 0.164 &#40;last &#61; 0.1078&#41;, fit
+ness&#61;55.775174323
+11.56 secs, 3866 evals, 3756 steps, improv/step: 0.162 &#40;last &#61; 0.1302&#41;, fit
+ness&#61;55.775174323
+12.06 secs, 4034 evals, 3924 steps, improv/step: 0.162 &#40;last &#61; 0.1488&#41;, fit
+ness&#61;53.093054532
+
+Optimization stopped after 4001 steps and 12.293807983398438 seconds
+Termination reason: Max number of steps &#40;4000&#41; reached
+Steps per second &#61; 325.44838876635714
+Function evals per second &#61; 334.3959825589838
+Improvements/step &#61; 0.16175
+Total function evaluations &#61; 4111
+
+
+Best candidate found: &#91;0.992043, 1.10023, 0.0962732, 0.522649&#93;
+
+Fitness: 53.093054532
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ORIG_DIRECT_L</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+24.228527 seconds &#40;98.95 M allocations: 8.149 GiB, 8.92&#37; gc time&#41;
+&#40;81.06091854762182, &#91;1.11111, 1.11111, 0.100594, 0.576132&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_CRS2_LM</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>20000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+26.060157 seconds &#40;106.15 M allocations: 8.742 GiB, 8.94&#37; gc time&#41;
+&#40;8.128198024607207e-19, &#91;0.7, 0.8, 0.08, 0.5&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ISRES</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>50000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+167.359077 seconds &#40;607.55 M allocations: 50.034 GiB, 8.80&#37; gc time&#41;
+&#40;1.0967650982601886e-13, &#91;0.7, 0.8, 0.08, 0.5&#93;, :MAXEVAL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:GN_ESCH</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>5.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>20000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>glo_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+68.752776 seconds &#40;243.02 M allocations: 20.014 GiB, 8.81&#37; gc time&#41;
+&#40;720.4749823980964, &#91;2.50782, 2.51209, 0.107538, 0.494919&#93;, :MAXEVAL_REACHE
+D&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_BOBYQA</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+1.384155 seconds &#40;4.78 M allocations: 402.706 MiB, 8.50&#37; gc time&#41;
+&#40;8.090325025142272e-19, &#91;0.7, 0.8, 0.08, 0.5&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LN_NELDERMEAD</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+1.816141 seconds &#40;6.49 M allocations: 547.189 MiB, 8.65&#37; gc time&#41;
+&#40;3160.405522281567, &#91;1.0, 1.0, 1.0, 0.865699&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>opt</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>Opt</span><span class='hljl-p'>(</span><span class='hljl-sc'>:LD_SLSQP</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>4</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>lower_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>upper_bounds!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,[</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1.0</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nf'>min_objective!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>obj</span><span class='hljl-oB'>.</span><span class='hljl-n'>cost_function2</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>xtol_rel!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-nfB'>1e-12</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nf'>maxeval!</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-ni'>10000</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-p'>(</span><span class='hljl-n'>minf</span><span class='hljl-p'>,</span><span class='hljl-n'>minx</span><span class='hljl-p'>,</span><span class='hljl-n'>ret</span><span class='hljl-p'>)</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-n'>NLopt</span><span class='hljl-oB'>.</span><span class='hljl-nf'>optimize</span><span class='hljl-p'>(</span><span class='hljl-n'>opt</span><span class='hljl-p'>,</span><span class='hljl-n'>loc_init</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.908700 seconds &#40;3.10 M allocations: 261.275 MiB, 9.01&#37; gc time&#41;
+&#40;3160.4056697694823, &#91;1.0, 1.0, 1.0, 0.865765&#93;, :XTOL_REACHED&#41;
+</pre>
+
+
+<p>As expected from other problems the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, while others seem to struggle with accuracy a lot.</p>
+<h4>Using QuadDIRECT</h4>
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj_short</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob_short</span><span class='hljl-p'>,</span><span class='hljl-nf'>Tsit5</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t_short</span><span class='hljl-p'>,</span><span class='hljl-n'>data_short</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t_short</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>lower</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>upper</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-ni'>1</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>splits</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>([</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.3</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.3</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.3</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.3</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.7</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-n'>root</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>x0</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>analyze</span><span class='hljl-p'>(</span><span class='hljl-n'>obj_short</span><span class='hljl-p'>,</span><span class='hljl-n'>splits</span><span class='hljl-p'>,</span><span class='hljl-n'>lower</span><span class='hljl-p'>,</span><span class='hljl-n'>upper</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+11.622876 seconds &#40;30.31 M allocations: 1.591 GiB, 9.57&#37; gc time&#41;
+&#40;BoxRoot@&#91;NaN, NaN, NaN, NaN&#93;, &#91;0.3, 0.3, 0.3, 0.3&#93;&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>minimum</span><span class='hljl-p'>(</span><span class='hljl-n'>root</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Box0.0006293336660765138@&#91;0.595183, 0.480868, 0.0638946, 0.500513&#93;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-n'>obj</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>build_loss_objective</span><span class='hljl-p'>(</span><span class='hljl-n'>prob</span><span class='hljl-p'>,</span><span class='hljl-nf'>Vern9</span><span class='hljl-p'>(),</span><span class='hljl-nf'>L2Loss</span><span class='hljl-p'>(</span><span class='hljl-n'>t</span><span class='hljl-p'>,</span><span class='hljl-n'>data</span><span class='hljl-p'>),</span><span class='hljl-n'>tstops</span><span class='hljl-oB'>=</span><span class='hljl-n'>t</span><span class='hljl-p'>,</span><span class='hljl-n'>reltol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>,</span><span class='hljl-n'>abstol</span><span class='hljl-oB'>=</span><span class='hljl-nfB'>1e-9</span><span class='hljl-p'>)</span><span class='hljl-t'>
+</span><span class='hljl-n'>lower</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-ni'>0</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>upper</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>[</span><span class='hljl-ni'>5</span><span class='hljl-p'>,</span><span class='hljl-ni'>5</span><span class='hljl-p'>,</span><span class='hljl-ni'>5</span><span class='hljl-p'>,</span><span class='hljl-ni'>5</span><span class='hljl-p'>]</span><span class='hljl-t'>
+</span><span class='hljl-n'>splits</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-p'>([</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>],[</span><span class='hljl-ni'>0</span><span class='hljl-p'>,</span><span class='hljl-nfB'>0.5</span><span class='hljl-p'>,</span><span class='hljl-ni'>1</span><span class='hljl-p'>])</span><span class='hljl-t'>
+</span><span class='hljl-nd'>@time</span><span class='hljl-t'> </span><span class='hljl-n'>root</span><span class='hljl-p'>,</span><span class='hljl-t'> </span><span class='hljl-n'>x0</span><span class='hljl-t'> </span><span class='hljl-oB'>=</span><span class='hljl-t'> </span><span class='hljl-nf'>analyze</span><span class='hljl-p'>(</span><span class='hljl-n'>obj_short</span><span class='hljl-p'>,</span><span class='hljl-n'>splits</span><span class='hljl-p'>,</span><span class='hljl-n'>lower</span><span class='hljl-p'>,</span><span class='hljl-n'>upper</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+0.221035 seconds &#40;927.43 k allocations: 80.229 MiB, 16.21&#37; gc time&#41;
+&#40;BoxRoot@&#91;NaN, NaN, NaN, NaN&#93;, &#91;0.5, 0.5, 0.5, 0.5&#93;&#41;
+</pre>
+
+
+
+<pre class='hljl'>
+<span class='hljl-nf'>minimum</span><span class='hljl-p'>(</span><span class='hljl-n'>root</span><span class='hljl-p'>)</span>
+</pre>
+
+
+<pre class="output">
+Box0.012650644127007372@&#91;0.166695, 0.999023, 0.389981, 0.499926&#93;
+</pre>
+
+
+<h1>Conclusion</h1>
+<p>It is observed that lower tolerance lead to higher accuracy but too low tolerance could affect the convergance time drastically. Also fitting a shorter timespan seems to be easier in comparision &#40;quite intutively&#41;. NLOpt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with tol values. In case of global optimization of the longer problem there is some difference in the perfomance amongst the algorithms with :LN<em>BOBYQA giving accurate results for the local optimization and :GN</em>ISRES :GN<em>CRS2</em>LM in case of the global give the highest accuracy. BBO also fails to perform too well in the case of the longer problem. QuadDIRECT performs well in case of the shorter problem but fails to give good results in the longer version.</p>
+
+
+
+          <HR/>
+          <div class="footer"><p>
+          Published from <a href="FitzHughNagumoParameterEstimation.jmd">FitzHughNagumoParameterEstimation.jmd</a> using
+          <a href="http://github.com/mpastell/Weave.jl">Weave.jl</a>
+           on 2019-03-16.
+          <p></div>
+
+
+        </div>
+      </div>
+    </div>
+  </BODY>
+</HTML>
