@@ -1,16 +1,4 @@
----
-title: Quadruple Boson Energy Conservation
-author: Sebastian Micluța-Câmpeanu, Chris Rackauckas
----
 
-In this notebook we will study the energy conservation properties of several high-order methods for a system with the following Hamiltonian:
-$$
-\mathcal{H}\left(q_0,q_2,p_0,p_2\right) = \frac{A}{2} \left(p_0^2 + p_2^2 + q_0^2 + q_2^2\right) + \frac{B}{\sqrt{2}} q_0 \left(3q_2^2 - q_0^2\right) + \frac{D}{4} \left(q_0^2+q_2^2\right)^2
-$$
-This Hamiltonian resembles the Hénon-Heiles one, but it has an additional fourth order term.
-The aim of this benchmark is to see what happens with the energy error when highly accurate solutions are needed and how the results compare with the Hénon-Heiles case.
-
-```julia
 using OrdinaryDiffEq, Plots, DiffEqCallbacks, LinearAlgebra
 using TaylorIntegration
 
@@ -87,12 +75,9 @@ end
 
 const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13))
 
-const E = H(InPlace.p0, InPlace.q0, InPlace.p)
-```
+const E = H(InPlace.p0, InPlace.q0, nothing)
 
-For the comparison we will use the following function
 
-```julia
 energy_err(sol) = map(i->H([sol[1,i], sol[2,i]], [sol[3,i], sol[4,i]],nothing)-E, 1:length(sol.u))
 abs_energy_err(sol) = [abs.(H([sol[1,j], sol[2,j]], [sol[3,j], sol[4,j]],nothing) - E) for j=1:length(sol.u)]
 
@@ -135,76 +120,43 @@ function compare(mode=InPlace, all=true, plt=nothing; tmax=1e2)
 
     return plt
 end
-```
 
-The `mode` argument choses between the in place approach
-and the out of place one. The `all` parameter is used to compare only the integrators that support both the in place and the out of place versions (we reffer here only to the 6 high order methods chosen bellow).
-The `plt` argument can be used to overlay the results over a previous plot and the `tmax` keyword determines the simulation time.
 
-Note:
-1. The `Vern9` method is used with `ODEProblem` because of performance issues with `ArrayPartition` indexing which manifest for `DynamicalODEProblem`.
-2. The `NLsolve` call used by `ManifoldProjection` was modified to use `ftol=1e-13` in order to obtain a very low energy error.
-
-Here are the results of the comparisons between the in place methods:
-
-```julia
 compare(tmax=1e2)
-```
 
-```julia
+
 compare(tmax=1e3)
-```
 
-```julia
+
 compare(tmax=1e4)
-```
 
-```julia
+
 compare(tmax=2e4)
-```
 
-As we can see from the above plots, we can achieve a very low energy error for long time simulation by manifold projection and with very high order Taylor methods. In comparison with the Hénon-Heiles system we see that as the Hamiltonian got more complex, the energy error for the other integration methods increased significantly.
 
-We will now compare the in place with the out of place versions. In the plots bellow we will use a dashed line for the out of place versions.
-
-```julia
 function in_vs_out(;all=false, tmax=1e2)
     println("In place versions:")
     plt = compare(InPlace, all, tmax=tmax)
     println("\nOut of place versions:")
     plt = compare(OutOfPlace, false, plt; tmax=tmax)
 end
-```
 
-First, here is a summary of all the available methods for `tmax = 1e3`:
 
-```julia
 in_vs_out(all=true, tmax=1e3)
-```
 
-Now we will compare the in place and the out of place versions, but only for the integrators that are compatible with `StaticArrays`
 
-```julia
 in_vs_out(tmax=1e2)
-```
 
-```julia
+
 in_vs_out(tmax=1e3)
-```
 
-```julia
+
 in_vs_out(tmax=1e4)
-```
 
-```julia
+
 in_vs_out(tmax=2e4)
-```
 
-As we see from the above comparisons, the `StaticArray` versions are significantly faster and use less memory. The speedup provided for the out of place version is more proeminent at larger values for `tmax`.
-We can see again that if the simulation time is increased, the energy error of the symplectic methods is less noticeable compared to the rest of the methods.
-In comparison with the Henon-Heiles case, we see that the symplectic methods are more competitive with `DPRKN12`.
 
-```julia{echo=false}
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+

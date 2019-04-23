@@ -209,4 +209,6 @@ k = 0.999
 singlependulum(k, SymplecticEuler(), Δt)
 
 
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 

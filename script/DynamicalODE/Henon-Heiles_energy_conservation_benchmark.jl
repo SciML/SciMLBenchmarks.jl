@@ -1,17 +1,4 @@
----
-title: Hénon–Heiles Energy Conservation
-author: Sebastian Micluța-Câmpeanu, Chris Rackauckas
----
 
-In this notebook we will study the energy conservation properties of several high-order methods for the Hénon–Heiles system. We will se how the energy error behaves at very thight tolerances and how different techniques such as using symplectic solvers or manifold projections benchmark against each other.
-The Hamiltonian for this system is given by:
-$$
-\mathcal{H}=\frac{1}{2}(p_1^2 + p_2^2) + \frac{1}{2}\left(q_1^2 + q_2^2 + 2q_1^2 q_2 - \frac{2}{3}q_2^3\right)
-$$
-
-We will also compare the in place apporach with the out of place approach by using `Array`s (for the in place version) and `StaticArrays` (for out of place versions). In order to separate these two, we will define the relevant functions and initial conditions in the `InPlace` and `OutofPlace` modules. In this way the rest of the code will work for both.
-
-```julia
 using OrdinaryDiffEq, Plots, DiffEqCallbacks
 using TaylorIntegration, LinearAlgebra
 
@@ -79,11 +66,8 @@ end
 const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13))
 
 const E = H(InPlace.p0, InPlace.q0, nothing)
-```
 
-For the comparison we will use the following function
 
-```julia
 energy_err(sol) = map(i->H([sol[1,i], sol[2,i]], [sol[3,i], sol[4,i]], nothing)-E, 1:length(sol.u))
 abs_energy_err(sol) = [abs.(H([sol[1,j], sol[2,j]], [sol[3,j], sol[4,j]], nothing) - E) for j=1:length(sol.u)]
 
@@ -125,78 +109,43 @@ function compare(mode=InPlace, all=true, plt=nothing; tmax=1e2)
 
     return plt
 end
-```
 
-The `mode` argument choses between the in place approach
-and the out of place one. The `all` parameter is used to compare only the integrators that support both the in place and the out of place versions (we reffer here only to the 6 high order methods chosen bellow).
-The `plt` argument can be used to overlay the results over a previous plot and the `tmax` keyword determines the simulation time.
 
-Note:
-1. The `Vern9` method is used with `ODEProblem` because of performance issues with `ArrayPartition` indexing which manifest for `DynamicalODEProblem`.
-2. The `NLsolve` call used by `ManifoldProjection` was modified to use `ftol=1e-13` in order to obtain a very low energy error.
-
-Here are the results of the comparisons between the in place methods:
-
-```julia
 compare(tmax=1e2)
-```
 
-```julia
+
 compare(tmax=1e3)
-```
 
-```julia
+
 compare(tmax=1e4)
-```
 
-```julia
+
 compare(tmax=5e4)
-```
 
-We can see that as the simulation time increases, the energy error increases. For this particular example the energy error for all the methods is comparable. For relatively short simulation times, if a highly accurate solution is required, the symplectic method is not recommended as its energy error fluctuations are larger than for other methods.
-An other thing to notice is the fact that the two versions of `Vern9` behave identically, as expected, untill the energy error set by `ftol` is reached.
 
-We will now compare the in place with the out of place versions. In the plots bellow we will use a dashed line for the out of place versions.
-
-```julia
 function in_vs_out(;all=false, tmax=1e2)
     println("In place versions:")
     plt = compare(InPlace, all, tmax=tmax)
     println("\nOut of place versions:")
     plt = compare(OutOfPlace, false, plt; tmax=tmax)
 end
-```
 
-First, here is a summary of all the available methods for `tmax = 1e3`:
 
-```julia
 in_vs_out(all=true, tmax=1e3)
-```
 
-Now we will compare the in place and the out of place versions, but only for the integrators that are compatible with `StaticArrays`
 
-```julia
 in_vs_out(tmax=1e2)
-```
 
-```julia
+
 in_vs_out(tmax=1e3)
-```
 
-```julia
+
 in_vs_out(tmax=1e4)
-```
 
-```julia
+
 in_vs_out(tmax=5e4)
-```
 
-As we see from the above comparisons, the `StaticArray` versions are significantly faster and use less memory. The speedup provided for the out of place version is more proeminent at larger values for `tmax`.
-We can see again that if the simulation time is increased, the energy error of the symplectic methods is less noticeable compared to the rest of the methods.
 
-The benchmarks were performed on a machine with
-
-```julia{echo=false}
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+
