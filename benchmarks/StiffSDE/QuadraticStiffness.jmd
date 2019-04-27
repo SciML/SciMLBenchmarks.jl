@@ -23,17 +23,20 @@ This is a scalar SDE with two arguments. The first controls the deterministic st
 
 ```julia
 using DiffEqProblemLibrary, StochasticDiffEq, DiffEqDevTools
+using DiffEqProblemLibrary.SDEProblemLibrary: importsdeproblems; importsdeproblems()
+import DiffEqProblemLibrary.SDEProblemLibrary: prob_sde_stiffquadito
+gr()
 using Plots; gr()
 ```
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(50.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 sol = solve(prob,SRIW1())
 plot(sol)
 ```
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(500.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 sol = solve(prob,SRIW1())
 plot(sol)
 ```
@@ -45,7 +48,7 @@ Let's first determine the maximum dts which are allowed. Anything higher is most
 ### Deterministic Stiffness Mild
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(50.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 @time sol = solve(prob,SRIW1())
 @time sol = solve(prob,SRIW1(),adaptive=false,dt=0.01)
 @time sol = solve(prob,ImplicitRKMil(),dt=0.005)
@@ -55,7 +58,7 @@ prob = DiffEqProblemLibrary.generate_stiff_quad(50.0,1.0)
 ### Deterministic Stiffness High
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(500.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 @time sol = solve(prob,SRIW1())
 @time sol = solve(prob,SRIW1(),adaptive=false,dt=0.002)
 @time sol = solve(prob,ImplicitRKMil(),dt=0.001)
@@ -65,7 +68,7 @@ prob = DiffEqProblemLibrary.generate_stiff_quad(500.0,1.0)
 ### Mixed Stiffness
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(5000.0,70.0)
+prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
 @time sol = solve(prob,SRIW1(),dt=0.0001)
 @time sol = solve(prob,SRIW1(),adaptive=false,dt=0.00001)
 @time sol = solve(prob,ImplicitRKMil(),dt=0.00001)
@@ -77,7 +80,7 @@ Notice that in this problem, the stiffness in the noise term still prevents the 
 ## Work-Precision Diagrams
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(50.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 
 reltols = 1.0.0 ./ 10.0.0 .^ (3:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
@@ -92,7 +95,7 @@ plot(wp)
 ```
 
 ```julia
-prob = DiffEqProblemLibrary.generate_stiff_quad(500.0,1.0)
+prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 
 reltols = 1.0.0 ./ 10.0.0 .^ (3:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
