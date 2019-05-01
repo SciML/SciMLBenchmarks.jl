@@ -17,18 +17,18 @@ ASSYR ABDULLE AND STEPHANE CIRILLI
 Raising D or k increases stiffness
 
 ```julia
-using StochasticDiffEq, DiffEqNoiseProcess
+using StochasticDiffEq, DiffEqNoiseProcess, LinearAlgebra, Statistics
 
 function generate_stiff_stoch_heat(D=1,k=1;N = 100, t_end = 3.0, adaptivealg = :RSwM3)
-    A = full(Tridiagonal([1.0 for i in 1:N-1],[-2.0 for i in 1:N],[1.0 for i in 1:N-1]))
+    A = Array(Tridiagonal([1.0 for i in 1:N-1],[-2.0 for i in 1:N],[1.0 for i in 1:N-1]))
     dx = 1/N
     A = D/(dx^2) * A
     function f(du,u,p,t)
-        A_mul_B!(du,A,u)
+        mul!(du,A,u)
     end
     #=
     function f(::Type{Val{:analytic}},u0,p,t,W)
-        expm((A-k/2)*t+W*I)*u0 # no -k/2 for Strat
+        exp((A-k/2)*t+W*I)*u0 # no -k/2 for Strat
     end
     =#
     function g(du,u,p,t)
@@ -39,7 +39,7 @@ end
 
 N = 100
 D = 1; k = 1
-    A = full(Tridiagonal([1.0 for i in 1:N-1],[-2.0 for i in 1:N],[1.0 for i in 1:N-1]))
+    A = Array(Tridiagonal([1.0 for i in 1:N-1],[-2.0 for i in 1:N],[1.0 for i in 1:N-1]))
     dx = 1/N
     A = D/(dx^2) * A;
 ```
@@ -89,7 +89,7 @@ Now let's check the error at an arbitrary timepoint in there. Our analytical sol
 ```julia
 function simple_error(alg;kwargs...)
     sol = solve(generate_stiff_stoch_heat(1.0,1.0,t_end=0.25),alg;kwargs...);
-    sum(abs2,sol[end] - expm(A*sol.t[end]+sol.W[end]*I)*prob.u0)
+    sum(abs2,sol[end] - exp(A*sol.t[end]+sol.W[end]*I)*prob.u0)
 end
 ```
 

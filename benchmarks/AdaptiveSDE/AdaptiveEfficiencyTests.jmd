@@ -4,15 +4,19 @@ author: Chris Rackauckas
 ---
 
 ```julia
+using Distributed
 addprocs(2)
 
 @everywhere begin
-  using DiffEqMonteCarlo, StochasticDiffEq, DiffEqBase, DiffEqProblemLibrary, DiffEqNoiseProcess, Plots, LaTeXStrings, ParallelDataTransfer
+  using DiffEqMonteCarlo, StochasticDiffEq, DiffEqBase, DiffEqProblemLibrary, DiffEqNoiseProcess, Plots, ParallelDataTransfer
+  using DiffEqProblemLibrary.SDEProblemLibrary: importsdeproblems; importsdeproblems()
+  import DiffEqProblemLibrary.SDEProblemLibrary: prob_sde_additive,
+              prob_sde_linear, prob_sde_wave
 
-  probs = Matrix{SDEProblem}(3,3)
-  p1 = Vector{Any}(3)
-  p2 = Vector{Any}(3)
-  p3 = Vector{Any}(3)
+  probs = Matrix{SDEProblem}(undef,3,3)
+  p1 = Vector{Any}(undef,3)
+  p2 = Vector{Any}(undef,3)
+  p3 = Vector{Any}(undef,3)
   ## Problem 1
   prob = prob_sde_linear
   probs[1,1] = SDEProblem(prob.f,prob.g,prob.u0,prob.tspan,prob.p,noise=WienerProcess(0.0,0.0,0.0,rswm=RSWM(adaptivealg=:RSwM1)))
@@ -30,10 +34,10 @@ addprocs(2)
   probs[3,3] = SDEProblem(prob.f,prob.g,prob.u0,prob.tspan,prob.p,noise=WienerProcess(0.0,0.0,0.0,rswm=RSWM(adaptivealg=:RSwM3)))
 end
 
-fullMeans = Vector{Array}(3)
-fullMedians = Vector{Array}(3)
-fullElapsed = Vector{Array}(3)
-fullTols = Vector{Array}(3)
+fullMeans = Vector{Array}(undef,3)
+fullMedians = Vector{Array}(undef,3)
+fullElapsed = Vector{Array}(undef,3)
+fullTols = Vector{Array}(undef,3)
 offset = 0
 
 Ns = [17 23 17]
@@ -47,11 +51,11 @@ for k in 1:size(probs,1)
   ## Setup
   N = Ns[k]
 
-  msims = Vector{Any}(N)
-  elapsed = Array{Float64}(N,3)
-  medians = Array{Float64}(N,3)
-  means   = Array{Float64}(N,3)
-  tols    = Array{Float64}(N,3)
+  msims = Vector{Any}(undef,N)
+  elapsed = Array{Float64}(undef,N,3)
+  medians = Array{Float64}(undef,N,3)
+  means   = Array{Float64}(undef,N,3)
+  tols    = Array{Float64}(undef,N,3)
 
   #Compile
   prob = probs[k,1]
@@ -62,7 +66,7 @@ for k in 1:size(probs,1)
   println("RSwM1")
   for i=1+offset:N+offset
     tols[i-offset,1] = 2.0^(-i-1)
-    msims[i-offset] = calculate_monte_errors(solve(monte_prob,SRIW1(),
+    msims[i-offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob,SRIW1(),
                                             num_monte=1000,abstol=2.0^(-i-1),
                                             reltol=0,force_dtmin=true))
     elapsed[i-offset,1] = msims[i-offset].elapsedTime
@@ -72,13 +76,14 @@ for k in 1:size(probs,1)
 
   println("RSwM2")
   prob = probs[k,2]
+
   ParallelDataTransfer.sendto(workers(), prob=prob)
   monte_prob = MonteCarloProblem(prob)
   solve(monte_prob,SRIW1(),dt=1/2^(4),adaptive=true,num_monte=1000,abstol=2.0^(-1),reltol=0)
 
   for i=1+offset:N+offset
     tols[i-offset,2] = 2.0^(-i-1)
-    msims[i-offset] = calculate_monte_errors(solve(monte_prob,SRIW1(),
+    msims[i-offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob,SRIW1(),
                                             num_monte=1000,abstol=2.0^(-i-1),
                                             reltol=0,force_dtmin=true))
     elapsed[i-offset,2] = msims[i-offset].elapsedTime
@@ -94,7 +99,7 @@ for k in 1:size(probs,1)
 
   for i=1+offset:N+offset
     tols[i-offset,3] = 2.0^(-i-1)
-        msims[i-offset] = calculate_monte_errors(solve(monte_prob,SRIW1(),
+        msims[i-offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob,SRIW1(),
                                     adaptive=true,num_monte=1000,abstol=2.0^(-i-1),
                                     reltol=0,force_dtmin=true))
     elapsed[i-offset,3] = msims[i-offset].elapsedTime

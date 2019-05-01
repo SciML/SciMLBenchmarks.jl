@@ -4,29 +4,29 @@ author: Chris Rackauckas
 ---
 
 ```julia
+using Distributed
 addprocs()
 
 @everywhere qs = 1.0 + 2.0.^(-5:2)
-times = Array{Float64}(length(qs),4)
-means = Array{Float64}(length(qs),4)
+times = Array{Float64}(undef,length(qs),4)
+means = Array{Float64}(undef,length(qs),4)
 
 @everywhere begin
-  using StochasticDiffEq, DiffEqBase, DiffEqProblemLibrary,
-        Plots, LaTeXStrings, ParallelDataTransfer, DiffEqMonteCarlo
-  srand(99 + myid())
+  using StochasticDiffEq, DiffEqBase, DiffEqProblemLibrary, Random,
+        Plots, ParallelDataTransfer, DiffEqMonteCarlo
+  Random.seed!(99 + myid())
   full_prob = oval2ModelExample(largeFluctuations=true,useBigs=false)
-  prob = deepcopy(full_prob)
-  prob.tspan=(0.0,1.0)
+  prob = remake(full_prob,tspan=(0.0,1.0))
   println("Solve once to compile.")
   sol = solve(prob,EM(),dt=1/2^(18))
   Int(sol.u[end][1]!=NaN)
   println("Compilation complete.")
   num_runs = 10000
 
-  probs = Vector{SDEProblem}(3)
-  p1 = Vector{Any}(3)
-  p2 = Vector{Any}(3)
-  p3 = Vector{Any}(3)
+  probs = Vector{SDEProblem}(undef,3)
+  p1 = Vector{Any}(undef,3)
+  p2 = Vector{Any}(undef,3)
+  p3 = Vector{Any}(undef,3)
   ## Problem 1
   probs[1] = prob_sde_linear
   ## Problem 2
@@ -54,7 +54,7 @@ calculate_monte_errors(test_mc);
 ```julia
 for k in eachindex(qs)
   ParallelDataTransfer.sendto(workers(), k=k)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   adaptiveTime = @elapsed numFails = sum(pmap((i)->runAdaptive(i,k),1:num_runs))
   println("k was $k. The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
   times[k,4] = adaptiveTime

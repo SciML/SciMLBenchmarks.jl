@@ -4,13 +4,15 @@ author: Chris Rackauckas
 ---
 
 ```julia
+using Distributed
 addprocs()
 
 @everywhere begin
-  using StochasticDiffEq, DiffEqProblemLibrary, ParallelDataTransfer
-  srand(99 + myid())
-  prob = oval2ModelExample(largeFluctuations=true,useBigs=false)
-  prob = SDEProblem(prob.f,prob.g,prob.u0,(0.0,1.0))
+  using StochasticDiffEq, DiffEqProblemLibrary, ParallelDataTransfer, Random
+  using DiffEqProblemLibrary.SDEProblemLibrary: importsdeproblems; importsdeproblems()
+  prob = DiffEqProblemLibrary.SDEProblemLibrary.oval2ModelExample(largeFluctuations=true,useBigs=false)
+  Random.seed!(99 + myid())
+  prob = remake(prob,tspan=(0.0,1.0))
   println("Solve once to compile.")
   sol = solve(prob,EM(),dt=1/2^(18),adaptive=false,save_everystep=false)
   sol = solve(prob,RKMil(),dt=1/2^(18),adaptive=false,save_everystep=false)
@@ -21,9 +23,9 @@ addprocs()
   Int(sol.u[1]!=NaN)
   println("Compilation complete.")
   js = 16:21
-  dts = 1./2.^(js)
-  fails = Array{Int}(length(dts),3)
-  times = Array{Float64}(length(dts),3)
+  dts = 1.0 ./ 2.0 .^ (js)
+  fails = Array{Int}(undef,length(dts),3)
+  times = Array{Float64}(undef,length(dts),3)
   numRuns = 10000
 end
 println("Setup Complete")
@@ -36,7 +38,7 @@ println("Setup Complete")
   sol = solve(prob,SRIW1(),abstol=2.0^(-13),reltol=2.0^(-7),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIW1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -48,7 +50,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
     sol = solve(prob,SRI(error_terms=2),abstol=2.0^(-13),reltol=2.0^(-7),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRI,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -60,7 +62,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SRI(),abstol=2.0^(-14),reltol=2.0^(-18),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRI,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -72,7 +74,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SRI(tableau=StochasticDiffEq.constructSRIOpt1()),abstol=2.0^(-7),reltol=2.0^(-4),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -84,7 +86,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SOSRI(),abstol=2.0^(-7),reltol=2.0^(-4),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -96,7 +98,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SOSRI(),abstol=2.0^(-7),reltol=2.0^(-6),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -108,7 +110,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SOSRI(),abstol=2.0^(-12),reltol=2.0^(-15),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -120,7 +122,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SOSRI(),abstol=2.0^(-13),reltol=2.0^(-7),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -132,7 +134,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
   sol = solve(prob,SOSRI(),abstol=2.0^(-12),reltol=2.0^(-15),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt1,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -144,7 +146,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
     sol = solve(prob,SOSRI2(),abstol=2.0^(-12),reltol=2.0^(-15),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
     Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt2,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -156,7 +158,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
     sol = solve(prob,SOSRI2(),abstol=2.0^(-13),reltol=2.0^(-11),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
     Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt2,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -168,7 +170,7 @@ println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTi
     sol = solve(prob,SOSRI2(),abstol=2.0^(-16),reltol=2.0^(-9),maxIters=Int(1e11),qmax=1.125,save_everystep=false)
     Int(any(isnan,sol[end]) || sol.t[end] != 1)
 end
-@everywhere srand(99 + myid())
+@everywhere Random.seed!(99 + myid())
 adaptiveTime = @elapsed numFails = sum(pmap(runAdaptiveSRIOpt2,1:numRuns))
 println("The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
 ```
@@ -181,7 +183,7 @@ end
 for j in eachindex(js)
   println("j = $j")
   sendto(workers(), j=j)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   t1 = @elapsed numFails = sum(pmap((i)->runEM(i,j),1:numRuns))
   println("The number of Euler-Maruyama Fails is $numFails. Elapsed time was $t1")
   fails[j,1] = numFails
@@ -197,7 +199,7 @@ end
 for j in 1:4
   println("j = $j")
   sendto(workers(), j=j)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   t2 = @elapsed numFails = sum(pmap((i)->runSRI(i,j),1:numRuns))
   println("The number of Rossler-SRI Fails is $numFails. Elapsed time was $t2")
   fails[j,2] = numFails
@@ -207,7 +209,7 @@ end
 
 ```julia
 @everywhere js = 17:21
-@everywhere dts = 1./2.^(js)
+@everywhere dts = 1.0 ./2.0 .^ (js)
 @everywhere function runIEM(i,j)
   sol =solve(prob,ImplicitEM(),dt=dts[j],maxIters=Int(1e11),save_everystep=false,verbose=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
@@ -215,7 +217,7 @@ end
 for j in 1:6
   println("j = $j")
   sendto(workers(), j=j)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   t2 = @elapsed numFails = sum(pmap((i)->runIEM(i,j),1:numRuns))
     println("The number of Implicit-EM Fails is $numFails. Elapsed time was $t2")
   fails[j,2] = numFails
@@ -225,7 +227,7 @@ end
 
 ```julia
 @everywhere js = 17:21
-@everywhere dts = 1./2.^(js)
+@everywhere dts = 1.0 ./ 2.0 .^(js)
 @everywhere function runIRM(i,j)
     sol =solve(prob,ImplicitRKMil(),dt=dts[j],maxIters=Int(1e11),save_everystep=false,verbose=false)
   Int(any(isnan,sol[end]) || sol.t[end] != 1)
@@ -233,7 +235,7 @@ end
 for j in 1:4
   println("j = $j")
   sendto(workers(), j=j)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   t2 = @elapsed numFails = sum(pmap((i)->runIRM(i,j),1:numRuns))
     println("The number of Implicit-RKMil Fails is $numFails. Elapsed time was $t2")
   fails[j,2] = numFails
@@ -249,7 +251,7 @@ end
 for j in eachindex(js)
   println("j = $j")
   sendto(workers(), j=j)
-  @everywhere srand(99 + myid())
+  @everywhere Random.seed!(99 + myid())
   t3 = @elapsed numFails = sum(pmap((i)->runMil(i,j),1:numRuns))
   println("The number of RK-Milstein Fails is $numFails. Elapsed time was $t3")
   fails[j,3] = numFails
