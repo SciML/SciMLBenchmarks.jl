@@ -1,0 +1,191 @@
+---
+title: Mackey and Glass Work-Precision Diagrams
+author: David Widmann, Chris Rackauckas
+---
+
+# Mackey and Glass
+
+We study algorithms for solving constant delay differential equations with a test problem from W.H. Enright and H. Hayashi, "The evaluation of numerical software for delay differential equations", 1997. It is a model of blood production that was published by M. C. Mackey and L. Glass in "Oscillation and chaos in physiological control systems", 1977, and is given by
+```math
+\begin{equation}
+ y'(t) = \frac{0.2y(t-14)}{1 + y(t-14)^{10}} - 0.1y(t)
+\end{equation}
+```
+
+```julia
+using DelayDiffEq, DiffEqDevTools, DiffEqProblemLibrary, Plots
+using DiffEqProblemLibrary.DDEProblemLibrary: importddeproblems; importddeproblems()
+import DiffEqProblemLibrary.DDEProblemLibrary: prob_dde_mackey
+gr()
+
+sol = solve(prob_dde_mackey, MethodOfSteps(Vern9(), max_fixedpoint_iters=1000); reltol=1e-14, abstol=1e-14)
+test_sol = TestSolution(sol)
+plot(sol)
+```
+
+## Low order RK methods
+
+### High tolerances
+
+First we test final error estimates of continuous RK methods of low order at high tolerances. `OwrenZen4`, `OwrenZen5`, and `RK4` yield the best error estimates.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg=>MethodOfSteps(BS3())),
+          Dict(:alg=>MethodOfSteps(Tsit5())),
+          Dict(:alg=>MethodOfSteps(RK4())),
+          Dict(:alg=>MethodOfSteps(DP5())),
+          Dict(:alg=>MethodOfSteps(OwrenZen3())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4())),
+          Dict(:alg=>MethodOfSteps(OwrenZen5()))]
+names = ["BS3", "Tsit5", "RK4", "DP5", "OwrenZen3", "OwrenZen4", "OwrenZen5"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:final)
+plot(wp)
+```
+
+Next we test average interpolation errors:
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg=>MethodOfSteps(BS3())),
+          Dict(:alg=>MethodOfSteps(Tsit5())),
+          Dict(:alg=>MethodOfSteps(RK4())),
+          Dict(:alg=>MethodOfSteps(DP5())),
+          Dict(:alg=>MethodOfSteps(OwrenZen3())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4())),
+          Dict(:alg=>MethodOfSteps(OwrenZen5()))]
+names = ["BS3", "Tsit5", "RK4", "DP5", "OwrenZen3", "OwrenZen4", "OwrenZen5"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+plot(wp)
+```
+
+As before, `OwrenZen4` and `OwrenZen5` perform well over the whole range of investigated tolerances.
+
+### Low tolerances
+
+We repeat our tests with low tolerances.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg=>MethodOfSteps(BS3())),
+          Dict(:alg=>MethodOfSteps(Tsit5())),
+          Dict(:alg=>MethodOfSteps(RK4())),
+          Dict(:alg=>MethodOfSteps(DP5())),
+          Dict(:alg=>MethodOfSteps(OwrenZen3())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4())),
+          Dict(:alg=>MethodOfSteps(OwrenZen5()))]
+names = ["BS3", "Tsit5", "RK4", "DP5", "OwrenZen3", "OwrenZen4", "OwrenZen5"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:final)
+plot(wp)
+```
+
+And once again we also test the interpolation errors:
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg=>MethodOfSteps(BS3())),
+          Dict(:alg=>MethodOfSteps(Tsit5())),
+          Dict(:alg=>MethodOfSteps(RK4())),
+          Dict(:alg=>MethodOfSteps(DP5())),
+          Dict(:alg=>MethodOfSteps(OwrenZen3())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4())),
+          Dict(:alg=>MethodOfSteps(OwrenZen5()))]
+names = ["BS3", "Tsit5", "RK4", "DP5", "OwrenZen3", "OwrenZen4", "OwrenZen5"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+plot(wp)
+```
+
+Apparently `Tsit5` and `DP5` perform quite well at low tolerances, but only `OwrenZen5`, `OwrenZen4` and `RK4` achieve interpolation errors of around 1e-9.
+
+## Lazy interpolants
+
+### High tolerances
+
+We repeat our tests with the Verner methods which, in contrast to the methods above, use lazy interpolants. As reference we include `OwrenZen4`.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg=>MethodOfSteps(Vern6())),
+          Dict(:alg=>MethodOfSteps(Vern7())),
+          Dict(:alg=>MethodOfSteps(Vern8())),
+          Dict(:alg=>MethodOfSteps(Vern9())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4()))]
+names = ["Vern6", "Vern7", "Vern8", "Vern9", "OwrenZen4"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:final)
+plot(wp)
+```
+
+And we obtain the following interpolation errors:
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg=>MethodOfSteps(Vern6())),
+          Dict(:alg=>MethodOfSteps(Vern7())),
+          Dict(:alg=>MethodOfSteps(Vern8())),
+          Dict(:alg=>MethodOfSteps(Vern9())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4()))]
+names = ["Vern6", "Vern7", "Vern8", "Vern9", "OwrenZen4"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+plot(wp)
+```
+
+`Vern6`, `Vern7`, and `Vern9` are outperformed by `OwrenZen4`.
+
+### Low tolerances
+
+Again, we repeat our tests at low tolerances.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg=>MethodOfSteps(Vern6())),
+          Dict(:alg=>MethodOfSteps(Vern7())),
+          Dict(:alg=>MethodOfSteps(Vern8())),
+          Dict(:alg=>MethodOfSteps(Vern9())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4()))]
+names = ["Vern6", "Vern7", "Vern8", "Vern9", "OwrenZen4"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:final)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg=>MethodOfSteps(Vern6())),
+          Dict(:alg=>MethodOfSteps(Vern7())),
+          Dict(:alg=>MethodOfSteps(Vern8())),
+          Dict(:alg=>MethodOfSteps(Vern9())),
+          Dict(:alg=>MethodOfSteps(OwrenZen4()))]
+names = ["Vern6", "Vern7", "Vern8", "Vern9", "OwrenZen4"]
+wp = WorkPrecisionSet(prob_dde_mackey,abstols,reltols,setups;names=names,
+                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+plot(wp)
+```
+
+`Vern6`, `Vern7`, and `Vern9` show similar results at low tolerances, and perform even better than `OwrenZen4`.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
