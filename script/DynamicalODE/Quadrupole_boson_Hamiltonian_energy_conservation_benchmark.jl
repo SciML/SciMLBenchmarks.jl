@@ -73,9 +73,8 @@ function g(resid,u)
     resid[2:4] .= 0
 end
 
+const E = H(InPlace.p0, InPlace.q0, InPlace.p)
 const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13))
-
-const E = H(InPlace.p0, InPlace.q0, nothing)
 
 
 energy_err(sol) = map(i->H([sol[1,i], sol[2,i]], [sol[3,i], sol[4,i]],nothing)-E, 1:length(sol.u))

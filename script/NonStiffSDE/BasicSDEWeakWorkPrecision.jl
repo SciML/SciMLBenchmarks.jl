@@ -13,7 +13,7 @@ reltols = 1.0 ./ 10.0 .^ (1:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 setups = [
           Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRA1())
@@ -21,6 +21,7 @@ setups = [
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)
@@ -48,6 +49,7 @@ setups = [
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)
@@ -63,11 +65,12 @@ abstols = reltols#[0.0 for i in eachindex(reltols)]
 
 setups = [Dict(:alg=>SRIW1())
           Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)
@@ -88,7 +91,7 @@ reltols = 1.0 ./ 10.0 .^ (1:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 
 setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2),:adaptive=>false)
           Dict(:alg=>SRI())
           Dict(:alg=>SRIW1())
           Dict(:alg=>SRIW2())
@@ -97,6 +100,7 @@ setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)
@@ -114,13 +118,14 @@ abstols = reltols#[0.0 for i in eachindex(reltols)]
 
 setups = [
           Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRIW1())
           ]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)
@@ -141,7 +146,7 @@ reltols = 1.0 ./ 10.0 .^ (1:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 
 setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2),:adaptive=>false)
           Dict(:alg=>SRI())
           Dict(:alg=>SRIW1())
           Dict(:alg=>SRIW2())
@@ -150,6 +155,7 @@ setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
+                      maxiters = 1e7,
                       parallel_type = :threads,
                       error_estimate=:weak_final)
 plot(wp)

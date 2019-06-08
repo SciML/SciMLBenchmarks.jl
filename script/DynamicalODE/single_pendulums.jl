@@ -104,8 +104,6 @@ function plotsolenergy(H, integrator, Δt, sol::ODESolution)
     plotenergy(H, sol)
 
     suptitle("=====    $integrator_str,   Δt = $Δt    =====")
-
-    tight_layout()
 end
 
 # Solve a single pendulum
@@ -118,6 +116,7 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
 
     local integrator_str = replace("$integrator", r"^[^.]*\." => "")
     @printf("%-25s", "$integrator_str:")
+    sol = solve(prob, integrator, dt=Δt)
     @time local sol = solve(prob, integrator, dt=Δt)
 
     sleep(0.1)
@@ -136,8 +135,6 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
     plotcomparison(k, sol)
 
     suptitle("=====    $integrator_str,   Δt = $Δt    =====")
-
-    tight_layout()
 end
 
 
@@ -159,6 +156,7 @@ prob = HamiltonianProblem(H, q0, p0, (t0, t1))
 
 integrator = VelocityVerlet()
 Δt = 0.1
+sol = solve(prob, integrator, dt=Δt)
 @time sol = solve(prob, integrator, dt=Δt)
 
 sleep(0.1)

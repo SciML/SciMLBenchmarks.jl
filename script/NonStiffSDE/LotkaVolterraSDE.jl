@@ -26,7 +26,7 @@ reltols = 1.0 ./ 4.0 .^ (2:4)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 setups = [Dict(:alg=>SRIW1())
           Dict(:alg=>EM(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5))
-          Dict(:alg=>RKMil(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5))
+          Dict(:alg=>RKMil(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5),:adaptive=>false)
           Dict(:alg=>SRIW1(),:dts=>1.0./4.0.^((1:length(reltols)) .+ 5),:adaptive=>false)
           Dict(:alg=>SRIW2())
           Dict(:alg=>SOSRI())
@@ -35,6 +35,7 @@ setups = [Dict(:alg=>SRIW1())
 test_dt = 1/10^2
 appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
 wp = WorkPrecisionSet(prob,abstols,reltols,setups,test_dt;
+                                     maxiters = 1e7,
                                      verbose=false,save_everystep=false,
                                      parallel_type = :threads,
                                      appxsol_setup = appxsol_setup,
@@ -46,7 +47,7 @@ reltols = 1.0 ./ 4.0 .^ (2:4)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 setups = [Dict(:alg=>SRIW1())
           Dict(:alg=>EM(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5))
-          Dict(:alg=>RKMil(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5))
+          Dict(:alg=>RKMil(),:dts=>1.0./12.0.^((1:length(reltols)) .+ 1.5),:adaptive=>false)
           Dict(:alg=>SRIW1(),:dts=>1.0./4.0.^((1:length(reltols)) .+ 5),:adaptive=>false)
           Dict(:alg=>SRIW2())
           Dict(:alg=>SOSRI())
@@ -55,6 +56,7 @@ setups = [Dict(:alg=>SRIW1())
 test_dt = 1e-2
 appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
 wp = WorkPrecisionSet(prob,abstols,reltols,setups,test_dt;
+                                     maxiters = 1e7,
                                      verbose=false,save_everystep=false,
                                      parallel_type = :threads,
                                      appxsol_setup = appxsol_setup,
