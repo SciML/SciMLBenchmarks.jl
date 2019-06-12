@@ -1,0 +1,81 @@
+---
+title: Diffusion Model
+author: Samuel Isaacson, Chris Rackauckas
+---
+
+```julia
+using DifferentialEquations, Plots, Rsvg, DiffEqProblemLibrary
+using DiffEqProblemLibrary.JumpProblemLibrary: importjumpproblems; importjumpproblems()
+import DiffEqProblemLibrary.JumpProblemLibrary: prob_jump_diffnetwork
+gr()
+```
+
+# Model and example solutions
+Here we implement a 1D continuous time random walk approximation of diffusion for $N$ lattice sites, with reflecting boundary conditions
+
+```julia
+N = 256
+jprob = prob_jump_diffnetwork
+rn = jprob.network(N)
+rnpar = jprob.rates
+u0 = jprob.u0(N)
+tf = jprob.tstop
+```
+
+```julia
+methods = (Direct(),DirectFW(),SortingDirect(),NRM())
+legs    = [typeof(method) for method in methods]
+shortlabels = [string(leg)[12:end] for leg in legs]
+fmt     = :png
+prob    = prob = DiscreteProblem(u0, (0.0, tf), rnpar)
+ploth   = plot(reuse=false)
+for (i,method) in enumerate(methods)
+    jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
+    sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
+    plot!(ploth,sol.t,sol[Int(N//2),:],label=shortlabels[i], format=fmt)
+end
+plot(ploth, title="Population at middle lattice site", xlabel="time",format=fmt)
+```
+
+# Benchmarking performance of the methods
+
+```julia
+function run_benchmark!(t, jump_prob, stepper)
+    sol = solve(jump_prob, stepper)
+    @inbounds for i in 1:length(t)
+        t[i] = @elapsed (sol = solve(jump_prob, stepper))
+    end
+end
+```
+
+```julia
+nsims = 50
+benchmarks = Vector{Vector{Float64}}()
+gc()
+for method in methods
+    jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
+    stepper = SSAStepper()
+    t = Vector{Float64}(nsims)
+    run_benchmark!(t, jump_prob, stepper)
+    push!(benchmarks, t)
+end
+```
+
+```julia
+medtimes = Vector{Float64}(length(methods))
+stdtimes = Vector{Float64}(length(methods))
+avgtimes = Vector{Float64}(length(methods))
+for i in 1:length(methods)
+    medtimes[i] = median(benchmarks[i])
+    avgtimes[i] = mean(benchmarks[i])
+    stdtimes[i] = std(benchmarks[i])
+end
+using DataFrames
+
+df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
+```
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

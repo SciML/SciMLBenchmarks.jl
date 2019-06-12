@@ -2,20 +2,18 @@
 
 [![Join the chat at https://gitter.im/JuliaDiffEq/Lobby](https://badges.gitter.im/JuliaDiffEq/Lobby.svg)](https://gitter.im/JuliaDiffEq/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-DiffEqBenchmarks.jl holds Jupyter notebooks showing the benchmarks for the
-JuliaDiffEq ecosystem.
+DiffEqBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
+for the JuliaDiffEq ecosystem.
 
-## Viewing the Notebooks Locally
+## Interactive Notebooks
 
-To view the notebooks locally and interact with the contents, use the following
-commands (requires [IJulia](https://github.com/JuliaLang/IJulia.jl)):
+To run the tutorials interactively via Jupyter notebooks and benchmark on your
+own machine, install the package and open the tutorials like:
 
 ```julia
-using Pkg
-#Pkg.add("IJulia") # Need to do this the first time to install IJulia!
-pkg"add https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
-using IJulia, DiffEqBenchmarks
-notebook(dir = joinpath(dirname(pathof(DiffEqBenchmarks)),".."))
+]add "https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
+using DiffEqBenchmarks
+DiffEqBenchmarks.open_notebooks()
 ```
 
 ## Table of Contents
@@ -24,7 +22,6 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
 
 - Non-stiff ODEs
   - [Linear Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/Linear%20Work-Precision%20Diagrams.ipynb)
-  - [Runge-Kutta Benchmarks on Linear ODEs](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/Runge-Kutta%20Benchmarks%20on%20Linear%20ODEs.ipynb)
   - [Three-Body Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/ThreeBody%20Work-Precision%20Diagrams.ipynb)
   - [Pleides Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/Pleiades%20Work-Precision%20Diagrams.ipynb)
   - [Rigid Body Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/RigidBody%20Work-Precision%20Diagrams.ipynb)
@@ -42,8 +39,6 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Single Pendulum Comparison Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/single_pendulums.ipynb)
   - [Henon-Heiles Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.ipynb)
   - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.ipynb)
-- Parallelism
-  - [Multithreaded Runge-Kutta Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Parallelism/Multithreaded%20Runge-Kutta%20Methods.ipynb)
 - Nonstiff SDEs
   - [Simple Nonstiff SDE Strong Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWorkPrecision.ipynb)
   - [Simple Nonstiff SDE Weak Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWeakWorkPrecision.ipynb)
@@ -72,7 +67,7 @@ The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer
   - [Bayesian FitzHugh-Nagumo Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesFitzHughNagumo.ipynb)
   - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LotkaVolterraParameterEstimation.ipynb)
   - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/FitzHughNagumoParameterEstimation.ipynb)
-  
+
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
@@ -159,21 +154,43 @@ over the set of tested equations and some specific examples may differ.
 
 ### Parameter Estimation
 
-- Broadly two different approaches have been used, Bayesian Inference and Optimisation 
+- Broadly two different approaches have been used, Bayesian Inference and Optimisation
   algorithms.
-- In general it seems that the optimisation algorithms perform more accurately but that can be 
-  attributed to the larger number of data points being used in the optimisation cases, Bayesian 
-  approach tends to be slower of the two and hence lesser data points are used, accuracy can 
+- In general it seems that the optimisation algorithms perform more accurately but that can be
+  attributed to the larger number of data points being used in the optimisation cases, Bayesian
+  approach tends to be slower of the two and hence lesser data points are used, accuracy can
   increase if proper data is used.
-- Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM 
-  for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package 
+- Within the different available optimisation algorithms, BBO from the BlackBoxOptim package and GN_CRS2_LM
+  for the global case while LD_SLSQP,LN_BOBYQA and LN_NELDERMEAD for the local case from the NLopt package
   perform the best.
-- Another algorithm being used is the [QuadDIRECT](https://github.com/timholy/QuadDIRECT.jl) algorithm, it gives very good results in the shorter problem case 
+- Another algorithm being used is the [QuadDIRECT](https://github.com/timholy/QuadDIRECT.jl) algorithm, it gives very good results in the shorter problem case
   but doesn't do very well in the case of the longer problems.
-- The choice of global versus local optimization make a huge difference in the timings. BBO tends to find 
-  the correct solution for a global optimization setup. For local optimization, most methods in NLopt, 
+- The choice of global versus local optimization make a huge difference in the timings. BBO tends to find
+  the correct solution for a global optimization setup. For local optimization, most methods in NLopt,
   like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
 - The different backends options available for Bayesian method offer some tradeoffs beteween
-  time, accuracy and control. It is observed that sufficiently high accuracy can be observed with 
+  time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
-  priors and number of iterations being passed. 
+  priors and number of iterations being passed.
+
+## Contributing
+
+All of the files are generated from the Weave.jl files in the `benchmarks` folder. To run the generation process, do for example:
+
+```julia
+using DiffEqBenchmarks
+DiffEqBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
+```
+
+To generate all of the notebooks, do:
+
+```julia
+DiffEqBenchmarks.weave_all()
+```
+
+Each of the benchmarks displays the computer characteristics at the bottom of
+the benchmark. Since performance-necessary computations are normally performed on
+compute clusters, the official benchmarks use a workstation with an
+Intel Xeon CPU E5-2680 v4 @ 2.40GHz to match the performance characteristics of
+a standard node in a high performance computing (HPC) cluster or cloud computing
+setup.

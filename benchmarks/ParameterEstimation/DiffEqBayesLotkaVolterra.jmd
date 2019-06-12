@@ -1,0 +1,108 @@
+---
+title: Lotka-Volterra Bayesian Parameter Estimation Benchmarks
+author: Vaibhav Dixit, Chris Rackauckas
+---
+
+## Parameter Estimation of Lotka-Volterra Equation using DiffEqBayes.jl
+
+```julia
+using DiffEqBayes
+```
+
+```julia
+using Distributions
+using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainity
+using Plots
+using DiffEqMonteCarlo
+```
+
+```julia
+gr(fmt=:png)
+```
+
+#### Initializing the problem
+
+```julia
+f = @ode_def LotkaVolterraTest begin
+    dx = a*x - b*x*y
+    dy = -c*y + d*x*y
+end a b c d
+```
+
+```julia
+u0 = [1.0,1.0]
+tspan = (0.0,10.0)
+p = [1.5,1.0,3.0,1,0]
+```
+
+```julia
+prob = ODEProblem(f,u0,tspan,p)
+sol = solve(prob,Tsit5())
+```
+
+#### We take the solution data obtained and add noise to it to obtain data for using in the Bayesian Inference of the parameters
+
+```julia
+t = collect(range(1,stop=10,length=10))
+sig = 0.49
+data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(2)) for i in 1:length(t)]))
+```
+
+#### Plots of the actual data and generated data
+
+```julia
+scatter(t, data[1,:], lab="#prey (data)")
+scatter!(t, data[2,:], lab="#predator (data)")
+plot!(sol)
+```
+
+```julia
+priors = [Truncated(Normal(1.5,0.5),0.5,2.5),Truncated(Normal(1.2,0.5),0,2),Truncated(Normal(3.0,0.5),1,4),Truncated(Normal(1.0,0.5),0,2)]
+```
+
+#### We use the uncertainity quantification plots to decide the tolerance to be passed.
+
+```julia
+cb = AdaptiveProbIntsUncertainty(5)
+monte_prob = MonteCarloProblem(prob)
+sim = solve(monte_prob,Tsit5(),num_monte=100,callback=cb,reltol=1e-5,abstol=1e-5)
+plot(sim,vars=(0,1),linealpha=0.4)
+```
+
+### Parameter estimation with Stan.jl backend
+
+The solution converges for tolerance values lower than 1e-3, lower tolerance leads to better accuracy in result but is accompanied by longer warmup and sampling time, truncated normal priors are used for preventing Stan from stepping into negative values.
+
+```julia
+@time bayesian_result_stan = stan_inference(prob,t,data,priors;reltol=1e-5,abstol=1e-5,vars =(StanODEData(),InverseGamma(3,2)))
+```
+
+Plots of the chains generated to show convergence.
+
+```julia
+plot_chain(bayesian_result_stan)
+```
+
+### Parameter estimation with Turing.jl backend
+
+```julia
+@time bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors)
+```
+
+```julia
+plot_chain(bayesian_result_turing)
+```
+
+## Conclusion
+
+Lotka-Volterra Equation is a "predator-prey" model, it models population of two species in which one is the predator (wolf) and the other is the prey (rabbit). It depicts a cyclic behaviour, which is also seen in its Uncertainity Quantification Plots. This behaviour makes it easy to estimate even at very high tolerance values (1e-3).
+
+
+In case of Stan.jl backend we obtain quite accurate values by setting sufficiently low tolerance at 1e-5 and passing 500 warmup samples, because as evident from the plots as it didn't converge before it which was observed from multiple runs, which ensures both high accuracy within 1.84 minutes, 1.7 minutes for warmup sampling and 14 seconds for sampling. Decreasing the tolerance leads to more accurate results but at the cost of significant increase in time taken.
+
+Turing.jl backend implementation doesn't seem to have converged, inability to pass warmup samples is one of the drawbacks, the results obtained are quite accurate and it recorded 33.33 seconds.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

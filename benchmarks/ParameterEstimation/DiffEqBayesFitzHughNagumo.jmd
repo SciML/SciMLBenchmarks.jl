@@ -1,0 +1,90 @@
+---
+title: Fitzhugh-Nagumo Bayesian Parameter Estimation Benchmarks
+author: Vaibhav Dixit, Chris Rackauckas
+---
+
+```julia
+using DiffEqBayes, BenchmarkTools
+```
+
+```julia
+using OrdinaryDiffEq, RecursiveArrayTools, Distributions, ParameterizedFunctions, Mamba
+using Plots
+```
+
+```julia
+gr(fmt=:png)
+```
+
+### Defining the problem.
+
+The [FitzHugh-Nagumo model](https://en.wikipedia.org/wiki/FitzHugh%E2%80%93Nagumo_model) is a simplified version of [Hodgkin-Huxley model](https://en.wikipedia.org/wiki/Hodgkin%E2%80%93Huxley_model) and is used to describe an excitable system (e.g. neuron).
+
+```julia
+fitz = @ode_def FitzhughNagumo begin
+  dv = v - v^3/3 -w + l
+  dw = τinv*(v +  a - b*w)
+end a b τinv l
+```
+
+```julia
+prob_ode_fitzhughnagumo = ODEProblem(fitz,[1.0,1.0],(0.0,10.0),[0.7,0.8,1/12.5,0.5])
+sol = solve(prob_ode_fitzhughnagumo, Tsit5())
+```
+
+Data is genereated by adding noise to the solution obtained above.
+
+```julia
+t = collect(range(1,stop=10,length=10))
+sig = 0.20
+data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(2)) for i in 1:length(t)]))
+```
+
+### Plot of the data and the solution.
+
+```julia
+scatter(t, data[1,:])
+scatter!(t, data[2,:])
+plot!(sol)
+```
+
+### Priors for the parameters which will be passed for the Bayesian Inference
+
+```julia
+priors = [Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(0.0,0.5),-0.5,0.5),Truncated(Normal(0.5,0.5),0,1)]
+```
+
+## Parameter Estimation with Stan.jl backend
+
+```julia
+@time bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors;reltol=1e-5,abstol=1e-5,vars =(StanODEData(),InverseGamma(3,2)))
+```
+
+```julia
+plot_chain(bayesian_result_stan)
+```
+
+## Turing.jl backend
+
+```julia
+@time bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors)
+```
+
+```julia
+plot_chain(bayesian_result_turing)
+```
+
+# Conclusion
+
+In the FitzHugh-Nagumo model the parameters to be estimated were `[0.7,0.8,0.08,0.5]`. We use default number of samples and warmup to get a better estimate of the default performance of the samplers.
+
+Individually, using BenchmarkTools.jl for timing, Stan.jl backend took 64.541 seconds, giving `[0.98,0.83,0.079,0.56]`. Higher accuracy can be obtained with tighter priors, increase in warmup samples and adjusting the tolerance values.
+
+Turing.jl took 189.706 milli-seconds and gave `[0.88,0.88,0.017,0.49]` as the result. The the trace plots indicate some non-convergence, this can be handled by increasing the sampling size for longer iterations.
+
+Overall we observe some non-convergence in both the backends and to avoid it longer iterations would be required at the cost of effiency the choice of which depends on the user.
+
+```julia{echo=false}
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
