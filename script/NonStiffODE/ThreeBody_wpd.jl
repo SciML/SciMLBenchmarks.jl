@@ -103,13 +103,13 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
 
 
-setups = [Dict(:alg=>ode78())
-          Dict(:alg=>CVODE_Adams())];
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100)
+#setups = [Dict(:alg=>ode78())
+#          Dict(:alg=>CVODE_Adams())];
+#wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100)
 
 
 setups = [Dict(:alg=>DP5())
-          Dict(:alg=>lsoda())
+          #Dict(:alg=>lsoda())
           Dict(:alg=>Vern8())
           Dict(:alg=>ddeabm())
           Dict(:alg=>odex())

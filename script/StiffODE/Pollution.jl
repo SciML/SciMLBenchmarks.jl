@@ -226,7 +226,8 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          Dict(:alg=>lsoda())]
+          #Dict(:alg=>lsoda())
+          ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
@@ -288,7 +289,8 @@ setups = [Dict(:alg=>GRK4A()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          Dict(:alg=>lsoda())]
+          #Dict(:alg=>lsoda())
+          ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)

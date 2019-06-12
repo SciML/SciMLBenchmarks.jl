@@ -270,7 +270,7 @@ setups = [
     #Dict(:alg => radau()),
     #Dict(:alg => rodas()),
     #Dict(:alg => dop853()),
-    Dict(:alg => lsoda()),
+    #Dict(:alg => lsoda()),
 ];
 
 names = [
@@ -285,7 +285,7 @@ names = [
     #"radau",
     #"rodas",
     #"dop853",
-    "lsoda"
+    #"lsoda"
 ];
 
 
@@ -338,7 +338,7 @@ setups = [
     Dict(:alg => TRBDF2(autodiff=false)),
     #Dict(:alg => radau()),
     #Dict(:alg => rodas()),
-    Dict(:alg => lsoda())
+    #Dict(:alg => lsoda())
 ];
 
 names = [
@@ -349,7 +349,7 @@ names = [
     "TRBDF2",
     #"radau",
     #"rodas",
-    "lsoda"
+    #"lsoda"
 ];
 
 
@@ -481,7 +481,7 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
-    Dict(:alg => lsoda())
+    #Dict(:alg => lsoda())
 ];
 
 names = [
@@ -494,7 +494,7 @@ names = [
     "KenCarp4",
     "Kvaerno5",
     "KenCarp5",
-    "lsoda"
+    #"lsoda"
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
@@ -514,7 +514,7 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
-    Dict(:alg => lsoda())
+    #Dict(:alg => lsoda())
 ];
 
 names = [
@@ -527,7 +527,7 @@ names = [
     "KenCarp4",
     "Kvaerno5",
     "KenCarp5",
-    "lsoda"
+    #"lsoda"
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,

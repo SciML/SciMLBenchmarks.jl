@@ -49,11 +49,13 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Rodas3()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>radau())]
+          #Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())
+          #Dict(:alg=>ROCK2())    #Unstable
+          #Dict(:alg=>ROCK3())    #needs more iterations
+          ]
 gr()
-names = ["Rosenbrock23" "Rodas3" "TRBDF2" "rodas" "lsoda" "radau"]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=names,
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 
@@ -92,10 +94,11 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Rodas3()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
+          #Dict(:alg=>ROCK2())    #needs more iterations
+          #Dict(:alg=>ROCK3())    #needs more iterations
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rodas3" "TRBDF2" "rodas" "lsoda" "radau"]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=names,
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
 plot(wp)
 
@@ -122,12 +125,11 @@ setups = [Dict(:alg=>Rodas5()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
           Dict(:alg=>radau())
 
 ]
-names = ["Rodas5" "Rodas4P" "CVODE_BDF" "ddebdf" "Rodas4" "rodas" "lsoda" "radau"]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=names,
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 

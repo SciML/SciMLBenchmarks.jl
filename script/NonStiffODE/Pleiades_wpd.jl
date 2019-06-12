@@ -35,9 +35,9 @@ test_sol = TestSolution(sol);
 plot(sol)
 
 
-setups = [Dict(:alg=>ode45())]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=10000)
-plot(wp)
+#setups = [Dict(:alg=>ode45())]
+#wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=10000)
+#plot(wp)
 
 
 setups = [Dict(:alg=>DP5())
@@ -57,9 +57,9 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100,m
 plot(wp)
 
 
-setups = [Dict(:alg=>ode78())]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
-plot(wp)
+#setups = [Dict(:alg=>ode78())]
+#wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+#plot(wp)
 
 
 setups = [Dict(:alg=>DP8())
@@ -75,7 +75,7 @@ plot(wp)
 setups = [Dict(:alg=>odex())
           Dict(:alg=>Vern7())
           Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>lsoda())
+          #Dict(:alg=>lsoda())
           Dict(:alg=>Vern6())
           Dict(:alg=>Tsit5())
           Dict(:alg=>ddeabm())

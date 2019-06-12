@@ -55,7 +55,7 @@ setups = [Dict(:alg=>odex())
           Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
           Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>lsoda())
+          #Dict(:alg=>lsoda())
           Dict(:alg=>Vern6())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
           ]

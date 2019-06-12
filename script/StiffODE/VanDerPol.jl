@@ -60,9 +60,9 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "lsoda" "radau"]
+names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "radau"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
@@ -104,9 +104,9 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "lsoda" "radau"]
+names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "radau"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,error_estimator=:l2,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
@@ -134,9 +134,9 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "lsoda" "Rodas5"]
+names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "Rodas5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
@@ -183,9 +183,9 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          Dict(:alg=>lsoda()),
+          #Dict(:alg=>lsoda()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "lsoda" "Rodas5"]
+names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "Rodas5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
 plot(wp)
