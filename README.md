@@ -21,59 +21,59 @@ DiffEqBenchmarks.open_notebooks()
 The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/tree/master/)
 
 - Non-stiff ODEs
-  - [Linear Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/Linear%20Work-Precision%20Diagrams.ipynb)
-  - [Three-Body Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/ThreeBody%20Work-Precision%20Diagrams.ipynb)
-  - [Pleides Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/Pleiades%20Work-Precision%20Diagrams.ipynb)
-  - [Rigid Body Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/RigidBody%20Work-Precision%20Diagrams.ipynb)
-  - [Fizhugh-Nagumo Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/FitzhughNagumo%20Work-Precision%20Diagrams.ipynb)
-  - [Lotka-Volterra Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffODE/LotkaVolterra%20Work-Precision%20Diagrams.ipynb)
+  - [Linear Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/linear_wpd.html)
+  - [Three-Body Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/ThreeBody_wpd.html)
+  - [Pleides Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/Pleiades_wpd.html)
+  - [Rigid Body Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/RigidBody_wpd.html)
+  - [Fizhugh-Nagumo Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/FitzhughNagumo_wpd.html)
+  - [Lotka-Volterra Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/LotkaVolterra_wpd.html)
   - [Direct vs MATLAB Benchmark](https://github.com/JuliaDiffEq/MATLABDiffEq.jl#benchmark)
 - Stiff ODEs
-  - [Van der Pol Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/VanDerPol.ipynb)
-  - [ROBER Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/ROBER.ipynb)
-  - [Orego Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/Orego.ipynb)
-  - [Hires Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/Hires.ipynb)
-  - [Pollution Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/Pollution.ipynb)
-  - [Filament PDE Discretization Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffODE/Filament.ipynb)
+  - [Van der Pol Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/VanDerPol.html)
+  - [ROBER Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/ROBER.html)
+  - [Orego Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Orego.html)
+  - [Hires Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Hires.html)
+  - [Pollution Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Pollution.html)
+  - [Filament PDE Discretization Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Filament.html)
 - Dynamical ODEs
-  - [Single Pendulum Comparison Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/single_pendulums.ipynb)
-  - [Henon-Heiles Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.ipynb)
-  - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.ipynb)
+  - [Single Pendulum Comparison Benchmark](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/DynamicalODE/single_pendulums.html)
+  - [Henon-Heiles Energy Conservation Benchmark](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.html)
+  - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.html)
 - Nonstiff SDEs
-  - [Simple Nonstiff SDE Strong Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWorkPrecision.ipynb)
-  - [Simple Nonstiff SDE Weak Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/BasicSDEWeakWorkPrecision.ipynb)
-  - [Lotka-Volterra SDE Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonStiffSDE/LotkaVolterraSDE.ipynb)
+  - [Simple Nonstiff SDE Strong Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffSDE/BasicSDEWorkPrecision.html)
+  - [Simple Nonstiff SDE Weak Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffSDE/BasicSDEWeakWorkPrecision.html)
+  - [Lotka-Volterra SDE Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffSDE/LotkaVolterraSDE.html	)
 - Stiff SDEs
-  - [Stochastic Heat Equation Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/StochasticHeat.ipynb)
-  - [Quadratic Diffusion Noise Investigation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffSDE/QuadraticStiffness.ipynb)
-  - [Oval2 Long Run](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongRun.ipynb)
-  - [Oval2 Long Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2LongTimes.ipynb)
-  - [Oval2 Timings](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/Oval2Timings.ipynb)
+  - [Stochastic Heat Equation Investigation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffSDE/StochasticHeat.html)
+  - [Quadratic Diffusion Noise Investigation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffSDE/QuadraticStiffness.html)
+  - [Oval2 Long Run](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffSDE/Oval2LongRun.html)
+  - [Oval2 Long Timings](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffSDE/Oval2LongTimes.html)
+  - [Oval2 Timings](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffSDE/Oval2Timings.html)
 - Nonstiff DDEs
   - Constant Delay DDEs
-    - [Mackey and Glass Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Mackey%20and%20Glass.ipynb)
-    - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/NonstiffDDE/Wheldon%2C%20Kirk%2C%20and%20Finlay.ipynb)
+    - [Mackey and Glass Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffDDE/Mackey_Glass_wpd.html)
+    - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffDDE/Wheldon_Kirk_Finlay_wpd.html)
 - Stiff DDEs
-  - [Quorum Sensing Work-Precision Diagrams](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/StiffDDE/Quorum%20Sensing.ipynb)
+  - [Quorum Sensing Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffDDE/QuorumSensing.html)
 - Jump Equations
-  - [Diffusion Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/Diffusion_CTRW.ipynb)
-  - [Mendes Multistate Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/Mendes_multistate_example.ipynb)
-  - [Negative Feedback Gene Expression Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/NegFeedback_GeneExpr.ipynb)
-  - [Negative Feedback Marchetti Model](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/Jumps/NegFeedback_GeneExpr_Marchetti.ipynb)
+  - [Diffusion Model]()
+  - [Mendes Multistate Model]()
+  - [Negative Feedback Gene Expression Model]()
+  - [Negative Feedback Marchetti Model]()
 - Parameter Estimation
-  - [Lorenz Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LorenzParameterEstimation.ipynb)
-  - [Bayesian Lotka-Volterra Parameter Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesLotkaVolterra.ipynb)
-  - [Bayesian Lorenz Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesLorenz.ipynb)
-  - [Bayesian FitzHugh-Nagumo Equation Estimation](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/DiffEqBayesFitzHughNagumo.ipynb)
-  - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/LotkaVolterraParameterEstimation.ipynb)
-  - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/ParameterEstimation/FitzHughNagumoParameterEstimation.ipynb)
+  - [Lorenz Equation Parameter Estimation by Optimization Methods](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/LorenzParameterEstimation.html)
+  - [Bayesian Lotka-Volterra Parameter Estimation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/DiffEqBayesLotkaVolterra.html)
+  - [Bayesian Lorenz Equation Estimation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/DiffEqBayesLorenz.html)
+  - [Bayesian FitzHugh-Nagumo Equation Estimation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/DiffEqBayesFitzHughNagumo.html)
+  - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/LotkaVolterraParameterEstimation.html)
+  - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/FitzHughNagumoParameterEstimation.html)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
 - SDE Adaptivity
 
-  - [qmax Determination Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/qmaxDetermination.ipynb)
-  - [Adaptive Efficiency Tests](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/AdaptiveSDE/AdaptiveEfficiencyTests.ipynb)
+  - [qmax Determination Tests](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/AdaptiveSDE/qmaxDetermination.html)
+  - [Adaptive Efficiency Tests](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/AdaptiveSDE/AdaptiveEfficiencyTests.html)
 
 ## Current Summary
 
