@@ -201,7 +201,7 @@ function (f::FilamentCache)(dr, r, p, t)
     mul!(S1, A, r)
     S1 .+= F
     mul!(S2, P, S1)
-    copy!(dr, S2)
+    copyto!(dr, S2)
     return dr
 end
 ```
@@ -309,34 +309,34 @@ ODEInterfaceDiffEq solvers failed to run.
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => BS3()),
     Dict(:alg => Tsit5()),
-    #Dict(:alg => ImplicitEuler(autodiff=false)),
+    Dict(:alg => ImplicitEuler(autodiff=false)),
     Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => radau()),
-    #Dict(:alg => rodas()),
-    #Dict(:alg => dop853()),
+    Dict(:alg => radau()),
+    Dict(:alg => rodas()),
+    Dict(:alg => dop853()),
     #Dict(:alg => lsoda())
-];
+    ];
 
 names = [
-    #"CVODE-BDF",
+    "CVODE-BDF",
     "Rosenbrock23",
     "Rodas4",
     "BS3",
     "Tsit5",
-    #"ImplicitEuler",
+    "ImplicitEuler",
     "Trapezoid",
     "TRBDF2",
-    #"radau",
-    #"rodas",
-    #"dop853",
+    "radau",
+    "rodas",
+    "dop853",
     #"lsoda"
-];
+    ];
 
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
@@ -348,12 +348,12 @@ plot(wp)
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => ImplicitEuler(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => radau()),
+    Dict(:alg => radau()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
@@ -363,12 +363,12 @@ setups = [
 ];
 
 names = [
-    #"CVODE-BDF",
+    "CVODE-BDF",
     "Rosenbrock23",
     "Rodas4",
     "ImplicitEuler",
     "TRBDF2",
-    #"radau",
+    "radau",
     "KenCarp3",
     "KenCarp4",
     "Kvaerno3",
@@ -383,32 +383,59 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_
 plot(wp)
 ```
 
+```julia
+abstols=1 ./10 .^(3:8)
+reltols=1 ./10 .^(3:8)
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF(linear_solver=:GMRES)),
+    Dict(:alg => TRBDF2(autodiff=false)),
+    Dict(:alg => TRBDF2(autodiff=false,linsolve=LinSolveGMRES())),
+    Dict(:alg => KenCarp4(autodiff=false)),
+    Dict(:alg => KenCarp4(autodiff=false,linsolve=LinSolveGMRES())),
+];
+
+names = [
+    "CVODE-BDF",
+    "CVODE-BDF (GMRES)"
+    "TRBDF2",
+    "TRBDF2 (GMRES)",
+    "KenCarp4",
+    "KenCarp4 (GMRES)",
+];
+
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
+plot(wp)
+```
+
 ### Timeseries Error
 
 ```julia
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => radau()),
-    #Dict(:alg => rodas()),
+    Dict(:alg => radau()),
+    Dict(:alg => rodas()),
     #Dict(:alg => lsoda()),
     Dict(:alg => ROCK2()),
     Dict(:alg => ROCK4())
 ];
 
 names = [
-    #"CVODE-BDF",
+    "CVODE-BDF",
     "Rosenbrock23",
     "Rodas4",
     "Trapezoid",
     "TRBDF2",
-    #"radau",
-    #"rodas",
+    "radau",
+    "rodas",
     #"lsoda",
     "ROCK2"
     "ROCK4"
@@ -426,11 +453,11 @@ By looking at the previous plots, we can see that `TRBDF2` is the quicker one an
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => radau()),
+    Dict(:alg => radau()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
@@ -440,11 +467,11 @@ setups = [
 ];
 
 names = [
-    #"CVODE-BDF",
+    "CVODE-BDF",
     "Rosenbrock23",
     "Rodas4",
     "TRBDF2",
-    #"radau",
+    "radau",
     "KenCarp3",
     "KenCarp4",
     "Kvaerno3",
@@ -465,7 +492,7 @@ plot(wp)
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => Trapezoid(autodiff=false)),
@@ -475,7 +502,7 @@ setups = [
 ];
 
 names = [
-    #"CVODE-BDF",
+    "CVODE-BDF",
     "Rosenbrock23",
     "Rodas4",
     "Trapezoid",
@@ -531,21 +558,21 @@ plot(wp)
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => Vern7()),
     Dict(:alg => Vern9()),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => radau()),
-    #Dict(:alg => dop853())
+    Dict(:alg => radau()),
+    Dict(:alg => dop853())
 ];
 
 names = [
-    #"CVODE_BDF",
+    "CVODE_BDF",
     "Vern7",
     "Vern9",
     "TRBDF2",
-    #"radau",
-    #"dop853"
+    "radau",
+    "dop853"
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
@@ -557,8 +584,8 @@ plot(wp)
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
-    #Dict(:alg => radau()),
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => radau()),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
@@ -566,12 +593,13 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
+    Dict(:alg => Rodas5(autodiff=false)),
     #Dict(:alg => lsoda())
 ];
 
 names = [
-    #"CVODE_BDF",
-    #"radau",
+    "CVODE_BDF",
+    "radau",
     "TRBDF2",
     "Kvaerno3",
     "KenCarp3",
@@ -579,6 +607,7 @@ names = [
     "KenCarp4",
     "Kvaerno5",
     "KenCarp5",
+    "Rodas5",
     #"lsoda"
 ];
 
@@ -595,8 +624,8 @@ By looking at the previous plots, we can see that `KenCarp3` is the quicker one 
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
-    #Dict(:alg => radau()),
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => radau()),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
@@ -604,12 +633,13 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
+    Dict(:alg => Rodas5(autodiff=false)),
     #Dict(:alg => lsoda())
 ];
 
 names = [
-    #"CVODE_BDF",
-    #"radau",
+    "CVODE_BDF",
+    "radau",
     "TRBDF2",
     "Kvaerno3",
     "KenCarp3",
@@ -617,6 +647,7 @@ names = [
     "KenCarp4",
     "Kvaerno5",
     "KenCarp5",
+    "Rodas5",
     #"lsoda"
 ];
 
@@ -631,7 +662,7 @@ plot(wp)
 abstols=1 ./10 .^(6:12)
 reltols=1 ./10 .^(6:12)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
@@ -639,17 +670,19 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
+    Dict(:alg => Rodas5(autodiff=false)),
 ];
 
 names = [
-    #"CVODE_BDF",
+    "CVODE_BDF",
     "TRBDF2",
     "Kvaerno3",
     "KenCarp3",
     "Kvaerno4",
     "KenCarp4",
     "Kvaerno5",
-    "KenCarp5"
+    "KenCarp5",
+    "Rodas5"
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
@@ -680,10 +713,10 @@ test_sol = TestSolution(sol.t, sol.u);
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => rodas()),
-    #Dict(:alg => radau()),
+    Dict(:alg => rodas()),
+    Dict(:alg => radau()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
@@ -691,10 +724,10 @@ setups = [
 ];
 
 names = [
-    #"CVODE BDF",
+    "CVODE BDF",
     "TRBDF2",
-    #"rodas",
-    #"radau",
+    "rodas",
+    "radau",
     "KenCarp3",
     "Kvaerno4",
     "ROCK2",
@@ -709,31 +742,60 @@ plot(wp)
 
 It looks like `radau` fails on this problem with low accuracy if the Jacobian is not passed, so its values should be ignored since it exits early.
 
+```julia
+abstols=1 ./10 .^(3:8)
+reltols=1 ./10 .^(3:8)
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF(linear_solver=:GMRES)),
+    Dict(:alg => TRBDF2(autodiff=false)),
+    Dict(:alg => TRBDF2(autodiff=false,linsolve=LinSolveGMRES())),
+    Dict(:alg => KenCarp4(autodiff=false)),
+    Dict(:alg => KenCarp4(autodiff=false,linsolve=LinSolveGMRES())),
+];
+
+names = [
+    "CVODE-BDF",
+    "CVODE-BDF (GMRES)"
+    "TRBDF2",
+    "TRBDF2 (GMRES)",
+    "KenCarp4",
+    "KenCarp4 (GMRES)",
+];
+
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
+plot(wp)
+```
+
 ## Low Tolerance (High Accuracy)
 
 ```julia
 abstols=1 ./ 10 .^(6:12)
 reltols=1 ./ 10 .^(6:12)
 setups = [
-    #Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => TRBDF2(autodiff=false)),
-    #Dict(:alg => rodas()),
-    #Dict(:alg => radau()),
+    Dict(:alg => rodas()),
+    Dict(:alg => radau()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
+    Dict(:alg => ROCK4()),
+    Dict(:alg => Rodas5(autodiff=false)),
 ];
 
 names = [
-    #"CVODE BDF",
+    "CVODE BDF",
     "TRBDF2",
-    #"rodas",
-    #"radau",
+    "rodas",
+    "radau",
     "KenCarp3",
     "Kvaerno4",
     "ROCK2",
-    "ROCK4"
+    "ROCK4",
+    "Rodas5"
 ];
 
 
