@@ -1,6 +1,8 @@
 
 using OrdinaryDiffEq, DiffEqDevTools, ParameterizedFunctions, Plots, ODE, ODEInterfaceDiffEq, LSODA, Sundials
 gr() #gr(fmt=:png)
+using LinearAlgebra
+LinearAlgebra.BLAS.set_num_threads(1)
 
 f = @ode_def Orego begin
   dy1 = p1*(y2+y1*(1-p2*y1-y2))
