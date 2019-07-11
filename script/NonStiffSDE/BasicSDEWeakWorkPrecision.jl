@@ -4,7 +4,7 @@ using Plots; gr()
 using DiffEqProblemLibrary.SDEProblemLibrary: importsdeproblems; importsdeproblems()
 import DiffEqProblemLibrary.SDEProblemLibrary: prob_sde_additive,
             prob_sde_linear, prob_sde_wave
-const N = 100
+const N = 1000
 
 
 prob = prob_sde_additive
@@ -12,18 +12,17 @@ prob = prob_sde_additive
 reltols = 1.0 ./ 10.0 .^ (1:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 setups = [
-          Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
-          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
-          Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
-          Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          #Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
+          #Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          #Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          #Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRA1())
           Dict(:alg=>SRIW1())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
-                      maxiters = 1e7,
-                      parallel_type = :threads,
-                      error_estimate=:weak_final)
+                      parallel_type = :none,
+                      error_estimate=:weak_final)#
 plot(wp)
 
 
