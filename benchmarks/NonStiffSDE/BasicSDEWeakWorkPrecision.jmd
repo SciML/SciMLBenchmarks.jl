@@ -7,15 +7,15 @@ author: Chris Rackauckas
 
 In this notebook we will run some benchmarks for the weak error on some simple sample SDEs. The weak error is defined as:
 
-$$ E_W = \mathbb{E}[Y_\delta(t)] - \mathbb{E}[Y(t)] $$
+$$E_W = \mathbb{E}[Y_\delta(t)] - \mathbb{E}[Y(t)]$$
 
 and is thus a measure of how close the mean of the numerical solution is to the mean of the true solution. Other moments can be measured as well, but the mean is a good stand-in for other properties. Note that convergence of the mean is calculated on a sample. Thus there's acutally two sources of error. We have not only the error between the numerical and actual results, but we also have the error of the mean to the true mean due to only taking a finite sample. Using the normal confidence interval of the mean due to the Central Limit Theorem, the error due to finite sampling is
 
-$$ E_S = V[Y(t)]/\sqrt(N)$$
+$$E_S = V[Y(t)]/\sqrt(N)$$
 
 for $N$ being the number of samples. In practice,
 
-$$ E = minimum(E_W,E_S)$$
+$$E = minimum(E_W,E_S)$$
 
 Thus in each case, we will determine the variance of the true solution and use that to estimate the sample error, and the goal is to thus find the numerical method that achieves the sample error most efficiently.
 
@@ -30,13 +30,11 @@ const N = 1000
 
 ### Additive Noise Problem
 
-\begin{equation}
-dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
+$$dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+
 where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
-\begin{equation}
-X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).
-\end{equation}
+
+$$X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).$$
 
 ```julia
 prob = prob_sde_additive
@@ -106,13 +104,11 @@ plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10
 
 We will use a the linear SDE (also known as the Black-Scholes equation)
 
-\begin{equation}
-dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
+$$dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+
 where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
-\begin{equation}
-X_{t}=X_{0}e^{\left(\beta-\frac{\alpha^{2}}{2}\right)t+\alpha W_{t}}.
-\end{equation}
+
+$$X_{t}=X_{0}e^{\left(\beta-\frac{\alpha^{2}}{2}\right)t+\alpha W_{t}}.$$
 
 ```julia
 prob = prob_sde_linear
@@ -181,13 +177,11 @@ plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10
 
 ## Scalar Wave SDE
 
-\begin{equation}
-dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
+$$dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+
 Actual Solution:
-\begin{equation}
-X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).
-\end{equation}
+
+$$X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).$$
 
 ```julia
 prob = prob_sde_wave
