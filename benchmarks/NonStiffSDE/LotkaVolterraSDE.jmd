@@ -72,7 +72,7 @@ appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
 wp = WorkPrecisionSet(prob,abstols,reltols,setups,test_dt;
                                      maxiters = 1e7,
                                      verbose=false,save_everystep=false,
-                                     parallel_type = :threads,
+                                     parallel_type = :none,
                                      appxsol_setup = appxsol_setup,
                                      numruns_error=N,error_estimate=:weak_final)
 plot(wp;legend=:topleft)
@@ -80,10 +80,8 @@ plot(wp;legend=:topleft)
 
 ```julia
 sample_size = Int[10;1e2;1e3;1e4]
-test_dt = 1e-2
-appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
-se = get_sample_errors(prob,test_dt,appxsol_setup=appxsol_setup,
-parallel_type = :threads, numruns=sample_size, std_estimation_runs = Int(1e3))
+se = get_sample_errors(prob,setups[6],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
 ```
 
 ```julia
