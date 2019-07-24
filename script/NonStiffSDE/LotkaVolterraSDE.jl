@@ -58,23 +58,21 @@ appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
 wp = WorkPrecisionSet(prob,abstols,reltols,setups,test_dt;
                                      maxiters = 1e7,
                                      verbose=false,save_everystep=false,
-                                     parallel_type = :threads,
+                                     parallel_type = :none,
                                      appxsol_setup = appxsol_setup,
                                      numruns_error=N,error_estimate=:weak_final)
 plot(wp;legend=:topleft)
 
 
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-test_dt = 1e-2
-appxsol_setup = Dict(:alg=>SRIW1(),:abstol=>1e-4,:reltol=>1e-4)
-se = get_sample_errors(prob,test_dt,appxsol_setup=appxsol_setup,
-parallel_type = :threads, numruns=sample_size, std_estimation_runs = Int(1e3))
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[6],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
 
 
 plot(wp;legend=:topleft)
 times = [wp[i].times for i in 1:length(wp)]
 times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
-plot!([se[end];se[end]],times,color=:orange,linestyle=:dash,label="Sample Error: 10000",lw=3)
+plot!([se[end];se[end]],times,color=:orange,linestyle=:dash,label="Sample Error: 1000",lw=3)
 
 
 using DiffEqBenchmarks
