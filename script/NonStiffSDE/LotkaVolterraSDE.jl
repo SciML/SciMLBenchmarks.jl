@@ -65,7 +65,7 @@ plot(wp;legend=:topleft)
 
 
 sample_size = Int[10;1e2;1e3;1e4]
-se = get_sample_errors(prob,setups[6],numruns=sample_size,
+se = get_sample_errors(prob,setups[6],test_dt,numruns=sample_size,
                                       sample_error_runs = 100_000,solution_runs=100)
 
 
