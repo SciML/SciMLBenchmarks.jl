@@ -18,8 +18,6 @@ DiffEqBenchmarks.open_notebooks()
 
 ## Table of Contents
 
-The notebooks can be viewed remotely on Github or via [nbviewer](http://nbviewer.jupyter.org/github/JuliaDiffEq/DiffEqBenchmarks.jl/tree/master/)
-
 - Non-stiff ODEs
   - [Linear Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/linear_wpd.html)
   - [Three-Body Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/ThreeBody_wpd.html)
