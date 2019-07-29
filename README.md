@@ -180,6 +180,12 @@ using DiffEqBenchmarks
 DiffEqBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
 ```
 
+To generate all of the files in a folder, for example, run:
+
+```julia
+DiffEqBenchmarks.weave_folder("NonStiffODE")
+```
+
 To generate all of the notebooks, do:
 
 ```julia
