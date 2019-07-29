@@ -12,10 +12,10 @@ prob = prob_sde_additive
 reltols = 1.0 ./ 10.0 .^ (1:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
 setups = [
-          #Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
-          #Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
-          #Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
-          #Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1))
+          Dict(:alg=>RKMil(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          Dict(:alg=>SRIW1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
+          Dict(:alg=>SRA1(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           Dict(:alg=>SRA1())
           Dict(:alg=>SRIW1())
           ]
@@ -26,8 +26,9 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
 plot(wp)
 
 
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-se = get_sample_errors(prob,numruns=sample_size)
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[6],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
 
 
 times = [wp[i].times for i in 1:length(wp)]
@@ -49,12 +50,19 @@ setups = [
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
                       maxiters = 1e7,
-                      parallel_type = :threads,
+                      parallel_type = :none,
                       error_estimate=:weak_final)
 plot(wp)
+
+
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[4],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
+
+
 times = [wp[i].times for i in 1:length(wp)]
 times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
-plot!([2e-5;2e-5],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
+plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
 
 
 prob = prob_sde_linear
@@ -70,13 +78,14 @@ setups = [Dict(:alg=>SRIW1())
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
                       maxiters = 1e7,
-                      parallel_type = :threads,
+                      parallel_type = :none,
                       error_estimate=:weak_final)
 plot(wp)
 
 
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-se = get_sample_errors(prob,numruns=sample_size)
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[1],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
 
 
 times = [wp[i].times for i in 1:length(wp)]
@@ -100,11 +109,16 @@ setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
                       maxiters = 1e7,
-                      parallel_type = :threads,
+                      parallel_type = :none,
                       error_estimate=:weak_final)
 plot(wp)
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-se = get_sample_errors(prob,numruns=sample_size)
+
+
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[6],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
+
+
 times = [wp[i].times for i in 1:length(wp)]
 times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
 plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
@@ -125,13 +139,14 @@ setups = [
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
                       maxiters = 1e7,
-                      parallel_type = :threads,
+                      parallel_type = :none,
                       error_estimate=:weak_final)
 plot(wp)
 
 
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-se = get_sample_errors(prob,numruns=sample_size)
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[4],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
 
 
 times = [wp[i].times for i in 1:length(wp)]
@@ -155,11 +170,16 @@ setups = [Dict(:alg=>EM(),:dts=>1.0./5.0.^((1:length(reltols)) .+ 2))
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns_error=N,
                       save_everystep = false,
                       maxiters = 1e7,
-                      parallel_type = :threads,
+                      parallel_type = :none,
                       error_estimate=:weak_final)
 plot(wp)
-sample_size = Int[10;1e2;1e3;1e4;1e5]
-se = get_sample_errors(prob,numruns=sample_size)
+
+
+sample_size = Int[10;1e2;1e3;1e4]
+se = get_sample_errors(prob,setups[6],numruns=sample_size,
+                                      sample_error_runs = 100_000,solution_runs=100)
+
+
 times = [wp[i].times for i in 1:length(wp)]
 times = [minimum(minimum(t) for t in times),maximum(maximum(t) for t in times)]
 plot!([se[end];se[end]],times,color=:red,linestyle=:dash,label="Sample Error: 10000",lw=3)
