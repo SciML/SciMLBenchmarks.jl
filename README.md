@@ -32,7 +32,8 @@ DiffEqBenchmarks.open_notebooks()
   - [Orego Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Orego.html)
   - [Hires Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Pollution.html)
-  - [Filament PDE Discretization Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Filament.html)
+- Method of Lines PDEs
+  - [Filament PDE Discretization Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/MOLPDE/Filament.html)
 - Dynamical ODEs
   - [Single Pendulum Comparison Benchmark](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/DynamicalODE/single_pendulums.html)
   - [Henon-Heiles Energy Conservation Benchmark](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.html)
