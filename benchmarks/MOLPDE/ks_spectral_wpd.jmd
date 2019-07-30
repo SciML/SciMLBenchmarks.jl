@@ -1,5 +1,5 @@
 ---
-title: KdV Work-Precision Diagrams
+title: KS Pseudospectral Methods Work-Precision Diagrams
 author: HAO HAO
 ---
 
@@ -10,7 +10,7 @@ using LinearAlgebra
 using Plots; gr()
 ```
 
-Here is the Burgers equation using Fourier spectral methods.
+Here is the kuramoto_sivashinsky equation using Fourier spectral methods.
 
 ```julia
 S = Fourier()
@@ -21,27 +21,27 @@ D  = (Derivative(S) → S)[1:n,1:n]
 T = ApproxFun.plan_transform(S, n)
 Ti = ApproxFun.plan_itransform(S, n)
 
-D3  = (Derivative(S,3) → S)[1:n,1:n]
-û₀ = T*cos.(x)
-δ=0.022
-tmp = similar(û₀)
-p = (D,T,Ti,similar(tmp),tmp)
-function kdv(dû,û,p,t)
-    D,T,Ti,u,tmp = p
-    mul!(u,D,û)
-    mul!(tmp,Ti,u)
-    mul!(u,Ti,û)
-    @. tmp=u*tmp
-    mul!(u,T,tmp)
-    @.dû = 6*u
+D4 = Derivative(S,4)[1:n,1:n]
+û₀ = T*(cos.(x./16).*(1 .+ sin.(x./2.04)))
+tmp=similar(û₀)
+q = (D,T,Ti,tmp,similar(tmp),similar(tmp))
+function kuramoto_sivashinsky(dû,û,q,t)
+    D,T,Ti,tmp,u,uc = q
+    mul!(u, D, û)
+    mul!(tmp, Ti, u)
+    mul!(u, Ti, û)
+    @. tmp=tmp*u
+    mul!(u,T, tmp)
+    #mul!(uc, D2, û)
+    @. dû = - u
 end
 ```
 
-Reference solution using RadauIIA5 is below:
+Reference solution using Rodas5 is below:
 
 ```julia
-prob = SplitODEProblem(DiffEqArrayOperator(-D3), kdv, û₀, (0.0,5.0), p)
-sol  = solve(prob, RadauIIA5(autodiff=false); reltol=1e-14,abstol=1e-14)
+prob = SplitODEProblem(DiffEqArrayOperator(-Diagonal(D4+D2)), kuramoto_sivashinsky, û₀, (0.0,5.0), q)
+sol  = solve(prob,RadauIIA5(autodiff=false); reltol=1e-14,abstol=1e-14)
 test_sol = TestSolution(sol)
 
 tslices=[0.0 1.0 2.0 3.0 5.0]
@@ -52,6 +52,15 @@ plot(x,ys,label=labels)
 
 ## High tolerances
 
+```julia
+diag_linsolve=LinSolveFactorize(W->let tmp = tmp
+    for i in 1:size(W, 1)
+        tmp[i] = W[i, i]
+    end
+    Diagonal(tmp)
+end)
+```
+
 ## In-family comparisons
 
 1.IMEX methods (diagonal linear solver)
@@ -60,10 +69,10 @@ plot(x,ys,label=labels)
 abstols = 0.1 .^ (5:8)
 reltols = 0.1 .^ (1:4)
 multipliers =  0.5 .^ (0:3)
-setups = [Dict(:alg => IMEXEuler(linsolve=diag_linsolve), :dts => 1e-5 * multipliers),
-          Dict(:alg => CNAB2(linsolve=diag_linsolve), :dts => 5e-7 * multipliers),
-          Dict(:alg => CNLF2(linsolve=diag_linsolve), :dts => 5e-7 * multipliers),
-          Dict(:alg => SBDF2(linsolve=diag_linsolve), :dts => 1e-5 * multipliers)]
+setups = [Dict(:alg => IMEXEuler(linsolve=diag_linsolve), :dts => 1e-3 * multipliers),
+          Dict(:alg => CNAB2(linsolve=diag_linsolve), :dts => 5e-3 * multipliers),
+          Dict(:alg => CNLF2(linsolve=diag_linsolve), :dts => 5e-3 * multipliers),
+          Dict(:alg => SBDF2(linsolve=diag_linsolve), :dts => 1e-3 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
 @time wp1 = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true,names=labels,
@@ -97,7 +106,7 @@ plot(wp2, label=labels, markershape=:auto, title="ExpRK methods, low order")
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => CNAB2(linsolve=diag_linsolve), :dts => 5e-5 * multipliers),
+setups = [Dict(:alg => CNAB2(linsolve=diag_linsolve), :dts => 5e-3 * multipliers)
           Dict(:alg => ETDRK2(), :dts => 1e-2 * multipliers)]
 labels = ["CNAB2 (diagonal linsolve)" "ETDRK2"]
 @time wp3 = WorkPrecisionSet(prob,abstols,reltols,setups;
@@ -139,7 +148,7 @@ setups = [Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
           Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
           Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers)]
 labels = hcat("ETDRK3 (caching)", "ETDRK4 (caching)",
-              "HochOst4 (caching)")#,"ETDRK4 (m=5)" "ETDRK3 (m=5)" "HochOst4 (m=5)")
+              "HochOst4 (caching)")
 @time wp5 = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
