@@ -64,9 +64,10 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups,test_dt;
 plot(wp;legend=:topleft)
 
 
-sample_size = Int[10;1e2;1e3;1e4]
+sample_size = Int[10;1e2;1e3]
 se = get_sample_errors(prob,setups[6],test_dt,numruns=sample_size,
-                                      sample_error_runs = 100_000,solution_runs=100)
+                                      appxsol_setup = appxsol_setup,
+                                      sample_error_runs = 100_000,solution_runs=20)
 
 
 plot(wp;legend=:topleft)
