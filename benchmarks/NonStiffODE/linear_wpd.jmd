@@ -213,6 +213,19 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=solnames,
 plot(wp)
 ```
 
+## Comparison with Extrapolation methods
+
+Now let's test Tsit5 against parallel extrapolation methods:
+```julia
+setups = [Dict(:alg=>Tsit5())
+          Dict(:alg=>AitkenNeville(min_order=1, max_order=9, init_order=9, threading=true))
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=9, threading=true))]
+solnames = ["Tsit5";"AitkenNeville";"Midpoint Deuflhard"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
+plot(wp)
+```
+
 ## Conclusion
 
 DifferentialEquations's default choice of `Tsit5` does well for quick and easy
