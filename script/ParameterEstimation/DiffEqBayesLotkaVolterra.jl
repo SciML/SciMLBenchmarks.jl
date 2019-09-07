@@ -3,7 +3,7 @@ using DiffEqBayes
 
 
 using Distributions
-using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainity
+using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainty
 using Plots
 using DiffEqMonteCarlo
 
