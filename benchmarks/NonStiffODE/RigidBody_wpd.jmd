@@ -69,6 +69,24 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everyste
 plot(wp)
 ```
 
+## Comparison with Non-RK methods
+
+Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
+Adams-Bashforth-Moulton:
+
+```julia
+setups = [Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern9())
+          Dict(:alg=>VCABM())
+          Dict(:alg=>AitkenNeville(min_order=1, max_order=9, init_order=9, threading=true))
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=9, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=9, init_order=9, threading=true))]
+solnames = ["Tsit5";"AitkenNeville";"Midpoint Deuflhard";"Midpoint Hairer Wanner"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
+plot(wp)
+```
+
 ### Conclusion
 
 Once again, the OrdinaryDiffEq.jl pull far ahead in terms of speed and accuracy.

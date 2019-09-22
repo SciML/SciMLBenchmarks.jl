@@ -157,6 +157,24 @@ plot(wp)
 
 Again, on cheap function calculations the Adams methods are shown to not be efficient once the error is sufficiently small. Also, as seen in other places, the extrapolation methods do not fare as well as the Runge-Kutta methods.
 
+## Comparison with Non-RK methods
+
+Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
+Adams-Bashforth-Moulton:
+
+```julia
+setups = [Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern9())
+          Dict(:alg=>VCABM())
+          Dict(:alg=>AitkenNeville(min_order=1, max_order=9, init_order=9, threading=true))
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=9, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=9, init_order=9, threading=true))]
+solnames = ["Tsit5";"AitkenNeville";"Midpoint Deuflhard";"Midpoint Hairer Wanner"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
+plot(wp)
+```
+
 ### Conclusion
 
 As in the other tests, the OrdinaryDiffEq.jl algorithms with the Verner Efficient methods are the most efficient solvers at stringent tolerances for most of the tests, while the order 5 methods do well at cruder tolerances. ODE.jl fails to run the test problems without erroring.
