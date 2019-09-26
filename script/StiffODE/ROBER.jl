@@ -49,6 +49,13 @@ setups = [
           ]
 
 
+setups = [
+  #Dict(:alg=>Hairer4()),
+  #Dict(:alg=>Hairer42()),
+  #Dict(:alg=>Cash4()),
+]
+
+
 sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
 sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
 sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
@@ -189,17 +196,6 @@ setups = [Dict(:alg=>Rodas4P()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5()),
           Dict(:alg=>radau())]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-
-
-setups = [Dict(:alg=>Rodas3()),
-          Dict(:alg=>Hairer4()),
-          Dict(:alg=>Hairer42()),
-          Dict(:alg=>Cash4()),
-          Dict(:alg=>Rodas4()),
-          ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)

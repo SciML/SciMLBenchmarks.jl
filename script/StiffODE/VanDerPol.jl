@@ -57,6 +57,13 @@ setups = [
           ]
 
 
+setups = [
+  #Dict(:alg=>Hairer4()),
+  #Dict(:alg=>Hairer42()),
+  #Dict(:alg=>Cash4()),
+]
+
+
 sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
 sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
 sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
@@ -228,16 +235,12 @@ plot(wp)
 
 
 setups = [Dict(:alg=>Rodas3()),
-          Dict(:alg=>Hairer4()),
-          Dict(:alg=>Hairer42()),
           Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>Cash4()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>radau()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "Hairer4" "Hairer42" "CVODE_BDF" "Cash4" "Rodas4" "radau" "Rodas5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 
 
@@ -273,17 +276,12 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
-setups = [Dict(:alg=>Rodas3()),
-          Dict(:alg=>Hairer4()),
-          Dict(:alg=>Hairer42()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>Cash4()),
+setups = [Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>radau()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "Hairer4" "Hairer42" "CVODE_BDF" "Cash4" "Rodas4" "radau" "Rodas5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
+                      appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
 plot(wp)
 
 
