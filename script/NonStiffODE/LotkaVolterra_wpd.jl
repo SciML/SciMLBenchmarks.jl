@@ -55,7 +55,7 @@ setups = [Dict(:alg=>odex())
           Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
           Dict(:alg=>CVODE_Adams())
-          #Dict(:alg=>lsoda())
+          Dict(:alg=>lsoda())
           Dict(:alg=>Vern6())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
           ]
@@ -70,6 +70,40 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern6())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,dense=true,maxiters=1000,error_estimate=:L2,numruns=100)
+plot(wp)
+
+
+setups = [Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern9())
+          Dict(:alg=>VCABM())
+          Dict(:alg=>AitkenNeville(min_order=1, max_order=9, init_order=4, threading=true))
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=4, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))]
+solnames = ["Tsit5","Vern9","VCABM","AitkenNeville","Midpoint Deuflhard","Midpoint Hairer Wanner"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
+plot(wp)
+
+
+setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=9, threading=false))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=false))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, sequence = :romberg, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, sequence = :bulirsch, threading=true))]
+solnames = ["Deuflhard","No threads","standard","Romberg","Bulirsch"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
+plot(wp)
+
+
+setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=10, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=5, max_order=11, init_order=10, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=15, init_order=10, threading=true))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=5, max_order=7, init_order=6, threading=true))]
+solnames = ["1","2","3","4","5"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
+                      save_everystep=false,verbose=false,numruns=100)
 plot(wp)
 
 
