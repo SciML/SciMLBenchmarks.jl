@@ -47,9 +47,21 @@ sol = solve(prob,ARKODE(order=3,nonlinear_convergence_coefficient = 1e-5),abstol
 sol = solve(prob,ARKODE(order=5),abstol=1e-5,reltol=1e-1);
 
 
-solve(prob, ddebdf())
-solve(prob, rodas())
-solve(prob, radau())
+setups = [
+          #Dict(:alg=>ROCK2())    #Unstable
+          #Dict(:alg=>ROCK4())    #needs more iterations
+          #Dict(:alg=>ESERK5()),
+          ]
+
+
+sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
+sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
+sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+
+
+sol = solve(prob,PDIRK44(),dt=2.0^(-8));
+
+
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg=>Rosenbrock23()),
@@ -58,9 +70,9 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
           Dict(:alg=>lsoda()),
-          Dict(:alg=>ROCK2()),
-          Dict(:alg=>ROCK4())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -115,6 +127,21 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>Exprb43()),
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+
+
 abstols = 1.0 ./ 10.0 .^ (7:13)
 reltols = 1.0 ./ 10.0 .^ (4:10)
 
@@ -125,9 +152,8 @@ setups = [Dict(:alg=>GRK4A()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
           Dict(:alg=>lsoda()),
-          #Dict(:alg=>ROCK2()), #Needs more iterations
-          Dict(:alg=>ROCK4())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)

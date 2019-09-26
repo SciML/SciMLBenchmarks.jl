@@ -50,23 +50,45 @@ sol = solve(prob,ARKODE(order=5,nonlinear_convergence_coefficient = 1e-3),abstol
 sol = solve(prob,ARKODE(order=5,nonlinear_convergence_coefficient = 1e-4),abstol=1e-4,reltol=1e-1);
 
 
+setups = [
+          #Dict(:alg=>ROCK2())    #Unstable
+          #Dict(:alg=>ROCK4())    #needs more iterations
+          #Dict(:alg=>ESERK5()),
+          ]
+
+
+sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
+sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
+sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+
+
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 
-solve(prob, ddebdf())
-solve(prob, rodas())
-solve(prob, radau())
 setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rodas4()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>rodas()),
-          #Dict(:alg=>lsoda()),
+          Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "radau"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
+plot(wp)
+
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rodas3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          ]
+gr()
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 
 
@@ -97,20 +119,48 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          #Dict(:alg=>QNDF()), # ???
+          #Dict(:alg=>Exprb43()), # Diverges
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+
+
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 
 setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rodas3()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>rodas()),
-          #Dict(:alg=>lsoda()),
+          Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rodas3" "CVODE_BDF" "TRBDF2" "ddebdf" "rodas" "radau"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,error_estimator=:l2,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
+                      error_estimator=:l2,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
+plot(wp)
+
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rodas3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          ]
+gr()
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;error_estimator=:l2,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 
 
@@ -127,6 +177,21 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          #Dict(:alg=>QNDF()), # ???
+          #Dict(:alg=>Exprb43()), # Diverges
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;error_estimator=:l2,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+
+
 abstols = 1.0 ./ 10.0 .^ (7:11)
 reltols = 1.0 ./ 10.0 .^ (4:8)
 setups = [Dict(:alg=>Rodas3()),
@@ -136,11 +201,11 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          #Dict(:alg=>lsoda()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "Rodas5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 
 
@@ -176,8 +241,8 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
-abstols = 1.0 ./ 10.0 .^ (7:10)
-reltols = 1.0 ./ 10.0 .^ (4:7)
+abstols = 1.0 ./ 10.0 .^ (7:11)
+reltols = 1.0 ./ 10.0 .^ (4:8)
 setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>GRK4A()),
           Dict(:alg=>Rodas4P()),
@@ -185,11 +250,11 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          #Dict(:alg=>lsoda()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
           Dict(:alg=>Rodas5())]
-names = ["Rodas3" "GRK4A" "Rodas4P" "CVODE_BDF" "Rodas4" "rodas" "radau" "Rodas5"]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names=names,appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;error_estimate=:l2,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 
 
