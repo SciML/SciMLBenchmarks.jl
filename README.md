@@ -177,6 +177,7 @@ over the set of tested equations and some specific examples may differ.
 All of the files are generated from the Weave.jl files in the `benchmarks` folder. To run the generation process, do for example:
 
 ```julia
+]activate DiffEqBenchmarks # Get all of the packages
 using DiffEqBenchmarks
 DiffEqBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
 ```
