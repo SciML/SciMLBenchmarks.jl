@@ -217,9 +217,18 @@ plot(sol,tspan=(0.0,5.0))
 #end
 
 
-solve(prob, ddebdf())
-solve(prob, rodas())
-solve(prob, radau())
+setups = [
+#Dict(:alg=>ROCK2()),
+#Dict(:alg=>ROCK4())
+#Dict(:alg=>ESERK5())
+]
+
+
+sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
+sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
+sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+
+
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg=>Rosenbrock23()),
@@ -228,7 +237,8 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          #Dict(:alg=>lsoda())
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -281,6 +291,21 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 plot(wp)
 
 
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          #Dict(:alg=>QNDF()),
+          Dict(:alg=>Exprb43()),
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+plot(wp)
+
+
 abstols = 1.0 ./ 10.0 .^ (7:13)
 reltols = 1.0 ./ 10.0 .^ (4:10)
 
@@ -291,7 +316,7 @@ setups = [Dict(:alg=>GRK4A()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          #Dict(:alg=>lsoda())
+          Dict(:alg=>lsoda())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
