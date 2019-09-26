@@ -233,14 +233,30 @@ comparable dts (or on some computers errors due to type conversions).
 #end
 ```
 
+The stabilized explicit methods fail.
+
+```julia
+setups = [
+#Dict(:alg=>ROCK2()),
+#Dict(:alg=>ROCK4())
+#Dict(:alg=>ESERK5())
+]
+```
+
+The EPIRK and exponential methods also fail:
+
+```julia
+sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
+sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
+sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+```
+
+
 ## High Tolerances
 
 This is the speed when you just want the answer.
 
 ```julia
-solve(prob, ddebdf())
-solve(prob, rodas())
-solve(prob, radau())
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg=>Rosenbrock23()),
@@ -249,7 +265,8 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          Dict(:alg=>lsoda())
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -305,6 +322,22 @@ setups = [Dict(:alg=>Rosenbrock23()),
 names = ["Rosenbrock23" "KenCarp5" "KenCarp4" "KenCarp3" "ARKODE5" "ARKODE4" "ARKODE3"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          #Dict(:alg=>QNDF()),
+          Dict(:alg=>Exprb43()),
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
 plot(wp)
 ```
 

@@ -59,14 +59,22 @@ comparable dts (or on some computers errors due to type conversions).
 #end
 ```
 
+The stabilized explicit methods are not stable enough to handle this problem
+well. While they don't diverge, they are really slow.
+
+```julia
+setups = [
+#Dict(:alg=>ROCK2()),
+#Dict(:alg=>ROCK4())
+#Dict(:alg=>ESERK5())
+]
+```
+
 ## High Tolerances
 
 This is the speed when you just want the answer.
 
 ```julia
-solve(prob, ddebdf())
-solve(prob, rodas())
-solve(prob, radau())
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg=>Rosenbrock23()),
@@ -75,9 +83,9 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
           Dict(:alg=>lsoda()),
-          Dict(:alg=>ROCK2()),
-          Dict(:alg=>ROCK4())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -142,6 +150,22 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;dense = false,verbose=false,
 plot(wp)
 ```
 
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          #Dict(:alg=>ImplicitDeuflhardExtrapolation()), # Diverges
+          #Dict(:alg=>ImplicitHairerWannerExtrapolation()), # Diverges
+          Dict(:alg=>ABDF2()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>Exprb43()),
+          Dict(:alg=>Exprb32()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+plot(wp)
+```
+
 ### Low Tolerances
 
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
@@ -158,8 +182,7 @@ setups = [Dict(:alg=>GRK4A()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
           Dict(:alg=>lsoda()),
-          #Dict(:alg=>ROCK2()),   #Needs more iterations
-          Dict(:alg=>ROCK4())
+          Dict(:alg=>RadauIIA5()),
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
@@ -240,7 +263,7 @@ The following algorithms were removed since they failed.
 
 ### Conclusion
 
-At high tolerances, `Rosenbrock23` and `lsoda` hitsthe the error estimates and are fast. At lower tolerances and normal user tolerances, `Rodas5` is extremely fast. When you get down to `reltol=1e-10` `radau` begins to become as efficient as `Rodas4`, and it continues to do well below that.
+At high tolerances, `Rosenbrock23` and `lsoda` hits the the error estimates and are fast. At lower tolerances and normal user tolerances, `Rodas5` is extremely fast. When you get down to `reltol=1e-10` `radau` begins to become as efficient as `Rodas4`, and it continues to do well below that.
 
 ```julia{echo=false}
 using DiffEqBenchmarks
