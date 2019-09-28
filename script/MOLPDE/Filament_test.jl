@@ -247,8 +247,7 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg=>Exprb43(autodiff=false)),
-    Dict(:alg=>Exprb32(autodiff=false)),
+    Dict(:alg=>ImplicitEulerExtrapolation(autodiff=false)),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -260,20 +259,8 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg=>ImplicitEulerExtrapolation()),
-    ];
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
-                      maxiters=Int(1e6), verbose = false)
-plot(wp)
-
-
-abstols=1 ./10 .^(3:8)
-reltols=1 ./10 .^(3:8)
-setups = [
-    Dict(:alg => CVODE_BDF()),
-    Dict(:alg=>ImplicitDeuflhardExtrapolation()),
-    Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+    Dict(:alg=>ImplicitDeuflhardExtrapolation(autodiff=false)),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff=false)),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
