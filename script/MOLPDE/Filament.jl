@@ -270,26 +270,10 @@ setups = [
     Dict(:alg => radau()),
     Dict(:alg => rodas()),
     Dict(:alg => dop853()),
-    #Dict(:alg => lsoda())
+    Dict(:alg => lsoda())
     ];
 
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "BS3",
-    "Tsit5",
-    "ImplicitEuler",
-    "Trapezoid",
-    "TRBDF2",
-    "radau",
-    "rodas",
-    "dop853",
-    #"lsoda"
-    ];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
 
@@ -298,36 +282,18 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg => Rosenbrock23(autodiff=false)),
-    Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => ImplicitEuler(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => radau()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "ImplicitEuler",
-    "TRBDF2",
-    "radau",
-    "KenCarp3",
-    "KenCarp4",
-    "Kvaerno3",
-    "Kvaerno4",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
 
@@ -352,7 +318,6 @@ names = [
     "KenCarp4 (GMRES)",
 ];
 
-
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
@@ -362,68 +327,20 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg => Rosenbrock23(autodiff=false)),
-    Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => radau()),
     Dict(:alg => rodas()),
-    #Dict(:alg => lsoda()),
-    Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
-];
-
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "Trapezoid",
-    "TRBDF2",
-    "radau",
-    "rodas",
-    #"lsoda",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol, dense = false,
-                      maxiters=Int(1e6), verbose = false, error_estimate=:l2)
-plot(wp)
-
-
-abstols=1 ./10 .^(3:8)
-reltols=1 ./10 .^(3:8)
-setups = [
-    Dict(:alg => CVODE_BDF()),
-    Dict(:alg => Rosenbrock23(autodiff=false)),
-    Dict(:alg => Rodas4(autodiff=false)),
-    Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => radau()),
+    Dict(:alg => lsoda()),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "TRBDF2",
-    "radau",
-    "KenCarp3",
-    "KenCarp4",
-    "Kvaerno3",
-    "Kvaerno4",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
 
@@ -432,60 +349,17 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg => Rosenbrock23(autodiff=false)),
-    Dict(:alg => Rodas4(autodiff=false)),
-    Dict(:alg => Trapezoid(autodiff=false)),
-    Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
-];
-
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "Trapezoid",
-    "TRBDF2",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol, dense=true,
-                      maxiters=Int(1e6), verbose = false, dense_errors = true, error_estimate=:L2)
-plot(wp)
-
-
-abstols=1 ./10 .^(3:8)
-reltols=1 ./10 .^(3:8)
-setups = [
-    Dict(:alg => CVODE_BDF()),
-    Dict(:alg => Rosenbrock23(autodiff=false)),
-    Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE-BDF",
-    "Rosenbrock23",
-    "Rodas4",
-    "TRBDF2",
-    "KenCarp3",
-    "KenCarp4",
-    "Kvaerno3",
-    "Kvaerno4",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, dense_errors = true, error_estimate=:L2)
 plot(wp)
 
@@ -497,20 +371,12 @@ setups = [
     Dict(:alg => Vern7()),
     Dict(:alg => Vern9()),
     Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => radau()),
-    Dict(:alg => dop853())
+    Dict(:alg => dop853()),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE_BDF",
-    "Vern7",
-    "Vern9",
-    "TRBDF2",
-    "radau",
-    "dop853"
-];
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
 
@@ -520,6 +386,7 @@ reltols=1 ./10 .^(6:12)
 setups = [
     Dict(:alg => CVODE_BDF()),
     Dict(:alg => radau()),
+    Dict(:alg => RadauIIA5()),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
@@ -527,25 +394,12 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
-    Dict(:alg => Rodas5(autodiff=false)),
-    #Dict(:alg => lsoda())
+    Dict(:alg => lsoda()),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE_BDF",
-    "radau",
-    "TRBDF2",
-    "Kvaerno3",
-    "KenCarp3",
-    "Kvaerno4",
-    "KenCarp4",
-    "Kvaerno5",
-    "KenCarp5",
-    "Rodas5",
-    #"lsoda"
-];
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                                     maxiters=Int(1e6), verbose = false)
 plot(wp)
 
@@ -562,25 +416,12 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
-    Dict(:alg => Rodas5(autodiff=false)),
-    #Dict(:alg => lsoda())
+    Dict(:alg => lsoda()),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE_BDF",
-    "radau",
-    "TRBDF2",
-    "Kvaerno3",
-    "KenCarp3",
-    "Kvaerno4",
-    "KenCarp4",
-    "Kvaerno5",
-    "KenCarp5",
-    "Rodas5",
-    #"lsoda"
-];
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, error_estimate = :l2)
 plot(wp)
 
@@ -596,22 +437,12 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno5(autodiff=false)),
     Dict(:alg => KenCarp5(autodiff=false)),
-    Dict(:alg => Rodas5(autodiff=false)),
+    Dict(:alg => lsoda()),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE_BDF",
-    "TRBDF2",
-    "Kvaerno3",
-    "KenCarp3",
-    "Kvaerno4",
-    "KenCarp4",
-    "Kvaerno5",
-    "KenCarp5",
-    "Rodas5"
-];
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false, dense_errors=true, error_estimate = :L2)
 plot(wp)
 
@@ -630,29 +461,38 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
+    Dict(:alg => BS3()),
+    Dict(:alg => Tsit5()),
+    Dict(:alg => ImplicitEuler(autodiff=false)),
+    Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => rodas()),
-    Dict(:alg => radau()),
+    Dict(:alg => dop853()),
+    Dict(:alg => lsoda())
+    ];
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
+plot(wp)
+
+
+abstols=1 ./10 .^(3:8)
+reltols=1 ./10 .^(3:8)
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => ImplicitEuler(autodiff=false)),
+    Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
+    Dict(:alg => KenCarp4(autodiff=false)),
+    Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
     Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4())
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE BDF",
-    "TRBDF2",
-    "rodas",
-    "radau",
-    "KenCarp3",
-    "Kvaerno4",
-    "ROCK2",
-    "ROCK4"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
-                      maxiters=Int(1e6), verbose = true,numruns = 10)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
 plot(wp)
 
 
@@ -676,41 +516,31 @@ names = [
     "KenCarp4 (GMRES)",
 ];
 
-
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
 plot(wp)
 
 
-abstols=1 ./ 10 .^(6:12)
-reltols=1 ./ 10 .^(6:12)
+abstols=1 ./10 .^(6:12)
+reltols=1 ./10 .^(6:12)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => rodas()),
     Dict(:alg => radau()),
+    Dict(:alg => RadauIIA5()),
+    Dict(:alg => TRBDF2(autodiff=false)),
+    Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => KenCarp3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
-    Dict(:alg => ROCK2()),
+    Dict(:alg => KenCarp4(autodiff=false)),
+    Dict(:alg => Kvaerno5(autodiff=false)),
+    Dict(:alg => KenCarp5(autodiff=false)),
+    Dict(:alg => lsoda()),
     Dict(:alg => ROCK4()),
-    Dict(:alg => Rodas5(autodiff=false)),
+    Dict(:alg => ESERK5())
 ];
 
-names = [
-    "CVODE BDF",
-    "TRBDF2",
-    "rodas",
-    "radau",
-    "KenCarp3",
-    "Kvaerno4",
-    "ROCK2",
-    "ROCK4",
-    "Rodas5"
-];
-
-
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
-                      maxiters=Int(1e6), verbose = true,numruns = 10)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
+                                    maxiters=Int(1e6), verbose = false)
 plot(wp)
 
 
