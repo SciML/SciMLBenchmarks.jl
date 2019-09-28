@@ -270,7 +270,7 @@ setups = [
     Dict(:alg => radau()),
     Dict(:alg => rodas()),
     Dict(:alg => dop853()),
-    #Dict(:alg => lsoda())
+    Dict(:alg => lsoda())
     ];
 
 names = [
@@ -285,7 +285,7 @@ names = [
     "radau",
     "rodas",
     "dop853",
-    #"lsoda"
+    "lsoda"
     ];
 
 
@@ -328,7 +328,7 @@ names = [
 
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names=names, appxsol=test_sol,
-                      maxiters=Int(1e6), verbose = false)
+                      maxiters=Int(1e6), print_names = true, verbose = false)
 plot(wp)
 
 
@@ -368,7 +368,7 @@ setups = [
     Dict(:alg => TRBDF2(autodiff=false)),
     Dict(:alg => radau()),
     Dict(:alg => rodas()),
-    #Dict(:alg => lsoda()),
+    Dict(:alg => lsoda()),
     Dict(:alg => ROCK2()),
     Dict(:alg => ROCK4())
 ];
