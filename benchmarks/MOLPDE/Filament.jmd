@@ -302,7 +302,7 @@ test_sol = TestSolution(sol);
 
 ## Omissions
 
-```julia
+```julia;eval=false
 abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
@@ -310,6 +310,8 @@ setups = [
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
     Dict(:alg => radau()),
+    Dict(:alg=>Exprb43(autodiff=false)),
+    Dict(:alg=>Exprb32(autodiff=false)),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -317,10 +319,12 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
 plot(wp)
 ```
 
-Rosenbrock23, Rodas4, and Rodas5 do not perform well at all and are thus
-dropped from future tests. It looks like `radau` fails on this problem with
-high tolerance so its values should be ignored since it exits early. It is thus
-removed from the next sections.
+Rosenbrock23, Rodas4, Exprb32, Exprb43, and Rodas5 do not perform well at all
+and are thus dropped from future tests. For reference, they are in the 10^(2.5)
+range in for their most accurate run, so about 500x slower than CVODE_BDF and
+thus make the benchmarks take forever. It looks like `radau` fails on this
+problem with high tolerance so its values should be ignored since it exits
+early. It is thus removed from the next sections.
 
 The EPIRK methods currently do not work on this problem
 
