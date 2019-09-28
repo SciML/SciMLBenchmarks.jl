@@ -233,19 +233,6 @@ function LDLt_inplace!(L::LinearAlgebra.LDLt{T,SymTridiagonal{T}}, A::Matrix{T})
 end
 
 
-function run(::SolverDiffEq; N=20, Cm=32, ω=200, time_end=1., solver=TRBDF2(autodiff=false), reltol=1e-6, abstol=1e-6)
-    f = FilamentCache(N, Solver=SolverDiffEq, Cm=Cm, ω=ω)
-    r0 = initialize!(:StraightX, f)
-    stiffness_matrix!(f)
-    prob = ODEProblem(ODEFunction(f, jac=(J, u, p, t)->(mul!(J, f.P.P, f.A); nothing)), r0, (0., time_end))
-    sol = solve(prob, solver, dense=false, reltol=reltol, abstol=abstol)
-end
-
-
-sol = run(SolverDiffEq())
-plot(sol,vars = (0,25))
-
-
 N=20
 f = FilamentCache(N, Solver=SolverDiffEq)
 r0 = initialize!(:StraightX, f)
@@ -260,8 +247,8 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg=>Exprb43()),
-    Dict(:alg=>Exprb32()),
+    Dict(:alg=>Exprb43(autodiff=false)),
+    Dict(:alg=>Exprb32(autodiff=false)),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -274,8 +261,6 @@ reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
     Dict(:alg=>ImplicitEulerExtrapolation()),
-    Dict(:alg=>ImplicitDeuflhardExtrapolation()),
-    Dict(:alg=>ImplicitHairerWannerExtrapolation()),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -283,13 +268,12 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
 plot(wp)
 
 
-abstols=1 ./10 .^(3:5)
-reltols=1 ./10 .^(3:5)
+abstols=1 ./10 .^(3:8)
+reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
-    Dict(:alg => HochOst4(),:dts=>),
-    Dict(:alg => EPIRK4s3B(),:dts=>),
-    Dict(:alg => EXPRB53s3(),:dts=>),
+    Dict(:alg=>ImplicitDeuflhardExtrapolation()),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation()),
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
