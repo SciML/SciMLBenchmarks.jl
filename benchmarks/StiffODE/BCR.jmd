@@ -8,7 +8,8 @@ stiff chemical reaction network.
 
 ```julia
 using ReactionNetworkImporters, OrdinaryDiffEq, DiffEqBiological,
-      Sundials, Plots
+      Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
+      LSODA
 gr()
 prnbng = loadrxnetwork(BNGNetwork(), "BNGRepressilator",
                        joinpath(pathof(ReactionNetworkImporters),"..","..",
@@ -23,12 +24,6 @@ sparsejac_rn = deepcopy(prnbng.rn)
 addodes!(sparsejac_rn; build_jac=true, sparse_jac = true, build_symfuncs=false, build_paramjac=false)
 tf = 100000.0
 sparsejacprob = ODEProblem(sparsejac_rn, prnbng.u₀, (0.,tf), prnbng.p);
-
-# For testing matrix coloring
-sparse_rn = deepcopy(prnbng.rn)
-addodes!(sparse_rn; build_jac=true, sparese_jac = true, build_symfuncs=false, build_paramjac=false)
-tf = 100000.0
-sparseprob = ODEProblem(sparse_rn, prnbng.u₀, (0.,tf), prnbng.p);
 ```
 
 ```julia
@@ -51,11 +46,16 @@ behavior (capturing the oscillation is the key!).
 ## Generate Test Solution
 
 ```julia
-sol = solve(prob,CVODE_BDF(),abstol=1/10^12,reltol=1/10^12)
+@time sol = solve(oprob,CVODE_BDF(),abstol=1/10^12,reltol=1/10^12)
 test_sol = TestSolution(sol)
 ```
 
 ## Dense + Automatic Jacobian Solves
+
+Due to the computational cost of the problem, we are only going to focus on the
+methods which demonstrated computational efficiency on the smaller biochemical
+benchmark problems. This excludes the exponential integrator, stabilized explicit,
+and extrapolation classes of methods.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
@@ -65,6 +65,9 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5()),
+          Dict(:alg=>KenCarp4()),
           Dict(:alg=>RadauIIA5()),
           Dict(:alg=>ROS34PW1a()),
           Dict(:alg=>lsoda()),
@@ -74,9 +77,24 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;error_estimate=:l2,
 plot(wp)
 ```
 
-```julia
-sol = solve(oprob, CVODE_BDF(), saveat=tf/10000., reltol=1e-5, abstol=1e-5)
-plot(sol,legend=false)
-```
-
 ## Sparse + Analytical Jacobian
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (5:8);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
+plot(wp)
+```
