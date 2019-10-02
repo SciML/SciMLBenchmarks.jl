@@ -262,15 +262,51 @@ setups = [
     Dict(:alg => CVODE_BDF()),
     Dict(:alg => Rosenbrock23(autodiff=false)),
     Dict(:alg => Rodas4(autodiff=false)),
+    Dict(:alg => radau()),
+    Dict(:alg=>Exprb43(autodiff=false)),
+    Dict(:alg=>Exprb32(autodiff=false)),
+    Dict(:alg=>ImplicitEulerExtrapolation(autodiff=false)),
+    Dict(:alg=>ImplicitDeuflhardExtrapolation(autodiff=false)),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff=false)),
+    ];
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
+plot(wp)
+
+
+sol = solve(prob, EPIRK4s3B(autodiff=false), dt=2^-3)
+
+
+abstols=1 ./10 .^(3:5)
+reltols=1 ./10 .^(3:5)
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => HochOst4(),:dts=>2.0.^(-3:-1:-5)),
+    Dict(:alg => EPIRK4s3B(),:dts=>2.0.^(-3:-1:-5)),
+    Dict(:alg => EXPRB53s3(),:dts=>2.0.^(-3:-1:-5)),
+    ];
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
+                      maxiters=Int(1e6), verbose = false)
+plot(wp)
+
+
+abstols=1 ./10 .^(3:8)
+reltols=1 ./10 .^(3:8)
+setups = [
+    Dict(:alg => CVODE_BDF()),
     Dict(:alg => BS3()),
     Dict(:alg => Tsit5()),
     Dict(:alg => ImplicitEuler(autodiff=false)),
     Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => radau()),
     Dict(:alg => rodas()),
     Dict(:alg => dop853()),
-    Dict(:alg => lsoda())
+    Dict(:alg => lsoda()),
+    Dict(:alg => ROCK2()),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => ESERK5())
     ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -288,9 +324,9 @@ setups = [
     Dict(:alg => KenCarp4(autodiff=false)),
     Dict(:alg => Kvaerno3(autodiff=false)),
     Dict(:alg => Kvaerno4(autodiff=false)),
-    Dict(:alg => ROCK2()),
-    Dict(:alg => ROCK4()),
-    Dict(:alg => ESERK5())
+    Dict(:alg => ABDF2(autodiff=false)),
+    Dict(:alg => QNDF(autodiff=false)),
+    Dict(:alg => RadauIIA5(autodiff=false)),
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
@@ -480,16 +516,18 @@ abstols=1 ./10 .^(3:8)
 reltols=1 ./10 .^(3:8)
 setups = [
     Dict(:alg => CVODE_BDF()),
+    Dict(:alg => BS3()),
+    Dict(:alg => Tsit5()),
     Dict(:alg => ImplicitEuler(autodiff=false)),
+    Dict(:alg => Trapezoid(autodiff=false)),
     Dict(:alg => TRBDF2(autodiff=false)),
-    Dict(:alg => KenCarp3(autodiff=false)),
-    Dict(:alg => KenCarp4(autodiff=false)),
-    Dict(:alg => Kvaerno3(autodiff=false)),
-    Dict(:alg => Kvaerno4(autodiff=false)),
+    Dict(:alg => rodas()),
+    Dict(:alg => dop853()),
+    Dict(:alg => lsoda()),
     Dict(:alg => ROCK2()),
     Dict(:alg => ROCK4()),
     Dict(:alg => ESERK5())
-];
+    ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol,
                       maxiters=Int(1e6), verbose = false)
