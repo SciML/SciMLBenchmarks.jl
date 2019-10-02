@@ -32,7 +32,7 @@ DiffEqBenchmarks.open_notebooks()
   - [Orego Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Orego.html)
   - [Hires Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/Pollution.html)
-  - [BCR (1122 ODE) Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/BCF.html)
+  - [BCR (1122 ODE) Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffODE/BCR.html)
 - Method of Lines PDEs
   - [Filament PDE Discretization Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/MOLPDE/Filament.html)
   - [Allen-Cahn Finite Difference Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/MOLPDE/allen_cahn_fdm_wpd.html)
