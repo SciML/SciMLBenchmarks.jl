@@ -6,21 +6,22 @@ author: Samuel Isaacson, Chris Rackauckas
 Taken from Gupta and Mendes, *An Overview of Network-Based and -Free Approaches for Stochastic Simulation of Biochemical Systems*, Computation, 6 (9), 2018.
 
 ```julia
-using DifferentialEquations, DiffEqProblemLibrary, Plots
-using DiffEqProblemLibrary.JumpProblemLibrary: importjumpproblems; importjumpproblems()
-import DiffEqProblemLibrary.JumpProblemLibrary: prob_jump_multistate
+using DiffEqBase, DiffEqBiological, DiffEqJump, DiffEqProblemLibrary.JumpProblemLibrary, Plots, Statistics
 gr()
+fmt = :png
+JumpProblemLibrary.importjumpproblems()
+
 ```
 
 # Plot solutions by each method
 
 ```julia
-methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM())
+methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
 legs    = [typeof(method) for method in methods]
-shortlabels = [string(leg)[12:end] for leg in legs]
+shortlabels = [string(leg) for leg in legs]
 jprob   = prob_jump_multistate
-prob    = jprob.discrete_prob
-tf      = jprob.tstop
+tf      = 10.0*jprob.tstop
+prob    = DiscreteProblem(jprob.u0, (0.0,tf), jprob.rates)
 rn      = jprob.network
 varlegs = ["A_P", "A_bound_P", "A_unbound_P", "RLA_P"]
 varsyms = [
@@ -30,9 +31,8 @@ varsyms = [
     [:S7]
 ]
 varidxs = []
-fmt = :png
 for vars in varsyms
-    push!(varidxs, [findfirst(rn.syms, sym) for sym in vars])
+    push!(varidxs, [findfirst(isequal(sym),rn.syms) for sym in vars])
 end
 ```
 
@@ -43,7 +43,7 @@ for (i,method) in enumerate(methods)
     sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
     solv = zeros(1001,4)
     for (i,varidx) in enumerate(varidxs)
-        solv[:,i] = sum(sol[varidx,:],1)
+        solv[:,i] = sum(sol[varidx,:], dims=1)
     end
     if i < length(methods)
         push!(p, plot(sol.t,solv,title=shortlabels[i],legend=false,format=fmt))
@@ -66,22 +66,21 @@ end
 ```
 
 ```julia
-nsims = 500
+nsims = 100
 benchmarks = Vector{Vector{Float64}}()
-gc()
 for method in methods
     jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
     stepper = SSAStepper()
-    t = Vector{Float64}(nsims)
+    t = Vector{Float64}(undef, nsims)
     run_benchmark!(t, jump_prob, stepper)
     push!(benchmarks, t)
 end
 ```
 
 ```julia
-medtimes = Vector{Float64}(length(methods))
-stdtimes = Vector{Float64}(length(methods))
-avgtimes = Vector{Float64}(length(methods))
+medtimes = Vector{Float64}(undef,length(methods))
+stdtimes = Vector{Float64}(undef,length(methods))
+avgtimes = Vector{Float64}(undef,length(methods))
 for i in 1:length(methods)
     medtimes[i] = median(benchmarks[i])
     avgtimes[i] = mean(benchmarks[i])
@@ -90,35 +89,12 @@ end
 using DataFrames
 
 df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
-```
 
-Ignore the following, they use `BenchmarkTools` and may have some issues.
-
-```julia
-using BenchmarkTools
-benchmarks = []
-# turn off saving solution
-for method in methods
-    jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
-    sol = solve(jump_prob, SSAStepper())
-    push!(benchmarks, @benchmark (for i = 1:10; solve($jump_prob, $SSAStepper()); end))
-end
-```
-
-```julia
-medtimes = [median(b.times) for b in benchmarks]
-bar(shortlabels,medtimes,title="median running time",leg=false,format=fmt)
-```
-
-```julia
-relmed = medtimes / medtimes[1]
-bar(shortlabels,relmed,title="median running time relative to Direct()",leg=false,format=fmt)
-```
-
-```julia
-using DataFrames
-# convert times to units of ms
-df = DataFrame(names=shortlabels,medtimes=(medtimes/1e6),relmedtimes=relmed)
+sa = [text(string(round(mt,digits=3),"s"),:center,12) for mt in df.medtimes]
+bar(df.names,df.relmedtimes,legend=:false, fmt=fmt)
+scatter!(df.names, .05 .+ df.relmedtimes, markeralpha=0, series_annotations=sa, fmt=fmt)
+ylabel!("median relative to Direct")
+title!("Multistate Model")
 ```
 
 ```julia{echo=false}

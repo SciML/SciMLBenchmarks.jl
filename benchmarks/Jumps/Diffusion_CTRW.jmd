@@ -4,43 +4,40 @@ author: Samuel Isaacson, Chris Rackauckas
 ---
 
 ```julia
-using DifferentialEquations, Plots, Statistics, DiffEqProblemLibrary.JumpProblemLibrary
+using DiffEqBase, DiffEqBiological, DiffEqJump, Plots, Statistics, DataFrames
 gr()
 fmt = :png
-JumpProblemLibrary.importjumpproblems()
 ```
 
 # Model and example solutions
-Here we implement a 1D continuous time random walk approximation of diffusion for $N$ lattice sites, with reflecting boundary conditions
+Here we implement a 1D continuous time random walk approximation of diffusion for $N$ lattice sites on $\left[0,1\right]$, with reflecting boundary conditions at $x=0$ and $x=1$.
 
 ```julia
 N = 256
-jprob = prob_jump_diffnetwork
-using DiffEqBiological
-function getDiffNetwork(N)
-    io = IOBuffer()
-    write(io, "@min_reaction_network dpldifftype begin\n")
-    for i in 1:(N-1)
-        write(io, "\t K, X$(i) --> X$(i+1)\n")
-        write(io, "\t K, X$(i+1) --> X$(i)\n")
+h = 1 / N
+rn = @empty_reaction_network
+function getDiffNetwork!(rn,N)    
+    for i = 1:N
+        addspecies!(rn, Symbol(:u, i))
     end
-    write(io, "end K")
-    diffnetwork = String(take!(io))
-    rs = eval( Meta.parse(diffnetwork) )
-    rs
+    addparam!(rn, :β)
+    for i = 1:N
+        (i < N) && addreaction!(rn, :β, (Symbol(:u,i)=>1,), (Symbol(:u,i+1)=>1,))
+        (i > 1) && addreaction!(rn, :β, (Symbol(:u,i)=>1,), (Symbol(:u,i-1)=>1,))
+    end
+    rn
 end
-rn = getDiffNetwork(N)
+getDiffNetwork!(rn,N)
 addjumps!(rn, build_regular_jumps=false, minimal_jumps=true)
-#rn = jprob.network(N)
-rnpar = jprob.rates
-u0 = jprob.u0(N)
-tf = 100. #jprob.tstop
+rnpar = [1/(h*h)]
+u0 = 10*ones(Int64, N)
+tf = .01 
 ```
 
 ```julia
 methods = (Direct(),DirectFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
 legs    = [typeof(method) for method in methods]
-shortlabels = [string(leg)[12:end] for leg in legs]
+shortlabels = [string(leg) for leg in legs]
 prob    = prob = DiscreteProblem(u0, (0.0, tf), rnpar)
 ploth   = plot(reuse=false)
 for (i,method) in enumerate(methods)
@@ -85,7 +82,6 @@ for i in 1:length(methods)
     stdtimes[i] = std(benchmarks[i])
 end
 
-using DataFrames
 df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),
                 avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
 ```
