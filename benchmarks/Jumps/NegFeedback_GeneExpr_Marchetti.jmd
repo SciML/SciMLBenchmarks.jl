@@ -4,10 +4,10 @@ author: Samuel Isaacson, Chris Rackauckas
 ---
 
 ```julia
-using DifferentialEquations, Plots, Rsvg, DiffEqProblemLibrary
-using DiffEqProblemLibrary.JumpProblemLibrary: importjumpproblems; importjumpproblems()
-import DiffEqProblemLibrary.JumpProblemLibrary: prob_jump_dnadimer_repressor
+using DiffEqBase, OrdinaryDiffEq, DiffEqBiological, DiffEqJump, DiffEqProblemLibrary.JumpProblemLibrary, Plots, Statistics
 gr()
+fmt = :png
+JumpProblemLibrary.importjumpproblems()
 ```
 
 # Model and example solutions
@@ -30,22 +30,9 @@ plot(sol, format=:png, label=varlabels)
 ```
 
 ```julia
-ssprob = SteadyStateProblem(rn, u0f, rnpar)
-ssol = solve(ssprob, DynamicSS(AutoTsit5(Rosenbrock23())))
-ssol[:,end]
-```
-
-```julia
-ssprob2 = SteadyStateProblem(rn, ssol[:,end], rnpar)
-ssol2 = solve(ssprob2,SSRootfind())
-```
-
-```julia
 tf      = 4000.
-methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM())
-legs    = [typeof(method) for method in methods]
-shortlabels = [string(leg)[12:end] for leg in legs]
-fmt     = :png
+methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
+shortlabels = [string(leg)[12:end-2] for leg in methods]
 prob    = prob = DiscreteProblem(u0, (0.0, tf), rnpar)
 ploth   = plot(reuse=false)
 p = []
@@ -76,52 +63,35 @@ end
 ```julia
 nsims = 50
 benchmarks = Vector{Vector{Float64}}()
-gc()
 for method in methods
     jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
     stepper = SSAStepper()
-    t = Vector{Float64}(nsims)
+    t = Vector{Float64}(undef, nsims)
     run_benchmark!(t, jump_prob, stepper)
     push!(benchmarks, t)
 end
 ```
 
 ```julia
-medtimes = Vector{Float64}(length(methods))
-stdtimes = Vector{Float64}(length(methods))
-avgtimes = Vector{Float64}(length(methods))
+medtimes = Vector{Float64}(undef,length(methods))
+stdtimes = Vector{Float64}(undef,length(methods))
+avgtimes = Vector{Float64}(undef,length(methods))
 for i in 1:length(methods)
     medtimes[i] = median(benchmarks[i])
     avgtimes[i] = mean(benchmarks[i])
     stdtimes[i] = std(benchmarks[i])
 end
+
 using DataFrames
-
 df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
+sa = [text(string(round(mt,digits=3),"s"),:center,12) for mt in df.medtimes]
+bar(df.names,df.relmedtimes,legend=:false, fmt=fmt)
+scatter!(df.names, .05 .+ df.relmedtimes, markeralpha=0, series_annotations=sa, fmt=fmt)
+ylabel!("median relative to Direct")
+title!("Marchetti Gene Expression Model")
 ```
 
-Below are `BenchmarkTools` results, they are not always consistent from run to run, so should probably be ignored.
 
-```julia
-using BenchmarkTools
-benchmarks = []
-# turn off saving solution
-for method in methods
-    jump_prob = JumpProblem(prob, method, rn, save_positions=(false,false))
-    sol = solve(jump_prob, SSAStepper())
-    push!(benchmarks, @benchmark (for i = 1:5; solve($jump_prob, $SSAStepper()); end))
-end
-```
-
-```julia
-medtimes = [median(b.times) for b in benchmarks]
-bar(shortlabels,medtimes,title="median running time",leg=false,format=fmt)
-```
-
-```julia
-relmed = medtimes / medtimes[1]
-bar(shortlabels,relmed,title="median running time relative to Direct()",leg=false,format=fmt)
-```
 
 ```julia{echo=false}
 using DiffEqBenchmarks
