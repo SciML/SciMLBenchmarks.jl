@@ -121,6 +121,7 @@ setups = [Dict(:alg=>Rosenbrock23())
           Dict(:alg=>SciPyDiffEq.LSODA())
           Dict(:alg=>SciPyDiffEq.BDF())
           Dict(:alg=>deSolveDiffEq.lsoda())
+          Dict(:alg=>CVODE_BDF())
           ]
 
 names = [
@@ -134,6 +135,7 @@ names = [
   "SciPy: LSODA"
   "SciPy: BDF"
   "deSolve: lsoda"
+  "Sundials: CVODE"
   ]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
@@ -161,6 +163,7 @@ setups = [Dict(:alg=>Rosenbrock23())
           #Dict(:alg=>SciPyDiffEq.LSODA())
           #Dict(:alg=>SciPyDiffEq.BDF())
           Dict(:alg=>deSolveDiffEq.lsoda())
+          Dict(:alg=>CVODE_BDF())
           ]
 
 names = [
@@ -174,6 +177,7 @@ names = [
   #"SciPy: LSODA"
   #"SciPy: BDF"
   "deSolve: lsoda"
+  "Sundials: CVODE"
   ]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
@@ -216,6 +220,7 @@ setups = [Dict(:alg=>Rosenbrock23())
           Dict(:alg=>SciPyDiffEq.LSODA())
           Dict(:alg=>SciPyDiffEq.BDF())
           Dict(:alg=>deSolveDiffEq.lsoda())
+          Dict(:alg=>CVODE_BDF())
           ]
 
 names = [
@@ -229,6 +234,7 @@ names = [
   "SciPy: LSODA"
   "SciPy: BDF"
   "deSolve: lsoda"
+  "Sundials: CVODE"
   ]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
