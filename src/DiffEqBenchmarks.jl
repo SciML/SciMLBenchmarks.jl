@@ -18,7 +18,7 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf,:notebook))
     println("Building HTML")
     dir = joinpath(repo_directory,"html",folder)
     isdir(dir) || mkdir(dir)
-    weave(tmp,doctype = "md2html",out_path=dir,args=args)
+    weave(tmp,doctype = "md2html",out_path=dir,args=args,fig_ext=".svg")
   end
   if :pdf ∈ build_list
     println("Building PDF")
