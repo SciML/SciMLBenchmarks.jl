@@ -9,20 +9,23 @@ stiff chemical reaction network.
 ```julia
 using ReactionNetworkImporters, OrdinaryDiffEq, DiffEqBiological,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA
+      LSODA, TimerOutputs
 gr()
 prnbng = loadrxnetwork(BNGNetwork(), "BNGRepressilator",
-                       joinpath(pathof(ReactionNetworkImporters),"..","..",
-                       "data","bcr","bcr.net"))
+                       joinpath(dirname(pathof(ReactionNetworkImporters)),"..","data","bcr","bcr.net"))
 
 rn = deepcopy(prnbng.rn)
 addodes!(rn; build_jac=false, build_symfuncs=false, build_paramjac=false)
 tf = 100000.0
 oprob = ODEProblem(rn, prnbng.u₀, (0.,tf), prnbng.p);
 
+densejac_rn = deepcopy(prnbng.rn)
+# zeroout_jac=true is needed to keep the generated expressions from being too big for the compiler
+addodes!(densejac_rn; build_jac=true, zeroout_jac = true, sparse_jac = false, build_symfuncs=false, build_paramjac=false)
+densejacprob = ODEProblem(densejac_rn, prnbng.u₀, (0.,tf), prnbng.p);
+
 sparsejac_rn = deepcopy(prnbng.rn)
 addodes!(sparsejac_rn; build_jac=true, sparse_jac = true, build_symfuncs=false, build_paramjac=false)
-tf = 100000.0
 sparsejacprob = ODEProblem(sparsejac_rn, prnbng.u₀, (0.,tf), prnbng.p);
 ```
 
@@ -32,11 +35,34 @@ sparsejacprob = ODEProblem(sparsejac_rn, prnbng.u₀, (0.,tf), prnbng.p);
 @show numparams(rn) # Number of Parameters
 ```
 
+## Time ODE derivative function compilation
+As compiling the ODE derivative functions has in the past taken longer than
+running a simulation, we first force compilation by evaluating these functions
+one time.
+```julia
+const to = TimerOutput()
+u₀ = prnbng.u₀
+u = copy(u₀);
+du = similar(u);
+p = prnbng.p
+@timeit to "ODERHS Eval1" rn.f(du,u,p,0.)
+@timeit to "ODERHS Eval2" rn.f(du,u,p,0.)
+sparsejac_rn.f(du,u,p,0.)
+
+J = zeros(length(u),length(u))
+@timeit to "DenseJac Eval1" densejac_rn.jac(J,u,p,0.)
+@timeit to "DenseJac Eval2" densejac_rn.jac(J,u,p,0.)
+
+Js = similar(sparsejac_rn.odefun.jac_prototype)
+@timeit to "SparseJac Eval1" sparsejac_rn.jac(Js,u,p,0.)
+@timeit to "SparseJac Eval2" sparsejac_rn.jac(Js,u,p,0.)
+show(to)
+```
 ## Picture of the solution
 
 ```julia
-sol = solve(oprob, CVODE_BDF(), saveat=tf/10000., reltol=1e-5, abstol=1e-5)
-plot(sol,legend=false)
+sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
+plot(sol,legend=false, fmt=:png)
 ```
 
 For these benchmarks we will be using the timeseries error with these saving
@@ -50,13 +76,15 @@ behavior (capturing the oscillation is the key!).
 test_sol = TestSolution(sol)
 ```
 
-## Dense + Automatic Jacobian Solves
+## Automatic Jacobian Solves
 
 Due to the computational cost of the problem, we are only going to focus on the
 methods which demonstrated computational efficiency on the smaller biochemical
 benchmark problems. This excludes the exponential integrator, stabilized explicit,
 and extrapolation classes of methods.
 
+First we test using auto-generated Jacobians (autodiff or finite difference
+depending on the method defaults)
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (5:8);
@@ -72,13 +100,36 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>ROS34PW1a()),
           Dict(:alg=>lsoda()),
           ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;error_estimate=:l2,
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
 plot(wp)
 ```
 
-## Sparse + Analytical Jacobian
+## Analytical Jacobian
+Now we test using the generated analytic Jacobian function.
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (5:8);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(densejacprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
+plot(wp)
+```
 
+
+## Sparse Jacobian
+Finally we test using the generated sparse analytic Jacobian function.
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (5:8);
