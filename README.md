@@ -66,10 +66,10 @@ DiffEqBenchmarks.open_notebooks()
 - Stiff DDEs
   - [Quorum Sensing Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/StiffDDE/QuorumSensing.html)
 - Jump Equations
-  - [Diffusion Model](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/html/Jumps/Diffusion_CTRW.html)
-  - [Mendes Multistate Model](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/html/Jumps/Mendes_multistate_example.html)
-  - [Negative Feedback Gene Expression Model](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/html/Jumps/NegFeedback_GeneExpr.html)
-  - [Negative Feedback Marchetti Model](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl/blob/master/html/Jumps/NegFeedback_GeneExpr_Marchetti.html)
+  - [Diffusion Model](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/Jumps/Diffusion_CTRW.html)
+  - [Mendes Multistate Model](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/Jumps/Mendes_multistate_example.html)
+  - [Negative Feedback Gene Expression Model](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/Jumps/NegFeedback_GeneExpr.html)
+  - [Negative Feedback Marchetti Model](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/Jumps/NegFeedback_GeneExpr_Marchetti.html)
 - Parameter Estimation
   - [Lorenz Equation Parameter Estimation by Optimization Methods](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/LorenzParameterEstimation.html)
   - [Bayesian Lotka-Volterra Parameter Estimation](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/ParameterEstimation/DiffEqBayesLotkaVolterra.html)
