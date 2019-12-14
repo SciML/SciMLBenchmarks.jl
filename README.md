@@ -20,6 +20,7 @@ DiffEqBenchmarks.open_notebooks()
 
 - Multi-Language Wrapper Benchmarks
   - [ODE Solver Multi-Language Wrapper Package Work-Precision Benchmarks (MATLAB, SciPy, Julia, deSolve (R))](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/MultiLanguage/wrapper_packages.html)
+  - [Torchdiffeq vs DifferentialEquations.jl (/ DiffEqFlux.jl) Benchmarks](https://gist.github.com/ChrisRackauckas/cc6ac746e2dfd285c28e0584a2bfd320) 
 - Non-stiff ODEs
   - [Linear Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/linear_wpd.html)
   - [Three-Body Work-Precision Diagrams](http://juliadiffeq.org/DiffEqBenchmarks.jl/html/NonStiffODE/ThreeBody_wpd.html)
