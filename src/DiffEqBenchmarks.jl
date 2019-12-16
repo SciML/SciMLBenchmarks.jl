@@ -4,7 +4,7 @@ using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
 repo_directory = joinpath(@__DIR__,"..")
 
-function weave_file(folder,file,build_list=(:script,:html,:pdf,:notebook))
+function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook))
   println("File: $file")
   tmp = joinpath(repo_directory,"benchmarks",folder,file)
   args = Dict{Symbol,String}(:folder=>folder,:file=>file)
