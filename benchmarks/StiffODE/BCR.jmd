@@ -10,6 +10,7 @@ stiff chemical reaction network.
 using ReactionNetworkImporters, OrdinaryDiffEq, DiffEqBiological,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
       LSODA, TimerOutputs
+
 gr()
 prnbng = loadrxnetwork(BNGNetwork(), "BNGRepressilator",
                        joinpath(dirname(pathof(ReactionNetworkImporters)),"..","data","bcr","bcr.net"))
@@ -76,6 +77,25 @@ behavior (capturing the oscillation is the key!).
 test_sol = TestSolution(sol)
 ```
 
+## Setups
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (5:8);
+setups = [
+          #Dict(:alg=>Rosenbrock23(autodiff=false)),
+          Dict(:alg=>TRBDF2(autodiff=false)),
+          Dict(:alg=>CVODE_BDF()),
+          #Dict(:alg=>rodas()),
+          #Dict(:alg=>radau()),
+          #Dict(:alg=>Rodas4(autodiff=false)),
+          #Dict(:alg=>Rodas5(autodiff=false)),
+          Dict(:alg=>KenCarp4(autodiff=false)),
+          #Dict(:alg=>RadauIIA5(autodiff=false)),
+          #Dict(:alg=>lsoda()),
+          ]
+```
+
 ## Automatic Jacobian Solves
 
 Due to the computational cost of the problem, we are only going to focus on the
@@ -83,23 +103,8 @@ methods which demonstrated computational efficiency on the smaller biochemical
 benchmark problems. This excludes the exponential integrator, stabilized explicit,
 and extrapolation classes of methods.
 
-First we test using auto-generated Jacobians (autodiff or finite difference
-depending on the method defaults)
+First we test using auto-generated Jacobians (finite difference)
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (5:8);
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas5()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>RadauIIA5()),
-          Dict(:alg=>ROS34PW1a()),
-          Dict(:alg=>lsoda()),
-          ]
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
 plot(wp)
@@ -108,20 +113,6 @@ plot(wp)
 ## Analytical Jacobian
 Now we test using the generated analytic Jacobian function.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (5:8);
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas5()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>RadauIIA5()),
-          Dict(:alg=>ROS34PW1a()),
-          Dict(:alg=>lsoda()),
-          ]
 wp = WorkPrecisionSet(densejacprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
 plot(wp)
@@ -131,19 +122,17 @@ plot(wp)
 ## Sparse Jacobian
 Finally we test using the generated sparse analytic Jacobian function.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (5:8);
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas5()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>RadauIIA5()),
-          Dict(:alg=>ROS34PW1a()),
-          Dict(:alg=>lsoda()),
+setups = [
+          #Dict(:alg=>Rosenbrock23(autodiff=false)),
+          Dict(:alg=>TRBDF2(autodiff=false)),
+          #Dict(:alg=>CVODE_BDF()),
+          #Dict(:alg=>rodas()),
+          #Dict(:alg=>radau()),
+          #Dict(:alg=>Rodas4(autodiff=false)),
+          #Dict(:alg=>Rodas5(autodiff=false)),
+          Dict(:alg=>KenCarp4(autodiff=false)),
+          #Dict(:alg=>RadauIIA5(autodiff=false)),
+          #Dict(:alg=>lsoda()),
           ]
 wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
