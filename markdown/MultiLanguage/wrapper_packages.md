@@ -1,10 +1,42 @@
+The following benchmarks demonstrate the performance differences due to using
+similar algorithms from wrapper packages in the main scripting languages across
+a range of stiff and non-stiff ODEs. It takes into account solver time and
+error in order to ensure correctness of interpretations. These were ran with
+Julia 1.3, MATLAB 2019B, deSolve 1.2.5, and SciPy 1.3.1.
 
+These benchmarks are generated using the following bindings:
+
+- [MATLABDiffEq.jl](https://github.com/JuliaDiffEq/MATLABDiffEq.jl) (MATLAB)
+- [SciPyDiffEq.jl](https://github.com/JuliaDiffEq/SciPyDiffEq.jl) (SciPy)
+- [deSolveDiffEq.jl](https://github.com/JuliaDiffEq/deSolveDiffEq.jl) (deSolve)
+- [OrdinaryDiffEq.jl](https://github.com/JuliaDiffEq/OrdinaryDiffEq.jl) (OrdinaryDiffEq.jl)
+- [Sundials.jl](https://github.com/JuliaDiffEq/Sundials.jl) (Sundials)
+- [ODEInterfaceDiffEq.jl](https://github.com/JuliaDiffEq/ODEInterfaceDiffEq.jl) (Hairer and Netlib)
+
+The respective repos verify negligible overhead on interop (MATLAB, ODEInterface,
+and Sundials overhead are negligable, SciPy is accelerated 3x over SciPy+Numba
+setups due to the Julia JIT on the ODE function, deSolve sees a 3x overhead
+over the pure-R version). Error and timing is compared together to ensure
+the methods are solving to the same accuracy when compared.
+
+More wrappers will continue to be added as necessary.
+
+## Setup
+
+````julia
 using ParameterizedFunctions, MATLABDiffEq, OrdinaryDiffEq, ODEInterface,
       ODEInterfaceDiffEq, Plots, Sundials, SciPyDiffEq, deSolveDiffEq
 using DiffEqDevTools
 using LinearAlgebra
+````
 
 
+
+
+
+#### Non-Stiff Problem 1: Lotka-Volterra
+
+````julia
 f = @ode_def_bare LotkaVolterra begin
   dx = a*x - b*x*y
   dy = -c*y + d*x*y
@@ -53,8 +85,16 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,numruns=100,maxiters=10000000,
                       timeseries_errors=false,verbose=false)
 plot(wp,title="Non-stiff 1: Lotka-Volterra")
+````
 
 
+![](figures/wrapper_packages_2_1.png)
+
+
+
+#### Non-Stiff Problem 2: Rigid Body
+
+````julia
 f = @ode_def_bare RigidBodyBench begin
   dy1  = -2*y2*y3
   dy2  = 1.25*y1*y3
@@ -101,8 +141,16 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       save_everystep=false,numruns=100,maxiters=10000000,
                       timeseries_errors=false,verbose=false)
 plot(wp,title="Non-stiff 2: Rigid-Body")
+````
 
 
+![](figures/wrapper_packages_3_1.png)
+
+
+
+#### Stiff Problem 1: ROBER
+
+````julia
 rober = @ode_def begin
   dy₁ = -k₁*y₁+k₃*y₂*y₃
   dy₂ =  k₁*y₁-k₂*y₂^2-k₃*y₂*y₃
@@ -149,9 +197,38 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       dense=false,verbose = false,
                       save_everystep=false,appxsol=test_sol,
                       maxiters=Int(1e5))
+````
+
+
+````
+Julia: Rosenbrock23
+Julia: TRBDF2
+Julia: radau
+Hairer: rodas
+Hairer: radau
+MATLAB: ode23s
+MATLAB: ode15s
+SciPy: LSODA
+SciPy: BDF
+SciPy: odeint
+deSolve: lsoda
+Sundials: CVODE
+````
+
+
+
+````julia
 plot(wp,title="Stiff 1: ROBER", legend=:topleft)
+````
 
 
+![](figures/wrapper_packages_4_1.png)
+
+
+
+#### Stiff Problem 2: HIRES
+
+````julia
 f = @ode_def Hires begin
   dy1 = -1.71*y1 + 0.43*y2 + 8.32*y3 + 0.0007
   dy2 = 1.71*y1 - 8.75*y2
@@ -208,5 +285,29 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       names = names,print_names = true,
                       save_everystep=false,appxsol=test_sol,
                       maxiters=Int(1e5),numruns=100)
-plot(wp,title="Stiff 2: Hires",legend=:topleft)
+````
 
+
+````
+Julia: Rosenbrock23
+Julia: TRBDF2
+Julia: radau
+Hairer: rodas
+Hairer: radau
+MATLAB: ode23s
+MATLAB: ode15s
+SciPy: LSODA
+SciPy: BDF
+SciPy: odeint
+deSolve: lsoda
+Sundials: CVODE
+````
+
+
+
+````julia
+plot(wp,title="Stiff 2: Hires",legend=:topleft)
+````
+
+
+![](figures/wrapper_packages_5_1.png)
