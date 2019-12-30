@@ -1,5 +1,5 @@
 
-using ApproxFun, OrdinaryDiffEq, Sundials, BenchmarkTools, DiffEqOperators
+using ApproxFun, OrdinaryDiffEq, Sundials
 using DiffEqDevTools
 using LinearAlgebra
 using Plots; gr()
