@@ -76,8 +76,8 @@ end)
 
 
 ````
-DiffEqBase.LinSolveFactorize{Main.WeaveSandBox12.var"#5#6"}(Main.WeaveSandB
-ox12.var"#5#6"(), nothing)
+DiffEqBase.LinSolveFactorize{Main.WeaveSandBox5.var"#5#6"}(Main.WeaveSandBo
+x5.var"#5#6"(), nothing)
 ````
 
 
@@ -145,7 +145,7 @@ labels = hcat("NorsettEuler",
 ````
 NorsettEuler
 ETDRK2 (caching)
-117.119404 seconds (62.80 M allocations: 4.749 GiB, 0.80% gc time)
+120.296451 seconds (50.73 M allocations: 3.786 GiB, 0.75% gc time)
 ````
 
 
@@ -220,7 +220,7 @@ labels = hcat("ARKODE3", "ARKODE4", "ARKODE5")
 ARKODE3
 ARKODE4
 ARKODE5
-19282.145445 seconds (7.49 G allocations: 596.334 GiB, 0.63% gc time)
+20570.056615 seconds (7.42 G allocations: 592.872 GiB, 0.67% gc time)
 ````
 
 
@@ -257,7 +257,7 @@ labels = hcat("ETDRK3 (caching)", "ETDRK4 (caching)",
 ETDRK3 (caching)
 ETDRK4 (caching)
 HochOst4 (caching)
-229.147105 seconds (105.91 M allocations: 8.077 GiB, 0.70% gc time)
+289.835347 seconds (125.91 M allocations: 9.687 GiB, 0.71% gc time)
 ````
 
 
@@ -295,7 +295,7 @@ labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
 ARKODE (nondiagonal linsolve)
 ETDRK3 ()
 ETDRK4 ()
-1274.447213 seconds (516.38 M allocations: 40.763 GiB, 0.64% gc time)
+1394.957971 seconds (498.60 M allocations: 39.913 GiB, 0.68% gc time)
 ````
 
 
@@ -346,6 +346,36 @@ Package Information:
 
 ```
 Status: `/home/chrisrackauckas/.julia/dev/DiffEqBenchmarks/Project.toml`
-
+[28f2ccd6-bb30-5033-b560-165f7b14dc2f] ApproxFun 0.11.8
+[a134a8b2-14d6-55f6-9291-3336d3ab0209] BlackBoxOptim 0.5.0
+[a93c6f00-e57d-5684-b7b6-d8193f3e46c0] DataFrames 0.20.0
+[2b5f629d-d688-5b77-993f-72d75c75574e] DiffEqBase 6.10.0
+[eb300fae-53e8-50a0-950c-e21f52c2b7e0] DiffEqBiological 4.1.0
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.16.1
+[c894b116-72e5-5b58-be3c-e6d8d4ac2b12] DiffEqJump 6.4.0
+[1130ab10-4a5a-5621-a13d-e4788d82bd4c] DiffEqParamEstim 1.10.0
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.6.4
+[ef61062a-5684-51dc-bb67-a0fcdec5c97d] DiffEqUncertainty 1.4.0
+[0c46a032-eb83-5123-abaf-570d42b7fbaa] DifferentialEquations 6.9.0
+[7073ff75-c697-5162-941a-fcdaad2a7d2a] IJulia 1.20.2
+[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.1
+[76087f3c-5699-56af-9a33-bf431cd00edd] NLopt 0.5.1
+[c030b06c-0b6d-57c2-b091-7029874bd033] ODE 2.6.0
+[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.6
+[09606e27-ecf5-54fc-bb29-004bd9f985bf] ODEInterfaceDiffEq 3.5.0
+[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.26.7
+[2dcacdae-9679-587a-88bb-8b444fb7085b] ParallelDataTransfer 0.5.0
+[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 4.2.1
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 0.28.4
+[b4db0fb7-de2a-5028-82bf-5021f5cfa881] ReactionNetworkImporters 0.1.5
+[f2c3362d-daeb-58d1-803e-2bc74f2840b4] RecursiveFactorization 0.1.0
+[9672c7b4-1e72-59bd-8a11-6ac3964bc41f] SteadyStateDiffEq 1.5.0
+[c3572dad-4567-51f8-b174-8c6c989267f4] Sundials 3.8.1
+[a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f] TimerOutputs 0.5.3
+[44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9] Weave 0.9.1
+[b77e0a4c-d291-57a0-90e8-8db25a27a240] InteractiveUtils 
+[d6f4376e-aef5-505a-96c1-9c027394607a] Markdown 
+[44cfe95a-1eb2-52ea-b672-e2afdf69b78f] Pkg 
+[9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
 ```
 

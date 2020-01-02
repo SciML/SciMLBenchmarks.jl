@@ -70,22 +70,6 @@ plot(xs, ys, label=labels)
 
 
 
-Linear solvers
-
-````julia
-const LS_Dense = LinSolveFactorize(lu)
-````
-
-
-````
-DiffEqBase.LinSolveFactorize{typeof(LinearAlgebra.lu)}(LinearAlgebra.lu, no
-thing)
-````
-
-
-
-
-
 ## High tolerances
 
 ## In-family comparisons
@@ -96,10 +80,10 @@ thing)
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => IMEXEuler(linsolve=LS_Dense), :dts => 1e-3 * multipliers),
-          Dict(:alg => CNAB2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
-          Dict(:alg => CNLF2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
-          Dict(:alg => SBDF2(linsolve=LS_Dense), :dts => 1e-3 * multipliers)]
+setups = [Dict(:alg => IMEXEuler(), :dts => 1e-3 * multipliers),
+          Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+          Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
+          Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
@@ -113,7 +97,7 @@ IMEXEuler
 CNAB2
 CNLF2
 SBDF2
-224.733457 seconds (33.57 M allocations: 2.069 GiB, 0.10% gc time)
+187.112729 seconds (85.69 M allocations: 3.809 GiB, 0.26% gc time)
 ````
 
 
@@ -124,7 +108,7 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, l
 ````
 
 
-![](figures/burgers_fdm_wpd_5_1.png)
+![](figures/burgers_fdm_wpd_4_1.png)
 
 
 
@@ -151,7 +135,7 @@ IMEXEuler
 CNAB2
 CNLF2
 SBDF2
-181.560483 seconds (74.84 M allocations: 3.260 GiB, 0.23% gc time)
+184.851228 seconds (74.83 M allocations: 3.259 GiB, 0.22% gc time)
 ````
 
 
@@ -162,7 +146,7 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, Krylov linsolve, 
 ````
 
 
-![](figures/burgers_fdm_wpd_6_1.png)
+![](figures/burgers_fdm_wpd_5_1.png)
 
 
 
@@ -192,7 +176,7 @@ NorsettEuler (caching)
 NorsettEuler (m=5)
 NorsettEuler (m=20)
 ETDRK2 (caching)
-261.600967 seconds (22.10 M allocations: 124.338 GiB, 0.84% gc time)
+260.373463 seconds (22.10 M allocations: 124.338 GiB, 0.77% gc time)
 ````
 
 
@@ -203,7 +187,7 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
 ````
 
 
-![](figures/burgers_fdm_wpd_7_1.png)
+![](figures/burgers_fdm_wpd_6_1.png)
 
 
 
@@ -213,7 +197,7 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => CNAB2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
+setups = [Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
           Dict(:alg => CNAB2(linsolve=LinSolveGMRES()), :dts => 1e-4 * multipliers),
           Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers)]
 labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
@@ -228,7 +212,7 @@ labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
 CNAB2 (dense linsolve)
 CNAB2 (Krylov linsolve)
 ETDRK2 (m=5)
-265.000770 seconds (30.04 M allocations: 61.977 GiB, 0.50% gc time)
+245.817487 seconds (47.32 M allocations: 62.629 GiB, 0.57% gc time)
 ````
 
 
@@ -239,7 +223,7 @@ plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
 ````
 
 
-![](figures/burgers_fdm_wpd_8_1.png)
+![](figures/burgers_fdm_wpd_7_1.png)
 
 
 
@@ -250,11 +234,11 @@ plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
 1.IMEX methods (dense linear solver)
 
 ````julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [Dict(:alg => KenCarp3(linsolve=LS_Dense)),
-          Dict(:alg => KenCarp4(linsolve=LS_Dense)),
-          Dict(:alg => KenCarp5(linsolve=LS_Dense)),
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
+setups = [Dict(:alg => KenCarp3()),
+          Dict(:alg => KenCarp4()),
+          Dict(:alg => KenCarp5()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Dense)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Dense)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense))]
@@ -273,7 +257,7 @@ KenCarp5
 ARKODE3
 ARKODE4
 ARKODE5
-586.010751 seconds (50.17 M allocations: 8.149 GiB, 0.09% gc time)
+602.228248 seconds (105.00 M allocations: 5.298 GiB, 0.12% gc time)
 ````
 
 
@@ -284,15 +268,15 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, m
 ````
 
 
-![](figures/burgers_fdm_wpd_9_1.png)
+![](figures/burgers_fdm_wpd_8_1.png)
 
 
 
 1.IMEX methods (Krylov linear solver)
 
 ````julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
 setups = [Dict(:alg => KenCarp3(linsolve=LinSolveGMRES())),
           Dict(:alg => KenCarp4(linsolve=LinSolveGMRES())),
           Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
@@ -314,7 +298,7 @@ KenCarp5
 ARKODE3
 ARKODE4
 ARKODE5
-383.726984 seconds (110.05 M allocations: 5.723 GiB, 0.22% gc time)
+375.726479 seconds (103.47 M allocations: 5.394 GiB, 0.20% gc time)
 ````
 
 
@@ -325,7 +309,7 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, medium order")
 ````
 
 
-![](figures/burgers_fdm_wpd_10_1.png)
+![](figures/burgers_fdm_wpd_9_1.png)
 
 
 
@@ -357,7 +341,7 @@ ETDRK4 (caching)
 ETDRK4 (m=5)
 HochOst4 (caching)
 HochOst4 (m=5)
-914.036378 seconds (45.04 M allocations: 460.660 GiB, 0.84% gc time)
+912.287417 seconds (45.03 M allocations: 460.660 GiB, 0.73% gc time)
 ````
 
 
@@ -368,7 +352,7 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK methods, medium order")
 ````
 
 
-![](figures/burgers_fdm_wpd_11_1.png)
+![](figures/burgers_fdm_wpd_10_1.png)
 
 
 
@@ -376,16 +360,16 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK methods, medium order")
 
 
 ````julia
-abstols = 0.1 .^ (7:11)
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [Dict(:alg => KenCarp5(linsolve=LS_Dense)),
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
+multipliers = 0.5 .^ (0:5)
+setups = [Dict(:alg => KenCarp4()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense)),
-          Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
+          Dict(:alg => KenCarp4(linsolve=LinSolveGMRES())),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
           Dict(:alg => ETDRK3(krylov=true, m=5), :dts => 1e-2 * multipliers),
           Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers)]
-labels = hcat("KenCarp5 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp5 (Krylov linsolve)",
+labels = hcat("KenCarp4 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp4 (Krylov linsolve)",
               "ARKODE (Krylov linsolve)", "ETDRK3 (m=5)", "ETDRK4 (m=5)")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
@@ -395,13 +379,13 @@ labels = hcat("KenCarp5 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp5 
 
 
 ````
-KenCarp5 (dense linsolve)
+KenCarp4 (dense linsolve)
 ARKODE (dense linsolve)
-KenCarp5 (Krylov linsolve)
+KenCarp4 (Krylov linsolve)
 ARKODE (Krylov linsolve)
 ETDRK3 (m=5)
 ETDRK4 (m=5)
-172.555697 seconds (26.51 M allocations: 3.328 GiB, 0.18% gc time)
+327.132159 seconds (60.57 M allocations: 4.423 GiB, 0.18% gc time)
 ````
 
 
@@ -412,7 +396,7 @@ plot(wp, label=labels, markershape=:auto, title="Between family, medium order")
 ````
 
 
-![](figures/burgers_fdm_wpd_12_1.png)
+![](figures/burgers_fdm_wpd_11_1.png)
 
 ````julia
 using DiffEqBenchmarks
@@ -452,6 +436,36 @@ Package Information:
 
 ```
 Status: `/home/chrisrackauckas/.julia/dev/DiffEqBenchmarks/Project.toml`
-
+[28f2ccd6-bb30-5033-b560-165f7b14dc2f] ApproxFun 0.11.8
+[a134a8b2-14d6-55f6-9291-3336d3ab0209] BlackBoxOptim 0.5.0
+[a93c6f00-e57d-5684-b7b6-d8193f3e46c0] DataFrames 0.20.0
+[2b5f629d-d688-5b77-993f-72d75c75574e] DiffEqBase 6.10.0
+[eb300fae-53e8-50a0-950c-e21f52c2b7e0] DiffEqBiological 4.1.0
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.16.1
+[c894b116-72e5-5b58-be3c-e6d8d4ac2b12] DiffEqJump 6.4.0
+[1130ab10-4a5a-5621-a13d-e4788d82bd4c] DiffEqParamEstim 1.10.0
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.6.4
+[ef61062a-5684-51dc-bb67-a0fcdec5c97d] DiffEqUncertainty 1.4.0
+[0c46a032-eb83-5123-abaf-570d42b7fbaa] DifferentialEquations 6.9.0
+[7073ff75-c697-5162-941a-fcdaad2a7d2a] IJulia 1.20.2
+[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.1
+[76087f3c-5699-56af-9a33-bf431cd00edd] NLopt 0.5.1
+[c030b06c-0b6d-57c2-b091-7029874bd033] ODE 2.6.0
+[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.6
+[09606e27-ecf5-54fc-bb29-004bd9f985bf] ODEInterfaceDiffEq 3.5.0
+[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.26.7
+[2dcacdae-9679-587a-88bb-8b444fb7085b] ParallelDataTransfer 0.5.0
+[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 4.2.1
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 0.28.4
+[b4db0fb7-de2a-5028-82bf-5021f5cfa881] ReactionNetworkImporters 0.1.5
+[f2c3362d-daeb-58d1-803e-2bc74f2840b4] RecursiveFactorization 0.1.0
+[9672c7b4-1e72-59bd-8a11-6ac3964bc41f] SteadyStateDiffEq 1.5.0
+[c3572dad-4567-51f8-b174-8c6c989267f4] Sundials 3.8.1
+[a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f] TimerOutputs 0.5.3
+[44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9] Weave 0.9.1
+[b77e0a4c-d291-57a0-90e8-8db25a27a240] InteractiveUtils 
+[d6f4376e-aef5-505a-96c1-9c027394607a] Markdown 
+[44cfe95a-1eb2-52ea-b672-e2afdf69b78f] Pkg 
+[9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
 ```
 

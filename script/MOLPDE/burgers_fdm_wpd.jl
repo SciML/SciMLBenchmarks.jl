@@ -50,16 +50,13 @@ labels = ["t = $t" for t in tslices]
 plot(xs, ys, label=labels)
 
 
-const LS_Dense = LinSolveFactorize(lu)
-
-
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => IMEXEuler(linsolve=LS_Dense), :dts => 1e-3 * multipliers),
-          Dict(:alg => CNAB2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
-          Dict(:alg => CNLF2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
-          Dict(:alg => SBDF2(linsolve=LS_Dense), :dts => 1e-3 * multipliers)]
+setups = [Dict(:alg => IMEXEuler(), :dts => 1e-3 * multipliers),
+          Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+          Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
+          Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
@@ -107,7 +104,7 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => CNAB2(linsolve=LS_Dense), :dts => 1e-4 * multipliers),
+setups = [Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
           Dict(:alg => CNAB2(linsolve=LinSolveGMRES()), :dts => 1e-4 * multipliers),
           Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers)]
 labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
@@ -119,11 +116,11 @@ labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
 plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
 
 
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [Dict(:alg => KenCarp3(linsolve=LS_Dense)),
-          Dict(:alg => KenCarp4(linsolve=LS_Dense)),
-          Dict(:alg => KenCarp5(linsolve=LS_Dense)),
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
+setups = [Dict(:alg => KenCarp3()),
+          Dict(:alg => KenCarp4()),
+          Dict(:alg => KenCarp5()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Dense)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Dense)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense))]
@@ -136,8 +133,8 @@ labels = hcat("KenCarp3", "KenCarp4", "KenCarp5", "ARKODE3", "ARKODE4", "ARKODE5
 plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, medium order")
 
 
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
 setups = [Dict(:alg => KenCarp3(linsolve=LinSolveGMRES())),
           Dict(:alg => KenCarp4(linsolve=LinSolveGMRES())),
           Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
@@ -172,16 +169,16 @@ labels = hcat("ETDRK3 (caching)", "ETDRK3 (m=5)", "ETDRK4 (caching)",
 plot(wp, label=labels, markershape=:auto, title="ExpRK methods, medium order")
 
 
-abstols = 0.1 .^ (7:11)
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [Dict(:alg => KenCarp5(linsolve=LS_Dense)),
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
+multipliers = 0.5 .^ (0:5)
+setups = [Dict(:alg => KenCarp4()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense)),
-          Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
+          Dict(:alg => KenCarp4(linsolve=LinSolveGMRES())),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
           Dict(:alg => ETDRK3(krylov=true, m=5), :dts => 1e-2 * multipliers),
           Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers)]
-labels = hcat("KenCarp5 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp5 (Krylov linsolve)",
+labels = hcat("KenCarp4 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp4 (Krylov linsolve)",
               "ARKODE (Krylov linsolve)", "ETDRK3 (m=5)", "ETDRK4 (m=5)")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
