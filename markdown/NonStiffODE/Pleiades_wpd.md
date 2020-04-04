@@ -1,4 +1,5 @@
 
+````julia
 using OrdinaryDiffEq, ODE, ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools
 
 f = (du,u,p,t) -> begin
@@ -28,18 +29,34 @@ abstols = 1.0 ./ 10.0 .^ (6:9)
 reltols = 1.0 ./ 10.0 .^ (3:6);
 
 using Plots; gr()
+````
 
 
+
+````julia
 sol = solve(prob,Vern8(),abstol=1/10^12,reltol=1/10^10,maxiters=1000000)
 test_sol = TestSolution(sol);
 plot(sol)
+````
 
 
+![](figures/Pleiades_wpd_2_1.png)
+
+
+
+## Low Order
+
+ODE.jl had to be discarded. The error estimate is off since it throws errors and aborts and so that artificially lowers the error the the time is serverly diminished.
+
+````julia
 #setups = [Dict(:alg=>ode45())]
 #wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=10000)
 #plot(wp)
+````
 
 
+
+````julia
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())
           Dict(:alg=>Tsit5())
@@ -47,21 +64,42 @@ setups = [Dict(:alg=>DP5())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=10000)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_4_1.png)
+
+
+
+### Interpolation
+
+````julia
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=10000,error_estimate=:L2,dense_errors=true)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_5_1.png)
+
+
+
+## Higher Order
+
+Once again ODE.jl had to be discarded since it errors.
+
+````julia
 #setups = [Dict(:alg=>ode78())]
 #wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 #plot(wp)
+````
 
 
+
+````julia
 setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
@@ -70,8 +108,12 @@ setups = [Dict(:alg=>DP8())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_7_1.png)
+
+````julia
 setups = [Dict(:alg=>odex())
           Dict(:alg=>Vern7())
           Dict(:alg=>CVODE_Adams())
@@ -83,8 +125,16 @@ setups = [Dict(:alg=>odex())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=20)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_8_1.png)
+
+
+
+### Interpolations
+
+````julia
 setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
@@ -92,8 +142,19 @@ setups = [Dict(:alg=>DP8())
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=1000,error_estimate=:L2,dense_errors=true)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_9_1.png)
+
+
+
+## Comparison with Non-RK methods
+
+Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
+Adams-Bashforth-Moulton:
+
+````julia
 setups = [Dict(:alg=>Tsit5())
           Dict(:alg=>Vern9())
           Dict(:alg=>VCABM())
@@ -104,8 +165,12 @@ solnames = ["Tsit5","Vern9","VCABM","AitkenNeville","Midpoint Deuflhard","Midpoi
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
                       save_everystep=false,verbose=false,numruns=100)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_10_1.png)
+
+````julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=9, threading=false))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=false))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))
@@ -115,8 +180,12 @@ solnames = ["Deuflhard","No threads","standard","Romberg","Bulirsch"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
                       save_everystep=false,verbose=false,numruns=100)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_11_1.png)
+
+````julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=10, threading=true))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=5, max_order=11, init_order=10, threading=true))
@@ -126,8 +195,57 @@ solnames = ["1","2","3","4","5"]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solnames,
                       save_everystep=false,verbose=false,numruns=100)
 plot(wp)
+````
 
 
+![](figures/Pleiades_wpd_12_1.png)
+
+
+
+## Conclusion
+
+One big conclusion is that, once again, the ODE.jl algorithms fail to run on difficult problems. Its minimum timestep is essentially machine epsilon, and so this shows some fatal flaws in its timestepping algorithm. The OrdinaryDiffEq.jl algorithms come out as faster in each case than the ODEInterface algorithms. Overall, the Verner methods have a really good showing once again. The `CVODE_Adams` method does really well here when the tolerances are higher.
+
+````julia
 using DiffEqBenchmarks
 DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+````
+
+
+
+## Appendix
+
+These benchmarks are a part of the DiffEqBenchmarks.jl repository, found at: [https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl)
+
+To locally run this tutorial, do the following commands:
+
+```
+using DiffEqBenchmarks
+DiffEqBenchmarks.weave_file("NonStiffODE","Pleiades_wpd.jmd")
+```
+
+Computer Information:
+
+```
+Julia Version 1.4.0
+Commit b8e9a9ecc6 (2020-03-21 16:36 UTC)
+Platform Info:
+  OS: Windows (x86_64-w64-mingw32)
+  CPU: Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz
+  WORD_SIZE: 64
+  LIBM: libopenlibm
+  LLVM: libLLVM-8.0.1 (ORCJIT, skylake)
+Environment:
+  JULIA_EDITOR = "C:\Users\accou\AppData\Local\atom\app-1.45.0\atom.exe"  -a
+  JULIA_NUM_THREADS = 4
+  JULIA_PARDISO = C:\Users\accou\.julia\external
+
+```
+
+Package Information:
+
+```
+Status: `C:\Users\accou\.julia\dev\DiffEqBenchmarks\Project.toml`
+
+```
 
