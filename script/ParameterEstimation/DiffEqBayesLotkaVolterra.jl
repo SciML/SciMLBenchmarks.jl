@@ -1,11 +1,10 @@
 
-using DiffEqBayes
+using DiffEqBayes, CmdStan, DynamicHMC
 
 
-using Distributions
-using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainty
+using Distributions, BenchmarkTools
+using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions
 using Plots
-using DiffEqMonteCarlo
 
 
 gr(fmt=:png)
@@ -39,20 +38,15 @@ plot!(sol)
 priors = [Truncated(Normal(1.5,0.5),0.5,2.5),Truncated(Normal(1.2,0.5),0,2),Truncated(Normal(3.0,0.5),1,4),Truncated(Normal(1.0,0.5),0,2)]
 
 
-cb = AdaptiveProbIntsUncertainty(5)
-monte_prob = MonteCarloProblem(prob)
-sim = solve(monte_prob,Tsit5(),num_monte=100,callback=cb,reltol=1e-5,abstol=1e-5)
-plot(sim,vars=(0,1),linealpha=0.4)
+@btime bayesian_result_stan = stan_inference(prob,t,data,priors,num_samples=10_000,printsummary=false)
 
 
-@time bayesian_result_stan = stan_inference(prob,t,data,priors;reltol=1e-5,abstol=1e-5,vars =(StanODEData(),InverseGamma(3,2)))
+@btime bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors,num_samples=10_000)
 
 
-plot_chain(bayesian_result_stan)
+@btime bayesian_result_dynamichmc = dynamichmc_inference(prob,Tsit5(),t,data,priors,num_samples=10_000)
 
 
-@time bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors)
-
-
-plot_chain(bayesian_result_turing)
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 

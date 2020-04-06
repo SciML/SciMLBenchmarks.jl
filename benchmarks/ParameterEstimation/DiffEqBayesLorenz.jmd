@@ -7,8 +7,8 @@ author: Vaibhav Dixit, Chris Rackauckas
 
 ```julia
 using DiffEqBayes
-using Distributions
-using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainity
+using Distributions, CmdStan, DynamicHMC
+using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainty
 using Plots
 ```
 
@@ -81,34 +81,31 @@ plot(sim,vars=(0,1),linealpha=0.4)
 priors = [Truncated(Normal(10,2),1,15),Truncated(Normal(30,5),1,45),Truncated(Normal(2.5,0.5),1,4)]
 ```
 
-## Parameter estimation using Stan.jl backend.
+## Using Stan.jl backend.
 
 Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainity plots. Use of Truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
 
 ```julia
-@time bayesian_result = stan_inference(prob,t,data,priors;reltol=1e-8,abstol=1e-8,vars=(StanODEData(),InverseGamma(3,2)))
+#@time bayesian_result_stan = stan_inference(prob,t,data,priors;reltol=1e-8,abstol=1e-8)
 ```
 
+### Using Turing.jl backend
+
 ```julia
-plot_chain(bayesian_result)
+@time bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors;reltol=1e-8,abstol=1e-8)
 ```
 
-### Parameter estimation using Turing.jl backend
+### Using DynamicHMC.jl backend
 
 ```julia
-@time bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors)
-```
-
-```julia
-plot_chain(bayesian_result_turing)
+@time bayesian_result_dynamichmc = dynamichmc_inference(prob,Tsit5(),t,data,priors;solve_kwargs = (reltol=1e-8,abstol=1e-8,))
 ```
 
 
 ## Conclusion
 
-Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors. Its uncertainity plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainity small enough to be trusted in `(0,30)` time span.
-
-The behaviour is estimation using Stan.jl backend is as expected and it gives more accurate results as we decrease the tolerance, for 1e-8 we obtain quite accurate results as compared to higher tolerance values but lowering the tolerance leads to longer sampling time, incase of 1e-8 it took 11 hours. We also pass 500 warmup samples for proper convergence, as the plots provide evidence of non-convergence without it which observed over multiple runs.
+Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors. 
+Its uncertainity plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainity small enough to be trusted in `(0,30)` time span.
 
 
 ```julia{echo=false}
