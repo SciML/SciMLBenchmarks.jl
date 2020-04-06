@@ -2,7 +2,7 @@
 using DiffEqBayes, BenchmarkTools
 
 
-using OrdinaryDiffEq, RecursiveArrayTools, Distributions, ParameterizedFunctions, Mamba, BenchmarkTools
+using OrdinaryDiffEq, RecursiveArrayTools, Distributions, ParameterizedFunctions, CmdStan, DynamicHMC
 using Plots
 
 
@@ -29,19 +29,13 @@ scatter!(t, data[2,:])
 plot!(sol)
 
 
-priors = [Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(0.0,0.5),-0.5,0.5),Truncated(Normal(0.5,0.5),0,1)]
+priors = [Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(0.0,0.5),0.0,0.5),Truncated(Normal(0.5,0.5),0,1)]
 
 
-@time bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors;reltol=1e-5,abstol=1e-5,vars =(StanODEData(),InverseGamma(3,2)))
+@btime bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors;num_samples = 10_000,printsummary=false)
 
 
-plot_chain(bayesian_result_stan)
-
-
-@time bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors)
-
-
-plot_chain(bayesian_result_turing)
+@btime bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors;num_samples = 10_000)
 
 
 using DiffEqBenchmarks
