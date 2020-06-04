@@ -1,0 +1,136 @@
+---
+title: Acceleration function benchmarks
+author: Sebastian Micluța-Câmpeanu
+---
+
+Here we will test the performance of several acceleration functions used in N-body
+simulations.
+
+```julia
+using BenchmarkTools, NBodySimulator
+using StaticArrays
+
+const SUITE = BenchmarkGroup();
+```
+
+## Gravitational potential
+
+```julia
+using NBodySimulator: gravitational_acceleration!, gather_bodies_initial_coordinates
+
+let SUITE=SUITE
+    G = 6.67e-11 # m^3/kg/s^2
+    N = 200 # number of bodies/particles
+    m = 1.0 # mass of each of them
+    v = 10.0 # mean velocity
+    L = 20.0 # size of the cell side
+
+    bodies = generate_bodies_in_cell_nodes(N, m, v, L)
+    g_parameters = GravitationalParameters(G)
+    system = PotentialNBodySystem(bodies, Dict(:gravitational => g_parameters))
+    tspan = (0.0, 1.0)
+    simulation = NBodySimulation(system, tspan)
+
+    u0, v0, n = gather_bodies_initial_coordinates(simulation)
+    dv = zero(v0)
+    i = 1
+
+    b = @benchmarkable gravitational_acceleration!(dv, $u0, $i, $N, $bodies,
+        $g_parameters) setup=(dv=zero($v0)) evals=1
+
+    SUITE["gravitational"] = b
+end
+```
+
+## Coulomb potential
+
+```julia
+using NBodySimulator: pairwise_electrostatic_acceleration!, obtain_data_for_electrostatic_interaction
+
+let SUITE=SUITE
+    n = 200
+    bodies = ChargedParticle[]
+    L = 20.0
+    m = 1.0
+    q = 1.0
+    count = 1
+    dL = L / (ceil(n^(1 / 3)) + 1)
+    for x = dL / 2:dL:L, y = dL / 2:dL:L, z = dL / 2:dL:L  
+        if count > n
+            break
+        end
+        r = SVector(x, y, z)
+        v = SVector(.0, .0, .0)
+        body = ChargedParticle(r, v, m, q)
+        push!(bodies, body)
+        count += 1           
+    end
+
+    k = 9e9
+    τ = 0.01 * dL / sqrt(2 * k * q * q / (dL * m))
+    t1 = 0.0
+    t2 = 1000 * τ
+    
+    potential = ElectrostaticParameters(k, 0.45 * L)
+    system = PotentialNBodySystem(bodies, Dict(:electrostatic => potential))
+    pbc = CubicPeriodicBoundaryConditions(L)
+    simulation = NBodySimulation(system, (t1, t2), pbc)
+
+    i = 1
+    u0, v0, n = gather_bodies_initial_coordinates(simulation)
+    dv = zero(v0)
+
+    qs, ms, indxs, exclude = obtain_data_for_electrostatic_interaction(simulation.system)
+
+    b = @benchmarkable pairwise_electrostatic_acceleration!(dv, $u0, $i, length($indxs), $qs, $ms,
+        $exclude, $potential, $pbc) setup=(dv=zero($v0)) evals=1
+
+    SUITE["coulomb"] = b
+end
+```
+
+## Lennard Jones potential
+
+```julia
+using NBodySimulator: obtain_data_for_lennard_jones_interaction, pairwise_lennard_jones_acceleration!
+
+let SUITE=SUITE
+    T = 120.0 # °K
+    T0 = 90.0 # °K
+    kb = 8.3144598e-3 # kJ/(K*mol)
+    ϵ = T * kb
+    σ = 0.34 # nm
+    ρ = 1374/1.6747# Da/nm^3
+    m = 39.95# Da
+    N = 216 # number of bodies/particles
+    L = (m*N/ρ)^(1/3)#10.229σ
+    R = 0.5*L   
+    v_dev = sqrt(kb * T / m)
+    bodies = generate_bodies_in_cell_nodes(N, m, v_dev, L)
+
+    τ = 0.5e-3 # ps or 1e-12 s
+    t1 = 0.0
+    t2 = 2000τ
+
+    lj_parameters = LennardJonesParameters(ϵ, σ, R)
+    lj_system = PotentialNBodySystem(bodies, Dict(:lennard_jones => lj_parameters));
+
+    pbc = CubicPeriodicBoundaryConditions(L)
+    simulation = NBodySimulation(lj_system, (t1, t2), pbc, kb)
+
+    ms, indxs = obtain_data_for_lennard_jones_interaction(lj_system)
+    u0, v0, n = gather_bodies_initial_coordinates(simulation)
+    dv = zero(v0)
+    i = 1
+
+    b = @benchmarkable pairwise_lennard_jones_acceleration!(dv, $u0, $i, $indxs, $ms,
+        $lj_parameters, $simulation.boundary_conditions) setup=(dv=zero($v0)) evals=1
+
+    SUITE["lennard_jones"] = b
+end
+```
+
+Here are the results of the benchmarks
+```julia
+run(SUITE)
+```
