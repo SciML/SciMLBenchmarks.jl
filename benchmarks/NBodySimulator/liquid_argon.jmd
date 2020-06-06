@@ -33,12 +33,12 @@ function benchmark_setup(SUITE, EnergyError, nt, nf, τ, n;
                         integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6])
     for alg in integrators
         simulation = setup(n*τ)
-        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ)
-        result = run_simulation(simulation, alg(), dt=τ)
+        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ, save_everystep=false)
+        result = run_simulation(simulation, alg(), dt=τ, save_everystep=false)
         ΔE = total_energy(result, n*τ) - total_energy(result, 0)
         
         EnergyError[alg] = ΔE
-        nt[alg] = length(result.solution.t)
+        nt[alg] = result.solution.destats.naccept
         nf[alg] = result.solution.destats.nf + result.solution.destats.nf2
 
         SUITE["$alg"] = b
@@ -50,7 +50,8 @@ First we well take a timestep and vary the number of total steps. For adaptive
 integrators, this timestep will be the initial timestep.
 ```julia
 τ = 1e-14  # s
-results = DataFrame(:integrator=>[], :runtime=>[], :EnergyError=>[], :timesteps=>[], :f_evals=>[]);
+results = DataFrame(:integrator=>String[], :runtime=>[], :EnergyError=>Float64[],
+    :timesteps=>Int[], :f_evals=>Int[]);
 ```
 
 We will consider the following integrators
@@ -60,7 +61,7 @@ integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6]
 
 Now, let us run the benchmarks
 ```julia
-for n in [100, 500, 10^3, 5*10^3, 10^4]
+for n in 10 .^range(2, 3, length=4)
     SUITE = BenchmarkGroup()
     ΔE = Dict()
     nt = Dict()
@@ -71,20 +72,30 @@ for n in [100, 500, 10^3, 5*10^3, 10^4]
     r = run(SUITE)
 
     for (k,v) in ΔE
-        push!(results, [k, r["$k"], v, nt[k], nf[k]])
+        push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
     end
 end
 ```
 
+Let us now examine the results
 ```julia
-@df results plot(:runtime, :EnergyError, label=:integrator)
+results
 ```
 
-If we consider the number of timesteps
+First, we will look at the behavior energy error as simulation time (and runtime) increases
 ```julia
-@df results plot(:timesteps, :EnergyError, label=:integrator)
+@df results plot(time.(:runtime)/1e6, :EnergyError, group=:integrator,
+    yscale=:log10, xlabel="Runtime (ms)", ylabel="Energy error")
 ```
-and the number of function evaluations
+
+If we consider the number of timesteps instead, we obtain
 ```julia
-@df results plot(:f_evals, :EnergyError, label=:integrator)
+@df results plot(:timesteps, :EnergyError, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Number of timesteps", ylabel="Energy error")
 ```
+and with the number of function evaluations
+```julia
+@df results plot(:f_evals, :EnergyError, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Energy error")
+```
+
