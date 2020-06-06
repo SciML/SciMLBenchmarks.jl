@@ -1,0 +1,90 @@
+---
+title: Liquid argon benchmarks
+author: Sebastian Micluța-Câmpeanu, Mikhail Vaganov
+---
+
+```julia
+using BenchmarkTools
+using NBodySimulator, OrdinaryDiffEq, StaticArrays
+using Plots, DataFrames, StatsPlots
+
+function setup(t)
+    T = 120.0 # K
+    kb = 1.38e-23 # J/K
+    ϵ = T * kb # J
+    σ = 3.4e-10 # m
+    ρ = 1374 # kg/m^3
+    m = 39.95 * 1.6747 * 1e-27 # kg
+    N = 125
+    L = (m*N/ρ)^(1/3)
+    R = 2.25σ   
+    v_dev = sqrt(kb * T / m) # m/s
+
+    bodies = generate_bodies_in_cell_nodes(N, m, v_dev, L)
+    lj_parameters = LennardJonesParameters(ϵ, σ, R)
+    pbc = CubicPeriodicBoundaryConditions(L)
+    lj_system = PotentialNBodySystem(bodies, Dict(:lennard_jones => lj_parameters));
+    simulation = NBodySimulation(lj_system, (0.0, t), pbc)
+
+    return simulation
+end
+
+function benchmark_setup(SUITE, EnergyError, nt, nf, τ, n;
+                        integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6])
+    for alg in integrators
+        simulation = setup(n*τ)
+        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ)
+        result = run_simulation(simulation, alg(), dt=τ)
+        ΔE = total_energy(result, n*τ) - total_energy(result, 0)
+        
+        EnergyError[alg] = ΔE
+        nt[alg] = length(result.solution.t)
+        nf[alg] = result.solution.destats.nf + result.solution.destats.nf2
+
+        SUITE["$alg"] = b
+    end
+end
+```
+
+First we well take a timestep and vary the number of total steps. For adaptive
+integrators, this timestep will be the initial timestep.
+```julia
+τ = 1e-14  # s
+results = DataFrame(:integrator=>[], :runtime=>[], :EnergyError=>[], :timesteps=>[], :f_evals=>[]);
+```
+
+We will consider the following integrators
+```julia
+integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6]
+```
+
+Now, let us run the benchmarks
+```julia
+for n in [100, 500, 10^3, 5*10^3, 10^4]
+    SUITE = BenchmarkGroup()
+    ΔE = Dict()
+    nt = Dict()
+    nf = Dict()
+
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, n)
+    tune!(SUITE)
+    r = run(SUITE)
+
+    for (k,v) in ΔE
+        push!(results, [k, r["$k"], v, nt[k], nf[k]])
+    end
+end
+```
+
+```julia
+@df results plot(:runtime, :EnergyError, label=:integrator)
+```
+
+If we consider the number of timesteps
+```julia
+@df results plot(:timesteps, :EnergyError, label=:integrator)
+```
+and the number of function evaluations
+```julia
+@df results plot(:f_evals, :EnergyError, label=:integrator)
+```
