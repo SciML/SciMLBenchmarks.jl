@@ -29,11 +29,11 @@ function setup(t)
     return simulation
 end
 
-function benchmark_setup(SUITE, EnergyError, nt, nf, τ, n;
+function benchmark_setup(SUITE, EnergyError, nt, nf, τ, n, ns;
                         integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6])
     for alg in integrators
         simulation = setup(n*τ)
-        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ, save_everystep=false)
+        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ, save_everystep=false) samples=ns
         result = run_simulation(simulation, alg(), dt=τ, save_everystep=false)
         ΔE = total_energy(result, n*τ) - total_energy(result, 0)
         
@@ -61,14 +61,14 @@ integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6]
 
 Now, let us run the benchmarks
 ```julia
-for n in 10 .^range(2, 3, length=4)
+for n in 10 .^range(2, 5, length=7)
     SUITE = BenchmarkGroup()
     ΔE = Dict()
     nt = Dict()
     nf = Dict()
 
-    benchmark_setup(SUITE, ΔE, nt, nf, τ, n)
-    tune!(SUITE)
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, n, 100)
+    #tune!(SUITE)
     r = run(SUITE)
 
     for (k,v) in ΔE
@@ -101,18 +101,18 @@ and with the number of function evaluations
 
 Now, let us consider a fixed simulation time
 ```julia
-t = 1e3
+t = 1e4
 ```
 and change the timesteps
 ```julia
-for τ in 10 .^range(-14, -13, length=3)
+for τ in 10 .^range(-15, -13, length=5)
     SUITE = BenchmarkGroup()
     ΔE = Dict()
     nt = Dict()
     nf = Dict()
 
-    benchmark_setup(SUITE, ΔE, nt, nf, τ, t/τ)
-    tune!(SUITE)
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, t/τ, 100)
+    #tune!(SUITE)
     r = run(SUITE)
 
     for (k,v) in ΔE
