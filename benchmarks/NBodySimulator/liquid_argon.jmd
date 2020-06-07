@@ -99,3 +99,35 @@ and with the number of function evaluations
     xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Energy error")
 ```
 
+Now, let us consider a fixed simulation time
+```julia
+t = 1e3
+```
+and change the timesteps
+```julia
+for τ in 10 .^range(-14, -13, length=3)
+    SUITE = BenchmarkGroup()
+    ΔE = Dict()
+    nt = Dict()
+    nf = Dict()
+
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, t/τ)
+    tune!(SUITE)
+    r = run(SUITE)
+
+    for (k,v) in ΔE
+        push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
+    end
+end
+```
+
+Let us now examine the results
+```julia
+results
+```
+
+
+```julia
+@df results plot(time.(:runtime)/1e6, :EnergyError, group=:integrator,
+    xscale=:log10, xlabel="Energy error", ylabel="Runtime (ms)")
+```
