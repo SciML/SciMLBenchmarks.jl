@@ -55,8 +55,8 @@ First we well take a timestep and vary the number of total steps. For adaptive
 integrators, this timestep will be the initial timestep.
 ```julia
 τ = 1e-14  # s
-results = DataFrame(:integrator=>String[], :runtime=>[], :EnergyError=>Float64[],
-    :timesteps=>Int[], :f_evals=>Int[]);
+results = DataFrame(:integrator=>String[], :sim_time=>Float64[], :runtime=>[],
+    :EnergyError=>Float64[],:timesteps=>Int[], :f_evals=>Int[]);
 ```
 
 We will consider the following integrators
@@ -76,7 +76,7 @@ for n in 10 .^range(2, 5, length=7)
     r = run(SUITE, seconds=200)
 
     for (k,v) in ΔE
-        push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
+        push!(results, [string(k), n*τ, minimum(r["$k"]), abs(v), nt[k], nf[k]])
     end
 end
 ```
@@ -88,29 +88,26 @@ results
 
 First, we will look at the behavior energy error as simulation time (and runtime) increases
 ```julia
-@df results plot(time.(:runtime)/1e6, :EnergyError, group=:integrator,
+@df results plot(:EnergyError, time.(:runtime)/1e6, group=:integrator,
     xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (ms)")
 ```
 
 If we consider the number of timesteps instead, we obtain
 ```julia
-@df results plot(:timesteps, :EnergyError, group=:integrator,
+@df results plot(:EnergyError, :timesteps, group=:integrator,
     xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of timesteps")
 ```
-and with the number of function evaluations
+and we can also see how the muber of acceleration function calls affects the runtime
 ```julia
-@df results plot(:f_evals, :EnergyError, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of f calls")
-```
-
-```julia
-@df results plot(:f_evals, :timesteps, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Number of timesteps")
+@df results plot(:f_evals, time.(:runtime)/1e6, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Runtime (ms)")
 ```
 
 Now, let us consider a fixed simulation time
 ```julia
-n = 1e4
+t = 1e-10
+results = DataFrame(:integrator=>String[], :initial_τ=>Float64[], :runtime=>[],
+    :EnergyError=>Float64[],:timesteps=>Int[], :f_evals=>Int[]);
 ```
 and change the timesteps
 ```julia
@@ -120,11 +117,11 @@ for τ in 10 .^range(-15, -13, length=5)
     nt = Dict()
     nf = Dict()
 
-    benchmark_setup(SUITE, ΔE, nt, nf, τ, n, 1)
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, t/τ, 1)
     r = run(SUITE, seconds=200)
 
     for (k,v) in ΔE
-        push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
+        push!(results, [string(k), τ, minimum(r["$k"]), abs(v), nt[k], nf[k]])
     end
 end
 ```
@@ -136,6 +133,6 @@ results
 
 
 ```julia
-@df results plot(time.(:runtime)/1e6, :EnergyError, group=:integrator,
-    xscale=:log10, xlabel="Energy error", ylabel="Runtime (ms)")
+@df results plot(:EnergyError, time.(:runtime)/1e6, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (ms)")
 ```
