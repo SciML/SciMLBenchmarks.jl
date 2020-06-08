@@ -15,9 +15,9 @@ function setup(t)
     σ = 3.4e-10 # m
     ρ = 1374 # kg/m^3
     m = 39.95 * 1.6747 * 1e-27 # kg
-    N = 125
+    N = 216
     L = (m*N/ρ)^(1/3)
-    R = 2.25σ   
+    R = 0.5L
     v_dev = sqrt(kb * T / m) # m/s
 
     bodies = generate_bodies_in_cell_nodes(N, m, v_dev, L)
@@ -29,14 +29,19 @@ function setup(t)
     return simulation
 end
 
+function benchmark_sim(simulation, alg, τ)
+    @info "Benchmarking $alg"
+    run_simulation(simulation, alg(), dt=τ, save_everystep=false)
+end
+
 function benchmark_setup(SUITE, EnergyError, nt, nf, τ, n, ns;
                         integrators=[VelocityVerlet, Tsit5, DPRKN6, Yoshida6])
     for alg in integrators
         simulation = setup(n*τ)
-        b = @benchmarkable run_simulation($simulation, $alg(), dt=$τ, save_everystep=false) samples=ns
+        b = @benchmarkable benchmark_sim($simulation, $alg, $τ) samples=ns
         result = run_simulation(simulation, alg(), dt=τ, save_everystep=false)
         ΔE = total_energy(result, n*τ) - total_energy(result, 0)
-        
+
         EnergyError[alg] = ΔE
         nt[alg] = result.solution.destats.naccept
         nf[alg] = result.solution.destats.nf + result.solution.destats.nf2
@@ -67,9 +72,8 @@ for n in 10 .^range(2, 5, length=7)
     nt = Dict()
     nf = Dict()
 
-    benchmark_setup(SUITE, ΔE, nt, nf, τ, n, 100)
-    #tune!(SUITE)
-    r = run(SUITE)
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, n, n < 1e4 ? 5 : 1)
+    r = run(SUITE, seconds=200)
 
     for (k,v) in ΔE
         push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
@@ -85,23 +89,28 @@ results
 First, we will look at the behavior energy error as simulation time (and runtime) increases
 ```julia
 @df results plot(time.(:runtime)/1e6, :EnergyError, group=:integrator,
-    yscale=:log10, xlabel="Runtime (ms)", ylabel="Energy error")
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (ms)")
 ```
 
 If we consider the number of timesteps instead, we obtain
 ```julia
 @df results plot(:timesteps, :EnergyError, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Number of timesteps", ylabel="Energy error")
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of timesteps")
 ```
 and with the number of function evaluations
 ```julia
 @df results plot(:f_evals, :EnergyError, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Energy error")
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of f calls")
+```
+
+```julia
+@df results plot(:f_evals, :timesteps, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Number of timesteps")
 ```
 
 Now, let us consider a fixed simulation time
 ```julia
-t = 1e4
+n = 1e4
 ```
 and change the timesteps
 ```julia
@@ -111,9 +120,8 @@ for τ in 10 .^range(-15, -13, length=5)
     nt = Dict()
     nf = Dict()
 
-    benchmark_setup(SUITE, ΔE, nt, nf, τ, t/τ, 100)
-    #tune!(SUITE)
-    r = run(SUITE)
+    benchmark_setup(SUITE, ΔE, nt, nf, τ, n, 1)
+    r = run(SUITE, seconds=200)
 
     for (k,v) in ΔE
         push!(results, [string(k), minimum(r["$k"]), abs(v), nt[k], nf[k]])
