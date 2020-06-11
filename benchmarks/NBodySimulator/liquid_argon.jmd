@@ -3,6 +3,10 @@ title: Liquid argon benchmarks
 author: Sebastian Micluța-Câmpeanu, Mikhail Vaganov
 ---
 
+The purpose of these benchmarks is to compare several integrators for use in
+molecular dynamics simulation. We will use a simulation of liquid argon form the
+examples of NBodySimulator as test case.
+
 ```julia
 using ProgressLogging
 using NBodySimulator, OrdinaryDiffEq, StaticArrays
@@ -37,30 +41,126 @@ function setup(t)
 end
 ```
 
-We will consider the following integrators
+In order to compare different integrating methods we will consider a fixed simulation
+time and change the timestep (or tolerances in the case of adaptive methods).
 ```julia
-config(τ, at, rt) = [
-    # symplectic
-    (alg=VelocityVerlet, dt=τ),
-    (alg=McAte2, dt=τ),
-    # (alg=CalvoSanz4, dt=τ),
-    # (alg=McAte5, dt=τ),
-    # (alg=Yoshida6, dt=τ),
-    # (alg=KahanLi8, dt=τ),
-    # DPRKN
-    (alg=DPRKN6, abstol=at, rtol=rt),
-    # (alg=DPRKN8, abstol=at, rtol=rt),
-    (alg=DPRKN12, abstol=at, rtol=rt),
-    # others
-    (alg=Tsit5, abstol=at, rtol=rt),
-    (alg=Vern7, abstol=at, rtol=rt),
-    (alg=Vern9, abstol=at, rtol=rt)
+function benchmark(energyerr, rts, bytes, allocs, nt, nf, t, configs)
+    simulation = setup(t)
+    prob = SecondOrderODEProblem(simulation)
+    for config in configs
+        alg = config.alg
+        sol, rt, b, gc, memalloc = @timed solve(prob, alg();
+            save_everystep=false, progress=true, progress_name="$alg", config...)
+        result = NBodySimulator.SimulationResult(sol, simulation)
+        ΔE = total_energy(result, t) - total_energy(result, 0)
+        energyerr[alg] = ΔE
+        rts[alg] = rt
+        bytes[alg] = b
+        allocs[alg] = memalloc
+        nt[alg] = sol.destats.naccept
+        nf[alg] = sol.destats.nf + sol.destats.nf2
+    end
+end
+
+function run_benchmark!(results, t, integrators, tol...; c=ones(length(integrators)))
+    @progress "Benchmark at t=$t" for τ in zip(tol...)
+        runtime = Dict()
+        ΔE = Dict()
+        nt = Dict()
+        nf = Dict()
+        b = Dict()
+        allocs = Dict()
+
+        GC.gc()
+        benchmark(ΔE, runtime, b, allocs, nt, nf, t, config(integrators, c, τ...))
+
+        for (k,v) in ΔE
+            push!(results, [string(k), runtime[k], τ..., abs(v), nt[k], nf[k]])
+        end
+    end
+    return results
+end
+```
+
+We will consider symplectic integrators first
+```julia
+symplectic_integrators = [
+    VelocityVerlet,
+    VerletLeapfrog,
+    PseudoVerletLeapfrog,
+    McAte2,
+    CalvoSanz4,
+    McAte5,
+    Yoshida6,
+    KahanLi8,
+    SofSpa10
 ]
 ```
 
-We will first begin with the evolution of the energy error over time
-for different integrators. In this case we will fix both simulation time and timestep.
+Let us run a short simulation to see the cost per timestep for each method
+```julia
+config(integrators, c, τ) = [ (alg=a, dt=τ/cₐ) for (a,cₐ) in zip(integrators, c)]
 
+t = 35.0
+τs = 1e-3
+
+# warmup
+c_symplectic = ones(length(symplectic_integrators))
+benchmark(Dict(), Dict(), Dict(), Dict(), Dict(), Dict(), 10.,
+    config(symplectic_integrators, c_symplectic, τs))
+
+results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
+    :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+run_benchmark!(results, t, symplectic_integrators, τs)
+```
+The cost of a timestep can be computed as follows
+```julia
+c_symplectic .= results[!, :runtime] ./ results[!, :timesteps]
+c_Verlet = c_symplectic[1]
+c_symplectic /= c_Verlet
+```
+were we have normalized the cost to the cost of a VelocityVerlet step.
+
+Let us now benchmark the solvers for a fixed simulation time and variable timestep
+```julia
+t = 50.0
+τs = 10 .^range(-4, -3, length=5)
+
+results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
+    :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+run_benchmark!(results, t, symplectic_integrators, τs, c=c_symplectic)
+```
+
+The energy error as a function of runtime is given by
+```julia
+@df results plot(:EnergyError, :runtime, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (s)")
+```
+Looking at the runtime as a function of timesteps, we can observe that we have
+a linear dependency for each method, and the slope is the previously computed
+cost per step.
+```julia
+@df results plot(:timesteps, :runtime, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Number of timesteps", ylabel="Runtime (s)")
+```
+
+We can also consider a longer simulation time
+```julia
+t = 100.0
+
+τs = 10 .^range(-4, -3, length=5)
+
+results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
+    :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+#run_benchmark!(results, t, symplectic_integrators, τs, c=c_symplectic)
+```
+The energy error as a function of runtime is given by
+```julia
+#@df results plot(:EnergyError, :runtime, group=:integrator,
+#    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (s)")
+```
+
+We can also look at the energy error history
 ```julia
 function benchmark(energyerr, rts, ts, t, configs)
     simulation = setup(t)
@@ -79,8 +179,8 @@ end
 ΔE = Dict()
 rt = Dict()
 ts = Dict()
-configs = config(2.3e-4, 1e-20, 1e-20)
-benchmark(ΔE, rt, ts, 40., configs)
+configs = config(symplectic_integrators, c_symplectic, 2.3e-4)
+benchmark(ΔE, rt, ts, 45., configs)
 
 plt = plot(xlabel="Rescaled Time", ylabel="Energy error", legend=:topleft);
 for c in configs
@@ -89,62 +189,32 @@ end
 plt
 ```
 
-Now, let us consider a fixed simulation time
+Now, let us compare some adaptive methods
 ```julia
+adaptive_integrators=[
+    # DPRKN
+    DPRKN6,
+    DPRKN8,
+    DPRKN12,
+    # others
+    Tsit5,
+    Vern7,
+    Vern9
+]
+
+config(integrators, c, at, rt) = [ (alg=a, abstol=atₐ, rtol=rtₐ) for (a,atₐ,rtₐ) in zip(integrators, at, rt)]
+
 t = 35.0
-results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[], :abstol=>Float64[],
-    :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+ats = 10 .^range(-20, -14, length=10)
+rts = 10 .^range(-20, -14, length=10)
 
-function benchmark(energyerr, rts, bytes, allocs, nt, nf, t, configs)
-    simulation = setup(t)
-    prob = SecondOrderODEProblem(simulation)
-    for config in configs
-        alg = config.alg
-        sol, rt, b, gc, memalloc = @timed solve(prob, alg();
-            save_everystep=false, progress=true, progress_name="$alg", config...)
-        result = NBodySimulator.SimulationResult(sol, simulation)
-        ΔE = total_energy(result, t) - total_energy(result, 0)
-        energyerr[alg] = ΔE
-        rts[alg] = rt
-        bytes[alg] = b
-        allocs[alg] = memalloc
-        nt[alg] = sol.destats.naccept
-        nf[alg] = sol.destats.nf + sol.destats.nf2
-    end
-end
-```
+# warmup
+benchmark(Dict(), Dict(), Dict(), Dict(), Dict(), Dict(), 10.,
+    config(adaptive_integrators, 1, ats, rts))
 
-and change the timesteps. For adaptive integrators, we will use tolerances instead.
-```julia
-τs = 10 .^range(-4, -3, length=5)
-ats = 10 .^range(-20, -14, length=5)
-rts = 10 .^range(-20, -14, length=5)
-```
-The tolerances for adaptive algoritms were chosen such that the energy error is
-close to the one given by the `VelocityVerlet` with the chosen `τ`.
-
-Now, let us run the benchmarks
-```julia
-@progress "Variable dt" for (τ, at, rt) in zip(τs, ats, rts)
-    runtime = Dict()
-    ΔE = Dict()
-    nt = Dict()
-    nf = Dict()
-    b = Dict()
-    allocs = Dict()
-
-    GC.gc()
-    benchmark(ΔE, runtime, b, allocs, nt, nf, t, config(τ, at, rt))
-
-    for (k,v) in ΔE
-        push!(results, [string(k), runtime[k], at, rt, abs(v), nt[k], nf[k]])
-    end
-end
-```
-
-Let us now examine the results
-```julia
-results
+results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
+    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+run_benchmark!(results, t, adaptive_integrators, ats, rts)
 ```
 
 The energy error as a function of runtime is given by
@@ -152,14 +222,26 @@ The energy error as a function of runtime is given by
 @df results plot(:EnergyError, :runtime, group=:integrator,
     xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (s)")
 ```
-
-If we consider the number of timesteps instead, we obtain
+If we consider the number of function evaluations instead, we obtain
 ```julia
-@df results plot(:EnergyError, :timesteps, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of timesteps")
+@df results plot(:EnergyError, :f_evals, group=:integrator,
+    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Number of f evals")
 ```
-and we can also see how the muber of acceleration function calls affects the runtime
+
+We can also consider a longer simulation time
 ```julia
-@df results plot(:f_evals, :runtime, group=:integrator,
-    xscale=:log10, yscale=:log10, xlabel="Number of f calls", ylabel="Runtime (s)")
+t = 100.0
+
+ats = 10 .^range(-20, -14, length=10)
+rts = 10 .^range(-20, -14, length=10)
+
+results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
+    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[]);
+#run_benchmark!(results, t, integrators, ats, rts)
+```
+
+The energy error as a function of runtime is given by
+```julia
+#@df results plot(:EnergyError, :runtime, group=:integrator,
+#    xscale=:log10, yscale=:log10, xlabel="Energy error", ylabel="Runtime (s)")
 ```
