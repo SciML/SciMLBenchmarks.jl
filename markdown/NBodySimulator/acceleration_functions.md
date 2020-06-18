@@ -1,4 +1,15 @@
+Solving the equations of notions for an N-body problem implies solving a (large)
+system of differential equations. In `DifferentialEquations.jl` these are represented
+through ODE or SDE problems. To build the problem we need a function that
+describe the equations. In the case of N-body problems, this function
+gives the accelerations for the particles in the system.
 
+Here we will test the performance of several acceleration functions used
+in N-body simulations. The systems that will be used are not necesarly realistic
+as we are not solving the problem, we just time how fast is an acceleration
+function call.
+
+````julia
 using BenchmarkTools, NBodySimulator
 using NBodySimulator: gather_bodies_initial_coordinates, gather_accelerations_for_potentials,
     gather_simultaneous_acceleration, gather_group_accelerations
@@ -28,8 +39,20 @@ function acceleration(simulation)
 
     return soode_system!
 end
+````
 
 
+````
+acceleration (generic function with 1 method)
+````
+
+
+
+
+
+## Gravitational potential
+
+````julia
 let SUITE=SUITE
     G = 6.67e-11 # m^3/kg/s^2
     N = 200 # number of bodies/particles
@@ -51,8 +74,20 @@ let SUITE=SUITE
 
     SUITE["gravitational"] = b
 end
+````
 
 
+````
+Benchmark(evals=1, seconds=5.0, samples=10000)
+````
+
+
+
+
+
+## Coulomb potential
+
+````julia
 let SUITE=SUITE
     n = 200
     bodies = ChargedParticle[]
@@ -90,8 +125,20 @@ let SUITE=SUITE
 
     SUITE["coulomb"] = b
 end
+````
 
 
+````
+Benchmark(evals=1, seconds=5.0, samples=10000)
+````
+
+
+
+
+
+## Magnetic dipole potential
+
+````julia
 let SUITE=SUITE
     n = 200
     bodies = MagneticParticle[]
@@ -128,8 +175,20 @@ let SUITE=SUITE
 
     SUITE["magnetic_dipole"] = b
 end
+````
 
 
+````
+Benchmark(evals=1, seconds=5.0, samples=10000)
+````
+
+
+
+
+
+## Lennard Jones potential
+
+````julia
 let SUITE=SUITE
     T = 120.0 # K
     T0 = 90.0 # K
@@ -162,8 +221,20 @@ let SUITE=SUITE
 
     SUITE["lennard_jones"] = b
 end
+````
 
 
+````
+Benchmark(evals=1, seconds=5.0, samples=10000)
+````
+
+
+
+
+
+## WaterSPCFw model
+
+````julia
 function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
 
     (u0, v0, n) = gather_bodies_initial_coordinates(simulation)
@@ -241,12 +312,52 @@ let SUITE=SUITE
 
     SUITE["water_spcfw"] = b
 end
+````
 
 
+````
+Benchmark(evals=1, seconds=5.0, samples=10000)
+````
+
+
+
+
+
+Here are the results of the benchmarks
+````julia
 r = run(SUITE)
 
 minimum(r)
+````
 
 
+````
+5-element BenchmarkTools.BenchmarkGroup:
+  tags: []
+  "gravitational" => TrialEstimate(5.024 ms)
+  "coulomb" => TrialEstimate(715.817 μs)
+  "lennard_jones" => TrialEstimate(534.330 μs)
+  "water_spcfw" => TrialEstimate(8.980 ms)
+  "magnetic_dipole" => TrialEstimate(27.549 ms)
+````
+
+
+
+
+and
+````julia
 memory(r)
+````
+
+
+````
+5-element BenchmarkTools.BenchmarkGroup:
+  tags: []
+  "gravitational" => 7664000
+  "coulomb" => 9600
+  "lennard_jones" => 9600
+  "water_spcfw" => 124912
+  "magnetic_dipole" => 25555200
+````
+
 
