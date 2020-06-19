@@ -74,14 +74,14 @@ end
 
 symplectic_integrators = [
     VelocityVerlet,
-    # VerletLeapfrog,
+    #VerletLeapfrog,
     PseudoVerletLeapfrog,
     McAte2,
-    # CalvoSanz4,
-    # McAte5,
+    #CalvoSanz4,
+    #McAte5,
     Yoshida6,
-    KahanLi8,
-    # SofSpa10
+    #KahanLi8,
+    #SofSpa10
 ]
 
 
@@ -105,8 +105,8 @@ c_Verlet = c_symplectic[1]
 c_symplectic /= c_Verlet
 
 
-t = 40.0
-τs = 10 .^range(-4, -3, length=5)
+t = 45.0
+τs = 10 .^range(-4, -3, length=10)
 
 results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
     :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
@@ -154,7 +154,7 @@ ts = Dict()
 configs = config(symplectic_integrators, c_symplectic, 2.3e-4)
 benchmark(ΔE, rt, ts, 45., configs)
 
-plt = plot(xlabel="Rescaled Time", ylabel="Energy error", legend=:topleft);
+plt = plot(xlabel="Rescaled Time", ylabel="Energy error", legend=:bottomleft);
 for c in configs
     plot!(plt, ts[c.alg], abs.(ΔE[c.alg]), label="$(c.alg), $(rt[c.alg])s", yscale=:log10)
 end
@@ -164,17 +164,17 @@ plt
 adaptive_integrators=[
     # DPRKN
     DPRKN6,
-    # DPRKN8,
-    # DPRKN12,
+    DPRKN8,
+    DPRKN12,
     # others
     Tsit5,
-    # Vern7,
-    # Vern9
+    Vern7,
+    Vern9
 ]
 
 config(integrators, c, at, rt) = [ (alg=a, abstol=at, rtol=rt) for a in integrators]
 
-t = 35.0
+t = 45.0
 ats = 10 .^range(-20, -14, length=10)
 rts = 10 .^range(-20, -14, length=10)
 
