@@ -88,18 +88,27 @@ We will consider symplectic integrators first
 ```julia
 symplectic_integrators = [
     VelocityVerlet,
-    #VerletLeapfrog,
+    VerletLeapfrog,
     PseudoVerletLeapfrog,
     McAte2,
-    #CalvoSanz4,
-    #McAte5,
+    CalvoSanz4,
+    McAte5,
     Yoshida6,
-    #KahanLi8,
-    #SofSpa10
-]
+    KahanLi8,
+    SofSpa10
+];
 ```
 
-Let us run a short simulation to see the cost per timestep for each method
+Since for each method there is a different cost for a timestep, we need to take that
+into account when choosing the tolerances (`dt`s or `abstol`&`reltol`) for the 
+solvers. This cost was estimated using the commented code below and the
+results were hardcoded in order to prevent fluctuations in the results
+between runs due to differences in callibration times.
+
+The calibration is based on running a simulation with equal tolerances for all
+solvers and then computing the cost as the runtime / number of timesteps.
+The absolute value of the cost is not very relevant, so the cost was normalized
+to the cost of one `VelocityVerlet` step.
 ```julia
 config(integrators, c, τ) = [ (alg=a, dt=τ*cₐ) for (a,cₐ) in zip(integrators, c)]
 
@@ -111,17 +120,26 @@ c_symplectic = ones(length(symplectic_integrators))
 benchmark(Dict(), Dict(), Dict(), Dict(), Dict(), Dict(), 10.,
     config(symplectic_integrators, c_symplectic, τs))
 
-results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
-    :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
-run_benchmark!(results, t, symplectic_integrators, τs)
+# results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
+#     :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
+# run_benchmark!(results, t, symplectic_integrators, τs)
+
+# c_symplectic .= results[!, :runtime] ./ results[!, :timesteps]
+# c_Verlet = c_symplectic[1]
+# c_symplectic /= c_Verlet
+
+c_symplectic = [
+    1.0,    # VelocityVerlet
+    1.0,    # VerletLeapfrog
+    1.01,   # PseudoVerletLeapfrog
+    0.98,   # McAte2
+    2.48,   # CalvoSanz4
+    3.02,   # McAte5
+    3.90,   # Yoshida6
+    9.01,   # KahanLi8
+    18      # SofSpa10
+]
 ```
-The cost of a timestep can be computed as follows
-```julia
-c_symplectic .= results[!, :runtime] ./ results[!, :timesteps]
-c_Verlet = c_symplectic[1]
-c_symplectic /= c_Verlet
-```
-were we have normalized the cost to the cost of a VelocityVerlet step.
 
 Let us now benchmark the solvers for a fixed simulation time and variable timestep
 ```julia
@@ -194,29 +212,56 @@ plt
 Now, let us compare some adaptive methods
 ```julia
 adaptive_integrators=[
+    # Non-stiff ODE methods
+    Tsit5,
+    Vern7,
+    Vern9,
     # DPRKN
     DPRKN6,
     DPRKN8,
     DPRKN12,
-    # others
-    Tsit5,
-    Vern7,
-    Vern9
-]
+];
+```
 
-config(integrators, c, at, rt) = [ (alg=a, abstol=at, rtol=rt) for a in integrators]
+Similarly to the case of symplectic methods, we will take into account the average cost per timestep
+in order to have a fair comparison between the solvers.
+```julia
+config(integrators, c, at, rt) = [ (alg=a, abstol=at*cₐ, rtol=rt*cₐ) for (a,cₐ) in zip(integrators, c)]
 
-t = 45.0
+t = 35.0
 ats = 10 .^range(-20, -14, length=10)
 rts = 10 .^range(-20, -14, length=10)
 
 # warmup
+c_adaptive = ones(length(adaptive_integrators))
 benchmark(Dict(), Dict(), Dict(), Dict(), Dict(), Dict(), 10.,
     config(adaptive_integrators, 1, ats[1], rts[1]))
 
+# results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
+#    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
+# run_benchmark!(results, t, adaptive_integrators, ats[1], rts[1])
+
+# c_adaptive .= results[!, :runtime] ./ results[!, :timesteps]
+# c_Tsit5 = c_adaptive[1]
+# c_adaptive /= c_Tsit5
+
+c_adaptive = [
+    1.0,    # Tsit5,
+    1.57,   # Vern7,
+    2.6,    # Vern9
+    0.98,   # DPRKN6,
+    1.41,   # DPRKN8,
+    2.61    # DPRKN12,
+]
+```
+
+Let us now benchmark the solvers for a fixed simulation time and variable timestep
+```julia
+t = 45.0
+
 results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
     :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
-run_benchmark!(results, t, adaptive_integrators, ats, rts)
+run_benchmark!(results, t, adaptive_integrators, ats, rts, c=c_adaptive)
 ```
 
 The energy error as a function of runtime is given by
@@ -237,9 +282,9 @@ t = 100.0
 ats = 10 .^range(-20, -14, length=10)
 rts = 10 .^range(-20, -14, length=10)
 
-results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
-    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
-#run_benchmark!(results, t, integrators, ats, rts)
+#results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
+#    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
+#run_benchmark!(results, t, integrators, ats, rts, c=c_adaptive)
 ```
 
 The energy error as a function of runtime is given by
