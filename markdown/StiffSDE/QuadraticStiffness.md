@@ -24,59 +24,9 @@ This is a scalar SDE with two arguments. The first controls the deterministic st
 
 ````julia
 using DiffEqProblemLibrary, StochasticDiffEq, DiffEqDevTools
-````
-
-
-````
-Error: ArgumentError: Package DiffEqProblemLibrary not found in current pat
-h:
-- Run `import Pkg; Pkg.add("DiffEqProblemLibrary")` to install the DiffEqPr
-oblemLibrary package.
-````
-
-
-
-````julia
 using DiffEqProblemLibrary.SDEProblemLibrary: importsdeproblems; importsdeproblems()
-````
-
-
-````
-Error: ArgumentError: Package DiffEqProblemLibrary not found in current pat
-h:
-- Run `import Pkg; Pkg.add("DiffEqProblemLibrary")` to install the DiffEqPr
-oblemLibrary package.
-````
-
-
-
-````julia
 import DiffEqProblemLibrary.SDEProblemLibrary: prob_sde_stiffquadito
-````
-
-
-````
-Error: ArgumentError: Package DiffEqProblemLibrary not found in current pat
-h:
-- Run `import Pkg; Pkg.add("DiffEqProblemLibrary")` to install the DiffEqPr
-oblemLibrary package.
-````
-
-
-
-````julia
 using Plots; gr()
-````
-
-
-````
-Error: ArgumentError: Package Plots not found in current path:
-- Run `import Pkg; Pkg.add("Plots")` to install the Plots package.
-````
-
-
-
-````julia
 const N = 10
 ````
 
@@ -89,69 +39,21 @@ const N = 10
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 sol = solve(prob,SRIW1())
-````
-
-
-````
-Error: UndefVarError: SRIW1 not defined
-````
-
-
-
-````julia
 plot(sol)
 ````
 
 
-````
-Error: UndefVarError: plot not defined
-````
-
-
+![](figures/QuadraticStiffness_2_1.png)
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 sol = solve(prob,SRIW1())
-````
-
-
-````
-Error: UndefVarError: SRIW1 not defined
-````
-
-
-
-````julia
 plot(sol)
 ````
 
 
-````
-Error: UndefVarError: plot not defined
-````
-
-
+![](figures/QuadraticStiffness_3_1.png)
 
 
 
@@ -163,22 +65,12 @@ Let's first determine the maximum dts which are allowed. Anything higher is most
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 @time sol = solve(prob,SRIW1())
 ````
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.000136 seconds (1.75 k allocations: 69.766 KiB)
 ````
 
 
@@ -189,7 +81,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.000147 seconds (2.20 k allocations: 98.656 KiB)
 ````
 
 
@@ -200,7 +92,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: ImplicitRKMil not defined
+0.000070 seconds (476 allocations: 22.250 KiB)
 ````
 
 
@@ -211,7 +103,51 @@ Error: UndefVarError: ImplicitRKMil not defined
 
 
 ````
-Error: UndefVarError: EM not defined
+0.000139 seconds (1.59 k allocations: 80.781 KiB)
+retcode: Success
+Interpolation: 1st order linear
+t: 302-element Array{Float64,1}:
+ 0.0
+ 0.01
+ 0.02
+ 0.03
+ 0.04
+ 0.05
+ 0.060000000000000005
+ 0.07
+ 0.08
+ 0.09
+ ⋮
+ 2.9299999999999815
+ 2.9399999999999813
+ 2.949999999999981
+ 2.959999999999981
+ 2.9699999999999807
+ 2.9799999999999804
+ 2.9899999999999802
+ 2.99999999999998
+ 3.0
+u: 302-element Array{Float64,1}:
+  0.5
+  0.05400087598450504
+ -0.4322194164685306
+ -0.8662085152913119
+ -1.0298009720076173
+ -1.01517060160776
+ -0.996355945086718
+ -1.0017970573911805
+ -0.9998423680469793
+ -0.9999668443452646
+  ⋮
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
 ````
 
 
@@ -222,22 +158,12 @@ Error: UndefVarError: EM not defined
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 @time sol = solve(prob,SRIW1())
 ````
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.000931 seconds (14.70 k allocations: 555.844 KiB)
 ````
 
 
@@ -248,7 +174,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.000581 seconds (10.60 k allocations: 438.906 KiB)
 ````
 
 
@@ -259,7 +185,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: ImplicitRKMil not defined
+0.000080 seconds (508 allocations: 23.078 KiB)
 ````
 
 
@@ -270,7 +196,51 @@ Error: UndefVarError: ImplicitRKMil not defined
 
 
 ````
-Error: UndefVarError: EM not defined
+0.000538 seconds (7.59 k allocations: 359.406 KiB)
+retcode: Success
+Interpolation: 1st order linear
+t: 1502-element Array{Float64,1}:
+ 0.0
+ 0.002
+ 0.004
+ 0.006
+ 0.008
+ 0.01
+ 0.012
+ 0.014
+ 0.016
+ 0.018000000000000002
+ ⋮
+ 2.9859999999998927
+ 2.9879999999998925
+ 2.9899999999998923
+ 2.991999999999892
+ 2.993999999999892
+ 2.9959999999998916
+ 2.9979999999998914
+ 2.999999999999891
+ 3.0
+u: 1502-element Array{Float64,1}:
+  0.5
+ -0.25529384876688355
+ -1.2704488507072091
+ -0.6858254884008534
+ -1.2050121028138288
+ -0.7656691618009445
+ -1.187763545168995
+ -0.7851998112299533
+ -1.159779108624691
+ -0.8263954527160681
+  ⋮
+ -0.9999991447799846
+ -1.0000007945994362
+ -0.9999992620880667
+ -1.0000007261409347
+ -0.9999992123942698
+ -1.0000008145736483
+ -0.9999990974228663
+ -1.0000008508624247
+ -1.0000008508628517
 ````
 
 
@@ -281,22 +251,12 @@ Error: UndefVarError: EM not defined
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 @time sol = solve(prob,SRIW1(),dt=0.0001)
 ````
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.001807 seconds (19.32 k allocations: 1.443 MiB)
 ````
 
 
@@ -307,7 +267,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: SRIW1 not defined
+0.116021 seconds (2.10 M allocations: 70.361 MiB)
 ````
 
 
@@ -318,7 +278,7 @@ Error: UndefVarError: SRIW1 not defined
 
 
 ````
-Error: UndefVarError: ImplicitRKMil not defined
+0.266010 seconds (1.00 M allocations: 61.394 MiB, 6.53% gc time)
 ````
 
 
@@ -329,7 +289,51 @@ Error: UndefVarError: ImplicitRKMil not defined
 
 
 ````
-Error: UndefVarError: EM not defined
+0.104843 seconds (1.50 M allocations: 56.205 MiB)
+retcode: Success
+Interpolation: 1st order linear
+t: 300001-element Array{Float64,1}:
+ 0.0
+ 1.0e-5
+ 2.0e-5
+ 3.0000000000000004e-5
+ 4.0e-5
+ 5.0e-5
+ 6.0e-5
+ 7.000000000000001e-5
+ 8.0e-5
+ 9.0e-5
+ ⋮
+ 2.9999200000111856
+ 2.9999300000111857
+ 2.9999400000111858
+ 2.999950000011186
+ 2.999960000011186
+ 2.999970000011186
+ 2.999980000011186
+ 2.999990000011186
+ 3.0
+u: 300001-element Array{Float64,1}:
+  0.5
+  0.2522585352853736
+  0.03788807985990361
+  0.10617707170644777
+  0.18884587010070686
+  0.4244134342049445
+  0.2846460924914053
+  0.5150163126330514
+  0.4322066350433866
+  0.8082867777643354
+  ⋮
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
+ -1.0
 ````
 
 
@@ -342,16 +346,6 @@ Notice that in this problem, the stiffness in the noise term still prevents the 
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 
 reltols = 1.0 ./ 10.0 .^ (3:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
@@ -360,50 +354,16 @@ setups = [Dict(:alg=>SRIW1()),
           Dict(:alg=>SRIW1(),:dts=>1.0./8.0.^((1:length(reltols)) .+ 1),:adaptive=>false)
           #Dict(:alg=>RKMil(),:dts=>1.0./8.0.^((1:length(reltols)) .+ 1),:adaptive=>false),
           ]
-````
-
-
-````
-Error: UndefVarError: SRIW1 not defined
-````
-
-
-
-````julia
 names = ["SRIW1","EM","SRIW1 Fixed"] #"RKMil",
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns=N,names=names,error_estimate=:l2)
-````
-
-
-````
-Error: UndefVarError: WorkPrecisionSet not defined
-````
-
-
-
-````julia
 plot(wp)
 ````
 
 
-````
-Error: UndefVarError: plot not defined
-````
-
-
+![](figures/QuadraticStiffness_7_1.png)
 
 ````julia
 prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
-````
-
-
-````
-Error: UndefVarError: remake not defined
-````
-
-
-
-````julia
 
 reltols = 1.0 ./ 10.0 .^ (3:5)
 abstols = reltols#[0.0 for i in eachindex(reltols)]
@@ -412,37 +372,13 @@ setups = [Dict(:alg=>SRIW1()),
           Dict(:alg=>SRIW1(),:dts=>1.0./8.0.^((1:length(reltols)) .+ 2),:adaptive=>false)
           #Dict(:alg=>RKMil(),:dts=>1.0./8.0.^((1:length(reltols)) .+ 2),:adaptive=>false),
           ]
-````
-
-
-````
-Error: UndefVarError: SRIW1 not defined
-````
-
-
-
-````julia
 names = ["SRIW1","EM","SRIW1 Fixed"] #"RKMil",
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;numruns=N,names=names,error_estimate=:l2,print_names=true)
-````
-
-
-````
-Error: UndefVarError: WorkPrecisionSet not defined
-````
-
-
-
-````julia
 plot(wp)
 ````
 
 
-````
-Error: UndefVarError: plot not defined
-````
-
-
+![](figures/QuadraticStiffness_8_1.png)
 
 
 
@@ -490,11 +426,14 @@ Environment:
 Package Information:
 
 ```
-Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/Project.toml`
-[7073ff75-c697-5162-941a-fcdaad2a7d2a] IJulia 1.21.2
-[44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9] Weave 0.10.2
-[b77e0a4c-d291-57a0-90e8-8db25a27a240] InteractiveUtils 
-[d6f4376e-aef5-505a-96c1-9c027394607a] Markdown 
-[44cfe95a-1eb2-52ea-b672-e2afdf69b78f] Pkg 
+Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/StiffSDE/Project.toml`
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
+[77a26b50-5914-5dd7-bc55-306e6241c503] DiffEqNoiseProcess 5.0.1
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.0
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.2
+[789caeaf-c7a9-5a7d-9973-96adeb23e2a0] StochasticDiffEq 6.24.0
+[37e2e46d-f89d-539d-b4ee-838fcccc9c8e] LinearAlgebra 
+[9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
+[10745b16-79ce-11e8-11f9-7d13ad32a3b2] Statistics 
 ```
 
