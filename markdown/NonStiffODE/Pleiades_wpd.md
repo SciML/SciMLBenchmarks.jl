@@ -1,4 +1,7 @@
-
+---
+author: "Chris Rackauckas"
+title: "Pleiades Work-Precision Diagrams"
+---
 ````julia
 using OrdinaryDiffEq, ODE, ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools
 
@@ -29,6 +32,11 @@ abstols = 1.0 ./ 10.0 .^ (6:9)
 reltols = 1.0 ./ 10.0 .^ (3:6);
 
 using Plots; gr()
+````
+
+
+````
+Plots.GRBackend()
 ````
 
 
@@ -227,25 +235,35 @@ DiffEqBenchmarks.weave_file("NonStiffODE","Pleiades_wpd.jmd")
 Computer Information:
 
 ```
-Julia Version 1.4.0
-Commit b8e9a9ecc6 (2020-03-21 16:36 UTC)
+Julia Version 1.4.2
+Commit 44fa15b150* (2020-05-23 18:35 UTC)
 Platform Info:
-  OS: Windows (x86_64-w64-mingw32)
-  CPU: Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz
+  OS: Linux (x86_64-pc-linux-gnu)
+  CPU: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
   WORD_SIZE: 64
   LIBM: libopenlibm
   LLVM: libLLVM-8.0.1 (ORCJIT, skylake)
 Environment:
-  JULIA_EDITOR = "C:\Users\accou\AppData\Local\atom\app-1.45.0\atom.exe"  -a
+  JULIA_DEPOT_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia
+  JULIA_CUDA_MEMORY_LIMIT = 2147483648
+  JULIA_PROJECT = @.
   JULIA_NUM_THREADS = 4
-  JULIA_PARDISO = C:\Users\accou\.julia\external
 
 ```
 
 Package Information:
 
 ```
-Status: `C:\Users\accou\.julia\dev\DiffEqBenchmarks\Project.toml`
-
+Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/NonStiffODE/Project.toml`
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
+[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.1
+[c030b06c-0b6d-57c2-b091-7029874bd033] ODE 2.8.0
+[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.6
+[09606e27-ecf5-54fc-bb29-004bd9f985bf] ODEInterfaceDiffEq 3.7.0
+[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.41.0
+[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 5.3.0
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.2
+[c3572dad-4567-51f8-b174-8c6c989267f4] Sundials 4.2.5
+[9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
 ```
 
