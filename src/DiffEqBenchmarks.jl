@@ -7,6 +7,8 @@ repo_directory = joinpath(@__DIR__,"..")
 function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook))
   println("File: $file")
   tmp = joinpath(repo_directory,"benchmarks",folder,file)
+  Pkg.activate(dirname(tmp))
+  Pkg.instantiate()
   args = Dict{Symbol,String}(:folder=>folder,:file=>file)
   if :script ∈ build_list
     println("Building Script")
