@@ -1,4 +1,7 @@
-
+---
+author: "Vaibhav Dixit, Chris Rackauckas"
+title: "Fitzhugh-Nagumo Bayesian Parameter Estimation Benchmarks"
+---
 ````julia
 using DiffEqBayes, BenchmarkTools
 ````
@@ -38,10 +41,11 @@ end a b τinv l
 
 
 ````
-(::Main.WeaveSandBox2.FitzhughNagumo{Main.WeaveSandBox2.var"###Parameterize
-dDiffEqFunction#560",Main.WeaveSandBox2.var"###ParameterizedTGradFunction#5
-61",Main.WeaveSandBox2.var"###ParameterizedJacobianFunction#562",Nothing,No
-thing,ModelingToolkit.ODESystem}) (generic function with 1 method)
+(::Main.##WeaveSandBox#355.FitzhughNagumo{Main.##WeaveSandBox#355.var"###Pa
+rameterizedDiffEqFunction#375",Main.##WeaveSandBox#355.var"###Parameterized
+TGradFunction#376",Main.##WeaveSandBox#355.var"###ParameterizedJacobianFunc
+tion#377",Nothing,Nothing,ModelingToolkit.ODESystem}) (generic function wit
+h 1 method)
 ````
 
 
@@ -102,8 +106,8 @@ data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(2)) for i in 1:lengt
 
 ````
 2×10 Array{Float64,2}:
- 1.05636  1.45166  1.4348  1.0509   …  -0.940141  -2.01342  -1.8911
- 1.09891  1.29689  1.3945  1.55263      1.40002    1.35679   0.580668
+ 0.992127  1.25356  0.8199   1.10043  …  -0.793084  -1.9025   -1.80766
+ 0.964468  1.27296  1.07612  1.48449      1.32847    1.21824   1.18433
 ````
 
 
@@ -126,16 +130,17 @@ plot!(sol)
 ### Priors for the parameters which will be passed for the Bayesian Inference
 
 ````julia
-priors = [Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(0.0,0.5),0.0,0.5),Truncated(Normal(0.5,0.5),0,1)]
+priors = [truncated(Normal(1.0,0.5),0,1.5),truncated(Normal(1.0,0.5),0,1.5),truncated(Normal(0.0,0.5),0.0,0.5),truncated(Normal(0.5,0.5),0,1)]
 ````
 
 
 ````
-4-element Array{Truncated{Normal{Float64},Continuous,Float64},1}:
- Truncated(Normal{Float64}(μ=1.0, σ=0.5), range=(0.0, 1.5))
- Truncated(Normal{Float64}(μ=1.0, σ=0.5), range=(0.0, 1.5))
- Truncated(Normal{Float64}(μ=0.0, σ=0.5), range=(0.0, 0.5))
- Truncated(Normal{Float64}(μ=0.5, σ=0.5), range=(0.0, 1.0))
+4-element Array{Distributions.Truncated{Distributions.Normal{Float64},Distr
+ibutions.Continuous,Float64},1}:
+ Truncated(Distributions.Normal{Float64}(μ=1.0, σ=0.5), range=(0.0, 1.5))
+ Truncated(Distributions.Normal{Float64}(μ=1.0, σ=0.5), range=(0.0, 1.5))
+ Truncated(Distributions.Normal{Float64}(μ=0.0, σ=0.5), range=(0.0, 0.5))
+ Truncated(Distributions.Normal{Float64}(μ=0.5, σ=0.5), range=(0.0, 1.0))
 ````
 
 
@@ -152,62 +157,10 @@ priors = [Truncated(Normal(1.0,0.5),0,1.5),Truncated(Normal(1.0,0.5),0,1.5),Trun
 
 
 ````
-File /Users/vaibhav/DiffEqBenchmarks.jl/tmp/parameter_estimation_model.stan
- will be updated.
+File /builds/JuliaGPU/DiffEqBenchmarks.jl/tmp/parameter_estimation_model.st
+an will be updated.
 
-
-File /Users/vaibhav/DiffEqBenchmarks.jl/tmp/parameter_estimation_model.stan
- will be updated.
-
-
-File /Users/vaibhav/DiffEqBenchmarks.jl/tmp/parameter_estimation_model.stan
- will be updated.
-
-
-File /Users/vaibhav/DiffEqBenchmarks.jl/tmp/parameter_estimation_model.stan
- will be updated.
-
-  229.837 s (1361525 allocations: 57.17 MiB)
-DiffEqBayes.StanModel{Stanmodel,Int64,Array{Float64,3},Array{String,1}}(  n
-ame =                    "parameter_estimation_model"
-  nchains =                 1
-  num_samples =             10000
-  num_warmup =                1000
-  thin =                    1
-  monitors =                String[]
-  model_file =              "parameter_estimation_model.stan"
-  data_file =               "parameter_estimation_model_1.data.R"
-  output =                  Output()
-    file =                    "parameter_estimation_model_samples_1.csv"
-    diagnostics_file =        ""
-    refresh =                 100
-  pdir =                   "/Users/vaibhav/DiffEqBenchmarks.jl"
-  tmpdir =                 "/Users/vaibhav/DiffEqBenchmarks.jl/tmp"
-  output_format =           :array
-  method =                  Sample()
-    num_samples =             10000
-    num_warmup =              1000
-    save_warmup =             false
-    thin =                    1
-    algorithm =               HMC()
-      engine =                  NUTS()
-        max_depth =               10
-      metric =                  CmdStan.diag_e
-      stepsize =                1.0
-      stepsize_jitter =         1.0
-    adapt =                   Adapt()
-      gamma =                   0.05
-      delta =                   0.8
-      kappa =                   0.75
-      t0 =                      10.0
-      init_buffer =             75
-      term_buffer =             50
-      window =                  25
-, 0, [1.05317 0.999518 … 0.086651 0.545111; 1.6859 0.995547 … 0.205829 0.88
-8846; … ; 0.395335 0.991611 … 0.130002 0.506693; -0.284945 0.910905 … 0.084
-5292 0.713666], ["lp__", "accept_stat__", "stepsize__", "treedepth__", "n_l
-eapfrog__", "divergent__", "energy__", "sigma1.1", "sigma1.2", "theta1", "t
-heta2", "theta3", "theta4", "theta.1", "theta.2", "theta.3", "theta.4"])
+Error: IOError: chdir : no such file or directory (ENOENT)
 ````
 
 
@@ -222,7 +175,7 @@ heta2", "theta3", "theta4", "theta.1", "theta.2", "theta.3", "theta.4"])
 
 
 ````
-75.472 s (529668345 allocations: 39.90 GiB)
+26.438 s (244203376 allocations: 17.79 GiB)
 Object of type Chains, with data of type 9000×17×1 Array{Float64,3}
 
 Iterations        = 1:9000
@@ -239,20 +192,20 @@ parameters        = theta[1], theta[2], theta[3], theta[4], σ[1]
 Summary Statistics
   parameters    mean     std  naive_se    mcse        ess   r_hat
   ──────────  ──────  ──────  ────────  ──────  ─────────  ──────
-    theta[1]  0.8583  0.3401    0.0036  0.0057  3384.7351  1.0000
-    theta[2]  0.9228  0.2442    0.0026  0.0041  3277.0208  0.9999
-    theta[3]  0.1477  0.0346    0.0004  0.0007  3174.5974  1.0004
-    theta[4]  0.6994  0.0818    0.0009  0.0015  2993.9918  0.9999
-        σ[1]  0.2533  0.0528    0.0006  0.0009  2939.5460  1.0000
+    theta[1]  0.9691  0.3165    0.0033  0.0044  4125.9162  0.9999
+    theta[2]  0.9112  0.2977    0.0031  0.0046  3828.3575  0.9999
+    theta[3]  0.0746  0.0342    0.0004  0.0007  2462.0543  0.9999
+    theta[4]  0.4995  0.0756    0.0008  0.0016  2233.8494  0.9999
+        σ[1]  0.2651  0.0539    0.0006  0.0009  3404.5645  0.9999
 
 Quantiles
   parameters    2.5%   25.0%   50.0%   75.0%   97.5%
   ──────────  ──────  ──────  ──────  ──────  ──────
-    theta[1]  0.1707  0.6138  0.8764  1.1219  1.4312
-    theta[2]  0.4371  0.7532  0.9293  1.1053  1.3568
-    theta[3]  0.0822  0.1244  0.1469  0.1696  0.2178
-    theta[4]  0.5444  0.6447  0.6971  0.7514  0.8734
-        σ[1]  0.1712  0.2156  0.2460  0.2835  0.3771
+    theta[1]  0.2784  0.7590  1.0054  1.2193  1.4585
+    theta[2]  0.2765  0.7103  0.9309  1.1333  1.4198
+    theta[3]  0.0231  0.0501  0.0696  0.0934  0.1558
+    theta[4]  0.3736  0.4480  0.4922  0.5426  0.6658
+        σ[1]  0.1819  0.2271  0.2576  0.2949  0.3919
 ````
 
 
@@ -286,52 +239,38 @@ DiffEqBenchmarks.weave_file("ParameterEstimation","DiffEqBayesFitzHughNagumo.jmd
 Computer Information:
 
 ```
-Julia Version 1.4.0
-Commit b8e9a9ecc6 (2020-03-21 16:36 UTC)
+Julia Version 1.4.2
+Commit 44fa15b150* (2020-05-23 18:35 UTC)
 Platform Info:
-  OS: macOS (x86_64-apple-darwin18.6.0)
-  CPU: Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz
+  OS: Linux (x86_64-pc-linux-gnu)
+  CPU: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
   WORD_SIZE: 64
   LIBM: libopenlibm
   LLVM: libLLVM-8.0.1 (ORCJIT, skylake)
+Environment:
+  JULIA_DEPOT_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia
+  JULIA_CUDA_MEMORY_LIMIT = 2147483648
+  JULIA_PROJECT = @.
+  JULIA_NUM_THREADS = 8
 
 ```
 
 Package Information:
 
 ```
-Status: `/Users/vaibhav/DiffEqBenchmarks.jl/Project.toml`
-[28f2ccd6-bb30-5033-b560-165f7b14dc2f] ApproxFun 0.11.10
+Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/ParameterEstimation/Project.toml`
+[6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf] BenchmarkTools 0.5.0
 [a134a8b2-14d6-55f6-9291-3336d3ab0209] BlackBoxOptim 0.5.0
-[a93c6f00-e57d-5684-b7b6-d8193f3e46c0] DataFrames 0.20.2
-[2b5f629d-d688-5b77-993f-72d75c75574e] DiffEqBase 6.25.2
-[ebbdde9d-f333-5424-9be2-dbf1e9acfb5e] DiffEqBayes 2.9.1
-[eb300fae-53e8-50a0-950c-e21f52c2b7e0] DiffEqBiological 4.2.0
-[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.18.0
-[c894b116-72e5-5b58-be3c-e6d8d4ac2b12] DiffEqJump 6.5.0
-[1130ab10-4a5a-5621-a13d-e4788d82bd4c] DiffEqParamEstim 1.13.0
-[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.6.4
+[593b3428-ca2f-500c-ae53-031589ec8ddd] CmdStan 6.0.6
+[ebbdde9d-f333-5424-9be2-dbf1e9acfb5e] DiffEqBayes 2.16.0
+[1130ab10-4a5a-5621-a13d-e4788d82bd4c] DiffEqParamEstim 1.15.0
 [ef61062a-5684-51dc-bb67-a0fcdec5c97d] DiffEqUncertainty 1.4.1
-[0c46a032-eb83-5123-abaf-570d42b7fbaa] DifferentialEquations 6.12.0
-[7073ff75-c697-5162-941a-fcdaad2a7d2a] IJulia 1.21.1
-[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.1
-[76087f3c-5699-56af-9a33-bf431cd00edd] NLopt 0.5.1
-[c030b06c-0b6d-57c2-b091-7029874bd033] ODE 2.6.0
-[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.6
-[09606e27-ecf5-54fc-bb29-004bd9f985bf] ODEInterfaceDiffEq 3.6.0
-[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.32.2
-[2dcacdae-9679-587a-88bb-8b444fb7085b] ParallelDataTransfer 0.5.0
-[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 5.0.3
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 0.29.9
-[b4db0fb7-de2a-5028-82bf-5021f5cfa881] ReactionNetworkImporters 0.1.5
-[f2c3362d-daeb-58d1-803e-2bc74f2840b4] RecursiveFactorization 0.1.0
-[9672c7b4-1e72-59bd-8a11-6ac3964bc41f] SteadyStateDiffEq 1.5.0
-[c3572dad-4567-51f8-b174-8c6c989267f4] Sundials 3.9.0
-[a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f] TimerOutputs 0.5.3
-[44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9] Weave 0.9.4
-[b77e0a4c-d291-57a0-90e8-8db25a27a240] InteractiveUtils 
-[d6f4376e-aef5-505a-96c1-9c027394607a] Markdown 
-[44cfe95a-1eb2-52ea-b672-e2afdf69b78f] Pkg 
-[9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
+[31c24e10-a181-5473-b8eb-7969acd0382f] Distributions 0.23.4
+[bbc10e6e-7c05-544b-b16e-64fede858acb] DynamicHMC 2.1.5
+[76087f3c-5699-56af-9a33-bf431cd00edd] NLopt 0.6.0
+[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.41.0
+[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 5.3.0
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.3
+[731186ca-8d62-57ce-b412-fbd966d074cd] RecursiveArrayTools 2.5.0
 ```
 
