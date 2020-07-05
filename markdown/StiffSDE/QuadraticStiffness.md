@@ -70,7 +70,7 @@ prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 
 
 ````
-0.000136 seconds (1.75 k allocations: 69.766 KiB)
+0.000165 seconds (2.08 k allocations: 93.578 KiB)
 ````
 
 
@@ -81,7 +81,7 @@ prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 
 
 ````
-0.000147 seconds (2.20 k allocations: 98.656 KiB)
+0.000148 seconds (2.20 k allocations: 98.656 KiB)
 ````
 
 
@@ -92,7 +92,7 @@ prob = remake(prob_sde_stiffquadito,p=(50.0,1.0))
 
 
 ````
-0.000070 seconds (476 allocations: 22.250 KiB)
+0.000060 seconds (377 allocations: 16.812 KiB)
 ````
 
 
@@ -129,15 +129,15 @@ t: 302-element Array{Float64,1}:
  3.0
 u: 302-element Array{Float64,1}:
   0.5
-  0.05400087598450504
- -0.4322194164685306
- -0.8662085152913119
- -1.0298009720076173
- -1.01517060160776
- -0.996355945086718
- -1.0017970573911805
- -0.9998423680469793
- -0.9999668443452646
+  0.1990029211123852
+ -0.07466078087109371
+ -0.6002654155227148
+ -0.8540743925715729
+ -0.9620748221038411
+ -1.0006849724929916
+ -0.9998995995255848
+ -1.0000061367343545
+ -0.9999994064330947
   ⋮
  -1.0
  -1.0
@@ -163,7 +163,7 @@ prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 
 
 ````
-0.000931 seconds (14.70 k allocations: 555.844 KiB)
+0.000940 seconds (14.40 k allocations: 548.844 KiB)
 ````
 
 
@@ -174,7 +174,7 @@ prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 
 
 ````
-0.000581 seconds (10.60 k allocations: 438.906 KiB)
+0.000597 seconds (10.60 k allocations: 438.906 KiB)
 ````
 
 
@@ -185,7 +185,7 @@ prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 
 
 ````
-0.000080 seconds (508 allocations: 23.078 KiB)
+0.000065 seconds (451 allocations: 18.719 KiB)
 ````
 
 
@@ -196,7 +196,7 @@ prob = remake(prob_sde_stiffquadito,p=(500.0,1.0))
 
 
 ````
-0.000538 seconds (7.59 k allocations: 359.406 KiB)
+0.000536 seconds (7.59 k allocations: 359.406 KiB)
 retcode: Success
 Interpolation: 1st order linear
 t: 1502-element Array{Float64,1}:
@@ -222,25 +222,25 @@ t: 1502-element Array{Float64,1}:
  3.0
 u: 1502-element Array{Float64,1}:
   0.5
- -0.25529384876688355
- -1.2704488507072091
- -0.6858254884008534
- -1.2050121028138288
- -0.7656691618009445
- -1.187763545168995
- -0.7851998112299533
- -1.159779108624691
- -0.8263954527160681
+ -0.23220706093389717
+ -1.1384420877339305
+ -0.8492576915171682
+ -1.133172366777916
+ -0.86818454032407
+ -1.108335100899943
+ -0.876411881818392
+ -1.092904208491973
+ -0.9023600723135534
   ⋮
- -0.9999991447799846
- -1.0000007945994362
- -0.9999992620880667
- -1.0000007261409347
- -0.9999992123942698
- -1.0000008145736483
- -0.9999990974228663
- -1.0000008508624247
- -1.0000008508628517
+ -0.9999976245765745
+ -1.0000025863371373
+ -0.9999977317936903
+ -1.0000024080032976
+ -0.999997301184875
+ -1.000002755148832
+ -0.9999974155586951
+ -1.0000024771682556
+ -1.0000024771699214
 ````
 
 
@@ -256,7 +256,7 @@ prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
 
 
 ````
-0.001807 seconds (19.32 k allocations: 1.443 MiB)
+0.001515 seconds (16.31 k allocations: 1.022 MiB)
 ````
 
 
@@ -267,7 +267,7 @@ prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
 
 
 ````
-0.116021 seconds (2.10 M allocations: 70.361 MiB)
+0.117636 seconds (2.10 M allocations: 70.361 MiB)
 ````
 
 
@@ -278,7 +278,7 @@ prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
 
 
 ````
-0.266010 seconds (1.00 M allocations: 61.394 MiB, 6.53% gc time)
+0.281424 seconds (1.00 M allocations: 61.394 MiB, 6.11% gc time)
 ````
 
 
@@ -289,7 +289,7 @@ prob = remake(prob_sde_stiffquadito,p=(5000.0,70.0))
 
 
 ````
-0.104843 seconds (1.50 M allocations: 56.205 MiB)
+0.104087 seconds (1.50 M allocations: 56.205 MiB)
 retcode: Success
 Interpolation: 1st order linear
 t: 300001-element Array{Float64,1}:
@@ -315,15 +315,15 @@ t: 300001-element Array{Float64,1}:
  3.0
 u: 300001-element Array{Float64,1}:
   0.5
-  0.2522585352853736
-  0.03788807985990361
-  0.10617707170644777
-  0.18884587010070686
-  0.4244134342049445
-  0.2846460924914053
-  0.5150163126330514
-  0.4322066350433866
-  0.8082867777643354
+  0.5302268461606926
+  0.5271985349363482
+  0.5171336740685825
+  0.38459491163615883
+  0.3664925831930108
+  0.16483558009815447
+ -0.00781191807905611
+  0.2356420268211326
+ -0.1968849304791764
   ⋮
  -1.0
  -1.0
@@ -419,7 +419,7 @@ Environment:
   JULIA_DEPOT_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia
   JULIA_CUDA_MEMORY_LIMIT = 2147483648
   JULIA_PROJECT = @.
-  JULIA_NUM_THREADS = 4
+  JULIA_NUM_THREADS = 8
 
 ```
 
@@ -428,9 +428,9 @@ Package Information:
 ```
 Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/StiffSDE/Project.toml`
 [f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
-[77a26b50-5914-5dd7-bc55-306e6241c503] DiffEqNoiseProcess 5.0.1
+[77a26b50-5914-5dd7-bc55-306e6241c503] DiffEqNoiseProcess 5.0.2
 [a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.0
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.2
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.3
 [789caeaf-c7a9-5a7d-9973-96adeb23e2a0] StochasticDiffEq 6.24.0
 [37e2e46d-f89d-539d-b4ee-838fcccc9c8e] LinearAlgebra 
 [9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
