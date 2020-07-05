@@ -263,3 +263,7 @@ splits = ([0,0.5,1],[0,0.5,1],[0,0.5,1],[0,0.5,1])
 
 minimum(root)
 
+
+using DiffEqBenchmarks
+DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+
