@@ -4,11 +4,11 @@ using DiffEqProblemLibrary.DDEProblemLibrary: importddeproblems; importddeproble
 import DiffEqProblemLibrary.DDEProblemLibrary: prob_dde_qs
 gr()
 
-sol = solve(prob_dde_qs, MethodOfSteps(Vern9(), max_fixedpoint_iters=1000); reltol=1e-14, abstol=1e-14)
+sol = solve(prob_dde_qs, MethodOfSteps(Vern9(); fpsolve = NLFunctional(; max_iter = 1000)); reltol=1e-14, abstol=1e-14)
 plot(sol)
 
 
-sol = solve(prob_dde_qs, MethodOfSteps(Vern9(), max_fixedpoint_iters=1000); reltol=1e-14, abstol=1e-14, save_idxs=3)
+sol = solve(prob_dde_qs, MethodOfSteps(Vern9(); fpsolve = NLFunctional(; max_iter = 1000)); reltol=1e-14, abstol=1e-14, save_idxs=3)
 test_sol = TestSolution(sol)
 plot(sol)
 
