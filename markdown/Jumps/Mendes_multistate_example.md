@@ -164,9 +164,9 @@ Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/Jumps/Project.toml`
 [2b5f629d-d688-5b77-993f-72d75c75574e] DiffEqBase 6.40.4
 [eb300fae-53e8-50a0-950c-e21f52c2b7e0] DiffEqBiological 4.3.0
 [c894b116-72e5-5b58-be3c-e6d8d4ac2b12] DiffEqJump 6.9.3
-[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.0
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.1
 [1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.41.0
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.3
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.4
 [10745b16-79ce-11e8-11f9-7d13ad32a3b2] Statistics 
 ```
 
