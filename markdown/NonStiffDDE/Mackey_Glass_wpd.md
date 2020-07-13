@@ -271,8 +271,8 @@ Package Information:
 ```
 Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/NonStiffDDE/Project.toml`
 [bcd4f6db-9728-5f36-b5f7-82caef46ccdb] DelayDiffEq 5.24.1
-[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
-[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.0
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.3
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.24.0
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.1
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.4
 ```
 
