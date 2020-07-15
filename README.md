@@ -50,6 +50,9 @@ DiffEqBenchmarks.open_notebooks()
   - [Single Pendulum Comparison Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/single_pendulums.html)
   - [Henon-Heiles Energy Conservation Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.html)
   - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.html)
+- N-body problems
+  - [Acceleration function benchmarks](https://benchmarks.sciml.ai/html/NBodySimulator/acceleration_functions.html)
+  - [Liquid argon benchmarks](https://benchmarks.sciml.ai/html/NBodySimulator/liquid_argon.html)
 - Nonstiff SDEs
   - [Simple Nonstiff SDE Strong Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffSDE/BasicSDEWorkPrecision.html)
   - [Simple Nonstiff SDE Weak Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffSDE/BasicSDEWeakWorkPrecision.html)
