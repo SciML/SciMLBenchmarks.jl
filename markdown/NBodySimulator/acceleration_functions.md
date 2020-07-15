@@ -1,3 +1,9 @@
+---
+author: "Sebastian Micluța-Câmpeanu, Mikhail Vaganov"
+title: "Acceleration function benchmarks"
+---
+
+
 Solving the equations of notions for an N-body problem implies solving a (large)
 system of differential equations. In `DifferentialEquations.jl` these are represented
 through ODE or SDE problems. To build the problem we need a function that
@@ -11,11 +17,33 @@ function call.
 
 ````julia
 using BenchmarkTools, NBodySimulator
+````
+
+
+````
+Error: ArgumentError: Package BenchmarkTools not found in current path:
+- Run `import Pkg; Pkg.add("BenchmarkTools")` to install the BenchmarkTools
+ package.
+````
+
+
+
+````julia
 using NBodySimulator: gather_bodies_initial_coordinates, gather_accelerations_for_potentials,
     gather_simultaneous_acceleration, gather_group_accelerations
 using StaticArrays
 
 const SUITE = BenchmarkGroup();
+````
+
+
+````
+Error: UndefVarError: BenchmarkGroup not defined
+````
+
+
+
+````julia
 
 function acceleration(simulation)
 
@@ -78,7 +106,8 @@ end
 
 
 ````
-Benchmark(evals=1, seconds=5.0, samples=10000)
+Error: LoadError: UndefVarError: @benchmarkable not defined
+in expression starting at none:18
 ````
 
 
@@ -129,7 +158,8 @@ end
 
 
 ````
-Benchmark(evals=1, seconds=5.0, samples=10000)
+Error: LoadError: UndefVarError: @benchmarkable not defined
+in expression starting at none:34
 ````
 
 
@@ -179,7 +209,8 @@ end
 
 
 ````
-Benchmark(evals=1, seconds=5.0, samples=10000)
+Error: LoadError: UndefVarError: @benchmarkable not defined
+in expression starting at none:33
 ````
 
 
@@ -225,7 +256,8 @@ end
 
 
 ````
-Benchmark(evals=1, seconds=5.0, samples=10000)
+Error: LoadError: UndefVarError: @benchmarkable not defined
+in expression starting at none:29
 ````
 
 
@@ -270,6 +302,16 @@ function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
 
     return soode_system!
 end
+````
+
+
+````
+Error: UndefVarError: WaterSPCFw not defined
+````
+
+
+
+````julia
 
 let SUITE=SUITE
     T = 370 # K
@@ -316,7 +358,8 @@ end
 
 
 ````
-Benchmark(evals=1, seconds=5.0, samples=10000)
+Error: LoadError: UndefVarError: @benchmarkable not defined
+in expression starting at none:39
 ````
 
 
@@ -326,19 +369,23 @@ Benchmark(evals=1, seconds=5.0, samples=10000)
 Here are the results of the benchmarks
 ````julia
 r = run(SUITE)
+````
+
+
+````
+Error: UndefVarError: SUITE not defined
+````
+
+
+
+````julia
 
 minimum(r)
 ````
 
 
 ````
-5-element BenchmarkTools.BenchmarkGroup:
-  tags: []
-  "gravitational" => TrialEstimate(5.024 ms)
-  "coulomb" => TrialEstimate(715.817 μs)
-  "lennard_jones" => TrialEstimate(534.330 μs)
-  "water_spcfw" => TrialEstimate(8.980 ms)
-  "magnetic_dipole" => TrialEstimate(27.549 ms)
+Error: UndefVarError: r not defined
 ````
 
 
@@ -351,13 +398,7 @@ memory(r)
 
 
 ````
-5-element BenchmarkTools.BenchmarkGroup:
-  tags: []
-  "gravitational" => 7664000
-  "coulomb" => 9600
-  "lennard_jones" => 9600
-  "water_spcfw" => 124912
-  "magnetic_dipole" => 25555200
+Error: UndefVarError: memory not defined
 ````
 
 
