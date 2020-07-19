@@ -194,21 +194,21 @@ over the set of tested equations and some specific examples may differ.
 All of the files are generated from the Weave.jl files in the `benchmarks` folder. To run the generation process, do for example:
 
 ```julia
-]activate DiffEqBenchmarks # Get all of the packages
-using DiffEqBenchmarks
-DiffEqBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
+]activate SciMLBenchmarks # Get all of the packages
+using SciMLBenchmarks
+SciMLBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
 ```
 
 To generate all of the files in a folder, for example, run:
 
 ```julia
-DiffEqBenchmarks.weave_folder("NonStiffODE")
+SciMLBenchmarks.weave_folder("NonStiffODE")
 ```
 
 To generate all of the notebooks, do:
 
 ```julia
-DiffEqBenchmarks.weave_all()
+SciMLBenchmarks.weave_all()
 ```
 
 Each of the benchmarks displays the computer characteristics at the bottom of
