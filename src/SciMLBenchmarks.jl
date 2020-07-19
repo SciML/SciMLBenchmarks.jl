@@ -1,4 +1,4 @@
-module DiffEqBenchmarks
+module SciMLBenchmarks
 
 using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
@@ -67,14 +67,16 @@ function bench_footer(folder=nothing, file=nothing)
     display(md"""
     ## Appendix
 
-    These benchmarks are a part of the DiffEqBenchmarks.jl repository, found at: <https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl>
+    These benchmarks are a part of the SciMLBenchmarks.jl repository, found at: <https://github.com/SciML/SciMLBenchmarks.jl>.
+    For more information on high-performance scientific machine learning, check out the SciML Open Source Software Organization <https://sciml.ai>.
+    
     """)
     if folder !== nothing && file !== nothing
         display(Markdown.parse("""
-        To locally run this tutorial, do the following commands:
+        To locally run this benchmark, do the following commands:
         ```
-        using DiffEqBenchmarks
-        DiffEqBenchmarks.weave_file("$folder","$file")
+        using SciMLBenchmarks
+        SciMLBenchmarks.weave_file("$folder","$file")
         ```
         """))
     end
