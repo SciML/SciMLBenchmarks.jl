@@ -1,2 +1,2 @@
-using DiffEqBenchmarks
-DiffEqBenchmarks.weave_file(".","test.jmd")
+using SciMLBenchmarks
+SciMLBenchmarks.weave_file(".","test.jmd")

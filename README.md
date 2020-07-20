@@ -13,9 +13,9 @@ To run the tutorials interactively via Jupyter notebooks and benchmark on your
 own machine, install the package and open the tutorials like:
 
 ```julia
-]add "https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl"
-using DiffEqBenchmarks
-DiffEqBenchmarks.open_notebooks()
+]add "https://github.com/SciML/SciMLBenchmarks.jl"
+using SciMLBenchmarks
+SciMLBenchmarks.open_notebooks()
 ```
 
 ## Table of Contents
