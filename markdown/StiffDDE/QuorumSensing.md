@@ -457,21 +457,21 @@ plot(wp)
 Thus at low tolerances `Rodas5` outperforms `Rosenbrock23`.
 
 ````julia
-using DiffEqBenchmarks
-DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ````
 
 
 
 ## Appendix
 
-These benchmarks are a part of the DiffEqBenchmarks.jl repository, found at: [https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl)
+These benchmarks are a part of the SciMLBenchmarks.jl repository, found at: [https://github.com/SciML/SciMLBenchmarks.jl](https://github.com/SciML/SciMLBenchmarks.jl). For more information on high-performance scientific machine learning, check out the SciML Open Source Software Organization [https://sciml.ai](https://sciml.ai).
 
-To locally run this tutorial, do the following commands:
+To locally run this benchmark, do the following commands:
 
 ```
-using DiffEqBenchmarks
-DiffEqBenchmarks.weave_file("StiffDDE","QuorumSensing.jmd")
+using SciMLBenchmarks
+SciMLBenchmarks.weave_file("StiffDDE","QuorumSensing.jmd")
 ```
 
 Computer Information:
@@ -486,9 +486,9 @@ Platform Info:
   LIBM: libopenlibm
   LLVM: libLLVM-8.0.1 (ORCJIT, skylake)
 Environment:
+  JULIA_LOAD_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl:
   JULIA_DEPOT_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia
   JULIA_CUDA_MEMORY_LIMIT = 2147483648
-  JULIA_PROJECT = @.
   JULIA_NUM_THREADS = 8
 
 ```
@@ -498,8 +498,8 @@ Package Information:
 ```
 Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/StiffDDE/Project.toml`
 [bcd4f6db-9728-5f36-b5f7-82caef46ccdb] DelayDiffEq 5.24.1
-[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
-[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.0
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.3
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.24.0
+[a077e3f3-b75c-5d7f-a0c6-6bc4c8ec64a9] DiffEqProblemLibrary 4.8.1
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.6
 ```
 
