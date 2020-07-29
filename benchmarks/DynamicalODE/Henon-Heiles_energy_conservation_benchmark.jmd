@@ -35,9 +35,8 @@ function iip_ṗ(dp,p,q,params,t)
     dp[2] = -q[2] - (q[1]^2 - q[2]^2)
 end
 
-iip_q0 = [0.1, 0.]
-iip_p0 = [0., 0.5]
-
+const iip_q0 = [0.1, 0.]
+const iip_p0 = [0., 0.5]
 
 function oop_q̇(p, q, params, t)
     p
@@ -49,9 +48,19 @@ function oop_ṗ(p, q, params, t)
     @SVector [dp1, dp2]
 end
 
-oop_q0 = @SVector [0.1, 0.]
-oop_p0 = @SVector [0., 0.5]
+const oop_q0 = @SVector [0.1, 0.]
+const oop_p0 = @SVector [0., 0.5]
 
+function hamilton(du,u,p,t)
+    dq, q = @views u[3:4], du[3:4]
+    dp, p = @views u[1:2], du[1:2]
+
+    dp[1] = -q[1] * (1 + 2q[2])
+    dp[2] = -q[2] - (q[1]^2 - q[2]^2)
+    dq .= p
+
+    return nothing
+end
 
 function g(resid, u)
     resid[1] = H([u[1],u[2]], [u[3],u[4]], nothing) - E
@@ -75,6 +84,7 @@ function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     else
         prob = DynamicalODEProblem(oop_ṗ, oop_q̇, oop_p0, oop_q0, (0., tmax))
     end
+    prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax))
 
     GC.gc()
     (mode == :inplace && all) && @time sol1 = solve(prob, Vern9(), callback=cb, abstol=1e-14, reltol=1e-14)
@@ -87,7 +97,7 @@ function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     GC.gc()
     @time sol5 = solve(prob, DPRKN12(), abstol=1e-14, reltol=1e-14)
     GC.gc()
-    (mode == :inplace && all) && @time sol6 = solve(prob, TaylorMethod(50), abstol=1e-20)
+    (mode == :inplace && all) && @time sol6 = solve(prob_linear, TaylorMethod(50), abstol=1e-20)
 
     (mode == :inplace && all) && println("Vern9 + ManifoldProjection max energy error:\t"*
         "$(maximum(abs_energy_err(sol1)))\tin\t$(length(sol1.u))\tsteps.")
