@@ -1,3 +1,9 @@
+---
+author: "Chris Rackauckas"
+title: "ODE Solver Multi-Language Wrapper Package Work-Precision Benchmarks (MATLAB, SciPy, Julia, deSolve (R))"
+---
+
+
 The following benchmarks demonstrate the performance differences due to using
 similar algorithms from wrapper packages in the main scripting languages across
 a range of stiff and non-stiff ODEs. It takes into account solver time and
@@ -26,6 +32,18 @@ More wrappers will continue to be added as necessary.
 ````julia
 using ParameterizedFunctions, MATLABDiffEq, OrdinaryDiffEq, ODEInterface,
       ODEInterfaceDiffEq, Plots, Sundials, SciPyDiffEq, deSolveDiffEq
+````
+
+
+````
+Error: Failed to precompile MATLABDiffEq [e2752cbe-bcf4-5895-8727-84ebc14a7
+6bd] to /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia/compiled/v1.4/MATLABDif
+fEq/LQI97_TWxJ0.ji.
+````
+
+
+
+````julia
 using DiffEqDevTools
 using LinearAlgebra
 ````
@@ -46,7 +64,27 @@ tspan = (0.0,10.0)
 u0 = [1.0,1.0]
 prob = ODEProblem(f,u0,tspan,p)
 sol = solve(prob,Vern7(),abstol=1/10^14,reltol=1/10^14)
+````
+
+
+````
+Error: UndefVarError: Vern7 not defined
+````
+
+
+
+````julia
 test_sol = TestSolution(sol)
+````
+
+
+````
+Error: UndefVarError: sol not defined
+````
+
+
+
+````julia
 
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())
@@ -61,6 +99,16 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>deSolveDiffEq.ode45())
           Dict(:alg=>CVODE_Adams())
   ]
+````
+
+
+````
+Error: UndefVarError: DP5 not defined
+````
+
+
+
+````julia
 
 names = [
   "Julia: DP5"
@@ -84,11 +132,25 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       appxsol=test_sol,dense=false,
                       save_everystep=false,numruns=100,maxiters=10000000,
                       timeseries_errors=false,verbose=false)
+````
+
+
+````
+Error: UndefVarError: test_sol not defined
+````
+
+
+
+````julia
 plot(wp,title="Non-stiff 1: Lotka-Volterra")
 ````
 
 
-![](figures/wrapper_packages_2_1.png)
+````
+Error: UndefVarError: plot not defined
+````
+
+
 
 
 
@@ -102,7 +164,27 @@ f = @ode_def_bare RigidBodyBench begin
 end
 prob = ODEProblem(f,[1.0;0.0;0.9],(0.0,100.0))
 sol = solve(prob,Vern7(),abstol=1/10^14,reltol=1/10^14)
+````
+
+
+````
+Error: UndefVarError: Vern7 not defined
+````
+
+
+
+````julia
 test_sol = TestSolution(sol)
+````
+
+
+````
+Error: UndefVarError: sol not defined
+````
+
+
+
+````julia
 
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())
@@ -117,6 +199,16 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>deSolveDiffEq.ode45())
           Dict(:alg=>CVODE_Adams())
   ]
+````
+
+
+````
+Error: UndefVarError: DP5 not defined
+````
+
+
+
+````julia
 
 names = [
   "Julia: DP5"
@@ -140,11 +232,25 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                       appxsol=test_sol,dense=false,
                       save_everystep=false,numruns=100,maxiters=10000000,
                       timeseries_errors=false,verbose=false)
+````
+
+
+````
+Error: UndefVarError: test_sol not defined
+````
+
+
+
+````julia
 plot(wp,title="Non-stiff 2: Rigid-Body")
 ````
 
 
-![](figures/wrapper_packages_3_1.png)
+````
+Error: UndefVarError: plot not defined
+````
+
+
 
 
 
@@ -158,7 +264,27 @@ rober = @ode_def begin
 end k₁ k₂ k₃
 prob = ODEProblem(rober,[1.0,0.0,0.0],(0.0,1e5),[0.04,3e7,1e4])
 sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
+````
+
+
+````
+Error: UndefVarError: CVODE_BDF not defined
+````
+
+
+
+````julia
 test_sol = TestSolution(sol)
+````
+
+
+````
+Error: UndefVarError: sol not defined
+````
+
+
+
+````julia
 
 abstols = 1.0 ./ 10.0 .^ (7:8)
 reltols = 1.0 ./ 10.0 .^ (3:4);
@@ -176,6 +302,16 @@ setups = [Dict(:alg=>Rosenbrock23())
           Dict(:alg=>deSolveDiffEq.lsoda())
           Dict(:alg=>CVODE_BDF())
           ]
+````
+
+
+````
+Error: UndefVarError: Rosenbrock23 not defined
+````
+
+
+
+````julia
 
 names = [
   "Julia: Rosenbrock23"
@@ -201,18 +337,7 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 
 
 ````
-Julia: Rosenbrock23
-Julia: TRBDF2
-Julia: radau
-Hairer: rodas
-Hairer: radau
-MATLAB: ode23s
-MATLAB: ode15s
-SciPy: LSODA
-SciPy: BDF
-SciPy: odeint
-deSolve: lsoda
-Sundials: CVODE
+Error: UndefVarError: test_sol not defined
 ````
 
 
@@ -222,7 +347,11 @@ plot(wp,title="Stiff 1: ROBER", legend=:topleft)
 ````
 
 
-![](figures/wrapper_packages_4_1.png)
+````
+Error: UndefVarError: plot not defined
+````
+
+
 
 
 
@@ -247,7 +376,27 @@ u0[8] = 0.0057
 prob = ODEProblem(f,u0,(0.0,321.8122))
 
 sol = solve(prob,Rodas5(),abstol=1/10^14,reltol=1/10^14)
+````
+
+
+````
+Error: UndefVarError: Rodas5 not defined
+````
+
+
+
+````julia
 test_sol = TestSolution(sol)
+````
+
+
+````
+Error: UndefVarError: sol not defined
+````
+
+
+
+````julia
 
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
@@ -265,6 +414,16 @@ setups = [Dict(:alg=>Rosenbrock23())
           Dict(:alg=>deSolveDiffEq.lsoda())
           Dict(:alg=>CVODE_BDF())
           ]
+````
+
+
+````
+Error: UndefVarError: Rosenbrock23 not defined
+````
+
+
+
+````julia
 
 names = [
   "Julia: Rosenbrock23"
@@ -289,18 +448,7 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;
 
 
 ````
-Julia: Rosenbrock23
-Julia: TRBDF2
-Julia: radau
-Hairer: rodas
-Hairer: radau
-MATLAB: ode23s
-MATLAB: ode15s
-SciPy: LSODA
-SciPy: BDF
-SciPy: odeint
-deSolve: lsoda
-Sundials: CVODE
+Error: UndefVarError: test_sol not defined
 ````
 
 
@@ -310,4 +458,8 @@ plot(wp,title="Stiff 2: Hires",legend=:topleft)
 ````
 
 
-![](figures/wrapper_packages_5_1.png)
+````
+Error: UndefVarError: plot not defined
+````
+
+
