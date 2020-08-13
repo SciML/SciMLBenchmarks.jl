@@ -107,6 +107,6 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,names=solname
 plot(wp)
 
 
-using DiffEqBenchmarks
-DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 
