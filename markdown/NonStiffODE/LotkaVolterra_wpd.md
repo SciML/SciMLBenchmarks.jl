@@ -199,21 +199,21 @@ plot(wp)
 The OrdinaryDiffEq.jl are quicker and still solve to a much higher accuracy, especially when the interpolations are involved. ODE.jl errors a lot.
 
 ````julia
-using DiffEqBenchmarks
-DiffEqBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ````
 
 
 
 ## Appendix
 
-These benchmarks are a part of the DiffEqBenchmarks.jl repository, found at: [https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl](https://github.com/JuliaDiffEq/DiffEqBenchmarks.jl)
+These benchmarks are a part of the SciMLBenchmarks.jl repository, found at: [https://github.com/SciML/SciMLBenchmarks.jl](https://github.com/SciML/SciMLBenchmarks.jl). For more information on high-performance scientific machine learning, check out the SciML Open Source Software Organization [https://sciml.ai](https://sciml.ai).
 
-To locally run this tutorial, do the following commands:
+To locally run this benchmark, do the following commands:
 
 ```
-using DiffEqBenchmarks
-DiffEqBenchmarks.weave_file("NonStiffODE","LotkaVolterra_wpd.jmd")
+using SciMLBenchmarks
+SciMLBenchmarks.weave_file("NonStiffODE","LotkaVolterra_wpd.jmd")
 ```
 
 Computer Information:
@@ -228,10 +228,10 @@ Platform Info:
   LIBM: libopenlibm
   LLVM: libLLVM-8.0.1 (ORCJIT, skylake)
 Environment:
+  JULIA_LOAD_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl:
   JULIA_DEPOT_PATH = /builds/JuliaGPU/DiffEqBenchmarks.jl/.julia
   JULIA_CUDA_MEMORY_LIMIT = 2147483648
-  JULIA_PROJECT = @.
-  JULIA_NUM_THREADS = 4
+  JULIA_NUM_THREADS = 8
 
 ```
 
@@ -239,14 +239,14 @@ Package Information:
 
 ```
 Status: `/builds/JuliaGPU/DiffEqBenchmarks.jl/benchmarks/NonStiffODE/Project.toml`
-[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.22.0
-[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.1
+[f3b72e0c-5b89-59e1-b016-84e28bfd966d] DiffEqDevTools 2.25.0
+[7f56f5a3-f504-529b-bc02-0b1fe5e64312] LSODA 0.6.2
 [c030b06c-0b6d-57c2-b091-7029874bd033] ODE 2.8.0
-[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.6
+[54ca160b-1b9f-5127-a996-1867f4bc2a2c] ODEInterface 0.4.7
 [09606e27-ecf5-54fc-bb29-004bd9f985bf] ODEInterfaceDiffEq 3.7.0
-[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.41.0
-[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 5.3.0
-[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.2
+[1dea7af3-3e70-54e6-95c3-0bf5283fa5ed] OrdinaryDiffEq 5.42.2
+[65888b18-ceab-5e60-b2b9-181511a3b968] ParameterizedFunctions 5.4.0
+[91a5bcdd-55d7-5caf-9e0b-520d859cae80] Plots 1.5.8
 [c3572dad-4567-51f8-b174-8c6c989267f4] Sundials 4.2.5
 [9a3f8284-a2c9-5f02-9a11-845980a1fd5c] Random 
 ```
