@@ -33,6 +33,7 @@ SciMLBenchmarks.open_notebooks()
   - [Fizhugh-Nagumo Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/FitzhughNagumo_wpd.html)
   - [Lotka-Volterra Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/LotkaVolterra_wpd.html)
   - [Direct vs MATLAB Benchmark](https://github.com/JuliaDiffEq/MATLABDiffEq.jl#benchmark)
+  - [Runge-Kutta vs Taylor Integration on Pleides](https://gist.github.com/ChrisRackauckas/1301b23aa12ad83de7138d8e41d64dd6)
 - Stiff ODEs
   - [Van der Pol Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/VanDerPol.html)
   - [ROBER Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/ROBER.html)
