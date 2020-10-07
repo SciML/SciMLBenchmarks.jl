@@ -1,8 +1,9 @@
 
 using ReactionNetworkImporters, OrdinaryDiffEq, DiffEqBiological,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA, TimerOutputs
-
+      LSODA, TimerOutputs, LinearAlgebra
+      
+LinearAlgebra.BLAS.set_num_threads(4)
 gr()
 prnbng = loadrxnetwork(BNGNetwork(), "BNGRepressilator",
                        joinpath(dirname(pathof(ReactionNetworkImporters)),"..","data","bcr","bcr.net"))
@@ -60,6 +61,7 @@ setups = [
           #Dict(:alg=>Rosenbrock23(autodiff=false)),
           Dict(:alg=>TRBDF2(autodiff=false)),
           Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense)),
           #Dict(:alg=>rodas()),
           #Dict(:alg=>radau()),
           #Dict(:alg=>Rodas4(autodiff=false)),
@@ -83,7 +85,7 @@ plot(wp)
 setups = [
           #Dict(:alg=>Rosenbrock23(autodiff=false)),
           Dict(:alg=>TRBDF2(autodiff=false)),
-          #Dict(:alg=>CVODE_BDF()),
+          #Dict(:alg=>CVODE_BDF(linear_solver=:KLU)),
           #Dict(:alg=>rodas()),
           #Dict(:alg=>radau()),
           #Dict(:alg=>Rodas4(autodiff=false)),
