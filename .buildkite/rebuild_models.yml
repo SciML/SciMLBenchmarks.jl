@@ -1,9 +1,23 @@
 # This is a pipeline that rebuilds a model, then uploads the resultant
-# model files and .PDF report as (buildkite, not Julia) artifacts.
+# model files and .PDF and other reports as (buildkite, not Julia) artifacts.
 
 steps:
-  - label: ":hammer: {MODEL}"
+  - label: ":runner: Dynamically launch Pipelines"
     plugins:
+      - staticfloat/forerunner:
+          # This will create one job per file
+          watch:
+            - path: benchmarks/.*\.jmd
+          path_processor: per-file
+          target: .buildkite/coalescer/rebuild_models
+          target_type: template
+      - staticfloat/forerunner:
+          # This will create one job overall, throwing all path information away
+          watch:
+            - path: src/*.*.jl
+            - path: .*\\.toml
+          target: .buildkite/test_sciml.yml
+  - label: ":hammer: ${MODEL}"
       # Install Julia
       - JuliaCI/julia#2ec318d9e84fd5b6a402d926e7451e8b57b77d6c:
           version: 1.6
@@ -12,9 +26,9 @@ steps:
       # Instantiate current project
       - echo "--- Instantiate Project"
       - julia --project=. .buildkite/commands/instantiate.jl
-      # Reuild the given model
+      # Rebuild the given model
       - echo "+++ Build {MODEL}"
-      - julia --project=. .buildkite/commands/rebuild_model.jl {MODEL}
+      - julia --project=. .buildkite/commands/rebuild_models.jl {MODEL}
       - MODEL_NAME=${MODEL%.*}
     artifact_paths:
       # Upload .html
