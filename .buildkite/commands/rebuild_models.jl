@@ -12,4 +12,4 @@ if !isfile(project_abspath) || !occursin(file, ".jmd")
 end
 
 @info("Rebuilding $folder/$file")
-weave_folder(folder, file)
+weave_file(folder, file)
