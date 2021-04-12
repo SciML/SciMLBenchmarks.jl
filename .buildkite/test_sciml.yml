@@ -1,21 +1,12 @@
-# This is a pipeline that runs the tests of SciMLBenchmarks itself
-env:
-  # We isolate ourselves from the rest of the system by using
-  # a completely separate depot; ensuring more hermetic builds
-  JULIA_DEPOT_PATH: ${BUILDKITE_BUILD_CHECKOUT_PATH}/.buildkite/.depot
-
 steps:
   - label: ":julia: Run tests on 1.6"
     plugins:
-      # Install Julia
-      - JuliaCI/julia#4404e63cf3f95464ddb89defba5d549c838447c4:
-          version: "1.6"
-    commands:
-      - JuliaCI/julia#2ec318d9e84fd5b6a402d926e7451e8b57b77d6c:
+      - JuliaCI/julia#v1:
           version: 1.6
-      - JuliaCI/julia-test#6af8b6ac9f656d53033dbdde5d61028421b11e61:
+      - JuliaCI/julia-test#v1:
           use_ssh: true
-          extra_registries: https://github.com/JuliaRegistries/General
-    # Allow `[skip tests]` in a commit message to disable this
+          extra_registries: https://github.com/JuliaComputing/JuliaSimRegistry
     if: build.message !~ /\[skip tests\]/
-    timeout_in_minutes: 60
+    timeout_in_minutes: 120
+    artifact_paths:
+      - "test/logs/*.pdf"
