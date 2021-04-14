@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-using Pkg
+using Pkg, SciMLBenchmarks
 repo_dir = dirname(dirname(@__DIR__))
 
 model = ARGS[1]
