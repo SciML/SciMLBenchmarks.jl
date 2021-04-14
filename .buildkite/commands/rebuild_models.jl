@@ -1,8 +1,8 @@
 #!/usr/bin/env julia
 
-using Pkg, SciMLBenchmarks
-
+using Pkg
 Pkg.instantiate()
+using SciMLBenchmarks
 
 repo_dir = dirname(dirname(@__DIR__))
 
