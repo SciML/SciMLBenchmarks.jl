@@ -1,0 +1,16 @@
+steps:
+  - label: ":runner: Dynamically launch Pipelines"
+    plugins:
+      - staticfloat/forerunner:
+          # This will create one job per file
+          watch:
+            - path: benchmarks/.*\.jmd
+          path_processor: per-file
+          target: .buildkite/rebuild_model.yml
+          target_type: template
+      - staticfloat/forerunner:
+          # This will create one job overall, throwing all path information away
+          watch:
+            - path: src/*.*.jl
+            - path: .*\\.toml
+          target: .buildkite/test_sciml.yml
