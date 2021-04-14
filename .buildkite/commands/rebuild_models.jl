@@ -9,7 +9,7 @@ repo_dir = dirname(dirname(@__DIR__))
 model = ARGS[1]
 split_path = split(model, "/")
 file = split_path[end]
-folder = join(split_path[1:end-1], "/")
+folder = split_path[end-1]
 
 project_abspath = joinpath(repo_dir, model)
 
