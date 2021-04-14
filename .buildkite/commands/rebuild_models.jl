@@ -17,4 +17,4 @@ if !isfile(project_abspath) || !occursin(".jmd", file)
 end
 
 @info("Rebuilding $folder/$file")
-weave_file(folder, file)
+SciMLBenchmarks.weave_file(folder, file)
