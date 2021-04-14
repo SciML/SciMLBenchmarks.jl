@@ -7,7 +7,7 @@ model = ARGS[1]
 folder, file = split(model, "/")
 
 project_abspath = joinpath(repo_dir, "library", model)
-if !isfile(project_abspath) || !occursin(file, ".jmd")
+if !isfile(project_abspath) || !occursin(".jmd", file)
     error("Invalid file $file")
 end
 
