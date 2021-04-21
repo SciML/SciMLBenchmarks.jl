@@ -2,7 +2,8 @@ name: Weekly Update
 
 on:
   schedule:
-    - cron: '0 */1 * * *'
+    - cron: 0 6 * * 6
+  workflow_dispatch:
 
 jobs:
   update_weekly:
@@ -14,8 +15,9 @@ jobs:
         uses: julia-actions/setup-julia@v1
         with:
           version: 1.6.0
-      - run: |
+      - name: Check for updates and create a PR
+        run: |
               git config --local user.email "$(git log --format='%ae' HEAD^!)"
               git config --local user.name "$(git log --format='%an' HEAD^!)"
 
-              julia -e 'include("update.jl")'
+              julia -e 'include("update.jl")' ${{ secrets.GITHUB_TOKEN }}
