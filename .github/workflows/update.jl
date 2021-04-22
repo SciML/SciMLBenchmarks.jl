@@ -12,14 +12,14 @@ date = Dates.format(now(), "yyyy-mm-dd")
 benchpath = joinpath(@__DIR__, "..", "..", "benchmarks")
 
 # Get all the open PRs and their number
-gh_prs = GitHub.pull_requests("SciML/SciMLBenchmarks"; auth=myauth)
+gh_prs = GitHub.pull_requests("SciML/SciMLBenchmarks.jl"; auth=myauth)
 prs = Dict{String, Int64}()
 for i in 1:length(gh_prs[1])
     prs[gh_prs[1][i].head.ref] = gh_prs[1][i].number
 end
 
 # Get all the branches from the repo
-gh_branches = GitHub.branches("SciML/SciMLBenchmarks"; auth=myauth)
+gh_branches = GitHub.branches("SciML/SciMLBenchmarks.jl"; auth=myauth)
 branches = [gh_branches[1][i].name for i in 1:length(gh_branches[1])]
 
 @info("PRs and branches", prs, branches)
@@ -54,10 +54,10 @@ for dir in readdir(benchpath)
                 "base"  => "master"
             )
             @info("Creating a pull request from head: ", dir) 
-            GitHub.create_pull_request("SciML/SciMLBenchmarks"; params=params, auth=myauth)
+            GitHub.create_pull_request("SciML/SciMLBenchmarks.jl"; params=params, auth=myauth)
         else
             @info("Updating the pull request numbered: ", prs[dir])
-            GitHub.update_pull_request("SciML/SciMLBenchmarks", prs[dir]; auth=myauth)
+            GitHub.update_pull_request("SciML/SciMLBenchmarks.jl", prs[dir]; auth=myauth)
         end
     end
 end
