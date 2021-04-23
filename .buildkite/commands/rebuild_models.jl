@@ -15,9 +15,16 @@ project_abspath = joinpath(repo_dir, model)
 
 @info("debugging!", model, file, folder, project_abspath, isfile(project_abspath), occursin(".jmd", file))
 
-if !isfile(project_abspath) || !occursin(".jmd", file)
+if !isfile(project_abspath)
     error("Invalid file $file")
 end
 
-@info("Rebuilding $folder/$file")
-SciMLBenchmarks.weave_file(folder, file)
+if occursin(".jmd", file)
+    @info("Rebuilding $folder/$file")
+    SciMLBenchmarks.weave_file(folder, file)
+elseif occursin(".toml", file)
+    @info("Rebuilding $folder")
+    SciMLBenchmarks.weave_folder(folder)
+else
+    error("Invalid file $file")
+end
