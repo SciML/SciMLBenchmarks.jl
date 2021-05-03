@@ -8,8 +8,8 @@ function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook
   target = joinpath(folder, file)
   @info("Weaving $(target)")
   
-  if isfile(joinpath(target, "Project.toml"))
-    @info("Instantiating...")
+  if isfile(joinpath(folder, "Project.toml"))
+    @info("Instantiating", folder)
     Pkg.activate(folder)
     Pkg.instantiate()
     Pkg.build()
