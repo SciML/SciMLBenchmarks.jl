@@ -26,6 +26,7 @@ SciMLBenchmarks.open_notebooks()
   - [torchdiffeq vs Julia DiffEqFlux Neural ODE Training Benchmark](https://gist.github.com/ChrisRackauckas/4a4d526c15cc4170ce37da837bfc32c4)
   - [torchsde vs DifferentialEquations.jl / DiffEqFlux.jl](https://gist.github.com/ChrisRackauckas/6a03e7b151c86b32d74b41af54d495c6)
   - [JITCODE vs SciPy vs DifferentialEquations.jl on large network dynamics](https://github.com/PIK-ICoN/NetworkDynamicsBenchmarks)
+  - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://homes.cs.washington.edu/~thickstn/ctpg-project-page/ctpg.html)
 - Non-stiff ODEs
   - [Linear Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/linear_wpd.html)
   - [Three-Body Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/ThreeBody_wpd.html)
