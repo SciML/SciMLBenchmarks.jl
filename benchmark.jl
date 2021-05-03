@@ -1,10 +1,16 @@
 using SciMLBenchmarks
-if length(ARGS) == 1
-    println("Benchmarking the $(ARGS[1]) folder")
-    SciMLBenchmarks.weave_folder(ARGS[1])
-elseif length(ARGS) == 2
-    println("Benchmarking $(ARGS[1])/$(ARGS[2])")
-    SciMLBenchmarks.weave_file(ARGS[1],ARGS[2])
+target = ARGS[1]
+if isdir(target)
+    if !isfile(joinpath(target, "Project.toml"))
+        error("Cannot benchmark folder $(target) without Project.toml!")
+    end
+    println("Benchmarking the $(target) folder")
+    SciMLBenchmarks.weave_folder(target)
+elseif isfile(target)
+    folder = dirname(target)
+    file = basename(target)
+    println("Benchmarking $(folder)/$(file)")
+    SciMLBenchmarks.weave_file(folder, file)
 else
-    error("Only 1 or 2 arguments allowed!")
+    error("Unable to find benchmarking target $(target)!")
 end

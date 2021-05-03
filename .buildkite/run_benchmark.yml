@@ -1,0 +1,27 @@
+# This is a pipeline that rebuilds a model, then uploads the resultant
+# model files and .PDF and other reports as (buildkite, not Julia) artifacts.
+
+steps:
+  - label: ":hammer: {PATH}"
+    # Install Julia
+    plugins:
+      - JuliaCI/julia#v1:
+          version: 1.6
+    timeout_in_minutes: 240
+    commands:
+      # Rebuild the given model(s)
+      - echo "--- Instantiate"
+      - julia --project=. -e 'using Pkg; Pkg.instantiate()'
+      - echo "+++ Run benchmark for {PATH}"
+      - julia --project=. benchmark.jl {PATH}
+    artifact_paths:
+       # Upload .html
+      - "html/*/*.html"
+      # Upload markdown
+      - "markdown/*/*.md"
+      # Upload notebook
+      - "notebook/*/*.ipynb"
+      # Upload .pdf files
+      - "pdf/*/*.pdf"
+      # Upload Julia script
+      - "script/*/*.jl"
