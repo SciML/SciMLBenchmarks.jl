@@ -5,45 +5,50 @@ using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 repo_directory = joinpath(@__DIR__,"..")
 
 function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook))
-  println("File: $file")
-  tmp = joinpath(repo_directory,"benchmarks",folder,file)
-  Pkg.activate(dirname(tmp))
-  Pkg.instantiate()
-  Pkg.build()
+  target = joinpath(folder, file)
+  @info("Weaving $(target)")
+  
+  if isfile(joinpath(target, "Project.toml"))
+    @info("Instantiating...")
+    Pkg.activate(folder)
+    Pkg.instantiate()
+    Pkg.build()
+  end
+
   args = Dict{Symbol,String}(:folder=>folder,:file=>file)
   if :script ∈ build_list
     println("Building Script")
-    dir = joinpath(repo_directory,"script",folder)
-    isdir(dir) || mkdir(dir)
-    tangle(tmp;out_path=dir)
+    dir = joinpath(repo_directory,"script",basename(folder))
+    mkpath(dir)
+    tangle(target; out_path=dir)
   end
   if :html ∈ build_list
     println("Building HTML")
-    dir = joinpath(repo_directory,"html",folder)
-    isdir(dir) || mkdir(dir)
-    weave(tmp,doctype = "md2html",out_path=dir,args=args,fig_ext=".svg")
+    dir = joinpath(repo_directory,"html",basename(folder))
+    mkpath(dir)
+    weave(target,doctype = "md2html",out_path=dir,args=args,fig_ext=".svg")
   end
   if :pdf ∈ build_list
     println("Building PDF")
-    dir = joinpath(repo_directory,"pdf",folder)
-    isdir(dir) || mkdir(dir)
+    dir = joinpath(repo_directory,"pdf",basename(folder))
+    mkpath(dir)
     try
-      weave(tmp,doctype="md2pdf",out_path=dir,args=args)
+      weave(target,doctype="md2pdf",out_path=dir,args=args)
     catch ex
       @warn "PDF generation failed" exception=(ex, catch_backtrace())
     end
   end
   if :github ∈ build_list
     println("Building Github Markdown")
-    dir = joinpath(repo_directory,"markdown",folder)
-    isdir(dir) || mkdir(dir)
-    weave(tmp,doctype = "github",out_path=dir,args=args)
+    dir = joinpath(repo_directory,"markdown",basename(folder))
+    mkpath(dir)
+    weave(target,doctype = "github",out_path=dir,args=args)
   end
   if :notebook ∈ build_list
     println("Building Notebook")
-    dir = joinpath(repo_directory,"notebook",folder)
-    isdir(dir) || mkdir(dir)
-    Weave.convert_doc(tmp,joinpath(dir,file[1:end-4]*".ipynb"))
+    dir = joinpath(repo_directory,"notebook",basename(folder))
+    mkpath(dir)
+    Weave.convert_doc(target,joinpath(dir,file[1:end-4]*".ipynb"))
   end
 end
 
@@ -55,11 +60,11 @@ function weave_all()
 end
 
 function weave_folder(folder)
-  for file in readdir(joinpath(repo_directory,"benchmarks",folder))
-    println("Building $(joinpath(folder,file)))")
+  for file in readdir(folder)
     try
       weave_file(folder,file)
-    catch
+    catch e
+      @error(e)
     end
   end
 end
