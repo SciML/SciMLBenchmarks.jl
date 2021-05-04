@@ -7,9 +7,9 @@ repo_directory = joinpath(@__DIR__,"..")
 function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook))
   target = joinpath(folder, file)
   @info("Weaving $(target)")
-  
-  if isfile(joinpath(target, "Project.toml"))
-    @info("Instantiating...")
+
+  if isfile(joinpath(folder, "Project.toml"))
+    @info("Instantiating", folder)
     Pkg.activate(folder)
     Pkg.instantiate()
     Pkg.build()
@@ -61,6 +61,11 @@ end
 
 function weave_folder(folder)
   for file in readdir(folder)
+    # Skip non-`.jmd` files
+    if !endswith(file, ".jmd")
+      continue
+    end
+
     try
       weave_file(folder,file)
     catch e
@@ -75,7 +80,7 @@ function bench_footer(folder=nothing, file=nothing)
 
     These benchmarks are a part of the SciMLBenchmarks.jl repository, found at: <https://github.com/SciML/SciMLBenchmarks.jl>.
     For more information on high-performance scientific machine learning, check out the SciML Open Source Software Organization <https://sciml.ai>.
-    
+
     """)
     if folder !== nothing && file !== nothing
         display(Markdown.parse("""
@@ -94,23 +99,22 @@ function bench_footer(folder=nothing, file=nothing)
     ```
     """))
 
-    ctx = Pkg.API.Context()
-    pkgs = Pkg.Display.status(Pkg.API.Context(), use_as_api=true);
-
     display(md"""
     Package Information:
     """)
 
-    io = IOBuffer()
-    for pkg in pkgs
-        ver = pkg.new.ver === nothing ? "" : pkg.new.ver
-        println(io, "[$(pkg.uuid)] $(pkg.name) $ver")
-    end
-    proj = String(take!(io))
+    proj = sprint(io -> Pkg.status(io=io))
+    mani = sprint(io -> Pkg.status(io=io, mode = Pkg.PKGMODE_MANIFEST))
+
     md = """
     ```
-    Status: `$(ctx.env.project_file)`
     $(chomp(proj))
+    ```
+
+    And the full manifest:
+
+    ```
+    $(chomp(mani))
     ```
     """
     display(Markdown.parse(md))
