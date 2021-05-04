@@ -103,13 +103,8 @@ function bench_footer(folder=nothing, file=nothing)
     Package Information:
     """)
 
-    io_proj = IOBuffer()
-    Pkg.status(io=io_proj)
-    proj = String(take!(io_proj))
-
-    io_mani = IOBuffer()
-    Pkg.status(io=io_mani,mode = Pkg.PKGMODE_MANIFEST)
-    mani = String(take!(io_mani))
+    proj = sprint(io -> Pkg.status(io=io))
+    mani = sprint(io -> Pkg.status(io=io, mode = Pkg.PKGMODE_MANIFEST))
 
     md = """
     ```
