@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Ensure that our git wants to talk to github without prompting
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+
 # Clone SciMLBenchmarksOutput to temporary directory
 temp_dir=$(mktemp -d)
 git -C "${temp_dir}" clone git@github.com:SciML/SciMLBenchmarksOutput .
