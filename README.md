@@ -222,3 +222,10 @@ compute clusters, the official benchmarks use a workstation with an
 Intel Xeon CPU E5-2680 v4 @ 2.40GHz to match the performance characteristics of
 a standard node in a high performance computing (HPC) cluster or cloud computing
 setup.
+
+### Inspecting Benchmark Results
+
+To see benchmark results before merging, click into the BuildKite, click onto
+Artifacts, and then investigate the trained results.
+
+![](https://user-images.githubusercontent.com/1814174/118359358-02ddc980-b551-11eb-8a9b-24de947cefee.PNG)
