@@ -123,6 +123,7 @@ end
 function open_notebooks()
   Base.eval(Main, Meta.parse("import IJulia"))
   path = joinpath(repo_directory,"notebook")
+  mkpath(path)
   IJulia.notebook(;dir=path)
 end
 
