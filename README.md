@@ -7,16 +7,8 @@ for the SciML Scientific Machine Learning Software ecosystem, including cross-la
 benchmarks of differential equation solvers and methods for parameter estimation,
 training universal differential equations (and subsets like neural ODEs), and more.
 
-## Interactive Notebooks
-
-To run the tutorials interactively via Jupyter notebooks and benchmark on your
-own machine, install the package and open the tutorials like:
-
-```julia
-]add "https://github.com/SciML/SciMLBenchmarks.jl"
-using SciMLBenchmarks
-SciMLBenchmarks.open_notebooks()
-```
+## Results
+Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
 
 ## Table of Contents
 
@@ -193,6 +185,27 @@ over the set of tested equations and some specific examples may differ.
   time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
   priors and number of iterations being passed.
+
+## Interactive Notebooks
+
+To run the tutorials interactively via Jupyter notebooks and benchmark on your
+own machine
+1. Run Weave for the file (or folder) you are interested in
+2. Activate the appropriate environment
+3. Open and run the notebook.
+
+Note: Since notebooks default to looking for a Project.toml file at the same level or parent folder, you might need to move the notebook to the folder with the appropriate Project.toml.
+
+### Example (starting from the project root folder)
+```julia
+]activate .
+]instantiate
+using SciMLBenchmarks
+SciMLBenchmarks.weave_file("benchmarks/Jumps", "Diffusion_CTRW.jmd", [:notebook])
+]activate benchmarks/Jumps
+```
+
+Then move `Diffusion_CTRW.ipynb` to "benchmarks/Jumps" and open the notebook.
 
 ## Contributing
 
