@@ -201,7 +201,7 @@ Note: Since notebooks default to looking for a Project.toml file at the same lev
 ]activate .
 ]instantiate
 using SciMLBenchmarks
-SciMLBenchmarks.weave_file("benchmarks/Jumps", "Diffusion_CTRW.jmd")
+SciMLBenchmarks.weave_file("benchmarks/Jumps", "Diffusion_CTRW.jmd", [:notebook])
 ]activate benchmarks/Jumps
 ```
 
