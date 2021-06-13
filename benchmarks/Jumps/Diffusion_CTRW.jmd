@@ -16,10 +16,10 @@ Here we implement a 1D continuous time random walk approximation of diffusion fo
 ```julia
 N = 256
 h = 1 / N
-tf = .01
 u0 = 10*ones(Int64, N)
+tf = .01
 methods = (Direct(),DirectFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
-shortlabels = [string(leg)[1:end-2] for leg in methods]
+shortlabels = [string(leg)[12:end-2] for leg in methods]
 jprob   = prob_jump_diffnetwork
 prob    = DiscreteProblem(u0, (0.0, tf), [1 / (h*h)])
 rn      = jprob.network(N)
@@ -27,7 +27,7 @@ ploth   = plot(reuse=false)
 for (i,method) in enumerate(methods)
     println("Benchmarking method: ", method)
     jump_prob = JumpProblem(rn, prob, method)
-    sol = solve(jump_prob, SSAStepper(), saveat=jprob.tstop/1000.)
+    sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
     plot!(ploth,sol.t,sol[Int(N//2),:],label=shortlabels[i], format=fmt)
 end
 plot!(ploth, title="Population at middle lattice site", xlabel="time",format=fmt)
