@@ -1,0 +1,120 @@
+---
+title: Model from Sanft 2015
+author: Vasily Ilin
+---
+
+```julia
+using DiffEqBase, DiffEqJump, BenchmarkTools, Plots, DataFrames, Statistics
+gr()
+fmt = :png
+```
+
+# Model description and setup
+Here we implement the model from \citep{sanft2015constant} for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In \citep{sanft2015constant} this value ranges from 20 to 60.
+<!-- TODO add LaTeX for the model?-->
+<!-- TODO add plots of the total number of some species? Add animations?-->
+
+```julia
+function model_setup(linear_num)
+    
+    # topology
+    domain_size = 12.0e-6 #meters
+    mesh_size = domain_size/linear_num
+    dims = (linear_num, linear_num, linear_num)
+    num_nodes = prod(dims)
+    grid = CartesianGrid(dims)
+
+    # reactions
+    k_1 = 150
+    k_a = 4.62e4 / (avogadro * mesh_size^3)
+    k_d = 3.82
+    k_4 = 6.0
+
+    reactstoch = [[1 => 1], [3 => 1], [1 => 1, 4 => 1], [5 => 1], [5 => 1, 4 => 1], [6 => 1], [3 => 1, 2 => 1], [7 => 1], [7 => 1, 2 => 1], [8 => 1], [2 => 1], [4 => 1]]
+
+    netstoch = [[2 => 1], [4 => 1], 
+    [1 => -1, 4 => -1, 5 =>  1], 
+    [1 =>  1, 4 =>  1, 5 => -1], 
+    [5 => -1, 4 => -1, 6 =>  1], 
+    [5 =>  1, 4 =>  1, 6 => -1], 
+    [3 => -1, 2 => -1, 7 =>  1], 
+    [3 =>  1, 2 =>  1, 7 => -1], 
+    [7 => -1, 2 => -1, 8 =>  1], 
+    [7 =>  1, 2 =>  1, 8 => -1], 
+    [2 => -1], [4 => -1]]
+    rates = [k_1, k_1, k_a, k_d, k_a, k_d, k_a, k_d, k_a, k_d, k_4, k_4]
+    @assert length(reactstoch) == length(netstoch) == length(rates)
+    majumps = MassActionJump(rates, reactstoch, netstoch)
+
+    # starting state
+    total_num = trunc(Int, 12.3e-9 * avogadro * (domain_size*10)^3)
+    u0 = zeros(Int, num_species, num_nodes)
+    rand_EA = rand(1:num_nodes, total_num)
+    rand_EB = rand(1:num_nodes, total_num)
+    for i in 1:total_num
+        u0[1,rand_EA[i]] += 1
+        u0[3,rand_EB[i]] += 1
+    end
+
+    # hops
+    hopping_rate = 1.0e-12/mesh_size^2
+    hopping_constants = hopping_rate * ones(num_species, num_nodes)
+
+    # DiscreteProblem
+    end_time = 16.0 # ≈ 10^8 jumps
+    prob = DiscreteProblem(u0, (0.0,end_time), rates)
+
+    return prob, majumps, hopping_constants, grid
+end
+```
+
+# Benchmarking performance of the methods
+We run the algorithms and record the performance with `BenhmarkTools`.
+
+```julia
+algs = [DirectCRDirect(), NSM(),  RSSACR(), DirectCR(), NRM()]
+names = ["$s"[1:end-2] for s in algs]
+
+prob, majumps, hopping_constants, grid = model_setup(linear_num)
+
+# benchmarking
+benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+
+for (i, alg) in enumerate(algs)
+    jp = JumpProblem(prob, alg, majumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
+    solve(jp, SSAStepper())
+    b = @benchmarkable solve($jp, SSAStepper()) samples = 10 seconds = 1200
+    benchmarks[i] = run(b)
+end
+```
+
+Assemble the data in a DataFrame.
+
+```julia
+medtimes = median.(benchmarks)
+stdtimes = std.(benchmarks)
+avgtimes = mean.(benchmarks)
+
+df = DataFrame(names=names,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),
+                avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
+```
+
+# Plotting
+Plot the benchmarking data.
+
+```julia
+sa = [string(round(mt,digits=4),"s") for mt in df.medtimes]
+bar(df.names,df.relmedtimes,legend=:false, fmt=fmt)
+scatter!(df.names, .05 .+ df.relmedtimes, markeralpha=0, series_annotations=sa, fmt=fmt)
+ylabel!("median relative to DirectCRDirect")
+title!("$linear_num site 3D RDME")
+```
+
+# References
+
+* \biblabel{sanft2015constant}{Sanft and Othmer (2015)} Sanft, Kevin R and Othmer, Hans G. Constant-complexity stochastic simulation algorithm with optimal binning”. In: _The Journal of chemical physics_ 143.7 (2015), pp. 08B609\_1.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
