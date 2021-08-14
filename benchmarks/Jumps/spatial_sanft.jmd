@@ -9,7 +9,7 @@ gr()
 ```
 
 # Model description and setup
-Here we implement the model from \citep{sanft2015constant} for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In \citep{sanft2015constant} this value ranges from 20 to 60.
+Here we implement the model from [^1] for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In \citep{sanft2015constant} this value ranges from 20 to 60.
 <!-- TODO add LaTeX for the model?-->
 <!-- TODO add plots of the total number of some species? Add animations?-->
 
@@ -76,9 +76,9 @@ We run the algorithms and record the performance with `BenchmarkTools`.
 algs = [DirectCRDirect(), NSM(), RSSACR(), DirectCR()]
 names = ["$s"[1:end-2] for s in algs]
 
-end_times = 0.01*ones(5)
+end_times = 0.0001*ones(5)
 # end_times = [16.0, 9.3, 5.8, 3.9, 2.8] # for ≈ 10^8 jumps
-linear_nums = [20, 30, 40, 50, 60]
+linear_nums = [20, 30, 40]
 
 benchmarks = Matrix{BenchmarkTools.Trial}(undef, length(linear_nums), length(algs))
 for (j,(end_time, linear_num)) in enumerate(zip(end_times, linear_nums))
@@ -87,8 +87,7 @@ for (j,(end_time, linear_num)) in enumerate(zip(end_times, linear_nums))
 
     for (i, alg) in enumerate(algs)
         name = names[i]
-        println("benchmarking $name")
-        jp = JumpProblem(prob, alg, majumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
+        jp = JumpProblem(prob, alg, mNajumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
         solve(jp, SSAStepper())
         b = @benchmarkable solve($jp, SSAStepper()) samples = 1 seconds = 1500
         benchmarks[j,i] = run(b)
@@ -100,7 +99,7 @@ end
 Plot the benchmarking data.
 
 ```julia
-medtimes = getproperty.(median.(benchmarks), :time)
+medtimes = getproperty.(median.(benchmarks), :time)./1e9
 
 plt1 = plot(linear_nums, medtimes, label = reshape(names, 1, length(names)), marker = :hex, legendtitle = "SSAs")
 ylabel!("median time in seconds")
@@ -112,14 +111,14 @@ plt2 = plot(linear_nums.^3, medtimes, label = reshape(names, 1, length(names)), 
 ylabel!("median time in seconds")
 xlabel!("total number of sites")
 title!("3D RDME")
-xticks!(linear_nums)
+xticks!(linear_nums.^3)
 
 plot(plt1, plt2, size = (1500, 500))
 ```
 
 # References
 
-* \biblabel{sanft2015constant}{Sanft and Othmer (2015)} Sanft, Kevin R and Othmer, Hans G. Constant-complexity stochastic simulation algorithm with optimal binning”. In: _The Journal of chemical physics_ 143.7 (2015), pp. 08B609\_1.
+[^1]: Sanft, Kevin R and Othmer, Hans G. Constant-complexity stochastic simulation algorithm with optimal binning”. In: _The Journal of chemical physics_ 143.7 (2015), pp. 08B609\_1.
 
 ```julia, echo = false
 using SciMLBenchmarks
