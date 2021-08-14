@@ -76,8 +76,7 @@ We run the algorithms and record the performance with `BenchmarkTools`.
 algs = [DirectCRDirect(), NSM(), RSSACR(), DirectCR()]
 names = ["$s"[1:end-2] for s in algs]
 
-end_times = 0.0001*ones(5)
-# end_times = [16.0, 9.3, 5.8, 3.9, 2.8] # for ≈ 10^8 jumps
+end_times = [16.0, 9.3, 5.8, 3.9, 2.8] # for ≈ 10^8 jumps
 linear_nums = [20, 30, 40]
 
 benchmarks = Matrix{BenchmarkTools.Trial}(undef, length(linear_nums), length(algs))
@@ -89,7 +88,7 @@ for (j,(end_time, linear_num)) in enumerate(zip(end_times, linear_nums))
         name = names[i]
         jp = JumpProblem(prob, alg, mNajumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
         solve(jp, SSAStepper())
-        b = @benchmarkable solve($jp, SSAStepper()) samples = 1 seconds = 1500
+        b = @benchmarkable solve($jp, SSAStepper()) samples = 10 seconds = 1500
         benchmarks[j,i] = run(b)
     end
 end
