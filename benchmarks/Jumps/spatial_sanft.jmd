@@ -89,7 +89,7 @@ function benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
             println("benchmarking $name")
             jp = JumpProblem(prob, alg, majumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
             solve(jp, SSAStepper())
-            b = @benchmarkable solve($jp, SSAStepper()) samples = 1 seconds = 1500
+            b = @benchmarkable solve($jp, SSAStepper()) samples = 10 seconds = 1500
             bench_dict[name, linear_num] = run(b)
         end
     end
@@ -138,14 +138,12 @@ end
 ```julia
 algs = [NSM(), DirectCRDirect(), DirectCR(), RSSACR()]
 end_times = [16.0, 9.3, 5.8, 3.9] # for ≈ 10^8 jumps
-end_times = 0.00001*ones(2) # for ≈ 10^8 jumps
-linear_nums = [20, 30]
+linear_nums = [20, 30, 40, 50]
 bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
 benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
 
 algs = [NSM(), DirectCRDirect()]
 end_times = [2.8] # for ≈ 10^8 jumps
-end_times = 0.00001*[1.0]
 linear_nums = [60]
 benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
 ```
