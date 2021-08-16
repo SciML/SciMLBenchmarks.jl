@@ -4,21 +4,20 @@ author: Vasily Ilin
 ---
 
 ```julia
-using DiffEqJump, BenchmarkTools, Plots, Statistics
+using DiffEqJump, BenchmarkTools, Plots, Plots.PlotMeasures
 gr()
 ```
 
 # Model description and setup
-Here we implement the model from [^1] for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In \citep{sanft2015constant} this value ranges from 20 to 60.
-<!-- TODO add LaTeX for the model?-->
-<!-- TODO add plots of the total number of some species? Add animations?-->
+Here we implement the model from [^1] (8 species and 12 reactions) for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In [^1] this value ranges from 20 to 60.
 
 ```julia
-avogadro = 6.02214076e23
-# species ordering: 1 = E_A, 2 = A, 3 = E_B, 4 = B, 5 = E_A B, 6 = E_A B_2, 7 = E_B A, 8 = E_B A_2
-num_species = 8
 function model_setup(linear_num, end_time)
     
+    # species ordering: 1 = E_A, 2 = A, 3 = E_B, 4 = B, 5 = E_A B, 6 = E_A B_2, 7 = E_B A, 8 = E_B A_2
+    avogadro = 6.02214076e23
+    num_species = 8
+
     # topology
     domain_size = 12.0e-6 #meters
     mesh_size = domain_size/linear_num
@@ -73,23 +72,26 @@ end
 We run the algorithms and record the performance with `BenchmarkTools`.
 
 ```julia
-algs = [DirectCRDirect(), NSM(), RSSACR(), DirectCR()]
-names = ["$s"[1:end-2] for s in algs]
+function benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
+    @assert length(end_times) == length(linear_nums)
 
-end_times = [16.0, 9.3, 5.8, 3.9, 2.8] # for ≈ 10^8 jumps
-linear_nums = [20, 30, 40]
+    for (end_time, linear_num) in zip(end_times, linear_nums)
+        names = ["$s"[1:end-2] for s in algs]
 
-benchmarks = Matrix{BenchmarkTools.Trial}(undef, length(linear_nums), length(algs))
-for (j,(end_time, linear_num)) in enumerate(zip(end_times, linear_nums))
+        @show linear_num
+        prob, majumps, hopping_constants, grid = model_setup(linear_num, end_time)
 
-    prob, majumps, hopping_constants, grid = model_setup(linear_num, end_time)
+        # benchmarking and saving
+        benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
 
-    for (i, alg) in enumerate(algs)
-        name = names[i]
-        jp = JumpProblem(prob, alg, mNajumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
-        solve(jp, SSAStepper())
-        b = @benchmarkable solve($jp, SSAStepper()) samples = 10 seconds = 1500
-        benchmarks[j,i] = run(b)
+        for (i, alg) in enumerate(algs)
+            name = names[i]
+            println("benchmarking $name")
+            jp = JumpProblem(prob, alg, majumps, hopping_constants=hopping_constants, spatial_system = grid, save_positions=(false,false))
+            solve(jp, SSAStepper())
+            b = @benchmarkable solve($jp, SSAStepper()) samples = 1 seconds = 1500
+            bench_dict[name, linear_num] = run(b)
+        end
     end
 end
 ```
@@ -98,21 +100,58 @@ end
 Plot the benchmarking data.
 
 ```julia
-medtimes = getproperty.(median.(benchmarks), :time)./1e9
+function fetch_and_plot(bench_dict)
+    names = unique([key[1] for key in keys(bench_dict)])
+    linear_nums = sort(unique([key[2] for key in keys(bench_dict)]))
 
-plt1 = plot(linear_nums, medtimes, label = reshape(names, 1, length(names)), marker = :hex, legendtitle = "SSAs")
-ylabel!("median time in seconds")
-xlabel!("number of sites per edge")
-title!("3D RDME")
-xticks!(linear_nums)
+    plt1 = plot()
+    plt2 = plot()
 
-plt2 = plot(linear_nums.^3, medtimes, label = reshape(names, 1, length(names)), marker = :hex, legendtitle = "SSAs")
-ylabel!("median time in seconds")
-xlabel!("total number of sites")
-title!("3D RDME")
-xticks!(linear_nums.^3)
+    medtimes = [Float64[] for i in 1:length(names)]
+    for (i,name) in enumerate(names)
+        for linear_num in linear_nums
+            try
+                push!(medtimes[i], median(bench_dict[name, linear_num]).time/1e9)
+            catch
+                break
+            end
+        end
+        len = length(medtimes[i])
+        plot!(plt1, linear_nums[1:len], medtimes[i], marker = :hex, label = name)
+        plot!(plt2, (linear_nums.^3)[1:len], medtimes[i], marker = :hex, label = name)
+    end
 
-plot(plt1, plt2, size = (1500, 500))
+    ylabel!(plt1, "median time in seconds")
+    xlabel!(plt1, "number of sites per edge")
+    title!(plt1, "3D RDME")
+    xticks!(plt1, linear_nums)
+
+    ylabel!(plt2, "median time in seconds")
+    xlabel!(plt2, "total number of sites")
+    title!(plt2, "3D RDME")
+    xticks!(plt2, (linear_nums.^3, string.(linear_nums.^3)) )
+    
+    plot(plt1, plt2, size = (1200,800), margin = 10mm, legendtitle = "SSAs")
+end
+```
+
+```julia
+algs = [NSM(), DirectCRDirect(), DirectCR(), RSSACR()]
+end_times = [16.0, 9.3, 5.8, 3.9] # for ≈ 10^8 jumps
+end_times = 0.00001*ones(2) # for ≈ 10^8 jumps
+linear_nums = [20, 30]
+bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
+benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
+
+algs = [NSM(), DirectCRDirect()]
+end_times = [2.8] # for ≈ 10^8 jumps
+end_times = 0.00001*[1.0]
+linear_nums = [60]
+benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
+```
+
+```julia
+plt=fetch_and_plot(bench_dict)
 ```
 
 # References
