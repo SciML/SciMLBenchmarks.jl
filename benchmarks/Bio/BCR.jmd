@@ -28,15 +28,13 @@ tf       = 100000.0
 rn    = prnbng.rn
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
 
-u₀    = prnbng.u₀
-p     = prnbng.p
 tspan = (0.,tf)
-@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, u₀, tspan, p)
-@timeit to "ODEProb DenseJac" densejacprob = ODEProblem(osys, u₀, tspan, p, jac=true)
+@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+@timeit to "ODEProb DenseJac" densejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true)
 ```
 
 ```julia
-@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, u₀, tspan, p, jac=true, sparse=true)
+@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
 show(to)
 ```
 
@@ -44,7 +42,7 @@ show(to)
 ```julia
 @show numspecies(rn) # Number of ODEs
 @show numreactions(rn) # Apprx. number of terms in the ODE
-@show numparams(rn) # Number of Parameters
+@show length(parameters(rn)) # Number of Parameters
 ```
 
 ## Time ODE derivative function compilation
@@ -52,8 +50,9 @@ As compiling the ODE derivative functions has in the past taken longer than
 running a simulation, we first force compilation by evaluating these functions
 one time.
 ```julia
-u  = copy(u₀)
-du = similar(u)
+u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
+du = copy(u)
+p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
 @timeit to "ODE rhs Eval1" oprob.f(du,u,p,0.)
 @timeit to "ODE rhs Eval2" oprob.f(du,u,p,0.)
 densejacprob.f(du,u,p,0.)
