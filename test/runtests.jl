@@ -6,5 +6,5 @@ using SciMLBenchmarks, Test
 
     @test isfile(joinpath(dirname(@__DIR__), "script", "Testing", "test.jl"))
     @test isfile(joinpath(dirname(@__DIR__), "html", "Testing", "test.html"))
-    @test isfile(joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md")
+    @test isfile(joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md"))
 end
