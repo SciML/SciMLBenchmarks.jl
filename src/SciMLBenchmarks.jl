@@ -126,4 +126,4 @@ function open_notebooks()
   IJulia.notebook(;dir=path)
 end
 
-end
+end # module SciMLBenchmarks
