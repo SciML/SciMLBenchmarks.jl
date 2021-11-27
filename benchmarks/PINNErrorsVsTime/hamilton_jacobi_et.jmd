@@ -1,0 +1,247 @@
+---
+title: Hamilton-Jacobi PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks
+author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Pagliarino, Simone Azeglio, Luca Bottero, Emmanuel Luján, Valentin Sulzer, Ashutosh Bharambe, Nand Vinchhi, Kaushik Balakrishnan, Devesh Upadhyay, Chris Rackauckas
+---
+
+Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
+Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+[SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
+for the implementation of physics-informed neural networks (PINNs) and other
+science-guided AI techniques.
+
+```julia
+using NeuralPDE
+using Quadrature, Cubature, Cuba
+using Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
+#using Plots
+#using PyPlot
+using DelimitedFiles
+using QuasiMonteCarlo
+```
+
+```julia
+function hamilton_jacobi(strategy, minimizer, maxIters)
+
+    ##  DECLARATIONS
+    @parameters  t x1 x2 x3 x4
+    @variables   u(..)
+
+    Dt = Differential(t)
+
+    Dx1 = Differential(x1)
+    Dx2 = Differential(x2)
+    Dx3 = Differential(x3)
+    Dx4 = Differential(x4)
+
+    Dxx1 = Differential(x1)^2
+    Dxx2 = Differential(x2)^2
+    Dxx3 = Differential(x3)^2
+    Dxx4 = Differential(x4)^2
+
+    # Discretization
+    tmax         = 1.0
+    x1width      = 1.0
+    x2width      = 1.0
+    x3width      = 1.0
+    x4width      = 1.0
+
+    tMeshNum     = 10
+    x1MeshNum    = 10
+    x2MeshNum    = 10
+    x3MeshNum    = 10
+    x4MeshNum    = 10
+
+    dt   = tmax/tMeshNum
+    dx1  = x1width/x1MeshNum
+    dx2  = x2width/x2MeshNum
+    dx3  = x3width/x3MeshNum
+    dx4  = x4width/x4MeshNum
+
+    domains = [t ∈ IntervalDomain(0.0,tmax),
+               x1 ∈ IntervalDomain(0.0,x1width),
+               x2 ∈ IntervalDomain(0.0,x2width),
+               x3 ∈ IntervalDomain(0.0,x3width),
+               x4 ∈ IntervalDomain(0.0,x4width)]
+
+    ts  = 0.0 : dt : tmax
+    x1s = 0.0 : dx1 : x1width
+    x2s = 0.0 : dx2 : x2width
+    x3s = 0.0 : dx3 : x3width
+    x4s = 0.0 : dx4 : x4width
+
+    λ = 1.0f0
+
+    # Operators
+    Δu = Dxx1(u(t,x1,x2,x3,x4)) + Dxx2(u(t,x1,x2,x3,x4)) + Dxx3(u(t,x1,x2,x3,x4)) + Dxx4(u(t,x1,x2,x3,x4)) # Laplacian
+    ∇u = [Dx1(u(t,x1,x2,x3,x4)), Dx2(u(t,x1,x2,x3,x4)),Dx3(u(t,x1,x2,x3,x4)),Dx4(u(t,x1,x2,x3,x4))]
+
+    # Equation
+    eq = Dt(u(t,x1,x2,x3,x4)) + Δu - λ*sum(∇u.^2) ~ 0  #HAMILTON-JACOBI-BELLMAN EQUATION
+
+    terminalCondition =  log((1 + x1*x1 + x2*x2 + x3*x3 + x4*x4)/2) # see PNAS paper
+
+    bcs = [u(tmax,x1,x2,x3,x4) ~ terminalCondition]  #PNAS paper again
+
+    ## NEURAL NETWORK
+    n = 20   #neuron number
+
+    chain = FastChain(FastDense(5,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
+
+    indvars = [t,x1,x2,x3,x4]   #phisically independent variables
+    depvars = [u]       #dependent (target) variable
+
+    dim = length(domains)
+
+    losses = []
+    error  = []
+    times = []
+
+    dx_err = 0.1
+
+    error_strategy = GridTraining(dx_err)
+
+    phi = NeuralPDE.get_phi(chain)
+    derivative = NeuralPDE.get_numeric_derivative()
+    initθ = DiffEqFlux.initial_params(chain)
+
+    _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
+                                             phi,derivative,chain,initθ,error_strategy)
+
+    bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
+    _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
+                                              phi,derivative,chain,initθ,error_strategy,
+                                              bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
+
+    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,indvars,depvars)
+    train_domain_set, train_bound_set = train_sets
+
+
+    pde_loss_function = NeuralPDE.get_loss_function([_pde_loss_function],
+                                          train_domain_set,
+                                          error_strategy)
+
+    bc_loss_function = NeuralPDE.get_loss_function(_bc_loss_functions,
+                                         train_bound_set,
+                                         error_strategy)
+
+    function loss_function_(θ,p)
+        return pde_loss_function(θ) + bc_loss_function(θ)
+    end
+
+    cb_ = function (p,l)
+        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
+
+        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
+        append!(times, ctime/10^9) #Conversion nanosec to seconds
+        append!(losses, l)
+        append!(error, pde_loss_function(p) + bc_loss_function(p))
+        println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
+
+        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
+
+        return false
+    end
+
+    pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
+
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    prob = NeuralPDE.discretize(pde_system,discretization)
+
+    timeCounter = 0.0
+    startTime = time_ns() #Fix initial time (t=0) before starting the training
+    res = GalacticOptim.solve(prob, minimizer, cb = cb_, maxiters=maxIters)
+
+    phi = discretization.phi
+
+    params = res.minimizer
+
+    # Model prediction
+    domain = [ts,x1s,x2s,x3s,x4s]
+
+    u_predict = [reshape([first(phi([t,x1,x2,x3,x4],res.minimizer)) for x1 in x1s for x2 in x2s for x3 in x3s for x4 in x4s], (length(x1s),length(x2s), length(x3s),length(x4s))) for t in ts]  #matrix of model's prediction
+
+    return [error, params, domain, times, losses]
+end
+
+maxIters = [(0,0,0,0,0,20000,20000),(300,300,300,300,300,300,300)] #iters for ADAM/LBFGS
+
+
+strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-4, maxiters = 100),
+              NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1, abstol = 1e-4, maxiters = 100, batch = 0),
+              NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLh(), reltol = 1, abstol = 1e-4, maxiters = 100),
+              NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLp(), reltol = 1, abstol = 1e-4, maxiters = 100),
+              NeuralPDE.GridTraining(0.09),
+              NeuralPDE.StochasticTraining(100),
+              NeuralPDE.QuasiRandomTraining(100; sampling_alg = UniformSample(), minibatch = 100)]
+
+strategies_short_name = ["CubaCuhre",
+                        "HCubatureJL",
+                        "CubatureJLh",
+                        "CubatureJLp",
+                        "GridTraining",
+                        "StochasticTraining",
+                        "QuasiRandomTraining"]
+
+minimizers = [GalacticOptim.ADAM(0.005),
+              #GalacticOptim.BFGS()]
+              GalacticOptim.LBFGS()]
+
+
+minimizers_short_name = ["ADAM",
+                         "LBFGS"]
+                        #"BFGS"]
+
+
+# Run models
+error_res =  Dict()
+domains = Dict()
+params_res = Dict()  #to use same params for the next run
+times = Dict()
+losses_res = Dict()
+```
+
+## Solve
+
+```julia
+print("Starting run")
+## Convergence
+
+for min =1:length(minimizers) # minimizer
+      for strat=1:length(strategies) # strategy
+            println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
+            res = hamilton_jacobi(strategies[strat], minimizers[min], maxIters[min][strat])
+            push!(error_res, string(strat,min)     => res[1])
+            push!(params_res, string(strat,min) => res[2])
+            push!(domains, string(strat,min)        => res[3])
+            push!(times, string(strat,min)        => res[4])
+            push!(losses_res, string(strat,min)   => res[5])
+      end
+end
+```
+
+
+```julia
+#Plotting the first strategy with the first minimizer out from the loop to initialize the canvas
+current_label = string(strategies_short_name[1], " + " , minimizers_short_name[1])
+error = Plots.plot(times["11"], error_res["11"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = current_label, xlims = (0,10))#legend = true)#, size=(1200,700))
+plot!(error, times["21"], error_res["21"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[2], " + " , minimizers_short_name[1]))
+plot!(error, times["31"], error_res["31"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[3], " + " , minimizers_short_name[1]))
+plot!(error, times["41"], error_res["41"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[4], " + " , minimizers_short_name[1]))
+plot!(error, times["51"], error_res["51"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[5], " + " , minimizers_short_name[1]))
+plot!(error, times["61"], error_res["61"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[6], " + " , minimizers_short_name[1]))
+plot!(error, times["71"], error_res["71"], yaxis=:log10, title = string("Hamilton Jacobi convergence"), ylabel = "log(error)", label = string(strategies_short_name[7], " + " , minimizers_short_name[1]))
+
+
+plot!(error, times["12"], error_res["12"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[1], " + " , minimizers_short_name[2]))
+plot!(error, times["22"], error_res["22"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[2], " + " , minimizers_short_name[2]))
+plot!(error, times["32"], error_res["32"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[3], " + " , minimizers_short_name[2]))
+plot!(error, times["42"], error_res["42"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[4], " + " , minimizers_short_name[2]))
+plot!(error, times["52"], error_res["52"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[5], " + " , minimizers_short_name[2]))
+plot!(error, times["62"], error_res["62"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[6], " + " , minimizers_short_name[2]))
+plot!(error, times["72"], error_res["72"], yaxis=:log10, title = string("Hamilton Jacobi convergence ADAM/LBFGS"), ylabel = "log(error)", label = string(strategies_short_name[7], " + " , minimizers_short_name[2]))
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
