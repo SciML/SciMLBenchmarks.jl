@@ -1,0 +1,206 @@
+---
+title: Diffusion PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks
+author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Pagliarino, Simone Azeglio, Luca Bottero, Emmanuel Luján, Valentin Sulzer, Ashutosh Bharambe, Nand Vinchhi, Kaushik Balakrishnan, Devesh Upadhyay, Chris Rackauckas
+---
+
+Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
+Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+[SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
+for the implementation of physics-informed neural networks (PINNs) and other
+science-guided AI techniques.
+
+## Setup
+
+```julia
+using NeuralPDE
+using Quadrature, Cubature, Cuba
+using Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
+#using Plots
+using DelimitedFiles
+using QuasiMonteCarlo
+```
+
+```julia
+function diffusion(strategy, minimizer, maxIters)
+
+    ##  DECLARATIONS
+    @parameters x t
+    @variables u(..)
+    Dt = Differential(t)
+    Dxx = Differential(x)^2
+
+    eq = Dt(u(x,t)) - Dxx(u(x,t)) ~ -exp(-t) * (sin(pi * x) - pi^2 * sin(pi * x))
+
+    bcs = [u(x,0) ~ sin(pi*x),
+           u(-1,t) ~ 0.,
+           u(1,t) ~ 0.]
+
+    domains = [x ∈ IntervalDomain(-1.0,1.0),
+               t ∈ IntervalDomain(0.0,1.0)]
+
+    dx = 0.2; dt = 0.1
+    xs,ts = [domain.domain.lower:dx/10:domain.domain.upper for (dx,domain) in zip([dx,dt],domains)]
+
+    indvars = [x,t]
+    depvars = [u]
+
+    chain = FastChain(FastDense(2,18,Flux.σ),FastDense(18,18,Flux.σ),FastDense(18,1))
+
+    losses = []
+    error = []
+    times = []
+
+    dx_err = 0.9
+
+    error_strategy = GridTraining(dx_err)
+
+    phi = NeuralPDE.get_phi(chain)
+    derivative = NeuralPDE.get_numeric_derivative()
+    initθ = DiffEqFlux.initial_params(chain)
+
+    _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
+                                             phi,derivative,chain,initθ,error_strategy)
+
+    bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
+    _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
+                                              phi,derivative,chain,initθ,error_strategy,
+                                              bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
+
+    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,indvars,depvars)
+    train_domain_set, train_bound_set = train_sets
+
+
+    pde_loss_function = NeuralPDE.get_loss_function([_pde_loss_function],
+                                          train_domain_set,
+                                          error_strategy)
+
+    bc_loss_function = NeuralPDE.get_loss_function(_bc_loss_functions,
+                                         train_bound_set,
+                                         error_strategy)
+
+    function loss_function_(θ,p)
+        return pde_loss_function(θ) + bc_loss_function(θ)
+    end
+
+    cb_ = function (p,l)
+        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
+
+        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
+        append!(times, ctime/10^9) #Conversion nanosec to seconds
+        append!(losses, l)
+        append!(error, pde_loss_function(p) + bc_loss_function(p))
+        println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
+
+        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
+
+        return false
+    end
+
+    discretization = PhysicsInformedNN(chain,strategy)
+
+    pde_system = PDESystem(eq,bcs,domains,indvars,depvars)
+    prob = discretize(pde_system,discretization)
+
+
+    timeCounter = 0.0
+    startTime = time_ns() #Fix initial time (t=0) before starting the training
+
+    res = GalacticOptim.solve(prob, minimizer; cb = cb_, maxiters = maxIters)
+    phi = discretization.phi
+
+    params = res.minimizer
+
+    # Model prediction
+    domain = [x,t]
+
+    u_predict = reshape([first(phi([x,t],res.minimizer)) for x in xs for t in ts],(length(xs),length(ts)))
+
+    return [error, params, domain, times, u_predict, losses]
+end
+```
+
+```julia
+maxIters = [(0,0,0,0,0,0),(5000,5000,5000,5000,5000,5000)] #iters for ADAM/LBFGS
+
+strategies = [#NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-3, maxiters = 10, batch = 10),
+              NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol=1, abstol=1e-5, maxiters=100, batch = 0),
+              NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLh(), reltol=1, abstol=1e-5, maxiters=100),
+              NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLp(), reltol=1, abstol=1e-5, maxiters=100),
+              NeuralPDE.GridTraining([0.2,0.1]),
+              NeuralPDE.StochasticTraining(100),
+              NeuralPDE.QuasiRandomTraining(100; sampling_alg = UniformSample(), minibatch = 100)]
+
+strategies_short_name = [#"CubaCuhre",
+                        "HCubatureJL",
+                        "CubatureJLh",
+                        "CubatureJLp",
+                        #"CubaVegas",
+                        #"CubaSUAVE"]
+                        "GridTraining",
+                        "StochasticTraining",
+                        "QuasiRandomTraining"]
+
+minimizers = [GalacticOptim.ADAM(0.001),
+              #GalacticOptim.BFGS()]
+              GalacticOptim.LBFGS()]
+
+
+minimizers_short_name = ["ADAM",
+                         "LBFGS"]
+                        # "BFGS"]
+
+
+# Run models
+error_res =  Dict()
+domains = Dict()
+params_res = Dict()  #to use same params for the next run
+times = Dict()
+prediction = Dict()
+losses_res = Dict()
+```
+
+## Solve
+
+```julia
+print("Starting run")
+## Convergence
+
+for min =1:length(minimizers) # minimizer
+      for strat=1:length(strategies) # strategy
+            println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
+            res = diffusion(strategies[strat], minimizers[min], maxIters[min][strat])
+            push!(error_res, string(strat,min)     => res[1])
+            push!(params_res, string(strat,min) => res[2])
+            push!(domains, string(strat,min)        => res[3])
+            push!(times, string(strat,min)        => res[4])
+            push!(prediction, string(strat,min)        => res[5])
+            push!(losses_res, string(strat,min)        => res[6])
+
+      end
+end
+```
+
+## Results
+
+```julia
+current_label = string(strategies_short_name[1], " + " , minimizers_short_name[1])
+error = Plots.plot(times["11"], error_res["11"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = current_label, xlims = (0,10))#legend = true)#, size=(1200,700))
+plot!(error, times["21"], error_res["21"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[2], " + " , minimizers_short_name[1]))
+plot!(error, times["31"], error_res["31"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[3], " + " , minimizers_short_name[1]))
+plot!(error, times["41"], error_res["41"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[4], " + " , minimizers_short_name[1]))
+plot!(error, times["51"], error_res["51"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[5], " + " , minimizers_short_name[1]))
+plot!(error, times["61"], error_res["61"], yaxis=:log10, title = string("Diffusion convergence"), ylabel = "log(error)", label = string(strategies_short_name[7], " + " , minimizers_short_name[1]))
+
+
+plot!(error, times["12"], error_res["12"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[1], " + " , minimizers_short_name[2]))
+plot!(error, times["22"], error_res["22"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[2], " + " , minimizers_short_name[2]))
+plot!(error, times["32"], error_res["32"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[3], " + " , minimizers_short_name[2]))
+plot!(error, times["42"], error_res["42"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[4], " + " , minimizers_short_name[2]))
+plot!(error, times["52"], error_res["52"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = string(strategies_short_name[5], " + " , minimizers_short_name[2]))
+plot!(error, times["62"], error_res["62"], yaxis=:log10, title = string("Diffusion convergence ADAM/LBFGS"), ylabel = "log(error)", label = string(strategies_short_name[7], " + " , minimizers_short_name[2]))
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

@@ -81,6 +81,19 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Bayesian FitzHugh-Nagumo Equation Estimation](https://benchmarks.sciml.ai/html/ParameterEstimation/DiffEqBayesFitzHughNagumo.html)
   - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](https://benchmarks.sciml.ai/html/ParameterEstimation/LotkaVolterraParameterEstimation.html)
   - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](https://benchmarks.sciml.ai/html/ParameterEstimation/FitzHughNagumoParameterEstimation.html)
+- Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks
+  - [Allen-Cahn PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/allen_cahn_et.html)
+  - [Diffusion Equation Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/diffusion_et.html)
+  - [Hamilton-Jacobi PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/hamilton_jacobi_et.html)
+  - [Level Set PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/level_set_et.html)
+  - [Nernst-Planck PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/nernst_planck_et.html)
+- Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks
+  - [Diffusion Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_diffusion.html)
+  - [1D Nernst-Planck Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_possion_nernst_planck.html)
+  - [Allen-Cahn Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/allen_cahn.html)
+  - [Berger's Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/burgers_equation.html)
+  - [Hamilton-Jacobi Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/hamilton_jacobi.html)
+  - [Poisson Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/poisson.html)
 
 The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
 
@@ -115,7 +128,7 @@ over the set of tested equations and some specific examples may differ.
     tolerances.
   - `Rodas4` and `Rodas5` tend to be the most efficient at low tolerances.
 - For larger problems (Filament PDE):
-  - `CVODE_BDF` does the best at all tolerances.
+  - `QNDF` and `FBDF` does the best at all normal tolerances.
   - The ESDIRK methods like `TRBDF2` and `KenCarp4` can come close.
 - `radau` is always the most efficient when tolerances go to the low extreme
   (`1e-13`)
