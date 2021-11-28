@@ -93,9 +93,13 @@ function allen_cahn(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    phi = NeuralPDE.get_phi(chain)
-    derivative = NeuralPDE.get_numeric_derivative()
     initθ = DiffEqFlux.initial_params(chain)
+    eltypeθ = eltype(initθ)
+    parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
+
+    phi = NeuralPDE.get_phi(chain,parameterless_type_θ)
+    derivative = NeuralPDE.get_numeric_derivative()
+
 
     _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
                                              phi,derivative,chain,initθ,error_strategy)
@@ -128,7 +132,7 @@ function allen_cahn(strategy, minimizer, maxIters)
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
         append!(error, pde_loss_function(p) + bc_loss_function(p))
-        println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
+        ##println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
 
@@ -205,7 +209,7 @@ losses_res = Dict()
 
 for min =1:length(minimizers) # minimizer
       for strat=1:length(strategies) # strategy
-            println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
+            ##println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
             res = allen_cahn(strategies[strat], minimizers[min], maxIters[min][strat])
             push!(error_res, string(strat,min)     => res[1])
             push!(params_res, string(strat,min) => res[2])
