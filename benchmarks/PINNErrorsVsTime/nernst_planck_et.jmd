@@ -100,9 +100,12 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    phi = NeuralPDE.get_phi(chain)
-    derivative = NeuralPDE.get_numeric_derivative()
     initθ = DiffEqFlux.initial_params(chain)
+    eltypeθ = eltype(initθ)
+    parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
+
+    phi = NeuralPDE.get_phi(chain,parameterless_type_θ)
+    derivative = NeuralPDE.get_numeric_derivative()
 
     _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
                                              phi,derivative,chain,initθ,error_strategy)
@@ -135,14 +138,14 @@ function nernst_planck(strategy, minimizer, maxIters)
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
         append!(error, pde_loss_function(p) + bc_loss_function(p))
-        println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
+        #println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
 
         return false
     end
 
-    pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
+    @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
     discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
     prob = NeuralPDE.discretize(pde_system,discretization)
@@ -184,9 +187,9 @@ strategies_short_name = ["CubaCuhre",
                         "StochasticTraining",
                         "QuasiRandomTraining"]
 
-minimizers = [GalacticOptim.ADAM(0.005),
-              #GalacticOptim.BFGS()]
-              GalacticOptim.LBFGS()]
+minimizers = [ADAM(0.005),
+              #BFGS()]
+              LBFGS()]
 
 
 minimizers_short_name = ["ADAM",
@@ -208,7 +211,7 @@ times = Dict()
 
 for strat=1:length(strategies) # strategy
       for min =1:length(minimizers) # minimizer
-            println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
+            #println(string(strategies_short_name[strat], "  ", minimizers_short_name[min]))
             res = nernst_planck(strategies[strat], minimizers[min], maxIters[min][strat])
             push!(error_res, string(strat,min)     => res[1])
             push!(params_res, string(strat,min) => res[2])
