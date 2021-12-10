@@ -18,7 +18,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [torchdiffeq vs Julia DiffEqFlux Neural ODE Training Benchmark](https://gist.github.com/ChrisRackauckas/4a4d526c15cc4170ce37da837bfc32c4)
   - [torchsde vs DifferentialEquations.jl / DiffEqFlux.jl](https://gist.github.com/ChrisRackauckas/6a03e7b151c86b32d74b41af54d495c6)
   - [JITCODE vs SciPy vs DifferentialEquations.jl on large network dynamics](https://github.com/PIK-ICoN/NetworkDynamicsBenchmarks)
-  - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://homes.cs.washington.edu/~thickstn/ctpg-project-page/ctpg.html)
+  - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://arxiv.org/abs/2012.06684)
   - [DiffEqFlux.jl / DifferentialEquations.jl vs Jax on an epidemic model](https://gist.github.com/ChrisRackauckas/62a063f23cccf3a55a4ac9f6e497739a)
   - [DifferentialEquations.jl vs SciPy vs NumbaLSODA on a stiff ODE](https://gist.github.com/ChrisRackauckas/fd62e005c4c86520306338b6bdae6b79)
 - Non-stiff ODEs
