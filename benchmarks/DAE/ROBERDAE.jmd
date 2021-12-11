@@ -8,49 +8,6 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDif
       Plots, DASSL, DASKR
 using LinearAlgebra
 
-function rober(du,u,p,t)
-  y₁,y₂,y₃ = u
-  k₁,k₂,k₃ = p
-  du[1] = -k₁*y₁ + k₃*y₂*y₃
-  du[2] =  k₁*y₁ - k₃*y₂*y₃ - k₂*y₂^2
-  du[3] =  y₁ + y₂ + y₃ - 1
-  nothing
-end
-M = [1. 0  0
-     0  1. 0
-     0  0  0]
-f = ODEFunction(rober,mass_matrix=M)
-mmprob = ODEProblem(f,[1.0,0.0,0.0],(0.0,1e5),(0.04,3e7,1e4))
-
-sol = solve(mmprob,Rodas5(),abstol=1/10^14,reltol=1/10^14)
-test_sol = TestSolution(sol)
-abstols = 1.0 ./ 10.0 .^ (4:11)
-reltols = 1.0 ./ 10.0 .^ (1:8);
-```
-
-```julia
-plot(sol,labels=["y1" "y2" "y3"])
-```
-
-```julia
-function rober_implicit(out,du,u,p,t)
-  out[1] = - 0.04u[1]              + 1e4*u[2]*u[3] - du[1]
-  out[2] = + 0.04u[1] - 3e7*u[2]^2 - 1e4*u[2]*u[3] - du[2]
-  out[3] = u[1] + u[2] + u[3] - 1.0
-end
-u₀ = [1.0, 0, 0]
-du₀ = [-0.04, 0.04, 0.0]
-tspan = (0.0,1e5)
-differential_vars = [true,true,false]
-daeprob = DAEProblem(rober_implicit,du₀,u₀,tspan,differential_vars=differential_vars)
-ref_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
-```
-
-```julia
-plot(ref_sol,labels=["y1" "y2" "y3"])
-```
-
-```julia
 @variables t y₁(t)=1.0 y₂(t)=0.0 y₃(t)=0.0
 @parameters k₁=0.04 k₂=3e7 k₃=1e4
 D = Differential(t)
@@ -60,30 +17,22 @@ eqs = [
   0 ~  y₁ + y₂ + y₃ - 1
 ]
 @named sys = ODESystem(eqs)
-odaeprob = ODAEProblem(structural_simplify(sys),[],(0.0,1e5))
-```
+simpsys = structural_simplify(sys)
+mmprob = ODEProblem(sys,[],(0.0,1e5))
+daeprob = DAEProblem(sys,[D(y₁)=>-0.04,
+                              D(y₂)=>0.04,
+                              D(y₃)=>0.0],[],(0.0,1e5))
+odaeprob = ODAEProblem(simpsys,[],(0.0,1e5))
 
-```julia
-ode_ref_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
-plot(ode_ref_sol,vars=[y₁, y₂, y₃])
-```
+ref_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
+ode_ref_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
 
-```julia
-test_odae = solve(odaeprob,ROCK2()) # Solve with an explicit method
-plot(test_odae,vars=[y₁, y₂, y₃])
-```
-
-```julia
 probs = [mmprob,daeprob,odaeprob]
-refs = [ref_sol,ref_sol,ode_ref_sol]
+refs = [ref_sol,ref_sol,ode_ref_sol];
 ```
 
-## Omissions
-
-DASSL fails at lower tolerances:
-
 ```julia
-sol = solve(daeprob,DASSL.dassl(),abstol=1e-10,reltol=1e-8)
+plot(ode_ref_sol, vars = [y₁,y₂,y₃])
 ```
 
 ## High Tolerances
@@ -153,7 +102,6 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 2, :alg=>DFBDF()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           ]
-gr()
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
                       save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
 plot(wp)
@@ -196,7 +144,7 @@ setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
           Dict(:prob_choice => 2, :alg=>DFBDF()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           ]
-gr()
+
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
                       save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
 plot(wp)
