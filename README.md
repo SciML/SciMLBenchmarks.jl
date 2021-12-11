@@ -21,7 +21,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://arxiv.org/abs/2012.06684)
   - [DiffEqFlux.jl / DifferentialEquations.jl vs Jax on an epidemic model](https://gist.github.com/ChrisRackauckas/62a063f23cccf3a55a4ac9f6e497739a)
   - [DifferentialEquations.jl vs SciPy vs NumbaLSODA on a stiff ODE](https://gist.github.com/ChrisRackauckas/fd62e005c4c86520306338b6bdae6b79)
-- Non-stiff ODEs
+- Non-stiff Ordinary Differential Equations (ODEs)
   - [Linear Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/linear_wpd.html)
   - [Three-Body Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/ThreeBody_wpd.html)
   - [Pleides Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/Pleiades_wpd.html)
@@ -30,13 +30,16 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Lotka-Volterra Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/LotkaVolterra_wpd.html)
   - [Direct vs MATLAB Benchmark](https://github.com/JuliaDiffEq/MATLABDiffEq.jl#benchmark)
   - [Runge-Kutta vs Taylor Integration on Pleides](https://gist.github.com/ChrisRackauckas/1301b23aa12ad83de7138d8e41d64dd6)
-- Stiff ODEs
+- Stiff Ordinary Differential Equations (ODEs)
   - [Van der Pol Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/VanDerPol.html)
   - [ROBER Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/ROBER.html)
   - [Orego Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Orego.html)
   - [Hires Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Pollution.html)
   - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
+- Differential-Algebraic Equations (DAEs)
+  - [ROBER DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ROBERDAE.html)
+  - [OREGO DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/OregoDAE.html)
 - Method of Lines PDEs
   - [Filament PDE Discretization Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/Filament.html)
   - [Allen-Cahn Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/allen_cahn_fdm_wpd.html)
