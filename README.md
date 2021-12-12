@@ -40,6 +40,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
 - Differential-Algebraic Equations (DAEs)
   - [ROBER DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ROBERDAE.html)
   - [OREGO DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/OregoDAE.html)
+  - [Chemical Akzo Nobel Differential-Algebraic Equation (DAE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ChemicalAkzoNobel.html)
 - Method of Lines PDEs
   - [Filament PDE Discretization Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/Filament.html)
   - [Allen-Cahn Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/allen_cahn_fdm_wpd.html)
