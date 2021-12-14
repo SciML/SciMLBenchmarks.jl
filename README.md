@@ -94,7 +94,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Nernst-Planck PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/nernst_planck_et.html)
 - Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks
   - [Diffusion Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_diffusion.html)
-  - [1D Nernst-Planck Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_possion_nernst_planck.html)
+  - [1D Nernst-Planck Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_poisson_nernst_planck.html)
   - [Allen-Cahn Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/allen_cahn.html)
   - [Berger's Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/burgers_equation.html)
   - [Hamilton-Jacobi Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/hamilton_jacobi.html)
