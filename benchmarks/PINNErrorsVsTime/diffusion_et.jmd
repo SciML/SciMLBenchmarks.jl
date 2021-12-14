@@ -15,9 +15,10 @@ science-guided AI techniques.
 using NeuralPDE
 using Quadrature, Cubature, Cuba
 using Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-#using Plots
+using Plots
 using DelimitedFiles
 using QuasiMonteCarlo
+import ModelingToolkit: Interval, infimum, supremum
 ```
 
 ```julia
@@ -35,14 +36,14 @@ function diffusion(strategy, minimizer, maxIters)
            u(-1,t) ~ 0.,
            u(1,t) ~ 0.]
 
-    domains = [x ∈ IntervalDomain(-1.0,1.0),
-               t ∈ IntervalDomain(0.0,1.0)]
+    domains = [x ∈ Interval(-1.0,1.0),
+               t ∈ Interval(0.0,1.0)]
 
     dx = 0.2; dt = 0.1
     xs,ts = [domain.domain.lower:dx/10:domain.domain.upper for (dx,domain) in zip([dx,dt],domains)]
 
     indvars = [x,t]
-    depvars = [u]
+    depvars = [u(x,t)]
 
     chain = FastChain(FastDense(2,18,Flux.σ),FastDense(18,18,Flux.σ),FastDense(18,1))
 
@@ -54,7 +55,7 @@ function diffusion(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    initθ = DiffEqFlux.initial_params(chain)
+    initθ = Float64.(DiffEqFlux.initial_params(chain))
     eltypeθ = eltype(initθ)
     parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
 
@@ -62,27 +63,28 @@ function diffusion(strategy, minimizer, maxIters)
     derivative = NeuralPDE.get_numeric_derivative()
 
     _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
-                                             phi,derivative,chain,initθ,error_strategy)
+                                             phi,derivative,nothing,chain,initθ,error_strategy)
 
     bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
     _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
                                               phi,derivative,chain,initθ,error_strategy,
                                               bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
 
-    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,indvars,depvars)
+    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,eltypeθ,indvars,depvars)
     train_domain_set, train_bound_set = train_sets
 
 
-    pde_loss_function = NeuralPDE.get_loss_function([_pde_loss_function],
-                                          train_domain_set,
-                                          error_strategy)
+    pde_loss_function = [NeuralPDE.get_loss_function(_pde_loss_function,
+                                          train_domain_set[1],eltypeθ,
+                                          parameterless_type_θ,error_strategy)]
 
-    bc_loss_function = NeuralPDE.get_loss_function(_bc_loss_functions,
-                                         train_bound_set,
-                                         error_strategy)
+    bc_loss_function = [NeuralPDE.get_loss_function(bc,
+                                          train_domain_set[1],eltypeθ,
+                                          parameterless_type_θ,error_strategy) for (train_set,bc) in zip(train_bound_set, _bc_loss_functions)]
 
+    loss_functions =  [pde_loss_functions;bc_loss_functions]
     function loss_function_(θ,p)
-        return pde_loss_function(θ) + bc_loss_function(θ)
+        return sum(map(l->l(θ) ,loss_functions))
     end
 
     cb_ = function (p,l)
@@ -91,7 +93,9 @@ function diffusion(strategy, minimizer, maxIters)
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
-        append!(error, pde_loss_function(p) + bc_loss_function(p))
+        pde_loss = sum(map(l_->l_(p) ,pde_loss_functions))
+        bc_loss= sum(map(l_->l_(p) ,bc_loss_functions))
+        append!(error, pde_loss + bc_loss)
         #println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
@@ -123,7 +127,7 @@ end
 ```
 
 ```julia
-maxIters = [(0,0,0,0,0,0),(5000,5000,5000,5000,5000,5000)] #iters for ADAM/LBFGS
+maxIters = [(1,1,1,1,1,1),(5000,5000,5000,5000,5000,5000)] #iters for ADAM/LBFGS
 
 strategies = [#NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-3, maxiters = 10, batch = 10),
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol=1, abstol=1e-5, maxiters=100, batch = 0),
