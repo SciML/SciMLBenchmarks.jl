@@ -15,10 +15,10 @@ science-guided AI techniques.
 using NeuralPDE
 using Quadrature, Cubature, Cuba
 using Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-#using Plots
-#using PyPlot
+using Plots
 using DelimitedFiles
 using QuasiMonteCarlo
+import ModelingToolkit: Interval, infimum, supremum
 ```
 
 ```julia
@@ -46,9 +46,9 @@ function level_set(strategy, minimizer, maxIters)
     dt  = tmax/tMeshNum
 
 
-    domains = [t ∈ IntervalDomain(0.0,tmax),
-               x ∈ IntervalDomain(0.0,xwidth),
-               y ∈ IntervalDomain(0.0,ywidth)]
+    domains = [t ∈ Interval(0.0,tmax),
+               x ∈ Interval(0.0,xwidth),
+               y ∈ Interval(0.0,ywidth)]
 
     xs = 0.0 : dx : xwidth
     ys = 0.0 : dy : ywidth
@@ -84,7 +84,7 @@ function level_set(strategy, minimizer, maxIters)
     chain = FastChain(FastDense(3,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
 
     indvars = [t,x,y]   #phisically independent variables
-    depvars = [u]       #dependent (target) variable
+    depvars = [u(t,x,y)]       #dependent (target) variable
 
     dim = length(domains)
 
@@ -96,7 +96,7 @@ function level_set(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    initθ = DiffEqFlux.initial_params(chain)
+    initθ = Float64.(DiffEqFlux.initial_params(chain))
     eltypeθ = eltype(initθ)
     parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
 
@@ -104,27 +104,27 @@ function level_set(strategy, minimizer, maxIters)
     derivative = NeuralPDE.get_numeric_derivative()
 
     _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
-                                             phi,derivative,chain,initθ,error_strategy)
+                                             phi,derivative,nothing,chain,initθ,error_strategy)
 
     bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
     _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
                                               phi,derivative,chain,initθ,error_strategy,
                                               bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
 
-    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,indvars,depvars)
+    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,eltypeθ,indvars,depvars)
     train_domain_set, train_bound_set = train_sets
 
 
-    pde_loss_function = NeuralPDE.get_loss_function([_pde_loss_function],
-                                          train_domain_set,
-                                          error_strategy)
+    pde_loss_function = [NeuralPDE.get_loss_function(_pde_loss_function,
+                                          train_domain_set[1],eltypeθ,
+                                          parameterless_type_θ,error_strategy)]
 
-    bc_loss_function = NeuralPDE.get_loss_function(_bc_loss_functions,
-                                         train_bound_set,
-                                         error_strategy)
-
+    bc_loss_function = [NeuralPDE.get_loss_function(bc,
+                                          train_domain_set[1],eltypeθ,
+                                          parameterless_type_θ,error_strategy) for (train_set,bc) in zip(train_bound_set, _bc_loss_functions)]
+    loss_functions =  [pde_loss_functions;bc_loss_functions]
     function loss_function_(θ,p)
-        return pde_loss_function(θ) + bc_loss_function(θ)
+        return sum(map(l->l(θ) ,loss_functions))
     end
 
     cb_ = function (p,l)
