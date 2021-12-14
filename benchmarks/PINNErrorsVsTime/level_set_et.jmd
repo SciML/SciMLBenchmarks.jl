@@ -59,6 +59,10 @@ function nernst_planck(strategy, minimizer, maxIters)
                y ∈ Interval(0.0,ywidth),
                z ∈ Interval(0.0,zwidth)]
 
+    domains = [t ∈ Interval(0.0,tmax),
+               x ∈ Interval(0.0,xwidth),
+               y ∈ Interval(0.0,ywidth)]
+
     xs = 0.0 : dx : xwidth
     ys = 0.0 : dy : ywidth
     zs = 0.0 : dz : zwidth
@@ -85,7 +89,8 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     chain = FastChain(FastDense(4,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy; init_params =initθ)
+    indvars = [t,x,y]   #phisically independent variables
+    depvars = [u(t,x,y)]       #dependent (target) variable
 
     indvars = [t,x,y,z]   #independent variables
     depvars = [c(t,x,y,z)]       #dependent (target) variable
