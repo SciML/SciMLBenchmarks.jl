@@ -133,7 +133,9 @@ function level_set(strategy, minimizer, maxIters)
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
-        append!(error, pde_loss_function(p) + bc_loss_function(p))
+        pde_loss = sum(map(l_->l_(p) ,pde_loss_functions))
+        bc_loss= sum(map(l_->l_(p) ,bc_loss_functions))
+        append!(error, pde_loss + bc_loss)
         #println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
