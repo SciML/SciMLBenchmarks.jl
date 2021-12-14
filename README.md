@@ -21,6 +21,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://arxiv.org/abs/2012.06684)
   - [DiffEqFlux.jl / DifferentialEquations.jl vs Jax on an epidemic model](https://gist.github.com/ChrisRackauckas/62a063f23cccf3a55a4ac9f6e497739a)
   - [DifferentialEquations.jl vs SciPy vs NumbaLSODA on a stiff ODE](https://gist.github.com/ChrisRackauckas/fd62e005c4c86520306338b6bdae6b79)
+  - [DifferentialEquations.jl vs SciPy vs NumbaLSODA](https://github.com/Nicholaswogan/NumbaLSODA/tree/main/benchmark)
 - Non-stiff Ordinary Differential Equations (ODEs)
   - [Linear Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/linear_wpd.html)
   - [Three-Body Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/ThreeBody_wpd.html)
