@@ -51,11 +51,10 @@ eqs = [
 ModelingToolkit.@named sys = ModelingToolkit.ODESystem(eqs)
 
 tspan = (0.0, 180.0)
-simpsys = structural_simplify(sys)
-mmprob = ODEProblem(simpsys, [], tspan)
+mmprob = ODEProblem(sys, [], tspan)
 sol = solve(mmprob, Rodas4(),abstol=1/10^14,reltol=1/10^14)
 
-odaeprob = ODAEProblem(simpsys,[],tspan)
+odaeprob = ODAEProblem(structural_simplify(sys),[],tspan)
 ode_ref_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
 
 du = mmprob.f(mmprob.u0,mmprob.p,0.0)
