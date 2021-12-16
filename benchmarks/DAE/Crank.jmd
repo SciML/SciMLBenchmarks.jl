@@ -125,13 +125,13 @@ sinp12 = sin(ϕ₁-ϕ₂)
 P = [ϕ₁, ϕ₂, x₃]
 Q = [q₁, q₂, q₃, q₄]
 X = [P..., Q...]
-V = D.(P)
-# V = [dϕ₁, dϕ₂, dx₃]
-QD = D.(Q)
-# QD = [dq₁, dq₂, dq₃, dq₄]
+# V = D.(P)
+V = [dϕ₁, dϕ₂, dx₃]
+# QD = D.(Q)
+QD = [dq₁, dq₂, dq₃, dq₄]
 DX = [V..., QD...]
-DDX = D.(DX)
-# DDX = [ddϕ₁, ddϕ₂, ddx₃, ddq₁, ddq₂, ddq₃, ddq₄]
+# DDX = D.(DX)
+DDX = [ddϕ₁, ddϕ₂, ddx₃, ddq₁, ddq₂, ddq₃, ddq₄]
 
 ivs = [
      # Initial values velocity variables
@@ -154,9 +154,9 @@ ivs = [
      D(λ₂) => 0.0,
      D(λ₃) => 0.0,
      ]
-#for I = 1:7
-#    push!(ivs, D(DDX[I]) => 0.0)
-#end
+for I = 1:7
+    push!(ivs, D(DDX[I]) => 0.0)
+end
 
 # Evaluate scalar products and quadratic forms.
 c1TQ  = dot(c1, Q)
@@ -322,10 +322,10 @@ end
 for P in PLC
     push!(eqs, 0 ~ P)
 end
-#for I = 1:7
-#    push!(eqs, D(X[I]) ~ DX[I])
-#    push!(eqs, D(DX[I]) ~ DDX[I])
-#end
+for I = 1:7
+    push!(eqs, D(X[I]) ~ DX[I])
+    push!(eqs, D(DX[I]) ~ DDX[I])
+end
 eqs
 ```
 
@@ -336,48 +336,63 @@ Create the DAE solver:
 simpsys = structural_simplify(sys)
 odaeprob = ODAEProblem(simpsys,[],(0.0,0.1))
 # mmprob = ODEProblem(sys,[],(0.0,0.1))
-# daeprob = DAEProblem(sys,ivs,[],(0.0,0.1))
+daeprob = DAEProblem(sys,ivs,[],(0.0,0.1))
 
-#ref_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
-#@show ref_sol
-ode_ref_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
-@show ode_ref_sol
+probs = Any[nothing, nothing, nothing]
+refs = Any[nothing, nothing, nothing]
+# mm_sol = solve(mmprob,?,abstol=1/10^14,reltol=1/10^14);
+# probs[1] = mmprob
+# refs[1] = mm_sol
+# dae_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
+# probs[2] = daeprob
+# refs[2] = dae_sol
+odae_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
+probs[3] = odaeprob
+refs[3] = odae_sol
 
-probs = [odaeprob]
-refs = [ode_ref_sol];
+nothing
 ```
 
 ```julia
-plot(ode_ref_sol, vars = [ϕ₁,ϕ₂,x₃])
+plot(refs[3], vars = [ϕ₂,x₃])
+```
+```julia
+plot(refs[3], vars = [q₁,q₂])
+```
+```julia
+plot(refs[3], vars = [q₃,q₄])
+```
+```julia
+plot(refs[3], vars = [λ₁,λ₂,λ₃])
 ```
 
 ## High Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4);
-setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
-          #Dict(:prob_choice => 1, :alg=>FBDF()),
-          Dict(:prob_choice => 1, :alg=>QNDF()),
-          Dict(:prob_choice => 1, :alg=>rodas()),
-          Dict(:prob_choice => 1, :alg=>radau()),
-          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-          Dict(:prob_choice => 2, :alg=>DFBDF()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
-]
-
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;
-                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
-plot(wp)
+#abstols = 1.0 ./ 10.0 .^ (5:8)
+#reltols = 1.0 ./ 10.0 .^ (1:4);
+#setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+#          Dict(:prob_choice => 1, :alg=>Rodas4()),
+#          #Dict(:prob_choice => 1, :alg=>FBDF()),
+#          Dict(:prob_choice => 1, :alg=>QNDF()),
+#          Dict(:prob_choice => 1, :alg=>rodas()),
+#          Dict(:prob_choice => 1, :alg=>radau()),
+#          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+#          Dict(:prob_choice => 2, :alg=>DFBDF()),
+#          Dict(:prob_choice => 2, :alg=>IDA()),
+#]
+#
+#wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+#                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+#plot(wp)
 ```
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (2:4);
-setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
+setups = [#Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
           Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
@@ -394,9 +409,9 @@ abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (3:5);
 setups = [Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
-          Dict(:prob_choice => 2, :alg=>DASSL.dassl()),
-          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          #Dict(:prob_choice => 2, :alg=>DASSL.dassl()),
+          #Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
           ]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
                       save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
@@ -406,29 +421,29 @@ plot(wp)
 ### Timeseries Errors
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4);
-setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
-          #Dict(:prob_choice => 1, :alg=>FBDF()), # too slow
-          Dict(:prob_choice => 1, :alg=>QNDF()),
-          Dict(:prob_choice => 1, :alg=>rodas()),
-          Dict(:prob_choice => 1, :alg=>radau()),
-          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-          Dict(:prob_choice => 2, :alg=>DFBDF()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
-          ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
-                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
-plot(wp)
+#abstols = 1.0 ./ 10.0 .^ (5:8)
+#reltols = 1.0 ./ 10.0 .^ (1:4);
+#setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+#          Dict(:prob_choice => 1, :alg=>Rodas4()),
+#          #Dict(:prob_choice => 1, :alg=>FBDF()), # too slow
+#          Dict(:prob_choice => 1, :alg=>QNDF()),
+#          Dict(:prob_choice => 1, :alg=>rodas()),
+#          Dict(:prob_choice => 1, :alg=>radau()),
+#          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+#          Dict(:prob_choice => 2, :alg=>DFBDF()),
+#          Dict(:prob_choice => 2, :alg=>IDA()),
+#          ]
+#wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+#                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+#plot(wp)
 ```
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (2:4);
-setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
+setups = [#Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
           Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
@@ -448,17 +463,17 @@ This is the speed at lower tolerances, measuring what's good when accuracy is ne
 abstols = 1.0 ./ 10.0 .^ (7:12)
 reltols = 1.0 ./ 10.0 .^ (4:9)
 
-setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+setups = [#Dict(:prob_choice => 1, :alg=>Rodas5()),
           Dict(:prob_choice => 3, :alg=>Rodas5()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
           #Dict(:prob_choice => 1, :alg=>FBDF()),
-          Dict(:prob_choice => 1, :alg=>QNDF()),
-          Dict(:prob_choice => 1, :alg=>rodas()),
-          Dict(:prob_choice => 1, :alg=>radau()),
-          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-          Dict(:prob_choice => 2, :alg=>DFBDF()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
+          #Dict(:prob_choice => 1, :alg=>QNDF()),
+          #Dict(:prob_choice => 1, :alg=>rodas()),
+          #Dict(:prob_choice => 1, :alg=>radau()),
+          #Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          #Dict(:prob_choice => 2, :alg=>DFBDF()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
           ]
 
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
@@ -478,13 +493,13 @@ DASKR fails at too low of tolerances, so pull back for a comparison.
 abstols = 1.0 ./ 10.0 .^ (7:9)
 reltols = 1.0 ./ 10.0 .^ (4:6)
 
-setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+setups = [#Dict(:prob_choice => 1, :alg=>Rodas5()),
           Dict(:prob_choice => 3, :alg=>Rodas5()),
-          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
-          Dict(:prob_choice => 2, :alg=>DFBDF()),
-          Dict(:prob_choice => 2, :alg=>IDA()),
-          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          #Dict(:prob_choice => 2, :alg=>DFBDF()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          #Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
           ]
 gr()
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
