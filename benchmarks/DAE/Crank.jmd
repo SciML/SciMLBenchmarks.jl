@@ -8,7 +8,8 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDif
       Plots, DASSL, DASKR
 using LinearAlgebra
 
-# Setup parameter space:
+## Setup parameter space:
+
 @parameters(
     m₁ = 0.36,
     m₂ = 0.151104,
@@ -27,91 +28,158 @@ using LinearAlgebra
     Ω  = 150.,
     )
 
-    FACM = ρ*BB*HH*l₂
-    FACK = EE*BB*HH/l₂
-    FACB = BB*HH*l₂
+FACM = ρ*BB*HH*l₂
+FACK = EE*BB*HH/l₂
+FACB = BB*HH*l₂
 
-    MQ = zeros(Num, 4, 4)
-    MQ[1,1] = FACM*.5
-    MQ[2,2] = FACM*.5
-    MQ[3,3] = FACM*8.0
-    MQ[3,4] = FACM*1.0
-    MQ[4,3] = FACM*1.0
-    MQ[4,4] = FACM*2.0
+MQ = zeros(Num, 4, 4)
+MQ[1,1] = FACM*.5
+MQ[2,2] = FACM*.5
+MQ[3,3] = FACM*8.0
+MQ[3,4] = FACM*1.0
+MQ[4,3] = FACM*1.0
+MQ[4,4] = FACM*2.0
 
-    KQ = zeros(Num, 4, 4)
-    KQ[1,1] = FACK*π^4/24.0*(HH/l₂)^2
-    KQ[2,2] = FACK*π^4*2.0/3.0*(HH/l₂)^2
-    KQ[3,3] = FACK*16.0/3.0
-    KQ[3,4] = -FACK*8.0/3.0
-    KQ[4,3] = -FACK*8.0/3.0
-    KQ[4,4] = FACK*7.0/3.0
+KQ = zeros(Num, 4, 4)
+KQ[1,1] = FACK*π^4/24.0*(HH/l₂)^2
+KQ[2,2] = FACK*π^4*2.0/3.0*(HH/l₂)^2
+KQ[3,3] = FACK*16.0/3.0
+KQ[3,4] = -FACK*8.0/3.0
+KQ[4,3] = -FACK*8.0/3.0
+KQ[4,4] = FACK*7.0/3.0
 
-    BQ = zeros(Num, 4, 4)
-    BQ[1,3] = -FACB*16.0/π^3
-    BQ[1,4] = FACB*(8.0/π^3-1.0/π)
-    BQ[2,4] = FACB*0.5/π
-    BQ[3,1] = FACB*16.0/π^3
-    BQ[4,1] = -FACB*(8.0/π^3-1.0/π)
-    BQ[4,2] = -FACB*0.5/π
+BQ = zeros(Num, 4, 4)
+BQ[1,3] = -FACB*16.0/π^3
+BQ[1,4] = FACB*(8.0/π^3-1.0/π)
+BQ[2,4] = FACB*0.5/π
+BQ[3,1] = FACB*16.0/π^3
+BQ[4,1] = -FACB*(8.0/π^3-1.0/π)
+BQ[4,2] = -FACB*0.5/π
 
-    c1 = zeros(Num, 4)
-    c2 = zeros(Num, 4)
-    c12 = zeros(Num, 4)
-    c21 = zeros(Num, 4)
-    c1[3]  = FACB*2.0/3.0
-    c1[4]  = FACB*1.0/6.0
-    c2[1]  = FACB*2.0/π
-    c12[3] = l₂*FACB*1.0/3.0
-    c12[4] = l₂*FACB*1.0/6.0
-    c21[1] = l₂*FACB*1.0/π
-    c21[2] = -l₂*FACB*0.5/π
+c1 = zeros(Num, 4)
+c2 = zeros(Num, 4)
+c12 = zeros(Num, 4)
+c21 = zeros(Num, 4)
+c1[3]  = FACB*2.0/3.0
+c1[4]  = FACB*1.0/6.0
+c2[1]  = FACB*2.0/π
+c12[3] = l₂*FACB*1.0/3.0
+c12[4] = l₂*FACB*1.0/6.0
+c21[1] = l₂*FACB*1.0/π
+c21[2] = -l₂*FACB*0.5/π
 
-    DQ = zeros(Num, 4, 4)
-    # OPTIONAL DAMPING
-    # DQ[1,1] = 5.0
-    # DQ[2,2] = 25.0
-    # DQ[3,3] = 0.5*2.308375455264791e2
-    # DQ[3,4] = -0.5*2.62688487992052e2
-    # DQ[4,3] = -0.5*2.626884879920526e2
-    # DQ[4,4] = 0.5*4.217421837156818e2
+DQ = zeros(Num, 4, 4)
+# OPTIONAL DAMPING
+# DQ[1,1] = 5.0
+# DQ[2,2] = 25.0
+# DQ[3,3] = 0.5*2.308375455264791e2
+# DQ[3,4] = -0.5*2.62688487992052e2
+# DQ[4,3] = -0.5*2.626884879920526e2
+# DQ[4,4] = 0.5*4.217421837156818e2
 
-# Setup variables:
+## Setup variables and initial conditions:
 
-@variables(
-    t,
-    ϕ₁(t)=0.0,
-    ϕ₂(t)=0.0,
-    x₃(t)=4.500169330000000e-1,
-    q₁(t)=0.0,
-    q₂(t)=0.0,
-    q₃(t)=1.033398630000000e-5,
-    q₄(t)=1.693279690000000e-5,
-    dϕ₁(t)= 1.500000000000000e2,
-    dϕ₂(t)=-7.499576703969453e1,
-    dx₃(t)=-2.689386719979040e-6,
-    dq₁(t)= 4.448961125815990e-1,
-    dq₂(t)= 4.634339319238670e-3,
-    dq₃(t)=-1.785910760000550e-6,
-    dq₄(t)=-2.689386719979040e-6,
-    ddϕ₁(t)= 0.000000000000000e0,
-    ddϕ₂(t)=-1.344541576709835e-3,
-    ddx₃(t)=-5.062194924490193e+3,
-    ddq₁(t)=-6.829725665986310e-5,
-    ddq₂(t)= 1.813207639590617e-20,
-    ddq₃(t)=-4.268463266810281e+0,
-    ddq₄(t)= 2.098339029337557e-1,
-    λ₁(t) = -6.552727150584648e-8,
-    λ₂(t) =  3.824589509350831e+2,
-    λ₃(t) = -4.635908708561371e-9,
-    )
-
-D = Differential(t)
-
+# init
 #     Initial values: 'Close' to smooth motion,
 #     accelerations and multipliers consistent
 #     for linear stiffness term and no damping
 #     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)=0.0,
+#    ϕ₂(t)=0.0,
+#    x₃(t)=4.500169330000000e-1,
+#    q₁(t)=0.0,
+#    q₂(t)=0.0,
+#    q₃(t)=1.033398630000000e-5,
+#    q₄(t)=1.693279690000000e-5,
+#    dϕ₁(t)= 1.500000000000000e2,
+#    dϕ₂(t)=-7.499576703969453e1,
+#    dx₃(t)=-2.689386719979040e-6,
+#    dq₁(t)= 4.448961125815990e-1,
+#    dq₂(t)= 4.634339319238670e-3,
+#    dq₃(t)=-1.785910760000550e-6,
+#    dq₄(t)=-2.689386719979040e-6,
+#    ddϕ₁(t)= 0.000000000000000e0,
+#    ddϕ₂(t)=-1.344541576709835e-3,
+#    ddx₃(t)=-5.062194924490193e+3,
+#    ddq₁(t)=-6.829725665986310e-5,
+#    ddq₂(t)= 1.813207639590617e-20,
+#    ddq₃(t)=-4.268463266810281e+0,
+#    ddq₄(t)= 2.098339029337557e-1,
+#    λ₁(t) = -6.552727150584648e-8,
+#    λ₂(t) =  3.824589509350831e+2,
+#    λ₃(t) = -4.635908708561371e-9,
+#    )
+
+
+# init1
+#     Initial values: 'Close' to smooth motion,
+#     accelerations and multipliers consistent
+#     for linear stiffness term and no damping
+#     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)   = 0.0,
+#    ϕ₂(t)   = 0.0,
+#    x₃(t)   = .450016933,
+#    q₁(t)   = 0.0,
+#    q₂(t)   = 0.0,
+#    q₃(t)   =  .103339863e-4,
+#    q₄(t)   =  .169327969e-4,
+#    dϕ₁(t)  =  .150000000e+3,
+#    dϕ₂(t)  = -.749957670e+2,
+#    dx₃(t)  = -.268938672e-5,
+#    dq₁(t)  =  .444896105e0,
+#    dq₂(t)  =  .463434311e-2,
+#    dq₃(t)  = -.178591076e-5,
+#    dq₄(t)  = -.268938672e-5,
+#    ddϕ₁(t) = 0.0,
+#    ddϕ₂(t) = -1.344541576008661e-3,
+#    ddx₃(t) = -5.062194923138079e+3,
+#    ddq₁(t) = -6.833142732779555e-5,
+#    ddq₂(t) =  1.449382650173157e-8,
+#    ddq₃(t) = -4.268463211410861e+0,
+#    ddq₄(t) =  2.098334687947376e-1,
+#    λ₁(t)   = -6.397251492537153e-8,
+#    λ₂(t)   =  3.824589508329281e+2,
+#    λ₃(t)   = -4.376060460948886e-9,
+#    )
+
+# init2
+#     Initial values: On rigid motion trajectory,
+#     leading to strong oscillations.
+#     accelerations and multipliers consistent
+#     for linear stiffness term and no damping
+#     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)   = 0.0,
+#    ϕ₂(t)   = 0.0,
+#    x₃(t)   = .4500e0,
+#    q₁(t)   = 0.0,
+#    q₂(t)   = 0.0,
+#    q₃(t)   = 0.0,
+#    q₄(t)   = 0.0,
+#    dϕ₁(t)  =  .150e+3,
+#    dϕ₂(t)  = -.750e+2,
+#    dx₃(t)  = 0.0,
+#    dq₁(t)  = 0.0,
+#    dq₂(t)  = 0.0,
+#    dq₃(t)  = 0.0,
+#    dq₄(t)  = 0.0,
+#    ddϕ₁(t) = 0.0,
+#    ddϕ₂(t) = 0.0,
+#    ddx₃(t) = -3.789473684210526e+3,
+#    ddq₁(t) = 0.0,
+#    ddq₂(t) = 0.0,
+#    ddq₃(t) = 1.924342105263158e+2,
+#    ddq₄(t) = 1.273026315789474e+3,
+#    λ₁(t)   = 0.0,
+#    λ₂(t)   = 2.863023157894737e+2,
+#    λ₃(t)   = 0.0,
+#    )
+
 
 # Define problem equations:
 
@@ -122,6 +190,7 @@ sinp2  = sin(ϕ₂)
 cosp12 = cos(ϕ₁-ϕ₂)
 sinp12 = sin(ϕ₁-ϕ₂)
 
+D = Differential(t)
 P = [ϕ₁, ϕ₂, x₃]
 Q = [q₁, q₂, q₃, q₄]
 X = [P..., Q...]
@@ -135,21 +204,21 @@ DDX = [ddϕ₁, ddϕ₂, ddx₃, ddq₁, ddq₂, ddq₃, ddq₄]
 
 ivs = [
      # Initial values velocity variables
-     D(ϕ₁) =>  1.500000000000000e2,
-     D(ϕ₂) => -7.499576703969453e1,
-     D(x₃) => -2.689386719979040e-6,
-     D(q₁) =>  4.448961125815990e-1,
-     D(q₂) =>  4.634339319238670e-3,
-     D(q₃) => -1.785910760000550e-6,
-     D(q₄) => -2.689386719979040e-6,
+     D(ϕ₁) => Symbolics.getdefaultval(dϕ₁),
+     D(ϕ₂) => Symbolics.getdefaultval(dϕ₂),
+     D(x₃) => Symbolics.getdefaultval(dx₃),
+     D(q₁) => Symbolics.getdefaultval(q₁),
+     D(q₂) => Symbolics.getdefaultval(q₂),
+     D(q₃) => Symbolics.getdefaultval(q₃),
+     D(q₄) => Symbolics.getdefaultval(q₄),
      # Initial values acceleration variables
-     D(DX[1]) =>  0.000000000000000e0,
-     D(DX[2]) => -1.344541576709835e-3,
-     D(DX[3]) => -5.062194924490193e+3,
-     D(DX[4]) => -6.829725665986310e-5,
-     D(DX[5]) =>  1.813207639590617e-20,
-     D(DX[6]) => -4.268463266810281e+0,
-     D(DX[7]) =>  2.098339029337557e-1,
+     D(DX[1]) => Symbolics.getdefaultval(ddϕ₁),
+     D(DX[2]) => Symbolics.getdefaultval(ddϕ₂),
+     D(DX[3]) => Symbolics.getdefaultval(ddx₃),
+     D(DX[4]) => Symbolics.getdefaultval(dq₁),
+     D(DX[5]) => Symbolics.getdefaultval(dq₂),
+     D(DX[6]) => Symbolics.getdefaultval(dq₃),
+     D(DX[7]) => Symbolics.getdefaultval(dq₄),
      D(λ₁) => 0.0,
      D(λ₂) => 0.0,
      D(λ₃) => 0.0,
