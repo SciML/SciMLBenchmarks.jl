@@ -137,10 +137,12 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
+
         # pde_loss = sum(map(l_->l_(p) ,pde_loss_functions))
         # bc_loss= sum(map(l_->l_(p) ,bc_loss_functions))
         loss_ = loss_function_(p,nothing)
         append!(error, loss_)
+
         #println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
@@ -169,8 +171,10 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
     return [error, params, domain, times, losses]
 end
 
+
 # maxIters = [(1,1,1,1,1,20000,20000),(300,300,300,300,300,300,300)] #iters for ADAM/LBFGS
 maxIters = [(10,10,10,10,10,10,10),(10,10,10,10,10,10,10)]
+
 
 strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-4, maxiters = 100),
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1, abstol = 1e-4, maxiters = 100, batch = 0),
