@@ -85,7 +85,7 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     chain = FastChain(FastDense(4,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy)
+    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy; init_params =initθ)
 
     indvars = [t,x,y,z]   #independent variables
     depvars = [c(t,x,y,z)]       #dependent (target) variable
@@ -124,7 +124,7 @@ function nernst_planck(strategy, minimizer, maxIters)
                                           parameterless_type_θ,error_strategy)]
 
     bc_loss_function = [NeuralPDE.get_loss_function(bc,
-                                          train_domain_set[1],eltypeθ,
+                                          train_set,eltypeθ,
                                           parameterless_type_θ,error_strategy) for (train_set,bc) in zip(train_bound_set, _bc_loss_functions)]
     loss_functions =  [pde_loss_functions;bc_loss_functions]
     function loss_function_(θ,p)
@@ -137,9 +137,10 @@ function nernst_planck(strategy, minimizer, maxIters)
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
-        pde_loss = sum(map(l_->l_(p) ,pde_loss_functions))
-        bc_loss= sum(map(l_->l_(p) ,bc_loss_functions))
-        append!(error, pde_loss + bc_loss)
+        # pde_loss = sum(map(l_->l_(p) ,pde_loss_functions))
+        # bc_loss= sum(map(l_->l_(p) ,bc_loss_functions))
+        loss_ = loss_function_(p,nothing)
+        append!(error, loss_)
         #println(length(losses), " Current loss is: ", l, " uniform error is, ",  pde_loss_function(p) + bc_loss_function(p))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
@@ -171,7 +172,8 @@ function nernst_planck(strategy, minimizer, maxIters)
     return [error, params, domain, times]
 end
 
-maxIters = [(2000,2000,2000,2000,1000,4000,5000),(2000,2000,2000,2000,800,4000,5000)] #iters for ADAM/LBFGS
+# maxIters = [(2000,2000,2000,2000,1000,4000,5000),(2000,2000,2000,2000,800,4000,5000)] #iters for ADAM/LBFGS
+maxIters = [(10,10,10,10,10,10,10),(10,10,10,10,10,10,10)] #iters for ADAM/LBFGS
 
 strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1e-4, abstol = 1e-4, maxiters = 50),
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1e-4, abstol = 1e-4, maxiters = 50, batch = 0),
