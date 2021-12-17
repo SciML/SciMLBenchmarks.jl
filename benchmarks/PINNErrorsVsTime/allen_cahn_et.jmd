@@ -154,8 +154,8 @@ function allen_cahn(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
-    prob = NeuralPDE.discretize(pde_system,discretization; init_params =initθ)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy; init_params =initθ)
+    prob = NeuralPDE.discretize(pde_system,discretization)
 
     timeCounter = 0.0
     startTime = time_ns() #Fix initial time (t=0) before starting the training
@@ -175,8 +175,8 @@ end
 ```
 
 ```julia
-# maxIters = [(1,1,1,1,1,1,20000),(300,300,300,300,300,300,300)] #iters for ADAM/LBFGS
-maxIters = [(10,10,10,10,10,10,10),(10,10,10,10,10,10,10)] #iters for ADAM/LBFGS
+maxIters = [(1,1,1,1,1,1,1000),(1,1,1,300,300,300,300)] #iters for ADAM/LBFGS
+
 strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-4, maxiters = 100),
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1, abstol = 1e-4, maxiters = 100, batch = 0),
               NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLh(), reltol = 1, abstol = 1e-4, maxiters = 100),
@@ -225,7 +225,7 @@ end
 ## Results
 
 ```julia
-print("\n Plotting error vs iters")
+print("\n Plotting error vs times")
 #Plotting the first strategy with the first minimizer out from the loop to initialize the canvas
 current_label = string(strategies_short_name[1], " + " , minimizers_short_name[1])
 error = Plots.plot(times["11"], error_res["11"], yaxis=:log10, title = string("Level Set"), ylabel = "log(error)", label = current_label, xlims = (0,10))#legend = true)#, size=(1200,700))

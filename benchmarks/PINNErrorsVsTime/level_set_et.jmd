@@ -146,8 +146,8 @@ function level_set(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
-    prob = NeuralPDE.discretize(pde_system,discretization; init_params =initθ)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy; init_params =initθ)
+    prob = NeuralPDE.discretize(pde_system,discretization)
 
     timeCounter = 0.0
     startTime = time_ns() #Fix initial time (t=0) before starting the training
@@ -167,8 +167,7 @@ end
 
 #level_set(NeuralPDE.QuadratureTraining(algorithm = CubaCuhre(), reltol = 1e-8, abstol = 1e-8, maxiters = 100), ADAM(0.01), 500)
 
-# maxIters = [(20000,20000,20000,20000,20000,20000,20000),(20000,20000,20000,20000,20000,20000,20000)] #iters for ADAM/LBFGS
-maxIters = [(10,10,10,10,10,10,10),(10,10,10,10,10,10,10)] #iters for ADAM/LBFGS
+maxIters = [(1,1,1,1000,1000,1000,1000),(1,1,1,500,500,500,500)] #iters for ADAM/LBFGS
 
 strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1, abstol = 1e-4, maxiters = 100),
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1, abstol = 1e-4, maxiters = 100, batch = 0),
