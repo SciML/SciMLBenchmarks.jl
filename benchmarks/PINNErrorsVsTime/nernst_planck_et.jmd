@@ -85,8 +85,6 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     chain = FastChain(FastDense(4,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy; init_params =initθ)
-
     indvars = [t,x,y,z]   #independent variables
     depvars = [c(t,x,y,z)]       #dependent (target) variable
 
@@ -96,7 +94,7 @@ function nernst_planck(strategy, minimizer, maxIters)
     error = []
     times = []
 
-    dx_err = 0.1
+    dx_err = 0.2
 
     error_strategy = GridTraining(dx_err)
 
@@ -150,7 +148,7 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy; init_params =initθ)
     prob = NeuralPDE.discretize(pde_system,discretization)
 
     timeCounter = 0.0
@@ -178,9 +176,9 @@ strategies = [NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol 
               NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1e-4, abstol = 1e-4, maxiters = 50, batch = 0),
               NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLh(), reltol = 1e-4, abstol = 1e-4, maxiters = 50),
               NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLp(), reltol = 1e-4, abstol = 1e-4, maxiters = 50),
-              NeuralPDE.GridTraining(0.09),
-              NeuralPDE.StochasticTraining(100),
-              NeuralPDE.QuasiRandomTraining(100; minibatch = 100)]
+              NeuralPDE.GridTraining(0.2),
+              NeuralPDE.StochasticTraining(400 ; bcs_points= 50),
+              NeuralPDE.QuasiRandomTraining(400 ; bcs_points= 50)]
 
 strategies_short_name = ["CubaCuhre",
                         "HCubatureJL",
