@@ -5,7 +5,8 @@
 SciMLBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
 for the SciML Scientific Machine Learning Software ecosystem, including cross-language
 benchmarks of differential equation solvers and methods for parameter estimation,
-training universal differential equations (and subsets like neural ODEs), and more.
+training universal differential equations (and subsets like neural ODEs), tests
+of physics-informed neural networks (PINNs), and more.
 
 ## Results
 Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
