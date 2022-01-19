@@ -255,7 +255,7 @@ SciMLBenchmarks.weave_all()
 Each of the benchmarks displays the computer characteristics at the bottom of
 the benchmark. Since performance-necessary computations are normally performed on
 compute clusters, the official benchmarks use a workstation with an
-Intel Xeon CPU E5-2680 v4 @ 2.40GHz to match the performance characteristics of
+AMD EPYC 7502 32-Core Processor @ 2.50GHz to match the performance characteristics of
 a standard node in a high performance computing (HPC) cluster or cloud computing
 setup.
 
