@@ -1,16 +1,21 @@
 #!/bin/bash
 
 # Ensure that our git wants to talk to github without prompting
+mkdir -p ~/.ssh
 ssh-keyscan github.com >> ~/.ssh/known_hosts
+git config --global user.email "buildkite@julialang.org"
+git config --global user.name "SciML Benchmarks CI"
 
 # Clone SciMLBenchmarksOutput to temporary directory
 temp_dir=$(mktemp -d)
 git -C "${temp_dir}" clone git@github.com:SciML/SciMLBenchmarksOutput .
 
 # Copy our output artifacts into it:
-for d in html markdown notebook pdf script; do
+for d in docs html notebook pdf script; do
     cp -vRa "${d}/" "${temp_dir}"
 done
+cp -vRa "markdown/" "${temp_dir}/docs/src"
+cp -vRa "README.md" "${temp_dir}/docs/src"
 
 # Commit the result up to output
 set -e

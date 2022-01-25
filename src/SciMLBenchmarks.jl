@@ -4,7 +4,7 @@ using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
 repo_directory = joinpath(@__DIR__,"..")
 
-function weave_file(folder,file,build_list=(:script,:html,:pdf,:github,:notebook))
+function weave_file(folder,file,build_list=(:script,:html,:github))
   target = joinpath(folder, file)
   @info("Weaving $(target)")
 
@@ -126,4 +126,4 @@ function open_notebooks()
   IJulia.notebook(;dir=path)
 end
 
-end
+end # module SciMLBenchmarks

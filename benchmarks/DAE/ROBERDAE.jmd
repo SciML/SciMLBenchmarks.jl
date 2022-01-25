@@ -1,0 +1,184 @@
+---
+title: ROBER Differential-Algebraic Equation (DAE) Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
+      Plots, DASSL, DASKR
+using LinearAlgebra
+
+@variables t y₁(t)=1.0 y₂(t)=0.0 y₃(t)=0.0
+@parameters k₁=0.04 k₂=3e7 k₃=1e4
+D = Differential(t)
+eqs = [
+  D(y₁) ~ -k₁*y₁ + k₃*y₂*y₃
+  D(y₂) ~  k₁*y₁ - k₃*y₂*y₃ - k₂*y₂^2
+  0 ~  y₁ + y₂ + y₃ - 1
+]
+@named sys = ODESystem(eqs)
+simpsys = structural_simplify(sys)
+mmprob = ODEProblem(sys,[],(0.0,1e5))
+daeprob = DAEProblem(sys,[D(y₁)=>-0.04,
+                              D(y₂)=>0.04,
+                              D(y₃)=>0.0],[],(0.0,1e5))
+odaeprob = ODAEProblem(simpsys,[],(0.0,1e5))
+
+ref_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
+ode_ref_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
+
+probs = [mmprob,daeprob,odaeprob]
+refs = [ref_sol,ref_sol,ode_ref_sol];
+```
+
+```julia
+plot(ode_ref_sol, vars = [y₁,y₂,y₃])
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()),
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+]
+
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (3:5);
+setups = [Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 2, :alg=>DASSL.dassl()),
+          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()), # too slow
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()),
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          ]
+
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+DASKR fails at too low of tolerances, so pull back for a comparison.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:9)
+reltols = 1.0 ./ 10.0 .^ (4:6)
+
+setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+gr()
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
