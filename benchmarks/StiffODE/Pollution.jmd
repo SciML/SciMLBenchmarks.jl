@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots, ODE, ODEInterfaceDiffEq, LSODA, LinearSolve
-using ProfileSVG, BenchmarkTools
+using ProfileSVG, BenchmarkTools, Profile
 gr() # gr(fmt=:png)
 using LinearAlgebra
 
@@ -346,15 +346,12 @@ plot(wp)
 ```
 
 ```julia
-@profview solve(prob,ImplicitEulerBarycentricExtrapolation(),abstol = abstols[1], reltol = reltols[1])
+solve(prob,ImplicitEulerBarycentricExtrapolation(),save_everystep = false,abstol = abstols[1], reltol = reltols[1])
 ```
 
 ```julia
-@profview solve(prob,ImplicitEulerBarycentricExtrapolation(),save_everystep = false, abstol = abstols[1], reltol = reltols[1])
-```
-
-```julia
-@benchmark solve(prob,ImplicitEulerBarycentricExtrapolation(),abstol = abstols[1], reltol = reltols[1])
+@profile for i in 1:1000 solve(prob,ImplicitEulerBarycentricExtrapolation(),save_everystep = false, abstol = abstols[1], reltol = reltols[1]) end
+ProfileSVG.view(maxdepth=100 yflip=true)
 ```
 
 ```julia
