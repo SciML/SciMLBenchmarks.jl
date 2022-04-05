@@ -17,6 +17,7 @@ learned_solvers = Dict()
 
 for solver in (TRBDF2, KenCarp4, Kvaerno3)
     # Run for precompilation
+    # One Model to learn them all
     NeuralStiffODESolver(
         prob=prob,
         solver=nlsolve -> solver(; nlsolve=nlsolve),
@@ -34,6 +35,28 @@ for solver in (TRBDF2, KenCarp4, Kvaerno3)
         abstol=1f-1,
         reltol=1f-1,
         nepochs=5000,
+    )
+
+    # Run for precompilation
+    # Multiple Models to learn each
+    NeuralStiffODESolver(
+        prob=prob,
+        solver=nlsolve -> solver(; nlsolve=nlsolve),
+        kind=:mlp,
+        error_threshold=1f-3,
+        track_time=true,
+        nepochs=10,
+    )
+    learned_solvers["Learned " * string(solver) * " (Staged)"] = NeuralStiffODESolver(
+        prob=prob,
+        solver=nlsolve -> solver(; nlsolve=nlsolve),
+        kind=:mlp,
+        error_threshold=1f-3,
+        track_time=true,
+        abstol=1f-1,
+        reltol=1f-1,
+        nepochs=5000,
+        staged=true
     )
 end
 
