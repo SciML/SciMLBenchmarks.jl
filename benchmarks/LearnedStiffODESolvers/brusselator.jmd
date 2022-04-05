@@ -1,0 +1,81 @@
+---
+title: LearnedStiffODESolvers: Brusselator
+author: Avik Pal
+---
+
+```julia
+using LearnedDiffEqSolvers, Flux, OrdinaryDiffEq, Plots, Random, Serialization, Dates
+
+prob = TestProblems.brusselator2d(N=32, time_end=11.5f0, T=Float32)
+
+# Reference Solution
+sol = solve(prob, Rodas5(); abstol=10^-6, reltol=10^-6)
+test_sol = sol
+
+# Trained Solvers
+learned_solvers = Dict()
+
+for solver in (TRBDF2, KenCarp4, Kvaerno3)
+    # Run for precompilation
+    NeuralStiffODESolver(
+        prob=prob,
+        solver=nlsolve -> solver(; nlsolve=nlsolve),
+        kind=:mlp,
+        error_threshold=1f-3,
+        track_time=true,
+        nepochs=10,
+    )
+    learned_solvers["Learned " * string(solver)] = NeuralStiffODESolver(
+        prob=prob,
+        solver=nlsolve -> solver(; nlsolve=nlsolve),
+        kind=:mlp,
+        error_threshold=1f-3,
+        track_time=true,
+        abstol=1f-1,
+        reltol=1f-1,
+        nepochs=5000,
+    )
+end
+
+# Benchmarking
+abstols = 1.0 ./ 10.0f0 .^ (5:10);
+reltols = 1.0 ./ 10.0f0 .^ (1:6);
+
+setups = [
+    Dict(:alg => TRBDF2()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Kvaerno3()),
+];
+
+names = ["TRBDF2", "KenCarp4", "Kvaerno3"]
+
+for (name, solver) in pairs(learned_solvers)
+    push!(setups, Dict(:alg => solver[1]))
+    push!(names, name)
+end
+
+@info names
+
+sb = SolverBenchmarkSet(
+    prob,
+    abstols,
+    reltols,
+    setups,
+    names;
+    appxsol=test_sol,
+    maxiters=Int(1e5),
+    error_estimate=:l2,
+    seconds=5,
+    numruns=5,
+)
+
+serialize("brusselator_sbs.jls", sb)
+serialize("brusselator_trained_solvers.jls", learned_solvers)
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
