@@ -5,6 +5,7 @@ author: HAO HAO
 
 ```julia
 using ApproxFun, OrdinaryDiffEq, Sundials
+using ModelingToolkit, MethodOfLines, DomainSets
 using DiffEqDevTools
 using LinearAlgebra
 using Plots; gr()
@@ -48,17 +49,76 @@ function burgers(N, ϵ)
 end;
 ```
 
-Reference solution using Vern9 is below:
+Here is the Burgers equation using MethodOfLines.jl
 
 ```julia
+# Construct the problem
+function burgers_mol(N, ϵ)
+    dx = 1 / (N + 1)
+
+    @parameters x t
+    @variables u(..)
+    Dt = Differential(t)
+    Dx = Differential(x)
+    Dxx = Differential(x)^2
+    
+    μ0 = 0.3; σ0 = 0.05
+
+    x_max = dx*N
+    t_max = 1.0
+    
+    xs = dx:dx:x_max
+
+    eq = Dt(u(x, t)) ~ ϵ * Dxx(u(x, t)) - u(x, t) * Dx(u(x, t))
+
+    bcs = [u(x,0.0) ~ exp(-(x - μ0)^2 / (2 * σ0^2)),
+           u(dx,t) ~ 0,
+           d(dx*N,t) ~ 0]
+
+    domains = [x ∈ IntervalDomain(dx, x_max),
+               t ∈ IntervalDomain(0.0, t_max)]
+
+    discretization = MOLFiniteDifference([x=>dx], t)
+
+    indvars = [x, t]   #physically independent variables
+    depvars = [u(x, t)]  
+
+    @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
+
+    prob = MethodOfLines.discretize(pde_system, discretization)
+
+    xs, prob
+end;
+```
+
+Reference solution using Vern9 is below, including timing of discretization with MethodOfLines.jl:
+
+```julia
+# Solve with FD
 xs, prob = burgers(512, 1e-3)
 sol = solve(prob, Vern9(); abstol=1e-14, reltol=1e-14)
 test_sol = TestSolution(sol);
 
+# Time discretization with MethodOfLines
+println("Discretization time wih MethodOfLines.jl:")
+@time xs, prob_mol = burgers_mol(512, 1e-3)
+
+# Solve with MOL
+sol_mol = solve(prob, Vern9(); abstol=1e-14, reltol=1e-14)
+test_sol_mol = TestSolution(sol_mol);
+
 tslices = [0.0 0.25 0.50 0.75 1.00]
+labels = ["t = $t" for t in tslices
+
+# Plot FD
 ys = hcat((sol(t) for t in tslices)...)
-labels = ["t = $t" for t in tslices]
-plot(xs, ys, label=labels)
+p1 = plot(xs, ys, label=labels, title="FD Reference")
+
+# Plot MOL
+ys = hcat((sol_mol(t) for t in tslices)...)
+p2 = plot(xs, ys, label=labels, title="MOL Reference")
+
+plot(p1, p2)
 ```
 
 ## High tolerances
@@ -76,12 +136,24 @@ setups = [Dict(:alg => IMEXEuler(), :dts => 1e-3 * multipliers),
           Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
           Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, low order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="IMEX methods, dense linsolve, low order")
 ```
 
 1.IMEX methods (Krylov linear solver)
@@ -95,12 +167,24 @@ setups = [Dict(:alg => IMEXEuler(linsolve=LinSolveGMRES()), :dts => 1e-3 * multi
           Dict(:alg => CNLF2(linsolve=LinSolveGMRES()), :dts => 1e-4 * multipliers),
           Dict(:alg => SBDF2(linsolve=LinSolveGMRES()), :dts => 1e-3 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, Krylov linsolve, low order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="IMEX methods, Krylov linsolve, low order")
 ```
 
 2. ExpRK methods
@@ -117,12 +201,25 @@ setups = [Dict(:alg => NorsettEuler(), :dts => 1e-3 * multipliers),
           #Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-2 * multipliers) matrix contains Inf or NaN
 labels = hcat("NorsettEuler (caching)", "NorsettEuler (m=5)", "NorsettEuler (m=20)",
               "ETDRK2 (caching)")#, "ETDRK2 (m=5)"), "ETDRK2 (m=20)")
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="ExpRK methods, low order")
+
 ```
 
 ## Between family comparisons
@@ -135,12 +232,24 @@ setups = [Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
           Dict(:alg => CNAB2(linsolve=LinSolveGMRES()), :dts => 1e-4 * multipliers),
           Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers)]
 labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="Between family, low orders")
 ```
 
 ## Low tolerances
@@ -159,12 +268,24 @@ setups = [Dict(:alg => KenCarp3()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Dense)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense))]
 labels = hcat("KenCarp3", "KenCarp4", "KenCarp5", "ARKODE3", "ARKODE4", "ARKODE5")
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, medium order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="IMEX methods, dense linsolve, medium order")
 ```
 
 1.IMEX methods (Krylov linear solver)
@@ -179,12 +300,24 @@ setups = [Dict(:alg => KenCarp3(linsolve=LinSolveGMRES())),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES))]
 labels = ["KenCarp3" "KenCarp4" "KenCarp5" "ARKODE3" "ARKODE4" "ARKODE5"]
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, medium order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="IMEX methods, medium order")
 ```
 
 2.ExpRK methods
@@ -201,12 +334,24 @@ setups = [Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
           Dict(:alg => HochOst4(krylov=true, m=5), :dts => 1e-2 * multipliers)]
 labels = hcat("ETDRK3 (caching)", "ETDRK3 (m=5)", "ETDRK4 (caching)",
               "ETDRK4 (m=5)", "HochOst4 (caching)", "HochOst4 (m=5)")
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
                             save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, medium order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="ExpRK methods, medium order")
 ```
 
 ## Between family comparisons
@@ -224,12 +369,24 @@ setups = [Dict(:alg => KenCarp4()),
           Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers)]
 labels = hcat("KenCarp4 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp4 (Krylov linsolve)",
               "ARKODE (Krylov linsolve)", "ETDRK3 (m=5)", "ETDRK4 (m=5)")
+
+println("Time with FD:")
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
                             numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));#162s
+                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, medium order")
+p1 = plot(wp, label=labels, markershape=:auto, title="FD")
+
+println("Time with MOL:")
+@time wp = WorkPrecisionSet(prob_mol,abstols,reltols,setups;
+                            print_names=true, names=labels,
+                            numruns=5, error_estimate=:l2,
+                            save_everystep=false, appxsol=test_sol_mol, maxiters=Int(1e5));
+
+p2 = plot(wp, label=labels, markershape=:auto, title="MOL")
+
+plot(p1, p2, title="Between family, medium order")
 ```
 
 ```julia, echo = false
