@@ -1,5 +1,9 @@
 using Documenter, SciMLBenchmarksOutput
 
+pkgdir(SciMLBenchmarksOutput)
+cp(joinpath(mod, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
+cp(joinpath(mod, "markdown"), joinpath(dir, "docs", "src"), force=true)
+
 makedocs(
     sitename="The SciML Benchmarks: Differential Equations, Inverse Problems, Physics-Informed ML, Science-Guided AI",
     authors="Chris Rackauckas",

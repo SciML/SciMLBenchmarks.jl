@@ -14,8 +14,6 @@ git -C "${temp_dir}" clone git@github.com:SciML/SciMLBenchmarksOutput .
 for d in docs html notebook pdf script; do
     cp -vRa "${d}/" "${temp_dir}"
 done
-cp -vRa "markdown/" "${temp_dir}/docs/src"
-cp -vRa "README.md" "${temp_dir}/docs/src"
 
 # Commit the result up to output
 set -e
