@@ -17,8 +17,8 @@ steps:
       - JuliaCI/julia#v1:
           version: 1.7
       - staticfloat/sandbox:
-          rootfs_url: "https://jc-rootfs-images.s3.amazonaws.com/aws_uploader-2021-11-12.x86_64.tar.gz"
-          rootfs_treehash: "986217e5b36efd3b3b91ed90df8e36d628cf543f"
+          rootfs_url: "https://github.com/JuliaCI/rootfs-images/releases/download/v5.30/aws_uploader.x86_64.tar.gz"
+          rootfs_treehash: "de4e6b2826fe8a860b77df1b49398b72c1152dcb"
           workspaces:
             # Include the julia we just downloaded
             - "/cache/julia-buildkite-plugin:/cache/julia-buildkite-plugin"
@@ -50,14 +50,15 @@ steps:
         OLDWD=`pwd`
         cd ~
         pwd
-        curl -LOv https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
-        tar -xzpf cmdstan-2.29.2.tar.gz
+        curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
+        tar -xzpf cmdstan-2.29.2.tar.gz --no-same-owner
         ls -lia .
         ls -lia ./cmdstan-2.29.2
         ls -lia ./cmdstan-2.29.2/make
         touch ./cmdstan-2.29.2/make/local
         echo "STAN_THREADS=true" > ./cmdstan-2.29.2/make/local
-        make -C $JULIA_CMDSTAN_HOME build
+        cd cmdstan-2.29.2
+        make build
         cd $OLDWD
       fi
 
