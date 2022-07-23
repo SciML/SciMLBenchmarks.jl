@@ -278,15 +278,37 @@ print(Threads.nthreads())
 ```julia
 #Setting BLAS to one thread to measure gains
 LinearAlgebra.BLAS.set_num_threads(1)
-setups = [Dict(:alg=>ImplicitHairerWannerExtrapolation()),
-		      Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = true)),
-          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
-          ]
 
-names = ["unthreaded","threaded","Polyester"];
+abstols = 1.0 ./ 10.0 .^ (10:12)
+reltols = 1.0 ./ 10.0 .^ (7:9)
+
+setups = [
+            Dict(:alg=>CVODE_BDF()),
+            Dict(:alg=>KenCarp4()),
+            Dict(:alg=>Rodas4()),
+            Dict(:alg=>QNDF()),
+            #Dict(:alg=>Rodas5()),
+            Dict(:alg=>lsoda()),
+            Dict(:alg=>radau()),
+            Dict(:alg=>seulex()),
+            Dict(:alg=>ImplicitEulerExtrapolation(init_order = 4,threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(init_order = 4,threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(init_order = 4, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(init_order = 4, threading = false)),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5,threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5,threading = false)),
+            ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+            "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                      names = names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
-plot(wp)
+                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+
+plot(wp, title = "Implicit Methods: OREGO",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
 ```
 
 ### Conclusion
