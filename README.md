@@ -53,6 +53,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Hires Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Pollution.html)
   - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
+  - [Bidkhori 2012 SBML Model (109 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/Bidkhori2012.html)
 - Differential-Algebraic Equations (DAEs)
   - [ROBER DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ROBERDAE.html)
   - [OREGO DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/OregoDAE.html)
