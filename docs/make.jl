@@ -1,8 +1,8 @@
 using Documenter, SciMLBenchmarksOutput
 
-pkgdir(SciMLBenchmarksOutput)
-cp(joinpath(mod, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
-cp(joinpath(mod, "markdown"), joinpath(dir, "docs", "src"), force=true)
+dir = pkgdir(SciMLBenchmarksOutput)
+cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
+cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
 
 makedocs(
     sitename="The SciML Benchmarks: Differential Equations, Inverse Problems, Physics-Informed ML, Science-Guided AI",
@@ -13,7 +13,7 @@ makedocs(
                              assets = ["assets/favicon.ico"],
                              canonical="https://benchmarks.sciml.ai/stable/"),
     pages=[
-        "Home" => "README.md",
+        "Home" => "index.md",
         "Non-Stiff Ordinary Differential Equation (ODE) Solver Benchmarks" => Any[
             "markdown/MultiLanguage/wrapper_packages.md"
         ],
