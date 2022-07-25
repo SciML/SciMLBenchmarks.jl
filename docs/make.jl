@@ -1,6 +1,10 @@
 using Documenter, SciMLBenchmarksOutput
 
-dir = pkgdir(SciMLBenchmarksOutput)
+dir = @__DIR__() * "/.."
+
+@show dir
+@show readdir(dir)
+
 cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
 cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
 benchmarksdir = joinpath(dir, "docs", "src")
