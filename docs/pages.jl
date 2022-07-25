@@ -11,6 +11,7 @@ for folder in readdir(benchmarksdir)
 
                 # Cut out the first 5 lines from the file to remove the Weave header stuff
                 open(joinpath(benchmarksdir, folder, file), "w") do output
+                    println(output, "# $title")
                     for line in Iterators.drop(filecontents, 4)
                         println(output, line)
                     end
