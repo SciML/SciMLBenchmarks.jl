@@ -12,9 +12,8 @@ science-guided AI techniques.
 ## Setup
 
 ```julia
-using NeuralPDE, Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-using Quadrature,Cubature,Cuba
-using Plots
+using NeuralPDE, OptimizationFlux, ModelingToolkit, Optimization, OptimizationOptimJL
+using Lux, Plots
 ```
 
 ```julia
@@ -35,7 +34,7 @@ function solve(opt)
     domains = [x ∈ IntervalDomain(-1.0,1.0),
                t ∈ IntervalDomain(0.0,1.0)]
 
-    chain = FastChain(FastDense(2,18,Flux.σ),FastDense(18,18,Flux.σ),FastDense(18,1))
+    chain = Lux.Chain(Lux.Dense(2,18,Lux.σ),Lux.Dense(18,18,Lux.σ),Lux.Dense(18,1))
 
     discretization = PhysicsInformedNN(chain,strategy)
 
@@ -61,11 +60,11 @@ function solve(opt)
     prob = discretize(pde_system, discretization)
 
     if opt == "both"
-        res = GalacticOptim.solve(prob, ADAM(); cb = cb, maxiters=50)
+        res = Optimization.solve(prob, ADAM(); cb = cb, maxiters=50)
         prob = remake(prob,u0=res.minimizer)
-        res = GalacticOptim.solve(prob, BFGS(); cb = cb, maxiters=150)
+        res = Optimization.solve(prob, BFGS(); cb = cb, maxiters=150)
     else
-        res = GalacticOptim.solve(prob, opt; cb = cb, maxiters=200)
+        res = Optimization.solve(prob, opt; cb = cb, maxiters=200)
     end
 
     times[1] = 0.001
@@ -81,8 +80,8 @@ opt3 = ADAM(0.05)
 opt4 = RMSProp()
 opt5 = RMSProp(0.005)
 opt6 = RMSProp(0.05)
-opt7 = Optim.BFGS()
-opt8 = Optim.LBFGS()
+opt7 = OptimizationOptimJL.BFGS()
+opt8 = OptimizationOptimJL.LBFGS()
 ```
 
 ## Solve

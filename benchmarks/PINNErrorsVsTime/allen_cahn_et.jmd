@@ -13,9 +13,9 @@ science-guided AI techniques.
 
 ```julia
 using NeuralPDE
-using Quadrature, Cubature, Cuba
-using Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-using Plots
+using Integrals, IntegralsCubature, IntegralsCuba
+using OptimizationFlux, ModelingToolkit, Optimization, OptimizationOptimJL
+using Lux, Plots
 using DelimitedFiles
 using QuasiMonteCarlo
 import ModelingToolkit: Interval, infimum, supremum
@@ -77,7 +77,7 @@ function allen_cahn(strategy, minimizer, maxIters)
 
     ## NEURAL NETWORK
     n = 10   #neuron number
-    chain = FastChain(FastDense(5,n,Flux.σ),FastDense(n,n,Flux.σ),FastDense(n,1))   #Neural network from Flux library
+    chain = Lux.Chain(Lux.Dense(5,n,Lux.σ),Lux.Dense(n,n,Lux.σ),Lux.Dense(n,1))   #Neural network from OptimizationFlux library
 
     indvars = [t,x1,x2,x3,x4]   #phisically independent variables
     depvars = [u(t,x1,x2,x3,x4)]       #dependent (target) variable
@@ -154,7 +154,7 @@ function allen_cahn(strategy, minimizer, maxIters)
 
     timeCounter = 0.0
     startTime = time_ns() #Fix initial time (t=0) before starting the training
-    res = GalacticOptim.solve(prob, minimizer, cb = cb_, maxiters=maxIters)
+    res = Optimization.solve(prob, minimizer, cb = cb_, maxiters=maxIters)
 
     phi = discretization.phi
 

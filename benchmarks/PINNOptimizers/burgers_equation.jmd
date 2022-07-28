@@ -12,9 +12,8 @@ science-guided AI techniques.
 ## Setup
 
 ```julia
-using NeuralPDE, Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-using Quadrature,Cubature,Cuba
-using Plots
+using NeuralPDE, OptimizationFlux, ModelingToolkit, Optimization, OptimizationOptimJL
+using Lux, Plots
 ```
 
 ```julia
@@ -52,7 +51,7 @@ function burgers(strategy, minimizer)
     domains = [x ∈ IntervalDomain(0.0, x_max),
                t ∈ IntervalDomain(0.0, t_max)]
 
-    chain = FastChain(FastDense(2,16,Flux.σ),FastDense(16,16,Flux.σ),FastDense(16,1))
+    chain = Lux.Chain(Lux.Dense(2,16,Lux.σ),Lux.Dense(16,16,Lux.σ),Lux.Dense(16,1))
     discretization = PhysicsInformedNN(chain, strategy)
 
     indvars = [x, t]   #physically independent variables
@@ -96,14 +95,14 @@ function burgers(strategy, minimizer)
 
     loss_functions = [pde_loss_function; bc_loss_functions]
     loss_function__ = θ -> sum(map(l->l(θ) ,loss_functions))
-        
+
     function loss_function_(θ,p)
             return loss_function__(θ)
     end
 
 
     cb = function (p,l)
-        
+
         timeCounter = 0.0
         deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
 
@@ -124,14 +123,14 @@ function burgers(strategy, minimizer)
     prob = NeuralPDE.discretize(pde_system,discretization)
 
     startTime = time_ns() #Fix initial time (t=0) before starting the training
-    
-    
+
+
     if minimizer == "both"
-        res = GalacticOptim.solve(prob, ADAM(); cb = cb, maxiters=5)
+        res = Optimization.solve(prob, ADAM(); cb = cb, maxiters=5)
         prob = remake(prob,u0=res.minimizer)
-        res = GalacticOptim.solve(prob, BFGS(); cb = cb, maxiters=15)
+        res = Optimization.solve(prob, BFGS(); cb = cb, maxiters=15)
     else
-        res = GalacticOptim.solve(prob, minimizer; cb = cb, maxiters=500)
+        res = Optimization.solve(prob, minimizer; cb = cb, maxiters=500)
     end
 
     phi = discretization.phi
@@ -176,7 +175,7 @@ minimizers_short_name = ["ADAM",
 ```julia
 # Run models
 error_res =  Dict()
-params_res = Dict()  
+params_res = Dict()
 times = Dict()
 losses_res = Dict()
 
