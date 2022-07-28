@@ -1,4 +1,4 @@
-pages = Any["SciMLBenchmarks"=>"index.md"]
+pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers"=>"index.md"]
 
 for folder in readdir(benchmarksdir)
     newpages = Any[]
@@ -33,7 +33,7 @@ permute!(pages,
 )
 
 names = [
-    "SciMLBenchmarks",
+    "SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers",
     "Multi-Language Wrapper Benchmarks",
     "Non-Stiff Ordinary Differential Equations",
     "Stiff Ordinary Differential Equations",
