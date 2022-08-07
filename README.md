@@ -12,6 +12,9 @@ for the SciML Scientific Machine Learning Software ecosystem, including:
 - Training of physics-informed neural networks (PINNs)
 - Surrogate comparisons, including radial basis functions, neural operators (DeepONets, Fourier Neural Operators), and more
 
+The SciML Bench suite is made to be a comprehensive open source benchmark from the ground up, covering the methods of
+computational science and scientific computing all the way to AI for science.
+
 ## Rules: Optimal, Fair, and Reproducible
 
 These benchmarks are meant to represent good optimized coding style. Benchmarks are preferred to be run on the provided open
