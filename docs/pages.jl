@@ -6,7 +6,7 @@ cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
 cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
 benchmarksdir = joinpath(dir, "docs", "src")
 
-pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers"=>"index.md"]
+pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science"=>"index.md"]
 
 for folder in readdir(benchmarksdir)
     newpages = Any[]
