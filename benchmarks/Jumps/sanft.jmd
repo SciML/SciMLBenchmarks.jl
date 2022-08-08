@@ -1,25 +1,27 @@
 ---
 title: Model from Sanft, 2015
-author: Vasily Ilin
+author: Vasily Ilin and Samuel Isaacson
 ---
 
 ```julia
-using DiffEqJump, BenchmarkTools, Plots, Plots.PlotMeasures
-gr()
+using Catalyst, JumpProcesses, BenchmarkTools, Plots, Plots.PlotMeasures
 ```
 
 # Model description and setup
-Here we implement the model from [^1] (8 species and 12 reactions) for different mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num` is the number of subvolumes along one edge of the grid. In [^1] this value ranges from 20 to 60.
+Here we implement the model from [^1] (8 species and 12 reactions) for different
+mesh sizes and benchmark the performance of spatial SSAs. The value `linear_num`
+is the number of subvolumes along one edge of the grid. In [^1] this value
+ranges from 20 to 60.
 
 ```julia
 function model_setup(linear_num, end_time)
-    
+
     # species ordering: 1 = E_A, 2 = A, 3 = E_B, 4 = B, 5 = E_A B, 6 = E_A B_2, 7 = E_B A, 8 = E_B A_2
     avogadro = 6.02214076e23
     num_species = 8
 
     # topology
-    domain_size = 12.0e-6 #meters
+    domain_size = 12.0e-6 # meters
     mesh_size = domain_size/linear_num
     dims = (linear_num, linear_num, linear_num)
     num_nodes = prod(dims)
@@ -33,15 +35,15 @@ function model_setup(linear_num, end_time)
 
     reactstoch = [[1 => 1], [3 => 1], [1 => 1, 4 => 1], [5 => 1], [5 => 1, 4 => 1], [6 => 1], [3 => 1, 2 => 1], [7 => 1], [7 => 1, 2 => 1], [8 => 1], [2 => 1], [4 => 1]]
 
-    netstoch = [[2 => 1], [4 => 1], 
-    [1 => -1, 4 => -1, 5 =>  1], 
-    [1 =>  1, 4 =>  1, 5 => -1], 
-    [5 => -1, 4 => -1, 6 =>  1], 
-    [5 =>  1, 4 =>  1, 6 => -1], 
-    [3 => -1, 2 => -1, 7 =>  1], 
-    [3 =>  1, 2 =>  1, 7 => -1], 
-    [7 => -1, 2 => -1, 8 =>  1], 
-    [7 =>  1, 2 =>  1, 8 => -1], 
+    netstoch = [[2 => 1], [4 => 1],
+    [1 => -1, 4 => -1, 5 =>  1],
+    [1 =>  1, 4 =>  1, 5 => -1],
+    [5 => -1, 4 => -1, 6 =>  1],
+    [5 =>  1, 4 =>  1, 6 => -1],
+    [3 => -1, 2 => -1, 7 =>  1],
+    [3 =>  1, 2 =>  1, 7 => -1],
+    [7 => -1, 2 => -1, 8 =>  1],
+    [7 =>  1, 2 =>  1, 8 => -1],
     [2 => -1], [4 => -1]]
     rates = [k_1, k_1, k_a, k_d, k_a, k_d, k_a, k_d, k_a, k_d, k_4, k_4]
     @assert length(reactstoch) == length(netstoch) == length(rates)
@@ -95,7 +97,7 @@ function benchmark_and_save!(bench_dict, end_times, linear_nums, algs)
     end
 end
 ```
- 
+
 # Plotting
 Plot the benchmarking data.
 
@@ -130,7 +132,7 @@ function fetch_and_plot(bench_dict)
     xlabel!(plt2, "total number of sites")
     title!(plt2, "3D RDME")
     xticks!(plt2, (linear_nums.^3, string.(linear_nums.^3)) )
-    
+
     plot(plt1, plt2, size = (1200,800), margin = 10mm, legendtitle = "SSAs")
 end
 ```
