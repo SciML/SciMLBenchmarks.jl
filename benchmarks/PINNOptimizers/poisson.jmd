@@ -14,6 +14,7 @@ science-guided AI techniques.
 ```julia
 using NeuralPDE, OptimizationFlux, ModelingToolkit, Optimization, OptimizationOptimJL
 using Lux, Plots
+import ModelingToolkit: Interval, infimum, supremum
 ```
 
 ```julia
@@ -32,25 +33,25 @@ function solve(opt)
     bcs = [u(0,y) ~ 0.f0, u(1,y) ~ -sin(pi*1)*sin(pi*y),
            u(x,0) ~ 0.f0, u(x,1) ~ -sin(pi*x)*sin(pi*1)]
     # Space and time domains
-    domains = [x ∈ IntervalDomain(0.0,1.0),
-               y ∈ IntervalDomain(0.0,1.0)]
+    domains = [x ∈ Interval(0.0,1.0),
+               y ∈ Interval(0.0,1.0)]
 
     # Neural network
     dim = 2 # number of dimensions
-    chain = Lux.Chain((dim,16,Lux.σ),(16,16,Lux.σ),(16,1))
+    chain = Lux.Chain(Lux.Dense(dim,16,Lux.σ),Lux.Dense(16,16,Lux.σ),Lux.Dense(16,1))
 
     discretization = PhysicsInformedNN(chain,strategy)
 
     indvars = [x, y]   #phisically independent variables
-    depvars = [u]       #dependent (target) variable
+    depvars = [u(x,y)]       #dependent (target) variable
 
     loss = []
-    initial_time = 0
+    initial_time = nothing
 
     times = []
 
     cb = function (p,l)
-        if initial_time == 0
+        if initial_time == nothing
             initial_time = time()
         end
         push!(times, time() - initial_time)
@@ -63,11 +64,11 @@ function solve(opt)
     prob = discretize(pde_system, discretization)
 
     if opt == "both"
-        res = Optimization.solve(prob, ADAM(); cb = cb, maxiters=50)
+        res = Optimization.solve(prob, ADAM(); callback = cb, maxiters=50)
         prob = remake(prob,u0=res.minimizer)
-        res = Optimization.solve(prob, BFGS(); cb = cb, maxiters=150)
+        res = Optimization.solve(prob, BFGS(); callback = cb, maxiters=150)
     else
-        res = Optimization.solve(prob, opt; cb = cb, maxiters=200)
+        res = Optimization.solve(prob, opt; callback = cb, maxiters=200)
     end
 
     times[1] = 0.001
@@ -108,7 +109,7 @@ p = plot([times_1, times_2, times_3, times_4, times_5, times_6, times_7, times_8
 ```
 
 ```julia
-p = plot(1:201, [loss_1, loss_2, loss_3, loss_4, loss_5, loss_6, loss_7, loss_8, loss_9[2:end]], xlabel="iterations", ylabel="loss", yscale=:log10, labels=["ADAM(0.001)" "ADAM(0.005)" "ADAM(0.05)" "RMSProp(0.001)" "RMSProp(0.005)" "RMSProp(0.05)" "BFGS()" "LBFGS()" "ADAM + BFGS"], legend=:bottomleft, linecolor=["#2660A4" "#4CD0F4" "#FEC32F" "#F763CD" "#44BD79" "#831894" "#A6ED18" "#980000" "#FF912B"])
+p = plot([loss_1, loss_2, loss_3, loss_4, loss_5, loss_6, loss_7, loss_8, loss_9], xlabel="iterations", ylabel="loss", yscale=:log10, labels=["ADAM(0.001)" "ADAM(0.005)" "ADAM(0.05)" "RMSProp(0.001)" "RMSProp(0.005)" "RMSProp(0.05)" "BFGS()" "LBFGS()" "ADAM + BFGS"], legend=:bottomleft, linecolor=["#2660A4" "#4CD0F4" "#FEC32F" "#F763CD" "#44BD79" "#831894" "#A6ED18" "#980000" "#FF912B"])
 ```
 
 ```julia
