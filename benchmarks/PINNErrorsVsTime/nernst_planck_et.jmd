@@ -98,35 +98,12 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    initθ = Float64.(DiffEqFlux.initial_params(chain))
-    eltypeθ = eltype(initθ)
-    parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
+     discretization_ = PhysicsInformedNN(chain, error_strategy)
+    @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
+    prob_ = discretize(pde_system_, discretization_)
 
-    phi = NeuralPDE.get_phi(chain,parameterless_type_θ)
-    derivative = NeuralPDE.get_numeric_derivative()
-
-    _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
-                                             phi,derivative,nothing,chain,initθ,error_strategy)
-
-    bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
-    _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
-                                              phi,derivative,nothing,chain,initθ,error_strategy,
-                                              bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
-
-    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,eltypeθ,indvars,depvars)
-    train_domain_set, train_bound_set = train_sets
-
-
-    pde_loss_functions = [NeuralPDE.get_loss_function(_pde_loss_function,
-                                          train_domain_set[1],eltypeθ,
-                                          parameterless_type_θ,error_strategy)]
-
-    bc_loss_functions = [NeuralPDE.get_loss_function(bc,
-                                          train_set,eltypeθ,
-                                          parameterless_type_θ,error_strategy) for (train_set,bc) in zip(train_bound_set, _bc_loss_functions)]
-    loss_functions =  [pde_loss_functions;bc_loss_functions]
-    function loss_function_(θ,p)
-        return sum(map(l->l(θ) ,loss_functions))
+    function loss_function_(θ, p)
+        return prob_.f.f(θ, nothing)
     end
 
     cb_ = function (p,l)
@@ -145,12 +122,12 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy; init_params =initθ)
+    discretization = NeuralPDE.PhysicsInformedNN(chain,strategy)
     prob = NeuralPDE.discretize(pde_system,discretization)
 
     timeCounter = 0.0
     startTime = time_ns() #Fix initial time (t=0) before starting the training
-    res = Optimization.solve(prob, minimizer, cb = cb_, maxiters=maxIters)
+    res = Optimization.solve(prob, minimizer, callback = cb_, maxiters=maxIters)
 
     phi = discretization.phi
 

@@ -25,66 +25,66 @@ import ModelingToolkit: Interval, infimum, supremum
 function level_set(strategy, minimizer, maxIters)
 
     ##  DECLARATIONS
-    @parameters  t x y
-    @variables   u(..)
+    @parameters t x y
+    @variables u(..)
 
     Dt = Differential(t)
     Dx = Differential(x)
     Dy = Differential(y)
 
     # Discretization
-    xwidth      = 1.0      #ft
-    ywidth      = 1.0
-    tmax        = 1.0      #min
-    xScale      = 1.0
-    yScale      = 1.0
-    xMeshNum    = 10
-    yMeshNum    = 10
-    tMeshNum    = 10
-    dx  = xwidth/xMeshNum
-    dy  = ywidth/yMeshNum
-    dt  = tmax/tMeshNum
+    xwidth = 1.0      #ft
+    ywidth = 1.0
+    tmax = 1.0      #min
+    xScale = 1.0
+    yScale = 1.0
+    xMeshNum = 10
+    yMeshNum = 10
+    tMeshNum = 10
+    dx = xwidth / xMeshNum
+    dy = ywidth / yMeshNum
+    dt = tmax / tMeshNum
 
 
-    domains = [t ∈ Interval(0.0,tmax),
-               x ∈ Interval(0.0,xwidth),
-               y ∈ Interval(0.0,ywidth)]
+    domains = [t ∈ Interval(0.0, tmax),
+        x ∈ Interval(0.0, xwidth),
+        y ∈ Interval(0.0, ywidth)]
 
-    xs = 0.0 : dx : xwidth
-    ys = 0.0 : dy : ywidth
-    ts = 0.0 : dt : tmax
+    xs = 0.0:dx:xwidth
+    ys = 0.0:dy:ywidth
+    ts = 0.0:dt:tmax
 
     # Definitions
-    x0    = 0.5
-    y0    = 0.5
+    x0 = 0.5
+    y0 = 0.5
     Uwind = [0.0, 2.0]  #wind vector
 
     # Operators
-    gn   = (Dx(u(t,x,y))^2 + Dy(u(t,x,y))^2)^0.5  #gradient's norm
-    ∇u   = [Dx(u(t,x,y)), Dy(u(t,x,y))]
-    n    = ∇u/gn              #normal versor
+    gn = (Dx(u(t, x, y))^2 + Dy(u(t, x, y))^2)^0.5  #gradient's norm
+    ∇u = [Dx(u(t, x, y)), Dy(u(t, x, y))]
+    n = ∇u / gn              #normal versor
     #U    = ((Uwind[1]*n[1] + Uwind[2]*n[2])^2)^0.5 #inner product between wind and normal vector
 
     R0 = 0.112471
     ϕw = 0#0.156927*max((0.44*U)^0.04086,1.447799)
     ϕs = 0
-    S  = R0*(1 + ϕw + ϕs)
+    S = R0 * (1 + ϕw + ϕs)
 
     # Equation
-    eq = Dt(u(t,x,y)) + S*gn ~ 0  #LEVEL SET EQUATION
+    eq = Dt(u(t, x, y)) + S * gn ~ 0  #LEVEL SET EQUATION
 
-    initialCondition = (xScale*(x - x0)^2 + (yScale*(y - y0)^2))^0.5 - 0.2   #Distance from ignition
+    initialCondition = (xScale * (x - x0)^2 + (yScale * (y - y0)^2))^0.5 - 0.2   #Distance from ignition
 
-    bcs = [u(0,x,y) ~ initialCondition]  #from literature
+    bcs = [u(0, x, y) ~ initialCondition]  #from literature
 
 
     ## NEURAL NETWORK
     n = 10   #neuron number
 
-    chain = Lux.Chain(Lux.Dense(3,n,Lux.σ),Lux.Dense(n,n,Lux.σ),Lux.Dense(n,1))   #Neural network from OptimizationFlux library
+    chain = Lux.Chain(Lux.Dense(3, n, Lux.σ), Lux.Dense(n, n, Lux.σ), Lux.Dense(n, 1))   #Neural network from OptimizationFlux library
 
-    indvars = [t,x,y]   #phisically independent variables
-    depvars = [u(t,x,y)]       #dependent (target) variable
+    indvars = [t, x, y]   #phisically independent variables
+    depvars = [u(t, x, y)]       #dependent (target) variable
 
     dim = length(domains)
 
@@ -96,44 +96,21 @@ function level_set(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    initθ = Float64.(DiffEqFlux.initial_params(chain))
-    eltypeθ = eltype(initθ)
-    parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
+    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
+    prob_ = discretize(pde_system_, discretization_)
 
-    phi = NeuralPDE.get_phi(chain,parameterless_type_θ)
-    derivative = NeuralPDE.get_numeric_derivative()
-
-    _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
-                                             phi,derivative,nothing,chain,initθ,error_strategy)
-
-    bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
-    _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
-                                              phi,derivative,nothing,chain,initθ,error_strategy,
-                                              bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
-
-    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,eltypeθ,indvars,depvars)
-    train_domain_set, train_bound_set = train_sets
-
-
-    pde_loss_functions = [NeuralPDE.get_loss_function(_pde_loss_function,
-                                          train_domain_set[1],eltypeθ,
-                                          parameterless_type_θ,error_strategy)]
-
-    bc_loss_functions = [NeuralPDE.get_loss_function(bc,
-                                          train_set,eltypeθ,
-                                          parameterless_type_θ,error_strategy) for (train_set,bc) in zip(train_bound_set, _bc_loss_functions)]
-    loss_functions =  [pde_loss_functions;bc_loss_functions]
-    function loss_function_(θ,p)
-        return sum(map(l->l(θ) ,loss_functions))
+    function loss_function_(θ, p)
+        return prob_.f.f(θ, nothing)
     end
 
-    cb_ = function (p,l)
+    cb_ = function (p, l)
         deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
 
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime/10^9) #Conversion nanosec to seconds
+        append!(times, ctime / 10^9) #Conversion nanosec to seconds
         append!(losses, l)
-        loss_ = loss_function_(p,nothing)
+        loss_ = loss_function_(p, nothing)
         append!(error, loss_)
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
 
@@ -142,12 +119,12 @@ function level_set(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy; init_params =initθ)
-    prob = NeuralPDE.discretize(pde_system,discretization)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    prob = NeuralPDE.discretize(pde_system, discretization)
 
     timeCounter = 0.0
     startTime = time_ns() #Fix initial time (t=0) before starting the training
-    res = Optimization.solve(prob, minimizer, cb = cb_, maxiters=maxIters)
+    res = Optimization.solve(prob, minimizer, callback=cb_, maxiters=maxIters)
 
     phi = discretization.phi
 
@@ -156,7 +133,7 @@ function level_set(strategy, minimizer, maxIters)
     # Model prediction
     domain = [ts, xs, ys]
 
-    u_predict = [reshape([first(phi([t,x,y],res.minimizer)) for x in xs for y in ys], (length(xs),length(ys))) for t in ts]  #matrix of model's prediction
+    u_predict = [reshape([first(phi([t, x, y], res.minimizer)) for x in xs for y in ys], (length(xs), length(ys))) for t in ts]  #matrix of model's prediction
 
     return [error, params, domain, times, losses] #add numeric solution
 end
