@@ -12,9 +12,9 @@ science-guided AI techniques.
 ## Setup
 
 ```julia
-using NeuralPDE, Flux, ModelingToolkit, GalacticOptim, Optim, DiffEqFlux
-using Quadrature,Cubature,Cuba
-using Plots
+using NeuralPDE, OptimizationFlux, ModelingToolkit, Optimization, OptimizationOptimJL
+using Lux, Plots
+import ModelingToolkit: Interval, infimum, supremum
 ```
 
 ```julia
@@ -44,15 +44,15 @@ function burgers(strategy, minimizer)
     Dx = Differential(x)
     Dxx = Differential(x)^2
 
-    eq = Dt(u(x, t)) + u(x, t) * Dx(u(x, t))  ~ nu * Dxx(u(x, t))
+    eq = Dt(u(x, t)) + u(x, t) * Dx(u(x, t)) ~ nu * Dxx(u(x, t))
 
-    bcs = [u(x,0.0) ~ analytic_sol_func(x, 0.0),
-           u(0.0,t) ~ u(x_max,t)]
+    bcs = [u(x, 0.0) ~ analytic_sol_func(x, 0.0),
+        u(0.0, t) ~ u(x_max, t)]
 
-    domains = [x ∈ IntervalDomain(0.0, x_max),
-               t ∈ IntervalDomain(0.0, t_max)]
+    domains = [x ∈ Interval(0.0, x_max),
+        t ∈ Interval(0.0, t_max)]
 
-    chain = FastChain(FastDense(2,16,Flux.σ),FastDense(16,16,Flux.σ),FastDense(16,1))
+    chain = Lux.Chain(Lux.Dense(2, 16, Lux.σ), Lux.Dense(16, 16, Lux.σ), Lux.Dense(16, 1))
     discretization = PhysicsInformedNN(chain, strategy)
 
     indvars = [x, t]   #physically independent variables
@@ -68,47 +68,21 @@ function burgers(strategy, minimizer)
 
     error_strategy = GridTraining(dx_err)
 
-    initθ = Float64.(DiffEqFlux.initial_params(chain))
-    eltypeθ = eltype(initθ)
-    parameterless_type_θ = DiffEqBase.parameterless_type(initθ)
-    phi = NeuralPDE.get_phi(chain,parameterless_type_θ)
-    derivative = NeuralPDE.get_numeric_derivative()
+    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
+    prob_ = discretize(pde_system_, discretization_)
 
-    _pde_loss_function = NeuralPDE.build_loss_function(eq,indvars,depvars,
-                                             phi,derivative,nothing,chain,initθ,error_strategy)
-
-    bc_indvars = NeuralPDE.get_variables(bcs,indvars,depvars)
-    _bc_loss_functions = [NeuralPDE.build_loss_function(bc,indvars,depvars,
-                                              phi,derivative,nothing,chain,initθ,error_strategy,
-                                              bc_indvars = bc_indvar) for (bc,bc_indvar) in zip(bcs,bc_indvars)]
-
-    train_sets = NeuralPDE.generate_training_sets(domains,dx_err,[eq],bcs,eltypeθ,indvars,depvars)
-    train_domain_set, train_bound_set = train_sets
-
-
-    pde_loss_function = NeuralPDE.get_loss_function(_pde_loss_function,
-                                          train_domain_set[1],eltypeθ,
-                                          parameterless_type_θ,error_strategy)
-
-    bc_loss_functions = [NeuralPDE.get_loss_function(loss,set,
-                                                 eltypeθ, parameterless_type_θ,
-                                                 error_strategy) for (loss, set) in zip(_bc_loss_functions,train_bound_set)]
-
-    loss_functions = [pde_loss_function; bc_loss_functions]
-    loss_function__ = θ -> sum(map(l->l(θ) ,loss_functions))
-        
-    function loss_function_(θ,p)
-            return loss_function__(θ)
+    function loss_function__(θ)
+        return prob_.f.f(θ, nothing)
     end
 
+    cb = function (p, l)
 
-    cb = function (p,l)
-        
         timeCounter = 0.0
         deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
 
         ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime/10^9) #Conversion nanosec to seconds
+        append!(times, ctime / 10^9) #Conversion nanosec to seconds
         append!(losses, l)
         append!(error, loss_function__(p))
         #println(length(losses), " Current loss is: ", l, " uniform error is, ", loss_function__(p))
@@ -120,18 +94,18 @@ function burgers(strategy, minimizer)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy, init_params =initθ)
-    prob = NeuralPDE.discretize(pde_system,discretization)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    prob = NeuralPDE.discretize(pde_system, discretization)
 
     startTime = time_ns() #Fix initial time (t=0) before starting the training
-    
-    
+
+
     if minimizer == "both"
-        res = GalacticOptim.solve(prob, ADAM(); cb = cb, maxiters=5)
-        prob = remake(prob,u0=res.minimizer)
-        res = GalacticOptim.solve(prob, BFGS(); cb = cb, maxiters=15)
+        res = Optimization.solve(prob, ADAM(); callback=cb, maxiters=5)
+        prob = remake(prob, u0=res.minimizer)
+        res = Optimization.solve(prob, BFGS(); callback=cb, maxiters=15)
     else
-        res = GalacticOptim.solve(prob, minimizer; cb = cb, maxiters=500)
+        res = Optimization.solve(prob, minimizer; callback=cb, maxiters=500)
     end
 
     phi = discretization.phi
@@ -176,7 +150,7 @@ minimizers_short_name = ["ADAM",
 ```julia
 # Run models
 error_res =  Dict()
-params_res = Dict()  
+params_res = Dict()
 times = Dict()
 losses_res = Dict()
 

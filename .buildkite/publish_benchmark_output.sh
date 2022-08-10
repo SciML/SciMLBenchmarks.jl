@@ -11,11 +11,9 @@ temp_dir=$(mktemp -d)
 git -C "${temp_dir}" clone git@github.com:SciML/SciMLBenchmarksOutput .
 
 # Copy our output artifacts into it:
-for d in docs html notebook pdf script; do
+for d in docs html notebook pdf script markdown; do
     cp -vRa "${d}/" "${temp_dir}"
 done
-cp -vRa "markdown/" "${temp_dir}/docs/src"
-cp -vRa "README.md" "${temp_dir}/docs/src"
 
 # Commit the result up to output
 set -e

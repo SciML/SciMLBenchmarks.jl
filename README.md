@@ -1,15 +1,30 @@
-# SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Differential Equation Solver Software
+# SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers
 
 [![Join the chat at https://gitter.im/JuliaDiffEq/Lobby](https://badges.gitter.im/JuliaDiffEq/Lobby.svg)](https://gitter.im/JuliaDiffEq/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Build status](https://badge.buildkite.com/2f4b5708bf098c75ce193f04b3f3c4047f993f0e363e314c61.svg)](https://buildkite.com/julialang/scimlbenchmarks-dot-jl)
 
 SciMLBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
-for the SciML Scientific Machine Learning Software ecosystem, including cross-language
-benchmarks of differential equation solvers and methods for parameter estimation,
-training universal differential equations (and subsets like neural ODEs), tests
-of physics-informed neural networks (PINNs), and more.
+for the SciML Scientific Machine Learning Software ecosystem, including:
+
+- Benchmarks of equation solver implementations 
+- Speed and robustness comparisons of methods for parameter estimation / inverse problems
+- Training universal differential equations (and subsets like neural ODEs) 
+- Training of physics-informed neural networks (PINNs)
+- Surrogate comparisons, including radial basis functions, neural operators (DeepONets, Fourier Neural Operators), and more
+
+The SciML Bench suite is made to be a comprehensive open source benchmark from the ground up, covering the methods of
+computational science and scientific computing all the way to AI for science.
+
+## Rules: Optimal, Fair, and Reproducible
+
+These benchmarks are meant to represent good optimized coding style. Benchmarks are preferred to be run on the provided open
+benchmarking hardware for full reproducibility (though in some cases, such as with language barriers, this can be difficult).
+Each benchmark is documented with the compute devices used along with package versions for necessary reproduction.
+
+**If any of the code from any of the languages can be improved, please open a pull request**.
 
 ## Results
+
 Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
 
 ## Table of Contents
@@ -41,6 +56,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Hires Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Pollution.html)
   - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
+  - [Bidkhori 2012 SBML Model (109 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/Bidkhori2012.html)
 - Differential-Algebraic Equations (DAEs)
   - [ROBER DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ROBERDAE.html)
   - [OREGO DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/OregoDAE.html)

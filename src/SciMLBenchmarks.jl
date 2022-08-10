@@ -61,16 +61,17 @@ end
 
 function weave_folder(folder)
   for file in readdir(folder)
-    # Skip non-`.jmd` files
-    if !endswith(file, ".jmd")
-      continue
-    end
+      # Skip non-`.jmd` files
+      if !endswith(file, ".jmd")
+          continue
+      end
 
-    try
-      weave_file(folder,file)
-    catch e
-      @error(e)
-    end
+      try
+          weave_file(folder, file)
+      catch e
+          @show folder, file
+          @error(e)
+      end
   end
 end
 

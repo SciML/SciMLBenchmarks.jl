@@ -9,13 +9,13 @@ steps:
     env:
       BUILDKITE_PLUGIN_CRYPTIC_BASE64_SIGNED_JOB_ID_SECRET: ${BUILDKITE_PLUGIN_CRYPTIC_BASE64_SIGNED_JOB_ID_SECRET?}
     plugins:
-      - staticfloat/cryptic#7134d550fb10e1782e77c3d9993443e1a702b0cc:
+      - staticfloat/cryptic#v2:
           variables:
             - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX19PKaFjxITJxFlY66D/vA9T/y/MzZ2Fs+bpWmlhRF0g5DbemJbuKKw9"
             - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX19MkMLkCxkclrpxYMfzHvYlUJssaSbX/wkdNiL+H5/aHwiYiTsBXyXh2m/1pcIUMHCR0nerHevB8g=="
             - BUILDKITE_S3_DEFAULT_REGION="U2FsdGVkX18ccoE9FmtkwsCm1x0MLMBlN/FLcAyKkY4="
       - JuliaCI/julia#v1:
-          version: 1.6
+          version: 1.7
       - staticfloat/sandbox:
           rootfs_url: "https://jc-rootfs-images.s3.amazonaws.com/aws_uploader-2021-11-12.x86_64.tar.gz"
           rootfs_treehash: "986217e5b36efd3b3b91ed90df8e36d628cf543f"
@@ -32,6 +32,7 @@ steps:
             - ./*.toml
           outputs:
             - html/**/*.html
+            - markdown/**/figures/*.png
             - markdown/**/*.md
             - notebook/**/*.ipynb
             - pdf/**/*.pdf
@@ -50,12 +51,13 @@ steps:
       queue: "juliaecosystem"
       sandbox.jl: true
       exclusive: true
+      arch: "x86_64"
 
   - label: ":rocket: Publish {PATH}"
     env:
       BUILDKITE_PLUGIN_CRYPTIC_BASE64_SIGNED_JOB_ID_SECRET: ${BUILDKITE_PLUGIN_CRYPTIC_BASE64_SIGNED_JOB_ID_SECRET?}
     plugins:
-      - staticfloat/cryptic#7134d550fb10e1782e77c3d9993443e1a702b0cc:
+      - staticfloat/cryptic#v2:
           variables:
             - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX19PKaFjxITJxFlY66D/vA9T/y/MzZ2Fs+bpWmlhRF0g5DbemJbuKKw9"
             - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX19MkMLkCxkclrpxYMfzHvYlUJssaSbX/wkdNiL+H5/aHwiYiTsBXyXh2m/1pcIUMHCR0nerHevB8g=="
@@ -63,7 +65,7 @@ steps:
           files:
             - .buildkite/ssh_deploy.key
       - JuliaCI/julia#v1:
-          version: 1.6
+          version: 1.7
       - staticfloat/sandbox:
           rootfs_url: "https://jc-rootfs-images.s3.amazonaws.com/aws_uploader-2021-11-12.x86_64.tar.gz"
           rootfs_treehash: "986217e5b36efd3b3b91ed90df8e36d628cf543f"
@@ -77,6 +79,7 @@ steps:
           input_from: "benchmark-{SANITIZED_PATH}"
           outputs:
             - html/**/*.html
+            - markdown/**/figures/*.png
             - markdown/**/*.md
             - notebook/**/*.ipynb
             - pdf/**/*.pdf
@@ -88,6 +91,9 @@ steps:
     agents:
       queue: "juliaecosystem"
       sandbox.jl: true
+      arch: "x86_64"
+    concurrency: 1
+    concurrency_group: "scimlbenchmarks/deploy"
     commands: .buildkite/publish_benchmark_output.sh
     # Don't run this unless we're on the master branch, and not until the actual benchmark
     # command has had a chance to run.
