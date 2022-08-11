@@ -1,28 +1,32 @@
 ---
 title: Mendes Multistate Model
 author: Samuel Isaacson, Chris Rackauckas
+options:
+      fig_ext : ".png"
 ---
 
 Taken from Gupta and Mendes, *An Overview of Network-Based and -Free Approaches for Stochastic Simulation of Biochemical Systems*, Computation, 6 (9), 2018.
 
 ```julia
-using DiffEqBase, Catalyst, DiffEqJump, DiffEqProblemLibrary.JumpProblemLibrary, Plots, Statistics
-gr()
+using Catalyst, JumpProcesses, DiffEqProblemLibrary.JumpProblemLibrary, Plots, Statistics
 fmt = :png
 JumpProblemLibrary.importjumpproblems()
+```
 
+Our model is
+```julia
+jprob = prob_jump_multistate
+rn  = jprob.network
+reactions(rn)
 ```
 
 # Plot solutions by each method
-
 ```julia
-methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
-shortlabels = [string(leg)[12:end-2] for leg in methods]
-jprob   = prob_jump_multistate
-tf      = 10.0*jprob.tstop
-prob    = DiscreteProblem(jprob.u0, (0.0,tf), jprob.rates)
-rn      = jprob.network
-varlegs = ["A_P", "A_bound_P", "A_unbound_P", "RLA_P"]
+methods = (Direct(), FRM(), SortingDirect(), NRM(), DirectCR(), RSSA(), RSSACR())
+shortlabels = [string(leg)[15:end-2] for leg in methods]
+tf      = 10.0 * jprob.tstop
+prob    = DiscreteProblem(rn, jprob.u0, (0.0, tf), jprob.rates)
+varlegs = ["A_P" "A_bound_P" "A_unbound_P" "RLA_P"]
 @variables t S7(t) S8(t) S9(t)
 varsyms = [
     [S7,S8,S9],
@@ -41,17 +45,18 @@ p = []
 for (i,method) in enumerate(methods)
     jump_prob = JumpProblem(rn, prob, method, save_positions=(false, false))
     sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
-    solv = zeros(1001,4)
+    solv = zeros(1001, 4)
     for (i,varidx) in enumerate(varidxs)
         solv[:,i] = sum(sol[varidx,:], dims=1)
     end
     if i < length(methods)
-        push!(p, plot(sol.t,solv,title=shortlabels[i],legend=false,format=fmt))
+        push!(p, plot(sol.t, solv, title=shortlabels[i], legend=false, format=fmt))
     else
-        push!(p, plot(sol.t,solv,title=shortlabels[i],legend=true,labels=varlegs,format=fmt))
+        push!(p, plot(sol.t, solv, title=shortlabels[i], legend=false, format=fmt))
     end
 end
-plot(p...,format=fmt)
+push!(p, plot((1:4)', framestyle = :none, legend=:inside, labels=varlegs))
+plot(p..., layout=(4,2), format=fmt)
 ```
 
 # Benchmarking performance of the methods
@@ -88,7 +93,8 @@ for i in 1:length(methods)
 end
 using DataFrames
 
-df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
+df = DataFrame(names=shortlabels, medtimes=medtimes, relmedtimes=(medtimes/medtimes[1]),
+               avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
 
 sa = [text(string(round(mt,digits=3),"s"),:center,12) for mt in df.medtimes]
 bar(df.names,df.relmedtimes,legend=:false, fmt=fmt)
