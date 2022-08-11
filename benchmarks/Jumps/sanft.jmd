@@ -9,9 +9,10 @@ using Catalyst, JumpProcesses, BenchmarkTools, Plots, Random
 
 # Model description and setup
 Here we implement the model from [^1] (8 species and 12 reactions) for different
-mesh sizes and benchmark the performance of spatial stochastic simulation
-alorithms (SSAs). The value `N` is the number of subvolumes along one dimension
-of the grid. In [^1] this value ranges from 20 to 60.
+mesh sizes, and benchmark the performance of JumpProcesses.jl's spatial
+stochastic simulation alorithms (SSAs). Below, the value `N` will denote the
+number of subvolumes along one dimension of a cubic grid, representing the
+reaction volume. In [^1] this value ranges from 20 to 60.
 
 We first define some helper functions to convert concentration units into number
 units, as needed for spatial SSAs.
@@ -20,7 +21,7 @@ invmicromolar_to_cubicmicrometer(invconcen) = invconcen / (6.02214076e2)
 micromolar_to_invcubicmicrometer(concen) = (6.02214076e2) * concen
 ```
 
-Next we let's create a well-mixed model with the desired chemistry
+Next we create a well-mixed model with the desired chemistry
 ```julia
 rn = @reaction_network begin
     k₁, EA --> EA + A
@@ -54,7 +55,7 @@ function transport_model(rn, N; domain_len = 6.0, D = 1.0, rng = Random.default_
     hopping_rate = D / h^2
 
     # this indicates we have a uniform rate of D/h^2 along each edge at each site
-    hopping_constants = hopping_rate * ones(numspecies(rn), num_nodes)
+    hopping_constants = hopping_rate * ones(numspecies(rn))
 
     # figure out the indices of species EA and EB
     @unpack EA, EB = rn
@@ -76,8 +77,8 @@ function transport_model(rn, N; domain_len = 6.0, D = 1.0, rng = Random.default_
     grid, hopping_constants, h, u0
 end
 ```
-We are now ready to create and solve/benchmarking the problem. Let's make a
-function to setup the well-mixed model from the reaction model
+Finally, let's make a function to setup the well-mixed model from the reaction
+model in a cube of side length `h`:
 ```julia
 function wellmixed_model(rn, u0, end_time, h)
     kaval = invmicromolar_to_cubicmicrometer(46.2) / h^3
@@ -198,19 +199,19 @@ function fetch_and_plot(bench_dict, domain_len)
     end
 
     plot!(plt1, xlabel = "number of sites per edge", ylabel = "median time in seconds",
-               xticks = Nv, legend = :bottomright)
+                xticks = Nv, legend = :bottomright)
     plot!(plt2, xlabel = "total number of sites", ylabel = "median time in seconds",
-               xticks = (Nv.^3, string.(Nv.^3)), legend = :bottomright)
-    plot(plt1, plt2; size = (1200,800), legendtitle = "SSAs", plot_title="3D RDME, domain length = $domain_len")
+                xticks = (Nv.^3, string.(Nv.^3)), legend = :bottomright)
+    plot(plt1, plt2; size = (1200,800), legendtitle = "SSAs",
+                     plot_title="3D RDME, domain length = $domain_len")
 end
 ```
-
-We are no ready to the benchmarks plot the results, we start with a
-domain length of `12` μm, Fig. 6 in [^1]:
+We are now ready to run the benchmarks and plot the results. We start with a
+domain length of `12` μm, analogous to Fig. 6 in [^1]:
 ```julia
 bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
 algs = [NSM(), DirectCRDirect()]
-Nv = [20, 30, 40, 50, 60]
+Nv = [20, 30, 40, 50, 60, 90, 120]
 end_times = 20000.0 * ones(length(Nv))
 domain_len = 12.0
 benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
@@ -230,7 +231,6 @@ benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
 ```julia
 plt=fetch_and_plot(bench_dict, domain_len)
 ```
-
 
 # References
 [^1]: Sanft, Kevin R and Othmer, Hans G. *Constant-complexity stochastic simulation algorithm with optimal binning*. J. Chem. Phys., 143(7), 11 pp. (2015).
