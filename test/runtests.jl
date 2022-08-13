@@ -5,6 +5,6 @@ using SciMLBenchmarks, Test
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
 
     @test isfile(joinpath(dirname(@__DIR__), "script", "Testing", "test.jl"))
-    @test isfile(joinpath(dirname(@__DIR__), "html", "Testing", "test.html"))
+    #@test isfile(joinpath(dirname(@__DIR__), "html", "Testing", "test.html"))
     @test isfile(joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md"))
 end
