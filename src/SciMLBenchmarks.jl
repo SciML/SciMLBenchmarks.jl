@@ -4,7 +4,7 @@ using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
 repo_directory = joinpath(@__DIR__,"..")
 
-function weave_file(folder,file,build_list=(:script,:html,:github))
+function weave_file(folder,file,build_list=(:script,:github))
   target = joinpath(folder, file)
   @info("Weaving $(target)")
 
