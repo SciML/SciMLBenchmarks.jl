@@ -1,41 +1,38 @@
 ---
 title: Negative Feedback Gene Expression Model
 author: Samuel Isaacson, Chris Rackauckas
+weave_options:
+      fig_ext : ".png"
 ---
 
 ```julia
-using DiffEqBase, DiffEqJump, DiffEqProblemLibrary, Plots, Statistics
-using DiffEqProblemLibrary.JumpProblemLibrary: importjumpproblems; importjumpproblems()
+using JumpProcesses, Catalyst, DiffEqProblemLibrary, Plots, Statistics
+using DiffEqProblemLibrary.JumpProblemLibrary: importjumpproblems
+importjumpproblems()
 import DiffEqProblemLibrary.JumpProblemLibrary: prob_jump_dnarepressor
-gr()
 fmt = :png
+```
+
+Our model is
+```julia
+rn = prob_jump_dnarepressor.network
+reactions(rn)
 ```
 
 # Plot solutions by each method
 
 ```julia
-methods = (Direct(),DirectFW(),FRM(),FRMFW(),SortingDirect(),NRM(),DirectCR(),RSSA())
-shortlabels = [string(leg)[12:end-2] for leg in methods]
+methods = (Direct(), FRM(), SortingDirect(), NRM(), DirectCR(), RSSA(), RSSACR())
+shortlabels = [string(leg)[15:end-2] for leg in methods]
 prob    = prob_jump_dnarepressor.discrete_prob
 tf      = prob_jump_dnarepressor.tstop
-rn      = prob_jump_dnarepressor.network
 ploth   = plot(reuse=false)
 for (i,method) in enumerate(methods)
     jump_prob = JumpProblem(rn, prob, method, save_positions=(false, false))
     sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
-    plot!(ploth,sol.t,sol[3,:],label=shortlabels[i], format=fmt)
+    plot!(ploth,sol.t, sol[3,:], label=shortlabels[i], format=fmt)
 end
-plot(ploth, title="Protein level", xlabel="time",format=fmt)
-```
-
-```julia
-p = []
-for (i,method) in enumerate(methods)
-    jump_prob = JumpProblem(rn, prob, method, save_positions=(false, false))
-    sol = solve(jump_prob, SSAStepper(), saveat=tf/1000.)
-    push!(p, plot(sol,title=shortlabels[i],leg=false,format=fmt))
-end
-plot(p...,format=fmt)
+plot(ploth, title="Protein level", xlabel="time", format=fmt)
 ```
 
 # Benchmarking performance of the methods
@@ -50,7 +47,7 @@ end
 ```
 
 ```julia
-nsims = 500
+nsims = 2000
 benchmarks = Vector{Vector{Float64}}()
 for method in methods
     jump_prob = JumpProblem(rn, prob, method, save_positions=(false, false))
@@ -62,9 +59,9 @@ end
 ```
 
 ```julia
-medtimes = Vector{Float64}(undef,length(methods))
-stdtimes = Vector{Float64}(undef,length(methods))
-avgtimes = Vector{Float64}(undef,length(methods))
+medtimes = Vector{Float64}(undef, length(methods))
+stdtimes = Vector{Float64}(undef, length(methods))
+avgtimes = Vector{Float64}(undef, length(methods))
 for i in 1:length(methods)
     medtimes[i] = median(benchmarks[i])
     avgtimes[i] = mean(benchmarks[i])
@@ -75,7 +72,8 @@ println(medtimes/medtimes[1])
 
 ```julia
 using DataFrames
-df = DataFrame(names=shortlabels,medtimes=medtimes,relmedtimes=(medtimes/medtimes[1]),avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
+df = DataFrame(names=shortlabels, medtimes=medtimes, relmedtimes=(medtimes/medtimes[1]),
+               avgtimes=avgtimes, std=stdtimes, cv=stdtimes./avgtimes)
 sa = [text(string(round(mt,sigdigits=2),"s"),:center,10) for mt in df.medtimes]
 bar(df.names,df.relmedtimes,legend=:false, fmt=fmt)
 scatter!(df.names, .05 .+ df.relmedtimes, markeralpha=0, series_annotations=sa, fmt=fmt)

@@ -1,0 +1,238 @@
+---
+title: Spatial Signaling Model from Sanft and Othmer (2015)
+author: Vasily Ilin and Samuel Isaacson
+weave_options:
+      fig_ext : ".png"
+---
+
+```julia
+using Catalyst, JumpProcesses, BenchmarkTools, Plots, Random
+```
+
+# Model description and setup
+Here we implement the model from [^1] (8 species and 12 reactions) for different
+mesh sizes, and benchmark the performance of JumpProcesses.jl's spatial
+stochastic simulation alorithms (SSAs). Below, the value `N` will denote the
+number of subvolumes along one dimension of a cubic grid, representing the
+reaction volume. In [^1] this value ranges from 20 to 60.
+
+We first define some helper functions to convert concentration units into number
+units, as needed for spatial SSAs.
+```julia
+invmicromolar_to_cubicmicrometer(invconcen) = invconcen / (6.02214076e2)
+micromolar_to_invcubicmicrometer(concen) = (6.02214076e2) * concen
+```
+
+Next we create a well-mixed model with the desired chemistry
+```julia
+rn = @reaction_network begin
+    k₁, EA --> EA + A
+    k₁, EB --> EB + B
+    (ka,kd), EA + B <--> EAB
+    (ka,kd), EAB + B <--> EAB₂
+    (ka,kd), EB + A <--> EBA
+    (ka,kd), EBA + A <--> EBA₂
+    k₄, A --> ∅
+    k₄, B --> ∅
+end k₁ ka kd k₄
+```
+Let's next make a function to calculate the spatial transport rates, mesh/graph
+that will represent our domain, and initial condition. We use a cubic lattice of
+size `N` by `N` by `N` with reflecting boundary conditions
+```julia
+# domain_len is the physical length of each side of the cubic domain
+# units should be in μm (6.0 or 12.0 in Sanft)
+# D is the diffusivity in units of (μm)^2 s⁻¹
+function transport_model(rn, N; domain_len = 6.0, D = 1.0, rng = Random.default_rng())
+    # topology
+    h = domain_len / N
+    dims = (N, N, N)
+    num_nodes = prod(dims)
+
+    # Cartesian grid with reflecting BC at boundaries
+    grid = CartesianGrid(dims)
+
+    # Cartesian grid hopping rate to neighbors
+    hopping_rate = D / h^2
+
+    # this indicates we have a uniform rate of D/h^2 along each edge at each site
+    hopping_constants = hopping_rate * ones(numspecies(rn))
+
+    # figure out the indices of species EA and EB
+    @unpack EA, EB = rn
+    EAidx = findfirst(isequal(EA), species(rn))
+    EBidx = findfirst(isequal(EB), species(rn))
+
+    # spatial initial condition
+    # initial concentration of 12.3 nM = 12.3 * 1e-3 μM
+    num_molecules = trunc(Int, micromolar_to_invcubicmicrometer(12.3*1e-3) * (domain_len^3))
+    u0 = zeros(Int, 8, num_nodes)
+    rand_EA = rand(rng, 1:num_nodes, num_molecules)
+    rand_EB = rand(rng, 1:num_nodes, num_molecules)
+    for i in 1:num_molecules
+        u0[EAidx, rand_EA[i]] += 1
+        u0[EBidx, rand_EB[i]] += 1
+    end
+
+    grid, hopping_constants, h, u0
+end
+```
+Finally, let's make a function to setup the well-mixed model from the reaction
+model in a cube of side length `h`:
+```julia
+function wellmixed_model(rn, u0, end_time, h)
+    kaval = invmicromolar_to_cubicmicrometer(46.2) / h^3
+    setdefaults!(rn, [:k₁ => 150, :ka => kaval, :kd => 3.82, :k₄ => 6.0])
+
+    # well-mixed initial condition corresponding to the spatial initial condition
+    u0wm = sum(u0, dims = 2)
+    dprobwm = DiscreteProblem(rn, u0wm, (0.0, end_time))
+    jprobwm = JumpProblem(rn, dprobwm, Direct(), save_positions = (false,false))
+    majumps = jprobwm.massaction_jump
+    majumps, dprobwm, jprobwm, u0wm
+end
+```
+
+# Model Solution
+Let's look at one example to check our model seems reasonable. We'll plot the
+total number of molecules in the system to verify we get around 28,000
+molecules, as reported in Sanft [^1], when using a domain length of 6 μm.
+```julia
+end_time = 3.0
+grid, hopping_constants, h, u0 = transport_model(rn, 60)
+majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, 6.0)
+sol = solve(jprobwm, SSAStepper(); saveat = end_time/200)
+Ntot = [sum(u) for u in sol.u]
+plt = plot(sol.t, Ntot, label="Well-mixed", ylabel="Total Number of Molecules",
+                        xlabel="time")
+
+# spatial model
+majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
+dprob = DiscreteProblem(u0, (0.0, end_time), copy(dprobwm.p))
+jprob = JumpProblem(dprob, DirectCRDirect(), majumps; hopping_constants,
+                    spatial_system = grid, save_positions = (false, false))
+spatial_sol = solve(jprob, SSAStepper(); saveat = end_time/200)
+Ntot = [sum(vec(u)) for u in spatial_sol.u]
+plot!(plt, spatial_sol.t, Ntot, label="Spatial",
+      title="Steady-state number of molecules is $(Ntot[end])")
+```
+
+# Benchmarking performance of the methods
+We can now run the solvers and record the performance with `BenchmarkTools`.
+Let's first create a `DiscreteCallback` to terminate simulations once we reach
+`10^8` events:
+```julia
+@Base.kwdef mutable struct EventCallback
+    n::Int = 0
+end
+
+function (ecb::EventCallback)(u, t, integ)
+    ecb.n += 1
+    ecb.n == 10^8
+end
+
+function (ecb::EventCallback)(integ)
+    # save the final state
+    terminate!(integ)
+    nothing
+end
+```
+We next create a function to run and return our benchmarking results.
+```julia
+function benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
+    @assert length(end_times) == length(Nv)
+
+    # callback for terminating simulations
+    ecb = EventCallback()
+    cb = DiscreteCallback(ecb, ecb)
+
+    for (end_time, N) in zip(end_times, Nv)
+        names = ["$s"[1:end-2] for s in algs]
+
+        grid, hopping_constants, h, u0 = transport_model(rn, N; domain_len)
+
+        # we create a well-mixed model within a domain of the size of *one* voxel, h
+        majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
+
+        # the spatial problem
+        dprob = DiscreteProblem(u0, (0.0, end_time), copy(dprobwm.p))
+
+        @show N
+
+        # benchmarking and saving
+        benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+
+        # callback for terminating simulations
+
+        for (i, alg) in enumerate(algs)
+            name = names[i]
+            println("benchmarking $name")
+            jp = JumpProblem(dprob, alg, majumps, hopping_constants=hopping_constants,
+                             spatial_system = grid, save_positions=(false,false))
+            b = @benchmarkable solve($jp, SSAStepper(); saveat = $(dprob.tspan[2]), callback) setup = (callback = deepcopy($cb)) samples = 10 seconds = 3600
+            bench_dict[name, N] = run(b)
+        end
+    end
+end
+```
+Finally, let's make a function to plot the benchmarking data.
+```julia
+function fetch_and_plot(bench_dict, domain_len)
+    names = unique([key[1] for key in keys(bench_dict)])
+    Nv = sort(unique([key[2] for key in keys(bench_dict)]))
+
+    plt1 = plot()
+    plt2 = plot()
+
+    medtimes = [Float64[] for i in 1:length(names)]
+    for (i,name) in enumerate(names)
+        for N in Nv
+            try
+                push!(medtimes[i], median(bench_dict[name, N]).time/1e9)
+            catch
+                break
+            end
+        end
+        len = length(medtimes[i])
+        plot!(plt1, Nv[1:len], medtimes[i], marker = :hex, label = name, lw = 2)
+        plot!(plt2, (Nv.^3)[1:len], medtimes[i], marker = :hex, label = name, lw = 2)
+    end
+
+    plot!(plt1, xlabel = "number of sites per edge", ylabel = "median time in seconds",
+                xticks = Nv, legend = :bottomright)
+    plot!(plt2, xlabel = "total number of sites", ylabel = "median time in seconds",
+                xticks = (Nv.^3, string.(Nv.^3)), legend = :bottomright)
+    plot(plt1, plt2; size = (1200,800), legendtitle = "SSAs",
+                     plot_title="3D RDME, domain length = $domain_len", left_margin=5Plots.mm)
+end
+```
+We are now ready to run the benchmarks and plot the results. We start with a
+domain length of `12` μm, analogous to Fig. 6 in [^1]:
+```julia
+bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
+algs = [NSM(), DirectCRDirect()]
+Nv = [20, 30, 40, 50, 60, 90, 120, 240, 360]
+end_times = 20000.0 * ones(length(Nv))
+domain_len = 12.0
+benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
+```
+```julia
+plt=fetch_and_plot(bench_dict, domain_len)
+```
+We next consider a domain of length `6` μm, analogous to Fig. 7 in [^1].
+```julia
+bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
+domain_len = 6.0
+benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
+```
+```julia
+plt=fetch_and_plot(bench_dict, domain_len)
+```
+
+# References
+[^1]: Sanft, Kevin R and Othmer, Hans G. *Constant-complexity stochastic simulation algorithm with optimal binning*. J. Chem. Phys., 143(7), 11 pp. (2015).
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
