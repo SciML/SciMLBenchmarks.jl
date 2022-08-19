@@ -37,7 +37,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 8, 11, 17, 3, 4, 7, 5, 9, 12, 18, 10, 16, 6, 15, 13, 14, 2]
+    [1, 9, 12, 18, 4, 5, 8, 6, 10, 13, 19, 11, 17, 7, 16, 3, 14, 15, 2]
 )
 
 names = [
@@ -56,6 +56,7 @@ names = [
     "Stiff Delay Differential equations",
     "Jump Process Equations (Gillespie Benchmarks)",
     "Parameter Estimation and Inverse Problem Benchmarks",
+    "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
     "SDE Adaptivity Benchmarks"]
