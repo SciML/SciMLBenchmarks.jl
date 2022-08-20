@@ -7,8 +7,9 @@ author: Vaibhav Dixit, Chris Rackauckas
 
 ```julia
 using DiffEqBayes
-using Distributions, CmdStan, DynamicHMC
-using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqUncertainty
+using DiffEqCallbacks
+using Distributions, StanSample, DynamicHMC
+using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions, DiffEqCallbacks
 using Plots
 ```
 
@@ -86,13 +87,13 @@ priors = [truncated(Normal(10,2),1,15),truncated(Normal(30,5),1,45),truncated(No
 Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainity plots. Use of truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
 
 ```julia
-#@time bayesian_result_stan = stan_inference(prob,t,data,priors;reltol=1e-8,abstol=1e-8)
+@time bayesian_result_stan = stan_inference(prob,t,data,priors;reltol=1e-8,abstol=1e-8, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
 ### Using Turing.jl backend
 
 ```julia
-@time bayesian_result_turing = turing_inference(prob,Tsit5(),t,data,priors;reltol=1e-8,abstol=1e-8)
+@time bayesian_result_turing = turing_inference(prob, Tsit5(), t, data, priors; reltol=1e-8, abstol=1e-8, likelihood=(u, p, t, σ) -> MvNormal(u, Diagonal((σ) .^ 2 .* ones(length(u)))), likelihood_dist_priors=[InverseGamma(2, 3), InverseGamma(2, 3), InverseGamma(2, 3)])
 ```
 
 ### Using DynamicHMC.jl backend
@@ -104,7 +105,7 @@ Lorenz equation is a chaotic system hence requires very low tolerance to be esti
 
 ## Conclusion
 
-Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors. 
+Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors.
 Its uncertainity plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainity small enough to be trusted in `(0,30)` time span.
 
 

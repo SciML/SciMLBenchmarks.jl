@@ -17,8 +17,8 @@ steps:
       - JuliaCI/julia#v1:
           version: 1.7
       - staticfloat/sandbox:
-          rootfs_url: "https://jc-rootfs-images.s3.amazonaws.com/aws_uploader-2021-11-12.x86_64.tar.gz"
-          rootfs_treehash: "986217e5b36efd3b3b91ed90df8e36d628cf543f"
+          rootfs_url: "https://github.com/ven-k/Placeholder/releases/download/v0.23.0/aws_uploader.x86_64.tar.gz"
+          rootfs_treehash: "d46b35aa927024de8729d63fde18442a0a590e62"
           workspaces:
             # Include the julia we just downloaded
             - "/cache/julia-buildkite-plugin:/cache/julia-buildkite-plugin"
@@ -43,6 +43,24 @@ steps:
       # Instantiate, to install the overall project dependencies, and `build()` for conda
       echo "--- Instantiate"
       julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
+
+      if [[ {PATH} == *ParameterEstimation* ]]
+      then
+        JULIA_CMDSTAN_HOME="cmdstan-2.29.2/"
+        pwd
+        curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
+        tar -xzpf cmdstan-2.29.2.tar.gz --no-same-owner
+        ls -lia .
+        ls -lia ./cmdstan-2.29.2
+        ls -lia ./cmdstan-2.29.2/make
+        touch ./cmdstan-2.29.2/make/local
+        echo "STAN_THREADS=true" > ./cmdstan-2.29.2/make/local
+        echo "g++ version"
+        echo $(g++ -v)
+        cd cmdstan-2.29.2
+        make build
+        cd -
+      fi
 
       # Run benchmark
       echo "+++ Run benchmark for {PATH}"
