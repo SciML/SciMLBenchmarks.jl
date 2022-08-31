@@ -1,7 +1,13 @@
 # SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers
 
-[![Join the chat at https://gitter.im/JuliaDiffEq/Lobby](https://badges.gitter.im/JuliaDiffEq/Lobby.svg)](https://gitter.im/JuliaDiffEq/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://julialang.zulipchat.com #sciml-bridged](https://img.shields.io/static/v1?label=Zulip&message=chat&color=9558b2&labelColor=389826)](https://julialang.zulipchat.com/#narrow/stream/279055-sciml-bridged)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](http://benchmarks.sciml.ai/stable/)
+[![Global Docs](https://img.shields.io/badge/docs-SciML-blue.svg)](https://docs.sciml.ai/dev/modules/SciMLBenchmarksOutput/)
+
 [![Build status](https://badge.buildkite.com/2f4b5708bf098c75ce193f04b3f3c4047f993f0e363e314c61.svg)](https://buildkite.com/julialang/scimlbenchmarks-dot-jl)
+
+[![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac)
+[![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle)
 
 SciMLBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
 for the SciML Scientific Machine Learning Software ecosystem, including:
