@@ -9,7 +9,7 @@ using DiffEqBayes, BenchmarkTools
 
 ```julia
 using OrdinaryDiffEq, RecursiveArrayTools, Distributions, ParameterizedFunctions, StanSample, DynamicHMC
-using Plots, StaticArrays, Turing
+using Plots, StaticArrays, Turing, LinearAlgebra
 ```
 
 ```julia
@@ -64,7 +64,7 @@ priors = [truncated(Normal(1.0,0.5),0,1.5), truncated(Normal(1.0,0.5),0,1.5), tr
 #### Stan.jl backend
 
 ```julia
-@btime bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors; num_samples = 10_000, print_summary=false, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+@time bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors; num_samples = 10_000, print_summary=false, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
 ### Direct Turing.jl
@@ -82,7 +82,7 @@ priors = [truncated(Normal(1.0,0.5),0,1.5), truncated(Normal(1.0,0.5),0,1.5), tr
     # Simulate Lotka-Volterra model. 
     p = SA[a,b,τinv,l]
     _prob = remake(prob, p = p)
-    predicted = solve(_prob, Tsit5(); saveat=0.1)
+    predicted = solve(_prob, Tsit5(); saveat=t)
 
     # Observations.
     for i in 1:length(predicted)
@@ -104,7 +104,7 @@ model = fitlv(data, sprob_ode_fitzhughnagumo)
 #### Turing.jl backend
 
 ```julia
-@btime bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors;num_samples = 10_000)
+@time bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors;num_samples = 10_000)
 ```
 
 
