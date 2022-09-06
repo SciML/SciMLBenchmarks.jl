@@ -33,110 +33,11 @@ or building work-precision diagrams for direct comparison of speed at given erro
 
 ## Results
 
+To view the results of the SciML Benchmarks, go to [benchmarks.sciml.ai](https://benchmarks.sciml.ai/stable/). By default, this
+will lead to the latest tagged version of the benchmarks. To see the in-development version of the benchmarks, go to
+[https://benchmarks.sciml.ai/dev/](https://benchmarks.sciml.ai/dev/).
+
 Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
-
-## Table of Contents
-
-- Multi-Language Wrapper Benchmarks
-  - [ODE Solver Multi-Language Wrapper Package Work-Precision Benchmarks (MATLAB, SciPy, Julia, deSolve (R))](https://benchmarks.sciml.ai/html/MultiLanguage/wrapper_packages.html)
-  - [Torchdiffeq vs DifferentialEquations.jl (/ DiffEqFlux.jl) Benchmarks](https://gist.github.com/ChrisRackauckas/cc6ac746e2dfd285c28e0584a2bfd320)
-  - [torchdiffeq vs Julia DiffEqFlux Neural ODE Training Benchmark](https://gist.github.com/ChrisRackauckas/4a4d526c15cc4170ce37da837bfc32c4)
-  - [torchsde vs DifferentialEquations.jl / DiffEqFlux.jl](https://gist.github.com/ChrisRackauckas/6a03e7b151c86b32d74b41af54d495c6)
-  - [JITCODE vs SciPy vs DifferentialEquations.jl on large network dynamics](https://github.com/PIK-ICoN/NetworkDynamicsBenchmarks)
-  - [DifferentialEquations.jl vs Mujuco and DiffTaichi](https://arxiv.org/abs/2012.06684)
-  - [DiffEqFlux.jl / DifferentialEquations.jl vs Jax on an epidemic model](https://gist.github.com/ChrisRackauckas/62a063f23cccf3a55a4ac9f6e497739a)
-  - [DifferentialEquations.jl vs SciPy vs NumbaLSODA on a stiff ODE](https://gist.github.com/ChrisRackauckas/fd62e005c4c86520306338b6bdae6b79)
-  - [DifferentialEquations.jl vs SciPy vs NumbaLSODA](https://github.com/Nicholaswogan/NumbaLSODA/tree/main/benchmark)
-  - [Brusselator Stiff Partial Differential Equation Benchmark: Julia DifferentialEquations.jl vs Python SciPy](https://gist.github.com/ChrisRackauckas/0bdbea0079a8a3ce28522e9bc8473bf0)
-- Non-stiff Ordinary Differential Equations (ODEs)
-  - [Linear Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/linear_wpd.html)
-  - [Three-Body Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/ThreeBody_wpd.html)
-  - [Pleides Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/Pleiades_wpd.html)
-  - [Rigid Body Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/RigidBody_wpd.html)
-  - [Fizhugh-Nagumo Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/FitzhughNagumo_wpd.html)
-  - [Lotka-Volterra Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffODE/LotkaVolterra_wpd.html)
-  - [Direct vs MATLAB Benchmark](https://github.com/JuliaDiffEq/MATLABDiffEq.jl#benchmark)
-  - [Runge-Kutta vs Taylor Integration on Pleides](https://gist.github.com/ChrisRackauckas/1301b23aa12ad83de7138d8e41d64dd6)
-- Stiff Ordinary Differential Equations (ODEs)
-  - [Van der Pol Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/VanDerPol.html)
-  - [ROBER Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/ROBER.html)
-  - [Orego Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Orego.html)
-  - [Hires Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Hires.html)
-  - [Pollution Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Pollution.html)
-  - [Multistate (9 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multistate.html)
-  - [Multisite2 (66 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multisite2.html)
-  - [Egfr_net (356 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/egfr_net.html)
-  - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
-  - [Bidkhori 2012 SBML Model (109 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/Bidkhori2012.html)
-- Differential-Algebraic Equations (DAEs)
-  - [ROBER DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ROBERDAE.html)
-  - [OREGO DAE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/OregoDAE.html)
-  - [Chemical Akzo Nobel Differential-Algebraic Equation (DAE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/DAE/ChemicalAkzoNobel.html)
-- Method of Lines PDEs
-  - [Filament PDE Discretization Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/Filament.html)
-  - [Allen-Cahn Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/allen_cahn_fdm_wpd.html)
-  - [Allen-Cahn Pseudospectral Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/allen_cahn_spectral_wpd.html)
-  - [Burger's Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/burgers_fdm_wpd.html)
-  - [Burger's Pseudospectral Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/burgers_spectral_wpd.html)
-  - [KdV Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/kdv_fdm_wpd.html)
-  - [KdV Pseudospectral Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/kdv_spectral_wpd.html)
-  - [Kuramoto–Sivashinsky Finite Difference Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/ks_fdm_wpd.html)
-  - [Kuramoto–Sivashinsky Pseudospectral Work-Precision Diagrams](https://benchmarks.sciml.ai/html/MOLPDE/ks_spectral_wpd.html)
-- Dynamical ODEs
-  - [Single Pendulum Comparison Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/single_pendulums.html)
-  - [Henon-Heiles Energy Conservation Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/Henon-Heiles_energy_conservation_benchmark.html)
-  - [Quadrupole Boson Hamiltonian Energy Conservation Benchmark](https://benchmarks.sciml.ai/html/DynamicalODE/Quadrupole_boson_Hamiltonian_energy_conservation_benchmark.html)
-- N-body problems
-  - [Acceleration function benchmarks](https://benchmarks.sciml.ai/html/NBodySimulator/acceleration_functions.html)
-  - [Liquid argon benchmarks](https://benchmarks.sciml.ai/html/NBodySimulator/liquid_argon.html)
-- Nonstiff SDEs
-  - [Simple Nonstiff SDE Strong Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffSDE/BasicSDEWorkPrecision.html)
-  - [Simple Nonstiff SDE Weak Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffSDE/BasicSDEWeakWorkPrecision.html)
-  - [Lotka-Volterra SDE Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffSDE/LotkaVolterraSDE.html	)
-- Stiff SDEs
-  - [Stochastic Heat Equation Investigation](https://benchmarks.sciml.ai/html/StiffSDE/StochasticHeat.html)
-  - [Quadratic Diffusion Noise Investigation](https://benchmarks.sciml.ai/html/StiffSDE/QuadraticStiffness.html)
-  - [Oval2 Long Run](https://benchmarks.sciml.ai/html/StiffSDE/Oval2LongRun.html)
-  - [Oval2 Long Timings](https://benchmarks.sciml.ai/html/StiffSDE/Oval2LongTimes.html)
-  - [Oval2 Timings](https://benchmarks.sciml.ai/html/StiffSDE/Oval2Timings.html)
-- Nonstiff DDEs
-  - Constant Delay DDEs
-    - [Mackey and Glass Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffDDE/Mackey_Glass_wpd.html)
-    - [Wheldon, Kirk, and Finlay Work-Precision Diagrams](https://benchmarks.sciml.ai/html/NonStiffDDE/Wheldon_Kirk_Finlay_wpd.html)
-- Stiff DDEs
-  - [Quorum Sensing Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffDDE/QuorumSensing.html)
-- Jump Equations
-  - [Diffusion Model](https://benchmarks.sciml.ai/html/Jumps/Diffusion_CTRW.html)
-  - [Mendes Multistate Model](https://benchmarks.sciml.ai/html/Jumps/Mendes_multistate_example.html)
-  - [Negative Feedback Gene Expression Model](https://benchmarks.sciml.ai/html/Jumps/NegFeedback_GeneExpr.html)
-  - [Negative Feedback Marchetti Model](https://benchmarks.sciml.ai/html/Jumps/NegFeedback_GeneExpr_Marchetti.html)
-- Parameter Estimation
-  - [Lorenz Equation Parameter Estimation by Optimization Methods](https://benchmarks.sciml.ai/html/ParameterEstimation/LorenzParameterEstimation.html)
-  - [Bayesian Lotka-Volterra Parameter Estimation](https://benchmarks.sciml.ai/html/ParameterEstimation/DiffEqBayesLotkaVolterra.html)
-  - [Bayesian Lorenz Equation Estimation](https://benchmarks.sciml.ai/html/ParameterEstimation/DiffEqBayesLorenz.html)
-  - [Bayesian FitzHugh-Nagumo Equation Estimation](https://benchmarks.sciml.ai/html/ParameterEstimation/DiffEqBayesFitzHughNagumo.html)
-  - [Lotka Volterra Equation Parameter Estimation by Optimization Methods](https://benchmarks.sciml.ai/html/ParameterEstimation/LotkaVolterraParameterEstimation.html)
-  - [FitzHugh-Nagumo Equation Parameter Estimation by Optimization Methods](https://benchmarks.sciml.ai/html/ParameterEstimation/FitzHughNagumoParameterEstimation.html)
-- Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks
-  - [Allen-Cahn PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/allen_cahn_et.html)
-  - [Diffusion Equation Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/diffusion_et.html)
-  - [Hamilton-Jacobi PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/hamilton_jacobi_et.html)
-  - [Level Set PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/level_set_et.html)
-  - [Nernst-Planck PDE Physics-Informed Neural Network (PINN) Loss Function Error vs Time Benchmarks](https://benchmarks.sciml.ai/html/PINNErrorsVsTime/nernst_planck_et.html)
-- Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks
-  - [Diffusion Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_diffusion.html)
-  - [1D Nernst-Planck Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/1d_poisson_nernst_planck.html)
-  - [Allen-Cahn Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/allen_cahn.html)
-  - [Berger's Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/burgers_equation.html)
-  - [Hamilton-Jacobi Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/hamilton_jacobi.html)
-  - [Poisson Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks](https://benchmarks.sciml.ai/html/PINNOptimizers/poisson.html)
-
-The following tests were developed for the paper *Adaptive Methods for Stochastic Differential Equations via Natural Embeddings and Rejection Sampling with Memory*. These notebooks track their latest developments.
-
-- SDE Adaptivity
-
-  - [qmax Determination Tests](https://benchmarks.sciml.ai/html/AdaptiveSDE/qmaxDetermination.html)
-  - [Adaptive Efficiency Tests](https://benchmarks.sciml.ai/html/AdaptiveSDE/AdaptiveEfficiencyTests.html)
 
 ## Current Summary
 
