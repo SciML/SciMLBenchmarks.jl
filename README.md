@@ -1,7 +1,13 @@
 # SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers
 
-[![Join the chat at https://gitter.im/JuliaDiffEq/Lobby](https://badges.gitter.im/JuliaDiffEq/Lobby.svg)](https://gitter.im/JuliaDiffEq/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://julialang.zulipchat.com #sciml-bridged](https://img.shields.io/static/v1?label=Zulip&message=chat&color=9558b2&labelColor=389826)](https://julialang.zulipchat.com/#narrow/stream/279055-sciml-bridged)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](http://benchmarks.sciml.ai/stable/)
+[![Global Docs](https://img.shields.io/badge/docs-SciML-blue.svg)](https://docs.sciml.ai/dev/modules/SciMLBenchmarksOutput/)
+
 [![Build status](https://badge.buildkite.com/2f4b5708bf098c75ce193f04b3f3c4047f993f0e363e314c61.svg)](https://buildkite.com/julialang/scimlbenchmarks-dot-jl)
+
+[![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac)
+[![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle)
 
 SciMLBenchmarks.jl holds webpages, pdfs, and notebooks showing the benchmarks
 for the SciML Scientific Machine Learning Software ecosystem, including:
@@ -19,7 +25,9 @@ computational science and scientific computing all the way to AI for science.
 
 These benchmarks are meant to represent good optimized coding style. Benchmarks are preferred to be run on the provided open
 benchmarking hardware for full reproducibility (though in some cases, such as with language barriers, this can be difficult).
-Each benchmark is documented with the compute devices used along with package versions for necessary reproduction.
+Each benchmark is documented with the compute devices used along with package versions for necessary reproduction. These
+benchmarks attempt to measure in terms of work-precision efficiency, either timing with an approximately matching the error
+or building work-precision diagrams for direct comparison of speed at given error tolerances.
 
 **If any of the code from any of the languages can be improved, please open a pull request**.
 
@@ -55,6 +63,9 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Orego Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Orego.html)
   - [Hires Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Hires.html)
   - [Pollution Work-Precision Diagrams](https://benchmarks.sciml.ai/html/StiffODE/Pollution.html)
+  - [Multistate (9 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multistate.html)
+  - [Multisite2 (66 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multisite2.html)
+  - [Egfr_net (356 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/egfr_net.html)
   - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
   - [Bidkhori 2012 SBML Model (109 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/Bidkhori2012.html)
 - Differential-Algebraic Equations (DAEs)
