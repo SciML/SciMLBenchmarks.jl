@@ -20,7 +20,7 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
 
 gr()
 const to = TimerOutput()
-tf       = 1000.0
+tf       = 2.0
 
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multisite2.net"))
@@ -70,7 +70,7 @@ points.
 ## Generate Test Solution
 
 ```julia
-@time sol = solve(oprob, CVODE_BDF(), abstol=1/10^12, reltol=1/10^12)
+@time sol = solve(oprob, CVODE_BDF(), reltol=1e-15, abstol=1e-15)
 test_sol  = TestSolution(sol)
 ```
 
@@ -82,20 +82,21 @@ reltols = 1.0 ./ 10.0 .^ (6:10);
 setups = [
           Dict(:alg=>lsoda()),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>QNDF()),
-          Dict(:alg=>FBDF()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
           ];
 ```
+
 
 ## Work-Precision Diagram
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 plot(wp)
 ```
 
