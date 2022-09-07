@@ -20,7 +20,7 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
 
 gr()
 const to = TimerOutput()
-tf       = 1000.0
+tf       = 20.0
 
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multistate.net"))
@@ -70,7 +70,7 @@ points.
 ## Generate Test Solution
 
 ```julia
-@time sol = solve(oprob, CVODE_BDF(), abstol=1/10^12, reltol=1/10^12)
+@time sol = solve(oprob, CVODE_BDF(), reltol=1e-15, abstol=1e-15)
 test_sol  = TestSolution(sol)
 ```
 
@@ -95,7 +95,7 @@ setups = [
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 plot(wp)
 ```
 
