@@ -66,6 +66,7 @@ Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](http
   - [Multistate (9 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multistate.html)
   - [Multisite2 (66 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/multisite2.html)
   - [Egfr_net (356 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/egfr_net.html)
+  - [Fceri_gamma2 (3744 ODE) Work-Precision Diagram](https://benchmarks.sciml.ai/html/Bio/fceri_gamma2.html)
   - [BCR (1122 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/BCR.html)
   - [Bidkhori 2012 SBML Model (109 ODE) Work-Precision Diagrams](https://benchmarks.sciml.ai/html/Bio/Bidkhori2012.html)
 - Differential-Algebraic Equations (DAEs)

@@ -1,12 +1,12 @@
 ---
-title: Egfr_net Work-Precision Diagrams
+title: Fceri_gamma2 Work-Precision Diagrams
 author: Torkel Loman
 ---
 
 The following benchmark is of 356 ODEs with 3749 terms that describe a stiff
-chemical reaction network. This egfr_net model was used as a benchmark model in [Gupta et
-al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). It describes the epidermal growth factor receptor signalling system [Blinov et
-al.](https://pubmed.ncbi.nlm.nih.gov/16233948/). We use
+chemical reaction network. This fceri_gamma2 model was used as a benchmark model in [Gupta et
+al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). It describes high-affinity human IgE receptor signalling [Faeder et
+al.](https://www.jimmunol.org/content/170/7/3769.long). We use
 [`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
 to load the BioNetGen model files as a
 [Catalyst](https://github.com/SciML/Catalyst.jl) model, and then use
@@ -21,10 +21,10 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
 
 gr()
 const to = TimerOutput()
-tf       = 10.0
+tf       = 200.0
 
 # generate ModelingToolkit ODEs
-@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/egfr_net.net"))
+@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/fceri_gamma2.net"))
 rn    = prnbng.rn
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
 
@@ -78,16 +78,15 @@ test_sol  = TestSolution(sol)
 ## Setups
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (6:10)
-reltols = 1.0 ./ 10.0 .^ (6:10);
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (5:8);
 setups = [
-          Dict(:alg=>lsoda()),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
-          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES())),
-          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES())),
-          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
-          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
-          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false)),
+          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false)),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false)),
+          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false)),
+          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES(),autodiff=false)),
           ];
 ```
 
@@ -96,7 +95,7 @@ setups = [
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
 
