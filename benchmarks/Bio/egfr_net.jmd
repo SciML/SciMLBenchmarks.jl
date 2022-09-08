@@ -76,7 +76,7 @@ points.
 ## Generate Test Solution
 
 ```julia
-@time sol = solve(oprob, CVODE_BDF(), reltol=1e-15, abstol=1e-15)
+@time sol = solve(oprob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
 test_sol  = TestSolution(sol)
 ```
 
@@ -103,6 +103,43 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
 plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:14)
+reltols = 1.0 ./ 10.0 .^ (7:11)
+
+setups = [
+            Dict(:alg=>CVODE_BDF()),
+            Dict(:alg=>KenCarp4()),
+            Dict(:alg=>Rodas4()),
+            Dict(:alg=>Rodas5()),
+            #Dict(:alg=>QNDF()),
+            Dict(:alg=>lsoda()),
+            Dict(:alg=>radau()),
+            Dict(:alg=>seulex()),
+            Dict(:alg=>ImplicitEulerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = false)),
+            # Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            # Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+            ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","lsoda","radau","seulex", "ImplEulerExtpl (non-threaded)","ImplEulerBaryExtpl (non-threaded)","ImplicitHairerWannerExtrapolation"]
+
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;
+                      print_names = true, names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+
+plot(wp, title = "Implicit Methods",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
 ```
 
 ```julia, echo = false
