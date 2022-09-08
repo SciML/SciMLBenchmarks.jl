@@ -9,7 +9,7 @@ using DiffEqBayes, BenchmarkTools
 
 ```julia
 using OrdinaryDiffEq, RecursiveArrayTools, Distributions, ParameterizedFunctions, StanSample, DynamicHMC
-using Plots
+using Plots, StaticArrays, Turing, LinearAlgebra
 ```
 
 ```julia
@@ -30,6 +30,11 @@ end a b τinv l
 ```julia
 prob_ode_fitzhughnagumo = ODEProblem(fitz, [1.0,1.0], (0.0,10.0), [0.7,0.8,1/12.5,0.5])
 sol = solve(prob_ode_fitzhughnagumo, Tsit5())
+```
+
+```julia
+sprob_ode_fitzhughnagumo = ODEProblem{false,SciMLBase.FullSpecialize}(fitz, SA[1.0,1.0], (0.0,10.0), SA[0.7,0.8,1/12.5,0.5])
+sol = solve(sprob_ode_fitzhughnagumo, Tsit5())
 ```
 
 Data is genereated by adding noise to the solution obtained above.
@@ -59,13 +64,47 @@ priors = [truncated(Normal(1.0,0.5),0,1.5), truncated(Normal(1.0,0.5),0,1.5), tr
 #### Stan.jl backend
 
 ```julia
-@btime bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors; num_samples = 10_000, print_summary=false, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+@time bayesian_result_stan = stan_inference(prob_ode_fitzhughnagumo,t,data,priors; delta = 0.65, num_samples = 10_000, print_summary=false, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+```
+
+### Direct Turing.jl
+
+```julia
+@model function fitlv(data, prob)
+
+    # Prior distributions.
+    σ ~ InverseGamma(2, 3)
+    a ~ truncated(Normal(1.0,0.5),0,1.5)
+    b ~ truncated(Normal(1.0,0.5),0,1.5)
+    τinv ~ truncated(Normal(0.0,0.5),0.0,0.5)
+    l ~ truncated(Normal(0.5,0.5),0,1)
+
+    # Simulate Lotka-Volterra model. 
+    p = SA[a,b,τinv,l]
+    _prob = remake(prob, p = p)
+    predicted = solve(_prob, Tsit5(); saveat=t)
+
+    # Observations.
+    for i in 1:length(predicted)
+        data[:, i] ~ MvNormal(predicted[i], σ^2 * I)
+    end
+
+    return nothing
+end
+
+model = fitlv(data, sprob_ode_fitzhughnagumo)
+
+@time chain = sample(model, NUTS(0.65), 10000; progress=false)
+```
+
+```julia
+@time chain = sample(model, NUTS(0.65), 10000; progress=false)
 ```
 
 #### Turing.jl backend
 
 ```julia
-@btime bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors;num_samples = 10_000)
+@time bayesian_result_turing = turing_inference(prob_ode_fitzhughnagumo,Tsit5(),t,data,priors;num_samples = 10_000)
 ```
 
 
