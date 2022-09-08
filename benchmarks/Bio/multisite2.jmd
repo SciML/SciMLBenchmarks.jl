@@ -70,7 +70,7 @@ points.
 ## Generate Test Solution
 
 ```julia
-@time sol = solve(oprob, CVODE_BDF(), abstol=1/10^12, reltol=1/10^12)
+@time sol = solve(oprob, Rodas5P(), reltol=1e-15, abstol=1e-15)
 test_sol  = TestSolution(sol)
 ```
 
@@ -105,8 +105,8 @@ Multithreading benchmarks with Parallel Extrapolation Methods
 #Setting BLAS to one thread to measure gains
 LinearAlgebra.BLAS.set_num_threads(1)
 
-abstols = 1.0 ./ 10.0 .^ (10:14)
-reltols = 1.0 ./ 10.0 .^ (7:11)
+abstols = 1.0 ./ 10.0 .^ (10:13)
+reltols = 1.0 ./ 10.0 .^ (10:13)
 
 setups = [
             Dict(:alg=>CVODE_BDF()),
@@ -117,17 +117,19 @@ setups = [
             Dict(:alg=>lsoda()),
             Dict(:alg=>radau()),
             Dict(:alg=>seulex()),
-            Dict(:alg=>ImplicitEulerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerExtrapolation(threading = false)),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = false)),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 6, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 6, threading = false)),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 4, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 4, threading = false)),
             ]
-
 
 solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;
+                      print_names = true, names = solnames, save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 
 plot(wp, title = "Implicit Methods",legend=:outertopleft,size = (1000,500),
      xticks = 10.0 .^ (-15:1:1),
