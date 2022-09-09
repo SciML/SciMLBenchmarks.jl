@@ -16,7 +16,8 @@ Catalyst network model to ODEs.
 ```julia
 using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools
+      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
+      LinearSolve
 
 gr()
 const to = TimerOutput()
@@ -96,7 +97,7 @@ setups = [
 ```
 
 
-## Work-Precision Diagram
+## Implicit Work-Precision Diagrams
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
@@ -105,7 +106,33 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
 plot(wp)
 ```
 
-Multithreading benchmarks with Parallel Extrapolation Methods
+Implicit methods doing poorly suggests it's non-stiff.
+
+## Non-Stiff Work-Precision Diagrams
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:10)
+reltols = 1.0 ./ 10.0 .^ (6:10);
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_Adams()),
+          Dict(:alg=>Tsit5()),
+          Dict(:alg=>BS5()),
+          Dict(:alg=>VCABM()),
+          Dict(:alg=>Vern6()),
+          Dict(:alg=>Vern7()),
+          Dict(:alg=>Vern8()),
+          Dict(:alg=>Vern9()),
+          ];
+```
+
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+plot(wp)
+```
+
+## Multithreading benchmarks with Parallel Extrapolation Methods
 
 ```julia
 #Setting BLAS to one thread to measure gains
