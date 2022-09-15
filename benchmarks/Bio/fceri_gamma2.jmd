@@ -30,11 +30,10 @@ rn    = prnbng.rn
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
 
 tspan = (0.,tf)
-@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
 ```
 
 ```julia
-@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
 show(to)
 ```
 
@@ -53,15 +52,14 @@ one time.
 u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
 du = copy(u)
 p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
-@timeit to "ODE rhs Eval1" oprob.f(du,u,p,0.)
-@timeit to "ODE rhs Eval2" oprob.f(du,u,p,0.)
+@timeit to "ODE rhs Eval1" sparsejacprob.f(du,u,p,0.)
 sparsejacprob.f(du,u,p,0.)
 ```
 
 We also time the ODE rhs function with BenchmarkTools as it is more accurate
 given how fast evaluating `f` is:
 ```julia
-@btime oprob.f($du,$u,$p,0.)
+@btime sparsejacprob.f($du,$u,$p,0.)
 ```
 
 ## Picture of the solution
@@ -100,7 +98,7 @@ setups = [
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
-wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
