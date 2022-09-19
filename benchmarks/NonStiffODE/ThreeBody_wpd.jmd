@@ -50,6 +50,7 @@ probstatic = ODEProblem{false}(f,SA[0.994, 0.0, 0.0, parse(Float64,"-2.001585106
 
 sol = solve(prob,Vern7(),abstol=1/10^14,reltol=1/10^14)
 sol2 = solve(probstatic,Vern7(),abstol=1/10^14,reltol=1/10^14)
+probs = [prob,probstatic]
 test_sol = [sol,sol2];
 
 abstols = 1.0 ./ 10.0 .^ (3:13); reltols = 1.0 ./ 10.0 .^ (0:10);
@@ -63,14 +64,7 @@ sol = solve(prob,Vern9(),abstol=1e-14,reltol=1e-14)
 @show sol[end] - prob.u0;
 ```
 
-```julia
-apr = appxtrue(sol,test_sol)
-@show sol[end]
-@show apr.u[end]
-@show apr.errors
-```
-
-This three-body problem is known to be a tough problem. Let's see how the algorithms fair at standard tolerances.
+This three-body problem is known to be a tough problem. Let's see how the algorithms do at standard tolerances.
 
 ### 5th Order Runge-Kutta Methods
 
@@ -82,7 +76,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
 ```
 
@@ -95,7 +89,7 @@ setups = [Dict(:alg=>DP5(),:dense=>false)
           Dict(:alg=>Tsit5(),:dense=>false)
           Dict(:alg=>Tsit5(),:dense=>false, :prob_choice => 2)
           Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
 ```
 
@@ -108,7 +102,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
 ```
 
@@ -129,17 +123,17 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern7(), :prob_choice => 2)
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)];
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100,verbose=false)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,dense=false,numruns=100,verbose=false)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,numruns=100)
 plot(wp)
 ```
 
@@ -165,7 +159,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>odex())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
     ];
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100)
 plot(wp)
 ```
 
@@ -185,7 +179,7 @@ setups = [Dict(:alg=>Tsit5())
           Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=4, threading=true))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))]
 solnames = ["Tsit5","Vern9","AitkenNeville","Midpoint Deuflhard","Midpoint Hairer Wanner"]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,names=solnames,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,names=solnames,
                       save_everystep=false,verbose=false,numruns=100)
 plot(wp)
 ```

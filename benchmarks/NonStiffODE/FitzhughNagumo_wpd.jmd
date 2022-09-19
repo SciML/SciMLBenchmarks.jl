@@ -28,7 +28,7 @@ reltols = 1.0 ./ 10.0 .^ (3:10);
 
 sol = solve(prob,Vern7(),abstol=1/10^14,reltol=1/10^14)
 sol2 = solve(probstatic,Vern7(),abstol=1/10^14,reltol=1/10^14)
-
+probs = [prob,probstatic]
 test_sol = [sol,sol2];
 ```
 
@@ -48,7 +48,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>Vern6(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
@@ -63,7 +63,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>Vern6(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=10000,error_estimate=:L2,dense_errors=true)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=10000,error_estimate=:L2,dense_errors=true)
 plot(wp)
 ```
 
@@ -82,7 +82,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
@@ -96,7 +96,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>odex())
           Dict(:alg=>ddeabm())
 ]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
@@ -114,7 +114,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=1000,error_estimate=:L2,dense_errors=true)
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,numruns=100,maxiters=1000,error_estimate=:L2,dense_errors=true)
 plot(wp)
 ```
 
@@ -133,7 +133,7 @@ setups = [Dict(:alg=>Tsit5())
           Dict(:alg=>ExtrapolationMidpointDeuflhard(min_order=1, max_order=9, init_order=4, threading=true))
           Dict(:alg=>ExtrapolationMidpointHairerWanner(min_order=2, max_order=11, init_order=4, threading=true))]
 solnames = ["Tsit5","Vern9","VCABM","AitkenNeville","Midpoint Deuflhard","Midpoint Hairer Wanner"]
-wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,names=solnames,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;appxsol=test_sol,names=solnames,
                       save_everystep=false,verbose=false,numruns=100)
 plot(wp)
 ```
