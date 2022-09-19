@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, ParameterizedFunctions, ODE, ODEInterfaceDiffEq, LSODA,
-      Sundials, DiffEqDevTools
+      Sundials, DiffEqDevTools, StaticArrays
 
 k(t) = 0.25*sin(t)^2
 
@@ -15,8 +15,9 @@ g = @ode_def RigidBody begin
   dy3  = I₃*y1*y2 + k(t)
 end I₁ I₂ I₃
 
-p = [-2.0,1.25,-0.5]
-prob = ODEProblem(g,[1.0;0.0;0.9],(0.0,10.0),p)
+p = SA[-2.0,1.25,-0.5]
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(g,[1.0;0.0;0.9],(0.0,10.0),p)
+probstatic = ODEProblem{false}(g,SA[1.0;0.0;0.9],(0.0,10.0),p)
 
 abstols = 1.0 ./ 10.0 .^ (6:13)
 reltols = 1.0 ./ 10.0 .^ (3:10);
@@ -35,8 +36,10 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>dopri5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
+          Dict(:alg=>Tsit5(), :prob_choice => 2)
+          Dict(:alg=>Vern6(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=true,numruns=100,maxiters=10000)
+wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=true,numruns=100,maxiters=10000)
 plot(wp)
 ```
 
@@ -46,26 +49,33 @@ The DifferentialEquations.jl algorithms once again pull ahead. This is the first
 
 ```julia
 setups = [Dict(:alg=>DP8())
+          Dict(:alg=>dop853())
           #Dict(:alg=>ode78()) # fails
+          Dict(:alg=>Vern6())
           Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
-          Dict(:alg=>dop853())
-          Dict(:alg=>Vern6())
+          Dict(:alg=>Vern9())
+          Dict(:alg=>Vern6(), :prob_choice => 2)
+          Dict(:alg=>Vern7(), :prob_choice => 2)
+          Dict(:alg=>Vern8(), :prob_choice => 2)
+          Dict(:alg=>Vern9(), :prob_choice => 2)
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>Vern7())
           Dict(:alg=>Vern8())
+          Dict(:alg=>Vern7(), :prob_choice => 2)
+          Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>odex())
           Dict(:alg=>CVODE_Adams())
           Dict(:alg=>lsoda())
           Dict(:alg=>ddeabm())
           Dict(:alg=>ARKODE(Sundials.Explicit(),order=6))
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
+wp = WorkPrecisionSet([prob,probstatic],abstols,reltols,setups;appxsol=test_sol,save_everystep=false,numruns=100,maxiters=1000)
 plot(wp)
 ```
 
