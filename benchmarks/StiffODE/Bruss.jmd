@@ -58,7 +58,7 @@ prob_mtk = ODEProblem(modelingtoolkitize(prob),[],(0.0,11.5),jac=true,sparse=tru
 
 ```julia
 sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
-sol2 = solve(prob_mtk,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
+sol2 = solve(prob_mtk,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
 test_sol = [sol,sol2]
 probs = [prob,prob_mtk]
 ```
@@ -157,8 +157,8 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver = :GMRES), :prob_choice => 2),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1)),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1)),
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1, :prob_choice => 2)),
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1, :prob_choice => 2)),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1), :prob_choice => 2),
           ]
 names = ["CVODE MTK KLU","CVODE GMRES","CVODE MTK GMRES", "CVODE iLU GMRES", "CVODE AMG GMRES", "CVODE iLU MTK GMRES", "CVODE AMG MTK GMRES"];
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names,
@@ -215,8 +215,8 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver = :GMRES), :prob_choice => 2),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1)),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1)),
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1, :prob_choice => 2)),
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1, :prob_choice => 2)),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1), :prob_choice => 2),
           ]
 names = ["CVODE MTK KLU","CVODE GMRES","CVODE MTK GMRES", "CVODE iLU GMRES", "CVODE AMG GMRES", "CVODE iLU MTK GMRES", "CVODE AMG MTK GMRES"];
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
