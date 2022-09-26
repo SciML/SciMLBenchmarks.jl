@@ -183,7 +183,7 @@ setups = [
 names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 UMFPACK", "KenCarp47 UMFPACK MTK", "KenCarp47 GMRES", 
         "KenCarp47 GMRES MTK", "KenCarp47 iLU GMRES", "KenCarp47 iLU GMRES MTK", "KenCarp47 AMG GMRES", 
         "KenCarp47 AMG GMRES MTK"];
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
@@ -193,10 +193,30 @@ setups = [
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>KenCarp4()),
           Dict(:alg=>KenCarp47()),
-    		  Dict(:alg=>QNDF()),
+    		  # Dict(:alg=>QNDF()), # bad
           Dict(:alg=>FBDF()),
           ]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [
+          Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice => 2),
+          Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>FBDF(linsolve=KLUFactorization()), :prob_choice => 2),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1)),
+          ]
+names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
+         "FBDF KLU MTK", "FBDF GMRES MTK",
+         "Rodas5P GMRES MTK",
+         "CVODE MTK KLU", "CVODE iLU MTK GMRES"
+];
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
@@ -219,7 +239,27 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precamg,psetup=psetupamg,prec_side=1), :prob_choice => 2),
           ]
 names = ["CVODE MTK KLU","CVODE GMRES","CVODE MTK GMRES", "CVODE iLU GMRES", "CVODE AMG GMRES", "CVODE iLU MTK GMRES", "CVODE AMG MTK GMRES"];
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [
+          Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice => 2),
+          Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>FBDF(linsolve=KLUFactorization()), :prob_choice => 2),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1)),
+          ]
+names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
+         "FBDF KLU MTK", "FBDF GMRES MTK",
+         "Rodas5P GMRES MTK",
+         "CVODE MTK KLU", "CVODE iLU MTK GMRES"
+];
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
