@@ -39,6 +39,36 @@ will lead to the latest tagged version of the benchmarks. To see the in-developm
 
 Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
 
+## Citing
+
+To cite the SciML Benchmarks, please cite the following:
+
+```bib
+@article{rackauckas2019confederated,
+  title={Confederated modular differential equation APIs for accelerated algorithm development and benchmarking},
+  author={Rackauckas, Christopher and Nie, Qing},
+  journal={Advances in Engineering Software},
+  volume={132},
+  pages={1--6},
+  year={2019},
+  publisher={Elsevier}
+}
+
+@article{DifferentialEquations.jl-2017,
+ author = {Rackauckas, Christopher and Nie, Qing},
+ doi = {10.5334/jors.151},
+ journal = {The Journal of Open Research Software},
+ keywords = {Applied Mathematics},
+ note = {Exported from https://app.dimensions.ai on 2019/05/05},
+ number = {1},
+ pages = {},
+ title = {DifferentialEquations.jl – A Performant and Feature-Rich Ecosystem for Solving Differential Equations in Julia},
+ url = {https://app.dimensions.ai/details/publication/pub.1085583166 and http://openresearchsoftware.metajnl.com/articles/10.5334/jors.151/galley/245/download/},
+ volume = {5},
+ year = {2017}
+}
+```
+
 ## Current Summary
 
 The following is a quick summary of the benchmarks. These paint broad strokes
