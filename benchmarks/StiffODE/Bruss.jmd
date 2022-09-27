@@ -54,10 +54,137 @@ prob_mtk = ODEProblem(modelingtoolkitize(prob),[],(0.0,11.5),jac=true,sparse=tru
 ```
 
 ```julia
+using Base.Experimental: Const, @aliasscope
+macro vp(expr)
+  nodes = (Symbol("llvm.loop.vectorize.predicate.enable"), 1)
+  if expr.head != :for
+    error("Syntax error: loopinfo needs a for loop")
+  end
+  push!(expr.args[2].args, Expr(:loopinfo, nodes))
+  return esc(expr)
+end
+
+struct Brusselator2DLoop
+  N::Int
+  s::Float64
+end
+function (b::Brusselator2DLoop)(du, unc, p, t)
+  N = b.N
+  s = b.s
+  A, B, alpha, dx = p
+  alpha = alpha/abs2(dx)
+  u = Base.Experimental.Const(unc)
+  Base.Experimental.@aliasscope begin
+  @inbounds @fastmath begin
+    b = ((abs2(-0.3) + abs2(-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+    du1 = alpha*(u[N,1,1] + u[2,1,1] + u[1,2,1] + u[1,N,1] - 4u[1,1,1]) +
+      B + abs2(u[1,1,1])*u[1,1,2] - (A + 1)*u[1,1,1] + b
+    du2 = alpha*(u[N,1,2] + u[2,1,2] + u[1,2,2] + u[1,N,2] - 4u[1,1,2]) +
+      A*u[1,1,1] - abs2(u[1,1,1])*u[1,1,2]
+    du[1,1,1] = du1
+    du[1,1,2] = du2
+    @vp for i = 2:N-1
+      x = (i-1)*s
+      ip1 = i+1
+      im1 = i-1
+      b = ((abs2(x-0.3) + abs2(-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+      du1 = alpha*(u[im1,1,1] + u[ip1,1,1] + u[i,2,1] + u[i,N,1] - 4u[i,1,1]) +
+        B + abs2(u[i,1,1])*u[i,1,2] - (A + 1)*u[i,1,1] + b
+      du2 = alpha*(u[im1,1,2] + u[ip1,1,2] + u[i,2,2] + u[i,N,2] - 4u[i,1,2]) +
+        A*u[i,1,1] - abs2(u[i,1,1])*u[i,1,2]
+      du[i,1,1] = du1
+      du[i,1,2] = du2
+    end
+    b = ((abs2(0.7) + abs2(-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+    du1 = alpha*(u[N-1,1,1] + u[1,1,1] + u[N,2,1] + u[N,N,1] - 4u[N,1,1]) +
+      B + abs2(u[N,1,1])*u[N,1,2] - (A + 1)*u[N,1,1] + b
+    du2 = alpha*(u[N-1,1,2] + u[1,1,2] + u[N,2,2] + u[N,N,2] - 4u[N,1,2]) +
+      A*u[N,1,1] - abs2(u[N,1,1])*u[N,1,2]
+    du[N,1,1] = du1
+    du[N,1,2] = du2
+    for j = 2:N-1
+      y = (j-1)*s
+      jp1 = j+1
+      jm1 = j-1
+      b0 = ((abs2(-0.3) + abs2(y-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+      du[1,j,1] = alpha*(u[N,j,1] + u[2,j,1] + u[1,jp1,1] + u[1,jm1,1] - 4u[1,j,1]) +
+        B + abs2(u[1,j,1])*u[1,j,2] - (A + 1)*u[1,j,1] + b0
+      du[1,j,2] = alpha*(u[N,j,2] + u[2,j,2] + u[1,jp1,2] + u[1,jm1,2] - 4u[1,j,2]) +
+        A*u[1,j,1] - abs2(u[1,j,1])*u[1,j,2]
+      @vp for i = 2:N-1
+        x = (i-1)*s
+        b = ((abs2(x-0.3) + abs2(y-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+        du1 = alpha*(u[i-1,j,1] + u[i+1,j,1] + u[i,jp1,1] + u[i,jm1,1] - 4u[i,j,1]) +
+          B + abs2(u[i,j,1])*u[i,j,2] - (A + 1)*u[i,j,1] + b
+        du2 = alpha*(u[i-1,j,2] + u[i+1,j,2] + u[i,jp1,2] + u[i,jm1,2] - 4u[i,j,2]) +
+          A*u[i,j,1] - abs2(u[i,j,1])*u[i,j,2]
+        du[i,j,1] = du1
+        du[i,j,2] = du2
+      end
+      bN = ((abs2(0.7) + abs2(y-0.6)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+      du[N,j,1] = alpha*(u[N-1,j,1] + u[1,j,1] + u[N,jp1,1] + u[N,jm1,1] - 4u[N,j,1]) +
+        B + abs2(u[N,j,1])*u[N,j,2] - (A + 1)*u[N,j,1] + bN
+      du[N,j,2] = alpha*(u[N-1,j,2] + u[1,j,2] + u[N,jp1,2] + u[N,jm1,2] - 4u[N,j,2]) +
+        A*u[N,j,1] - abs2(u[N,j,1])*u[N,j,2]
+    end
+    b = ((abs2(-0.3) + abs2(0.4)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+    du1 = alpha*(u[N,N,1] + u[2,N,1] + u[1,1,1] + u[1,N-1,1] - 4u[1,N,1]) +
+      B + abs2(u[1,N,1])*u[1,N,2] - (A + 1)*u[1,N,1] + b
+    du2 = alpha*(u[N,N,2] + u[2,N,2] + u[1,1,2] + u[1,N-1,2] - 4u[1,N,2]) +
+      A*u[1,N,1] - abs2(u[1,N,1])*u[1,N,2]
+    du[1,N,1] = du1
+    du[1,N,2] = du2
+    @vp for i = 2:N-1
+      x = (i-1)*s
+      ip1 = i+1
+      im1 = i-1
+      b = ((abs2(x-0.3) + abs2(0.4)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+      du1 = alpha*(u[im1,N,1] + u[ip1,N,1] + u[i,1,1] + u[i,N-1,1] - 4u[i,N,1]) +
+        B + abs2(u[i,N,1])*u[i,N,2] - (A + 1)*u[i,N,1] + b
+      du2 = alpha*(u[im1,N,2] + u[ip1,N,2] + u[i,1,2] + u[i,N-1,2] - 4u[i,N,2]) +
+        A*u[i,N,1] - abs2(u[i,N,1])*u[i,N,2]
+      du[i,N,1] = du1
+      du[i,N,2] = du2
+    end
+    b = ((abs2(0.7) + abs2(0.4)) <= abs2(0.1)) * (t >= 1.1) * 5.0
+    du1 = alpha*(u[N-1,N,1] + u[1,N,1] + u[N,1,1] + u[N,N-1,1] - 4u[N,N,1]) +
+      B + abs2(u[N,N,1])*u[N,N,2] - (A + 1)*u[N,N,1] + b
+    du2 = alpha*(u[N-1,N,2] + u[1,N,2] + u[N,1,2] + u[N,N-1,2] - 4u[N,N,2]) +
+      A*u[N,N,1] - abs2(u[N,N,1])*u[N,N,2]
+    du[N,N,1] = du1
+    du[N,N,2] = du2
+  end
+  end
+end
+
+function fast_bruss(N)
+  xyd_brusselator = range(0,stop=1,length=N)
+  brusselator_2d_loop = Brusselator2DLoop(N,Float64(step(xyd_brusselator)))
+  p = (3.4, 1., 10., step(xyd_brusselator))
+
+  input = rand(N,N,2)
+  output = similar(input)
+  sparsity_pattern = Symbolics.jacobian_sparsity(brusselator_2d_loop,output,input,p,0.0)
+  jac_sparsity = Float64.(sparse(sparsity_pattern))
+  f =  ODEFunction(brusselator_2d_loop;jac_prototype=jac_sparsity)
+  u0 = zeros(N, N, 2)
+  @inbounds for I in CartesianIndices((N, N))
+    x = xyd_brusselator[I[1]]
+    y = xyd_brusselator[I[2]]
+    u0[I,1] = 22*(y*(1-y))^(3/2)
+    u0[I,2] = 27*(x*(1-x))^(3/2)
+  end
+  return ODEProblem(f,u0,(0.,11.5),p)
+end
+
+fastprob = fast_bruss(N)
+```
+
+```julia
 sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
 sol2 = solve(prob_mtk,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
-test_sol = [sol,sol2]
-probs = [prob,prob_mtk];
+test_sol = [sol,sol2,sol]
+probs = [prob,prob_mtk,fastprob];
 ```
 
 ```julia
@@ -140,6 +267,25 @@ end
 function precamg(z,r,p,t,y,fy,gamma,delta,lr)
   ldiv!(z,preccache2[],r)
 end
+```
+
+## Compare Problem Implementations
+
+```julia
+setups = [
+          Dict(:alg=>KenCarp47(linsolve=KLUFactorization())),
+          Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice => 2),
+          Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice => 3),
+          Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
+          Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 3),
+
+          ]
+names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 KLU FastBruss", 
+         "KenCarp47 GMRES", "KenCarp47 GMRES MTK", "KenCarp47 GMRES FastBruss"];
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
 ```
 
 ## High Tolerances
