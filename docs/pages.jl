@@ -3,14 +3,17 @@
 dir = @__DIR__() * "/.."
 
 cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
+cp(joinpath(dir, "docs", "extrasrc", "assets"), joinpath(dir, "docs", "src", "assets"), force=true)
 cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
 benchmarksdir = joinpath(dir, "docs", "src")
+
+@show readdir(benchmarksdir)
 
 pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science"=>"index.md"]
 
 for folder in readdir(benchmarksdir)
     newpages = Any[]
-    if folder[end-2:end] != ".md" && folder != "Testing" && folder != "figures"
+    if folder[end-2:end] != ".md" && folder != "Testing" && folder != "figures" && folder != "assets"
         for file in filter(x -> x[end-2:end] == ".md", readdir(
             joinpath(benchmarksdir, folder)))
             try

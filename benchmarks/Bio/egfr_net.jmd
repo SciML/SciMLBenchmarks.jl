@@ -1,0 +1,148 @@
+---
+title: Egfr_net Work-Precision Diagrams
+author: Torkel Loman
+---
+
+The following benchmark is of 356 ODEs with 3749 terms that describe a stiff
+chemical reaction network. This egfr_net model was used as a benchmark model in [Gupta et
+al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). It describes the epidermal growth factor receptor signalling system [Blinov et
+al.](https://pubmed.ncbi.nlm.nih.gov/16233948/). We use
+[`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
+to load the BioNetGen model files as a
+[Catalyst](https://github.com/SciML/Catalyst.jl) model, and then use
+[ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl) to convert the
+Catalyst network model to ODEs.
+
+
+```julia
+using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
+      Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
+      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools
+
+gr()
+const to = TimerOutput()
+tf       = 10.0
+
+# generate ModelingToolkit ODEs
+@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/egfr_net.net"))
+rn    = prnbng.rn
+@timeit to "Create ODESys" osys = convert(ODESystem, rn)
+
+tspan = (0.,tf)
+@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+```
+
+```julia
+@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
+show(to)
+```
+
+
+```julia
+@show numspecies(rn) # Number of ODEs
+@show numreactions(rn) # Apprx. number of terms in the ODE
+@show length(parameters(rn)) # Number of Parameters
+```
+
+## Time ODE derivative function compilation
+As compiling the ODE derivative functions has in the past taken longer than
+running a simulation, we first force compilation by evaluating these functions
+one time.
+```julia
+u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
+du = copy(u)
+p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
+@timeit to "ODE rhs Eval1" oprob.f(du,u,p,0.)
+@timeit to "ODE rhs Eval2" oprob.f(du,u,p,0.)
+sparsejacprob.f(du,u,p,0.)
+```
+
+We also time the ODE rhs function with BenchmarkTools as it is more accurate
+given how fast evaluating `f` is:
+```julia
+@btime oprob.f($du,$u,$p,0.)
+```
+
+## Picture of the solution
+
+```julia
+sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
+plot(sol, legend=false, fmt=:png)
+```
+
+For these benchmarks we will be using the time-series error with these saving
+points.
+
+## Generate Test Solution
+
+```julia
+@time sol = solve(oprob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
+test_sol  = TestSolution(sol)
+```
+
+## Setups
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:10)
+reltols = 1.0 ./ 10.0 .^ (6:10);
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
+          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
+          ];
+```
+
+## Work-Precision Diagram
+
+Finally, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
+plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:14)
+reltols = 1.0 ./ 10.0 .^ (7:11)
+
+setups = [
+            Dict(:alg=>CVODE_BDF()),
+            Dict(:alg=>KenCarp4()),
+            Dict(:alg=>Rodas4()),
+            Dict(:alg=>Rodas5()),
+            #Dict(:alg=>QNDF()),
+            Dict(:alg=>lsoda()),
+            Dict(:alg=>radau()),
+            Dict(:alg=>seulex()),
+            Dict(:alg=>ImplicitEulerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(threading = false)),
+            # Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            # Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+            ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","lsoda","radau","seulex", "ImplEulerExtpl (non-threaded)","ImplEulerBaryExtpl (non-threaded)","ImplicitHairerWannerExtrapolation"]
+
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;
+                      print_names = true, names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+
+plot(wp, title = "Implicit Methods",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
