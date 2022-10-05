@@ -73,8 +73,8 @@ t_max = 11.5
 
 α = 10.
 
-u0(x,y,t) = 22(y*(1-y))^(3/2)
-v0(x,y,t) = 27(x*(1-x))^(3/2)
+u0_mol(x,y,t) = 22(y*(1-y))^(3/2)
+v0_mol(x,y,t) = 27(x*(1-x))^(3/2)
 
 eq = [Dt(u(x,y,t)) ~ 1. + v(x,y,t)*u(x,y,t)^2 - 4.4*u(x,y,t) + α*∇²(u(x,y,t)) + brusselator_f(x, y, t),
       Dt(v(x,y,t)) ~ 3.4*u(x,y,t) - v(x,y,t)*u(x,y,t)^2 + α*∇²(v(x,y,t))]
@@ -83,11 +83,11 @@ domains = [x ∈ Interval(x_min, x_max),
           y ∈ Interval(y_min, y_max),
           t ∈ Interval(t_min, t_max)]
 
-bcs = [u(x,y,0) ~ u0(x,y,0),
+bcs = [u(x,y,0) ~ u0_mol(x,y,0),
       u(0,y,t) ~ u(1,y,t),
       u(x,0,t) ~ u(x,1,t),
 
-      v(x,y,0) ~ v0(x,y,0),
+      v(x,y,0) ~ v0_mol(x,y,0),
       v(0,y,t) ~ v(1,y,t),
       v(x,0,t) ~ v(x,1,t)]
 
@@ -236,8 +236,12 @@ fastprob = fast_bruss(N)
 sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
 sol2 = solve(prob_mtk,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
 sol3 = solve(prob_mol,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
-test_sol = [sol,sol2,sol3.original_sol]
-probs = [prob,prob_mtk,prob_mol]
+```
+
+```julia
+test_sol = [sol,sol2,sol,sol3]
+probs = [prob,prob_mtk,fastprob,prob_mol];
+
 ```
 ```julia
 plot(sol,vars = 1)
