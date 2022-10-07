@@ -13,7 +13,6 @@ to load the BioNetGen model files as a
 [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl) to convert the
 Catalyst network model to ODEs.
 
-
 ```julia
 using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
@@ -65,7 +64,7 @@ given how fast evaluating `f` is:
 ## Picture of the solution
 
 ```julia
-sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
+sol = solve(sparsejacprob, CVODE_BDF(linear_solver=:GMRES), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
 plot(sol, legend=false, fmt=:png)
 ```
 
@@ -75,7 +74,7 @@ points.
 ## Generate Test Solution
 
 ```julia
-@time sol = solve(oprob, CVODE_BDF(), reltol=1e-15, abstol=1e-15)
+@time sol = solve(sparsejacprob, CVODE_BDF(linear_solver=:GMRES), reltol=1e-15, abstol=1e-15)
 test_sol  = TestSolution(sol)
 ```
 
