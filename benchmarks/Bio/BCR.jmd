@@ -32,6 +32,7 @@ obs = observed(rn)
 
 tspan = (0.,tf)
 @timeit to_oprob "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true)
 
 show(to_parse) 
 show(to_osys) 
@@ -96,24 +97,62 @@ test_sol  = TestSolution(sol)
 
 ## Setups
 
+#### Declare pre-conditioners
+```julia
+using IncompleteLU, LinearAlgebra
+
+jaccache = sparsejacprob.f.jac(oprob.u0,oprob.p,0.0)
+W = I - 1.0*jaccache
+prectmp = ilu(W, τ = 50.0)
+preccache = Ref(prectmp)
+
+τ1 = 1e2
+function psetupilu(p, t, u, du, jok, jcurPtr, gamma)
+    if jok
+        sparsejacprob.f.jac(jaccache,u,p,t)
+        jcurPtr[] = true
+
+        # W = I - gamma*J
+        @. W = -gamma*jaccache
+        idxs = diagind(W)
+        @. @view(W[idxs]) = @view(W[idxs]) + 1
+
+        # Build preconditioner on W
+        preccache[] = ilu(W, τ = τ1)
+    end
+end
+function precilu(z,r,p,t,y,fy,gamma,delta,lr)
+    ldiv!(z,preccache[],r)
+end
+
+τ2 = 1e10
+function get_julia_pcs(τ)
+    function incompletelu(W,du,u,p,t,newW,Plprev,Prprev,solverdata)
+        if newW === nothing || newW
+            Pl = ilu(convert(AbstractMatrix,W), τ = τ2)
+        else
+            Pl = Plprev
+        end
+        Pl,nothing
+    end
+    return incompletelu
+end;
+```
+
+#### Declare solvers
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (5:8);
+
 setups = [
-          #Dict(:alg=>Rosenbrock23(autodiff=false)),
-          Dict(:alg=>TRBDF2(autodiff=false)),
-          Dict(:alg=>QNDF(autodiff=false)),
-          Dict(:alg=>FBDF(autodiff=false)),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense)),
-          #Dict(:alg=>rodas()),
-          #Dict(:alg=>radau()),
-          #Dict(:alg=>Rodas4(autodiff=false)),
-          #Dict(:alg=>Rodas5(autodiff=false)),
-          Dict(:alg=>KenCarp4(autodiff=false)),
-          Dict(:alg=>KenCarp47(autodiff=false)),
-          #Dict(:alg=>RadauIIA5(autodiff=false)),
-          #Dict(:alg=>lsoda()),
+          Dict(:alg=>lsoda(), :prob_choice => 1),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu_fceri,psetup=psetupilu_fceri,prec_side=1), :prob_choice => 2),
+          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true), :prob_choice => 2),
+          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true), :prob_choice => 2),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true), :prob_choice => 2),
+          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true), :prob_choice => 2),
+          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true), :prob_choice => 2)
           ];
 ```
 
@@ -126,32 +165,12 @@ and extrapolation classes of methods.
 
 First we test using auto-generated Jacobians (finite difference)
 ```julia
-wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+wp = WorkPrecisionSet([oprob,oprob_sparse],abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
-plot(wp)
-```
-
-## Sparse Jacobian
-Finally we test using the generated sparse analytic Jacobian function.
-```julia
-setups = [
-          #Dict(:alg=>Rosenbrock23(autodiff=false)),
-          Dict(:alg=>TRBDF2(autodiff=false)),
-          Dict(:alg=>QNDF(autodiff=false)),
-          Dict(:alg=>FBDF(autodiff=false)),
-          #Dict(:alg=>CVODE_BDF(linear_solver=:KLU)), # Fails!
-          #Dict(:alg=>rodas()),
-          #Dict(:alg=>radau()),
-          #Dict(:alg=>Rodas4(autodiff=false)),
-          #Dict(:alg=>Rodas5(autodiff=false)),
-          Dict(:alg=>KenCarp4(autodiff=false)),
-          Dict(:alg=>KenCarp47(autodiff=false)),
-          #Dict(:alg=>RadauIIA5(autodiff=false)),
-          #Dict(:alg=>lsoda()),
-          ];
-wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=1)
-plot(wp)
+                      
+names = ["lsoda" "CVODE_BDF (GMRES, iLU)" "TRBDF2 (GMRES, iLU)" "KenCarp4 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "Rosenbrock23 (GMRES, iLU)"]
+markers = [:star4 :circle :diamond :rect :dtriangle :star5 :heptagon]
+plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-8,1e-2),ylimit=(1e1,1e5),gridalpha=0.3,gridlinewidth=2.5)
 ```
 
 ```julia, echo = false
