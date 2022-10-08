@@ -24,7 +24,8 @@ tf       = 0.5
 # generate ModelingToolkit ODEs
 @timeit to_parse "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multistate.net"))
 rn    = prnbng.rn
-obs = observed(rn)
+@unpack A_P, A_unbound_P, A_bound_P, RLA_P = rn; obs = [A_P, A_unbound_P, A_bound_P, RLA_P]
+@timeit to "Create ODESys" osys = convert(ODESystem, rn)
 
 @timeit to_osys "Create ODESys" osys = convert(ODESystem, rn)
 

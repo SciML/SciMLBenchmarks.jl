@@ -21,12 +21,13 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
 
 gr()
 const to = TimerOutput()
-tf       = 150.0
+tf       = 200.0
 
 # generate ModelingToolkit ODEs
 @timeit to_parse "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/fceri_gamma2.net"))
 rn    = prnbng.rn
-obs = observed(rn)
+@unpack LynFree,RecMon,RecPbeta,RecPgamma,RecSyk,RecSykPS = rn; obs = [LynFree,RecMon,RecPbeta,RecPgamma,RecSyk,RecSykPS]
+@timeit to "Create ODESys" osys = convert(ODESystem, rn)
 
 @timeit to_osys "Create ODESys" osys = convert(ODESystem, rn)
 
@@ -72,7 +73,7 @@ given how fast evaluating `f` is:
 
 ```julia
 sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
-plot(sol; vars=obs, legend=false, fmt=:png)
+plot(sol, legend=false, fmt=:png)
 ```
 
 For these benchmarks we will be using the time-series error with these saving
