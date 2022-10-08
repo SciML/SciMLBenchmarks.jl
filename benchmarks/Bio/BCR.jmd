@@ -24,13 +24,17 @@ const to = TimerOutput()
 tf       = 100000.0
 
 # generate ModelingToolkit ODEs
-@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
+@timeit to_parse "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
 rn    = prnbng.rn
 @unpack Activated_Syk,Ig_alpha_P,Ig_alpha_PP,Ig_beta_PP,Activated_Lyn,Autoinhibited_Lyn,Activated_Fyn,Autoinhibited_Fyn,PAG1_Csk = rn; obs = [Activated_Syk,Ig_alpha_P,Ig_alpha_PP,Ig_beta_PP,Activated_Lyn,Autoinhibited_Lyn,Activated_Fyn,Autoinhibited_Fyn,PAG1_Csk]
-@timeit to "Create ODESys" osys = convert(ODESystem, rn)
+@timeit to_osys "Create ODESys" osys = convert(ODESystem, rn)
 
 tspan = (0.,tf)
-@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+@timeit to_oprob "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+
+show(to_parse) 
+show(to_osys) 
+show(to_oprob);
 ```
 
 ```julia
@@ -42,7 +46,7 @@ show(to)
 ```julia
 @show numspecies(rn) # Number of ODEs
 @show numreactions(rn) # Apprx. number of terms in the ODE
-@show length(parameters(rn)) # Number of Parameters
+@show length(parameters(rn)); # Number of Parameters
 ```
 
 ## Time ODE derivative function compilation
