@@ -3,7 +3,7 @@ title: Egfr_net Work-Precision Diagrams
 author: Torkel Loman
 ---
 
-The following benchmark is of 356 ODEs with 3749 terms that describe a stiff
+The following benchmark is of 356 ODEs with 3749 terms that describe a
 chemical reaction network. This egfr_net model was used as a benchmark model in [Gupta et
 al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). It describes the epidermal growth factor receptor signalling system [Blinov et
 al.](https://pubmed.ncbi.nlm.nih.gov/16233948/). We use
@@ -17,7 +17,8 @@ Catalyst network model to ODEs.
 ```julia
 using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools
+      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
+      LinearSolve
 
 gr()
 const to = TimerOutput()
@@ -108,11 +109,41 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
+<<<<<<< HEAD
 
 names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "KenCarp4 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "Rosenbrock23 (GMRES)"]
 markers = [:star4 :circle :diamond :rect :dtriangle :star5 :heptagon]
 plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-8,1e0),ylimit=(1e1,1e4),gridalpha=0.3,gridlinewidth=2.5)
 
+=======
+plot(wp)
+```
+
+Implicit methods doing poorly suggests it's non-stiff.
+
+## Non-Stiff Work-Precision Diagrams
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:10)
+reltols = 1.0 ./ 10.0 .^ (6:10);
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_Adams()),
+          Dict(:alg=>Tsit5()),
+          Dict(:alg=>BS5()),
+          Dict(:alg=>VCABM()),
+          Dict(:alg=>Vern6()),
+          Dict(:alg=>Vern7()),
+          Dict(:alg=>Vern8()),
+          Dict(:alg=>Vern9()),
+          ];
+```
+
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+plot(wp)
+>>>>>>> f0de0a4782c4a1f77fc2a55ba104b3f571044ecb
 ```
 
 

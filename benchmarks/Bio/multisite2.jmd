@@ -3,7 +3,7 @@ title: Multisite2 Work-Precision Diagrams
 author: Torkel Loman
 ---
 
-The following benchmark is of 66 ODEs with 288 terms that describe a stiff
+The following benchmark is of 66 ODEs with 288 terms that describe a
 chemical reaction network. This multisite2 model was used as a benchmark model in [Gupta et
 al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). We use
 [`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
@@ -12,11 +12,11 @@ to load the BioNetGen model files as a
 [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl) to convert the
 Catalyst network model to ODEs.
 
-
 ```julia
 using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools
+      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
+      LinearSolve
 
 gr()
 const to = TimerOutput()
@@ -102,16 +102,43 @@ setups = [
 ```
 
 
-## Work-Precision Diagram
+## Implicit Work-Precision Diagrams
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
+<<<<<<< HEAD
 names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF" "Tsit5" "BS5" "Vern6" "Vern8"]
 markers = [:star4 :circle :dtriangle :octagon :star8 :ltriangle :rtriangle]
 plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-10,1e-2),ylimit=(1e0,1e2),xticks=[1e-10,1e-8,1e-6,1e-4,1e-2],gridalpha=0.3,gridlinewidth=2.5)
+=======
+Implicit methods doing poorly suggests it's non-stiff.
+
+## Non-Stiff Work-Precision Diagrams
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:10)
+reltols = 1.0 ./ 10.0 .^ (6:10);
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_Adams()),
+          Dict(:alg=>Tsit5()),
+          Dict(:alg=>BS5()),
+          Dict(:alg=>VCABM()),
+          Dict(:alg=>Vern6()),
+          Dict(:alg=>Vern7()),
+          Dict(:alg=>Vern8()),
+          Dict(:alg=>Vern9()),
+          ];
+```
+
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+plot(wp)
+>>>>>>> f0de0a4782c4a1f77fc2a55ba104b3f571044ecb
 ```
 
 
