@@ -100,7 +100,7 @@ setups = [
           Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
-          ];
+          ];          
 ```
 
 ## Work-Precision Diagram
@@ -109,34 +109,13 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
-plot(wp)
+
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "KenCarp4 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "Rosenbrock23 (GMRES)"]
+markers = [:star4 :circle :diamond :rect :dtriangle :star5 :heptagon]
+plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-10,1e-2),ylimit=(1e0,1e1),xticks=[1e-10,1e-8,1e-6,1e-4,1e-2],gridalpha=0.3,gridlinewidth=2.5)
+
 ```
 
-Implicit methods doing poorly suggests it's non-stiff.
-
-## Non-Stiff Work-Precision Diagrams
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:10)
-reltols = 1.0 ./ 10.0 .^ (6:10);
-setups = [
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>CVODE_Adams()),
-          Dict(:alg=>Tsit5()),
-          Dict(:alg=>BS5()),
-          Dict(:alg=>VCABM()),
-          Dict(:alg=>Vern6()),
-          Dict(:alg=>Vern7()),
-          Dict(:alg=>Vern8()),
-          Dict(:alg=>Vern9()),
-          ];
-```
-
-```julia
-wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
-plot(wp)
-```
 
 ```julia, echo = false
 using SciMLBenchmarks
