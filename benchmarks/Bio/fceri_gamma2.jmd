@@ -24,20 +24,20 @@ const to = TimerOutput()
 tf       = 200.0
 
 # generate ModelingToolkit ODEs
-@timeit to_parse "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/fceri_gamma2.net"))
+@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/fceri_gamma2.net"))
+show(to)
 rn    = prnbng.rn
 obs = observed(rn)
 
-@timeit to_osys "Create ODESys" osys = convert(ODESystem, rn)
+@timeit to "Create ODESys" osys = convert(ODESystem, rn)
+show(to)
 
 tspan = (0.,tf)
 @timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
-@timeit to_oprob "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
-oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true)
-
-show(to_parse) 
-show(to_osys) 
-show(to_oprob);
+show(to)
+@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+show(to)
+oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true);
 ```
 
 ```julia
