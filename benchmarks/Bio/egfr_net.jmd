@@ -88,7 +88,6 @@ points.
 @time sol = solve(oprob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
 test_sol  = TestSolution(sol)
 ```
-
 ## Setups
 
 #### Sets plotting defaults
@@ -97,11 +96,51 @@ test_sol  = TestSolution(sol)
 defauklt(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
 ```
 
-#### Declare solvers
+#### Sets tolerances
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:10)
 reltols = 1.0 ./ 10.0 .^ (6:10);
+```
+
+## Implicit Work-Precision Diagrams
+
+Benchmarks for implicit solvers.
+
+#### Declare solvers (using default linear solver)
+
+We designate the solvers we wish to use.
+```julia
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P())
+          ];
+```
+
+
+#### Plot Work-Precision Diagram (using default linear solver)
+
+Finally, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+
+names = ["lsoda" "CVODE_BDF" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle :diamond]
+plot(wp;label=names,markershape=markers,xlimit=(1e-8,1e0),ylimit=(1e1,1e4))
+```
+
+#### Declare solvers (using GMRES linear solver)
+
+We designate the solvers we wish to use.
+```julia
 setups = [
           Dict(:alg=>lsoda()),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
@@ -110,32 +149,83 @@ setups = [
           Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
-          ];          
+          Dict(:alg=>Rodas4(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES()))
+          ];
 ```
 
-## Work-Precision Diagram
+
+#### Plot Work-Precision Diagram (using GMRES linear solver)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
-                      
-names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "KenCarp4 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "Rosenbrock23 (GMRES)"]
-markers = [:star4 :circle :diamond :rect :dtriangle :star5 :heptagon]
-plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-8,1e0),ylimit=(1e1,1e4),gridalpha=0.3,gridlinewidth=2.5)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle :diamond]
+plot(wp;label=names,markershape=markers,xlimit=(1e-8,1e0),ylimit=(1e1,1e4))
 ```
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "KenCarp4 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "Rosenbrock23 (GMRES)"]
-markers = [:star4 :circle :diamond :rect :dtriangle :star5 :heptagon]
-plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-8,1e0),ylimit=(1e1,1e4),gridalpha=0.3,gridlinewidth=2.5)
+#### Declare solvers (using sparse jacobian)
 
+We designate the solvers we wish to use.
+```julia
+setups = [
+          Dict(:alg=>CVODE_BDF(linear_solver=:KLU)),
+          Dict(:alg=>TRBDF2(linsolve=KLUFactorization())),
+          Dict(:alg=>QNDF(linsolve=KLUFactorization())),
+          Dict(:alg=>FBDF(linsolve=KLUFactorization())),
+          Dict(:alg=>KenCarp4(linsolve=KLUFactorization())),
+          Dict(:alg=>Rosenbrock23(linsolve=KLUFactorization())),
+          Dict(:alg=>Rodas4(linsolve=KLUFactorization())),
+          Dict(:alg=>Rodas5P(linsolve=KLUFactorization()))
+          ];
 ```
+
+
+#### Plot Work-Precision Diagram (using sparse jacobian)
+
+Finally, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+
+names = ["CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
+markers = [:circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle :diamond]
+plot(wp;label=names,markershape=markers,xlimit=(1e-8,1e0),ylimit=(1e1,1e4))
+```
+
+## Explicit Work-Precision Diagram
+
+Benchmarks for explicit solvers.
+
+#### Declare solvers
+
+We designate the solvers we wish to use, this also includes lsoda and CVODE.
+```julia
+setups = [
+          Dict(:alg=>lsoda()), 
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)), 
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),          
+          Dict(:alg=>Vern6()), 
+          Dict(:alg=>Vern7()), 
+          Dict(:alg=>Vern8()), 
+          Dict(:alg=>Vern9())
+          ];
+```
+
+#### Plot Work-Precision Diagram
 
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
-plot(wp)
+names = ["lsoda" "CVODE_BDF (GMRES)" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle]
+plot(wp;label=names,markershape=markers,xlimit=(1e-8,1e0),ylimit=(1e1,1e4))
 ```
 
 
