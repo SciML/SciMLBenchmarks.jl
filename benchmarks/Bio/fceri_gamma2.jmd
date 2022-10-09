@@ -27,7 +27,7 @@ tf       = 200.0
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/fceri_gamma2.net"))
 show(to)
 rn    = prnbng.rn
-obs = observed(rn)
+obs = [eq.lhs for eq in observed(rn)]
 
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
 show(to)
@@ -39,7 +39,6 @@ show(to)
 show(to)
 oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true);
 ```
-
 
 ```julia
 @show numspecies(rn) # Number of ODEs
@@ -153,9 +152,6 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver=:KLU), :prob_choice => 3),
           ];
 ```
-
-methods_ode_lsoda_n_CVODE = [(solver=CVODE_BDF(linear_solver=:LapackDense),jac_opt=(false,false),name="CVODE (LapackDense)"), (solver=CVODE_BDF(linear_solver=:GMRES),jac_opt=(false,false),name="CVODE (GMRES)"), (solver=CVODE_BDF(linear_solver=:LapackDense),jac_opt=(true,false),name="CVODE (jac, LapackDense)"), (solver=CVODE_BDF(linear_solver=:KLU),jac_opt=(true,true),name="CVODE (jac, sparse, KLU)")]
-
 
 #### Plot Work-Precision Diagram.
 
