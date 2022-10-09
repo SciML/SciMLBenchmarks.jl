@@ -31,16 +31,13 @@ obs = observed(rn)
 @timeit to_osys "Create ODESys" osys = convert(ODESystem, rn)
 
 tspan = (0.,tf)
-<<<<<<< master
 @timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
-=======
 @timeit to_oprob "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
 oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true)
 
 show(to_parse) 
 show(to_osys) 
 show(to_oprob);
->>>>>>> Update Multistate model
 ```
 
 ```julia
@@ -154,11 +151,7 @@ setups = [
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
-<<<<<<< master
-wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
-=======
 wp = WorkPrecisionSet([oprob,oprob_sparse],abstols,reltols,setups;error_estimate=:l2,
->>>>>>> Update pre-con models
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 
 names = ["lsoda" "CVODE_BDF (GMRES, iLU)" "TRBDF2 (GMRES, iLU)" "KenCarp4 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "Rosenbrock23 (GMRES, iLU)"]
@@ -187,6 +180,7 @@ setups = [
 ```julia
 wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+
 plot(wp)
 ```
 
