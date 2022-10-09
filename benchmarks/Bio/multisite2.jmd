@@ -89,56 +89,85 @@ test_sol  = TestSolution(sol)
 
 ## Setups
 
+#### Sets plotting defaults
+
+```julia
+defauklt(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
+```
+
+#### Sets tolerances
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:10)
 reltols = 1.0 ./ 10.0 .^ (6:10);
+```
+
+## Implicit Work-Precision Diagram
+
+Benchmarks for implicit solvers.
+
+#### Declare solvers
+
+We designate the solvers we wish to use.
+```julia
 setups = [
-          Dict(:alg=>lsoda()), 
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)), 
-          Dict(:alg=>QNDF()), 
-          Dict(:alg=>Tsit5()), 
-          Dict(:alg=>BS5()), 
-          Dict(:alg=>Vern6()), 
-          Dict(:alg=>Vern8())
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P())
           ];
 ```
 
 
-## Implicit Work-Precision Diagrams
+#### Plot Work-Precision Diagram
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
-plot(wp)
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle :diamond]
+plot(wp;label=names,markershape=markers,xlimit=(1e-10,1e-2),ylimit=(1e0,1e2),xticks=[1e-10,1e-8,1e-6,1e-4,1e-2])
 ```
 
 Implicit methods doing poorly suggests it's non-stiff.
 
-## Non-Stiff Work-Precision Diagrams
+## Explicit Work-Precision Diagram
 
+Benchmarks for explicit solvers.
+
+#### Declare solvers
+
+We designate the solvers we wish to use, this also includes lsoda and CVODE.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (6:10)
-reltols = 1.0 ./ 10.0 .^ (6:10);
 setups = [
           Dict(:alg=>lsoda()), 
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)), 
-          Dict(:alg=>QNDF()), 
           Dict(:alg=>Tsit5()), 
           Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),          
           Dict(:alg=>Vern6()), 
-          Dict(:alg=>Vern8())
+          Dict(:alg=>Vern7()), 
+          Dict(:alg=>Vern8()), 
+          Dict(:alg=>Vern9())
           ];
 ```
+
+#### Plot Work-Precision Diagram
 
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF" "Tsit5" "BS5" "Vern6" "Vern8"]
-markers = [:star4 :circle :dtriangle :octagon :star8 :ltriangle :rtriangle]
-plot(wp;label=names,markershape=markers,legendfontsize=7,framestyle=:box,xlimit=(1e-10,1e-2),ylimit=(1e0,1e2),xticks=[1e-10,1e-8,1e-6,1e-4,1e-2],gridalpha=0.3,gridlinewidth=2.5)
+names = ["lsoda" "CVODE_BDF (GMRES)" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle]
+plot(wp;label=names,markershape=markers,xlimit=(1e-10,1e-2),ylimit=(1e0,1e2),xticks=[1e-10,1e-8,1e-6,1e-4,1e-2])
 ```
 
 
