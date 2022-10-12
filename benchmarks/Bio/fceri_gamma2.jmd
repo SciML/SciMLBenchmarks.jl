@@ -78,7 +78,7 @@ points.
 
 ```julia
 @time sol = solve(sparsejacprob, CVODE_BDF(linear_solver=:GMRES), reltol=1e-15, abstol=1e-15)
-test_sol  = TestSolution(sol)
+test_sol  = TestSolution(sol);
 ```
 
 ## Setups
@@ -148,8 +148,9 @@ setups = [
           Dict(:alg=>CVODE_BDF(), :prob_choice => 1),
           Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense), :prob_choice => 1),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES), :prob_choice => 1),
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu_fceri,psetup=psetupilu_fceri,prec_side=1), :prob_choice => 2),
+          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1), :prob_choice => 2),
           Dict(:alg=>CVODE_BDF(linear_solver=:KLU), :prob_choice => 3),
+          Dict(:alg=>CVODE_Adams(linear_solver=:GMRES)),  
           ];
 ```
 
@@ -272,4 +273,36 @@ plot(wp;label=names,markershape=markers)
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
+
+## Explicit Work-Precision Diagram
+
+Benchmarks for explicit solvers.
+
+#### Declare solvers
+
+We designate the solvers we wish to use, this also includes lsoda and CVODE.
+```julia
+setups = [
+          Dict(:alg=>lsoda()), 
+          Dict(:alg=>CVODE_Adams()),  
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),          
+          Dict(:alg=>Vern6()), 
+          Dict(:alg=>Vern7()), 
+          Dict(:alg=>Vern8()), 
+          Dict(:alg=>Vern9())
+          ];
+```
+
+#### Plot Work-Precision Diagram
+
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+
+names = ["lsoda" "CVODE_BDF (GMRES)" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9"]
+markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle]
+plot(wp;label=names,markershape=markers)
 ```

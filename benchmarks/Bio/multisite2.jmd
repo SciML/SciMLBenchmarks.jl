@@ -83,7 +83,7 @@ points.
 
 ```julia
 @time sol = solve(oprob, CVODE_BDF(), reltol=1e-15, abstol=1e-15)
-test_sol  = TestSolution(sol)
+test_sol  = TestSolution(sol);
 ```
 
 ## Setups
@@ -111,6 +111,8 @@ We designate the solvers we wish to use.
 ```julia
 setups = [
           Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense)),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>QNDF()),
@@ -130,7 +132,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
 markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle :diamond]
 plot(wp;label=names,markershape=markers)
 ```
@@ -147,7 +149,7 @@ We designate the solvers we wish to use, this also includes lsoda and CVODE.
 ```julia
 setups = [
           Dict(:alg=>lsoda()), 
-          Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)), 
+          Dict(:alg=>CVODE_Adams()), 
           Dict(:alg=>Tsit5()), 
           Dict(:alg=>BS5()), 
           Dict(:alg=>VCABM()),          
@@ -164,7 +166,7 @@ setups = [
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9"]
+names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9"]
 markers = [:star4 :circle :octagon :star8 :rectangle :rtriangle :dtriangle :ltriangle :utriangle]
 plot(wp;label=names,markershape=markers)
 ```
