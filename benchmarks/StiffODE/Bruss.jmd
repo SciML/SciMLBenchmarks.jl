@@ -235,7 +235,7 @@ fastprob = fast_bruss(N)
 ```julia
 sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
 sol2 = solve(prob_mtk,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
-sol3 = solve(prob_mol,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14)
+sol3 = solve(prob_mol,CVODE_BDF(linear_solver = :KLU),abstol=1/10^14,reltol=1/10^14,wrap=Val(false))
 ```
 
 ```julia
@@ -334,15 +334,15 @@ setups = [
           Dict(:alg => KenCarp47(linsolve=KLUFactorization())),
           Dict(:alg => KenCarp47(linsolve=KLUFactorization()), :prob_choice => 2),
           Dict(:alg => KenCarp47(linsolve=KLUFactorization()), :prob_choice => 3),
-          Dict(:alg => KenCarp47(linsolve=KLUFactorization()), :prob_choice => 4),
+          Dict(:alg => KenCarp47(linsolve=KLUFactorization()), :prob_choice => 4, :wrap => Val(false)),
           Dict(:alg => KenCarp47(linsolve=KrylovJL_GMRES())),
           Dict(:alg => KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
           Dict(:alg => KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 3),
-          Dict(:alg => KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 4),]
+          Dict(:alg => KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 4, :wrap => Val(false)),]
 names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 KLU FastBruss", "KenCarp47 KLU MOL",
          "KenCarp47 GMRES", "KenCarp47 GMRES MTK", "KenCarp47 GMRES FastBruss", "KenCarp47 GMRES MOL"];
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,)
 plot(wp)
 ```
 
