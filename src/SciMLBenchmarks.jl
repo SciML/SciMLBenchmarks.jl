@@ -8,7 +8,7 @@ function weave_file(folder,file,build_list=(:script,:github))
   target = joinpath(folder, file)
   @info("Weaving $(target)")
 
-  if isfile(joinpath(folder, "Project.toml"))
+  if isfile(joinpath(folder, "Project.toml")) && build_list != (:notebook,)
     @info("Instantiating", folder)
     Pkg.activate(folder)
     Pkg.instantiate()
@@ -55,7 +55,7 @@ end
 function weave_all()
   for folder in readdir(joinpath(repo_directory,"benchmarks"))
     folder == "test.jmd" && continue
-    weave_folder(folder)
+    weave_folder(joinpath(repo_directory,"benchmarks",folder),build_list)
   end
 end
 
@@ -122,9 +122,13 @@ function bench_footer(folder=nothing, file=nothing)
 end
 
 function open_notebooks()
-  Base.eval(Main, Meta.parse("import IJulia"))
-  path = joinpath(repo_directory,"notebook")
-  IJulia.notebook(;dir=path)
-end
+    Base.eval(Main, Meta.parse("import IJulia"))
+    weave_all((:notebook,))
+    path = joinpath(repo_directory,"notebook")
+    IJulia.notebook(;dir=path)
+    newpath = joinpath(pwd(),"generated_notebooks")
+    mv(path, newpath)
+    IJulia.notebook(;dir=newpath)
+  end
 
 end # module SciMLBenchmarks
