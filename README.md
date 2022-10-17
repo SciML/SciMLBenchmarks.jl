@@ -221,13 +221,13 @@ All of the files are generated from the Weave.jl files in the `benchmarks` folde
 ```julia
 ]activate SciMLBenchmarks # Get all of the packages
 using SciMLBenchmarks
-SciMLBenchmarks.weave_file("NonStiffODE","linear_wpd.jmd")
+SciMLBenchmarks.weave_file(joinpath(pkgdir(SciMLBenchmarks),"benchmarks","NonStiffODE"),"linear_wpd.jmd")
 ```
 
 To generate all of the files in a folder, for example, run:
 
 ```julia
-SciMLBenchmarks.weave_folder("NonStiffODE")
+SciMLBenchmarks.weave_folder(joinpath(pkgdir(SciMLBenchmarks),"benchmarks","NonStiffODE"))
 ```
 
 To generate all of the notebooks, do:
