@@ -190,6 +190,21 @@ Then move `Diffusion_CTRW.ipynb` to "benchmarks/Jumps" and open the notebook.
 
 ## Contributing
 
+All of the files are generated from the Weave.jl files in the `benchmarks` folder. The generation process runs automatically,
+and thus one does not necessarily need to test the Weave process locally. Instead, simply open a PR that adds/updates a
+file in the "benchmarks" folder and the PR will generate the tutorial on demand. Its artifacts can then be inspected in the
+Buildkite as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
+any changes to dependencies requires that those are updated.
+
+### Inspecting Benchmark Results
+
+To see benchmark results before merging, click into the BuildKite, click onto
+Artifacts, and then investigate the trained results.
+
+![](https://user-images.githubusercontent.com/1814174/118359358-02ddc980-b551-11eb-8a9b-24de947cefee.PNG)
+
+### Manually Generating Files
+
 All of the files are generated from the Weave.jl files in the `benchmarks` folder. To run the generation process, do for example:
 
 ```julia
@@ -216,10 +231,3 @@ compute clusters, the official benchmarks use a workstation with an
 AMD EPYC 7502 32-Core Processor @ 2.50GHz to match the performance characteristics of
 a standard node in a high performance computing (HPC) cluster or cloud computing
 setup.
-
-### Inspecting Benchmark Results
-
-To see benchmark results before merging, click into the BuildKite, click onto
-Artifacts, and then investigate the trained results.
-
-![](https://user-images.githubusercontent.com/1814174/118359358-02ddc980-b551-11eb-8a9b-24de947cefee.PNG)
