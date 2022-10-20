@@ -149,8 +149,7 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense), :prob_choice => 1),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES), :prob_choice => 1),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1), :prob_choice => 2),
-          Dict(:alg=>CVODE_BDF(linear_solver=:KLU), :prob_choice => 3),
-          Dict(:alg=>CVODE_Adams(linear_solver=:GMRES)),  
+          Dict(:alg=>CVODE_BDF(linear_solver=:KLU), :prob_choice => 3)
           ];
 ```
 
@@ -221,13 +220,13 @@ plot(wp;label=names)
 
 ```julia
 setups = [
-          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>Rodas4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true))
+          Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>Rodas4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true))
           ];
 ```
 
@@ -270,11 +269,6 @@ names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse 
 plot(wp;label=names)
 ```
 
-```julia, echo = false
-using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
-
 ## Explicit Work-Precision Diagram
 
 Benchmarks for explicit solvers.
@@ -286,15 +280,15 @@ We designate the solvers we wish to use, this also includes lsoda and CVODE.
 setups = [
           Dict(:alg=>lsoda()), 
           Dict(:alg=>CVODE_Adams()),  
-          Dict(:alg=>Tsit5(autodiff=false)), 
-          Dict(:alg=>BS5(autodiff=false)), 
-          Dict(:alg=>VCABM(autodiff=false)),          
-          Dict(:alg=>Vern6(autodiff=false)), 
-          Dict(:alg=>Vern7(autodiff=false)), 
-          Dict(:alg=>Vern8(autodiff=false)), 
-          Dict(:alg=>Vern9(autodiff=false)),
-          Dict(:alg=>ROCK2(autodiff=false)), 
-          Dict(:alg=>ROCK4(autodiff=false))
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),          
+          Dict(:alg=>Vern6()), 
+          Dict(:alg=>Vern7()), 
+          Dict(:alg=>Vern8()), 
+          Dict(:alg=>Vern9()),
+          Dict(:alg=>ROCK2()), 
+          Dict(:alg=>ROCK4())
           ];
 ```
 
@@ -307,4 +301,9 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
 
 names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9" "ROCK2" "ROCK4"]
 plot(wp;label=names)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
