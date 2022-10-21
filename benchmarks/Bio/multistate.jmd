@@ -129,7 +129,7 @@ setups = [
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=1e12,dtmin=1e-18,numruns=200)
 
 names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
 plot(wp;label=names)
@@ -147,6 +147,7 @@ We designate the solvers we wish to use, this also includes lsoda and CVODE.
 ```julia
 setups = [
           Dict(:alg=>lsoda()), 
+          Dict(:alg=>CVODE_Adams()), 
           Dict(:alg=>Tsit5()), 
           Dict(:alg=>BS5()), 
           Dict(:alg=>VCABM()),          
@@ -154,7 +155,8 @@ setups = [
           Dict(:alg=>Vern7()), 
           Dict(:alg=>Vern8()), 
           Dict(:alg=>Vern9()),
-          Dict(:alg=>ROCK2())
+          Dict(:alg=>ROCK2()),
+          Dict(:alg=>ROCK4())
           ];
 ```
 
@@ -162,26 +164,9 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=1e12,dtmin=1e-18,numruns=200)
 
-names = ["lsoda" "Tsit5" "BS5" "Vern6" "Vern7" "Vern6" "Vern9" "ROCK2"]
-plot(wp;label=names)
-```
-
-The ROCK4 and CVODE_Adams solvers perfrom worse as compared to the other explicit solvers.
-```julia
-setups = [
-          Dict(:alg=>lsoda()), 
-          Dict(:alg=>CVODE_Adams()), 
-          Dict(:alg=>Tsit5()), 
-          Dict(:alg=>Vern7()), 
-          Dict(:alg=>ROCK4())
-          ];
-          
-wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
-
-names = ["lsoda" "CVODE_Adams" "Tsit5" "Vern7" "ROCK4"]
+names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK2" "ROCK4"]
 plot(wp;label=names)
 ```
 
