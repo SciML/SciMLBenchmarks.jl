@@ -26,11 +26,16 @@ tf       = 10.0
 
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/egfr_net.net"))
+show(to) 
 rn    = prnbng.rn
+obs = [eq.lhs for eq in observed(rn)]
+
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
+show(to) 
 
 tspan = (0.,tf)
 @timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
+show(to);
 ```
 
 ```julia
@@ -42,7 +47,7 @@ show(to)
 ```julia
 @show numspecies(rn) # Number of ODEs
 @show numreactions(rn) # Apprx. number of terms in the ODE
-@show length(parameters(rn)) # Number of Parameters
+@show length(parameters(rn)); # Number of Parameters
 ```
 
 ## Time ODE derivative function compilation
@@ -68,7 +73,7 @@ given how fast evaluating `f` is:
 
 ```julia
 sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
-plot(sol, legend=false, fmt=:png)
+plot(sol; vars=obs, legend=false, fmt=:png)
 ```
 
 For these benchmarks we will be using the time-series error with these saving
@@ -78,14 +83,62 @@ points.
 
 ```julia
 @time sol = solve(oprob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
-test_sol  = TestSolution(sol)
+test_sol  = TestSolution(sol);
+```
+## Setups
+
+#### Sets plotting defaults
+
+```julia
+default(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
 ```
 
-## Setups
+#### Sets tolerances
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:10)
 reltols = 1.0 ./ 10.0 .^ (6:10);
+```
+
+## Implicit Work-Precision Diagrams
+
+Benchmarks for implicit solvers.
+
+#### Declare solvers (using default linear solver)
+
+We designate the solvers we wish to use.
+```julia
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense)),
+          Dict(:alg=>CVODE_Adams()),  
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P())
+          ];
+```
+
+
+#### Plot Work-Precision Diagram (using default linear solver)
+
+Finally, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),numruns=100)
+
+names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+plot(wp;label=names)
+```
+
+#### Declare solvers (using GMRES linear solver)
+
+We designate the solvers we wish to use.
+```julia
 setups = [
           Dict(:alg=>lsoda()),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES)),
@@ -94,43 +147,84 @@ setups = [
           Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES())),
           Dict(:alg=>Rosenbrock23(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>Rodas4(linsolve=KrylovJL_GMRES())),
+          Dict(:alg=>Rodas5P(linsolve=KrylovJL_GMRES()))
           ];
 ```
 
-## Work-Precision Diagram
+
+#### Plot Work-Precision Diagram (using GMRES linear solver)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=100)
-plot(wp)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),numruns=100)
+
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
+plot(wp;label=names)
 ```
 
-Implicit methods doing poorly suggests it's non-stiff.
+#### Declare solvers (using sparse jacobian)
 
-## Non-Stiff Work-Precision Diagrams
-
+We designate the solvers we wish to use.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (6:10)
-reltols = 1.0 ./ 10.0 .^ (6:10);
 setups = [
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>CVODE_Adams()),
-          Dict(:alg=>Tsit5()),
-          Dict(:alg=>BS5()),
-          Dict(:alg=>VCABM()),
-          Dict(:alg=>Vern6()),
-          Dict(:alg=>Vern7()),
-          Dict(:alg=>Vern8()),
-          Dict(:alg=>Vern9()),
+          Dict(:alg=>CVODE_BDF(linear_solver=:KLU)),
+          Dict(:alg=>TRBDF2(linsolve=KLUFactorization())),
+          Dict(:alg=>QNDF(linsolve=KLUFactorization())),
+          Dict(:alg=>FBDF(linsolve=KLUFactorization())),
+          Dict(:alg=>KenCarp4(linsolve=KLUFactorization())),
+          Dict(:alg=>Rosenbrock23(linsolve=KLUFactorization())),
+          Dict(:alg=>Rodas4(linsolve=KLUFactorization())),
+          Dict(:alg=>Rodas5P(linsolve=KLUFactorization()))
           ];
 ```
 
+
+#### Plot Work-Precision Diagram (using sparse jacobian)
+
+Finally, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),numruns=100)
+
+names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
+plot(wp;label=names)
+```
+
+## Explicit Work-Precision Diagram
+
+Benchmarks for explicit solvers.
+
+#### Declare solvers
+
+We designate the solvers we wish to use, this also includes lsoda and CVODE.
+```julia
+setups = [
+          Dict(:alg=>lsoda()), 
+          Dict(:alg=>CVODE_Adams()),  
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),          
+          Dict(:alg=>Vern6()), 
+          Dict(:alg=>Vern7()), 
+          Dict(:alg=>Vern8()), 
+          Dict(:alg=>Vern9()),
+          Dict(:alg=>ROCK2()), 
+          Dict(:alg=>ROCK4()) 
+          ];
+```
+
+#### Plot Work-Precision Diagram
+
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e5),numruns=200)
-plot(wp)
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),numruns=100)
+
+names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK2" "ROCK4"]
+plot(wp;label=names)
 ```
+
 
 ```julia, echo = false
 using SciMLBenchmarks
