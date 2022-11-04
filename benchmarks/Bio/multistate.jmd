@@ -72,7 +72,7 @@ given how fast evaluating `f` is:
 
 ```julia
 sol = solve(oprob, CVODE_BDF(), saveat=tf/1000., reltol=1e-5, abstol=1e-5)
-plot(sol; vars=obs, legend=false, fmt=:png)
+plot(sol; idxs=obs, legend=false, fmt=:png)
 ```
 
 For these benchmarks we will be using the time-series error with these saving
@@ -91,6 +91,18 @@ test_sol  = TestSolution(sol);
 
 ```julia
 default(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
+```
+
+#### Declares a plotting helper function
+
+```julia
+function plot_setting(wp)
+    times = vcat(map(wp -> wp.times, wp.wps)...)
+    errors = vcat(map(wp -> wp.errors, wp.wps)...)
+    xlimit = 10 .^ (floor(log10(minimum(errors))), ceil(log10(maximum(errors))))
+    ylimit = 10 .^ (floor(log10(minimum(times))), ceil(log10(maximum(times))))
+    return xlimit,ylimit
+end
 ```
 
 #### Sets tolerances
