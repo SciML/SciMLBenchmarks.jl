@@ -157,6 +157,15 @@ abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (5:8);
 ```
 
+## Failures
+
+Before proceding to the results, we note the notable omissions. CVODE with KLU diverges in the solution, and
+thus it is omitted from the results:
+
+```julia
+solve(sparsejacprob,CVODE_BDF(linear_solver=:KLU), abstol=1e-5, reltol=1e-5)
+```
+
 ## Work-Precision Diagrams (CVODE and lsoda solvers)
 
 #### Declare solvers.
@@ -168,7 +177,6 @@ setups = [
         Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense), :prob_choice => 1),
         Dict(:alg=>CVODE_BDF(linear_solver=:GMRES), :prob_choice => 1),
         Dict(:alg=>CVODE_BDF(linear_solver=:GMRES,prec=precilu,psetup=psetupilu,prec_side=1), :prob_choice => 2),
-        Dict(:alg=>CVODE_BDF(linear_solver=:KLU), :prob_choice => 3),
         ];
 ```
 
@@ -177,7 +185,7 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet([oprob,oprob_sparse,sparsejacprob],abstols,reltols,setups;error_estimate=:l2,
-                    saveat=tf/10000.,appxsol=[test_sol,test_sol,test_sol],maxiters=Int(1e9),numruns=2)
+                    saveat=tf/10000.,appxsol=[test_sol,test_sol,test_sol],maxiters=Int(1e6),numruns=2)
 
 names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "CVODE_BDF (GMRES, iLU)" "CVODE_BDF (KLU, sparse jac)"]
 xlimit,ylimit = plot_settings(wp)
@@ -201,7 +209,7 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),dtmin=1e-18,numruns=2)
+                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),dtmin=1e-18,numruns=2)
 
 names = ["TRBDF2" "QNDF" "FBDF" "KenCarp4"]
 xlimit,ylimit = plot_settings(wp)
@@ -223,7 +231,7 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
-                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),dtmin=1e-18,numruns=2)
+                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),dtmin=1e-18,numruns=2)
 
 names = ["TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)"]
 xlimit,ylimit = plot_settings(wp)
@@ -245,7 +253,7 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob_sparse,abstols,reltols,setups;error_estimate=:l2,
-                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),dtmin=1e-18,numruns=2)
+                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),dtmin=1e-18,numruns=2)
 
 names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
 xlimit,ylimit = plot_settings(wp)
@@ -270,7 +278,7 @@ setups = [
 Finally, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
-                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e12),dtmin=1e-18,numruns=2)
+                    saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),dtmin=1e-18,numruns=2)
 
 names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 xlimit,ylimit = plot_settings(wp)
