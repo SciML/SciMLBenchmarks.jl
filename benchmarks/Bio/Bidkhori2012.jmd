@@ -826,6 +826,8 @@ plot(wp, title = "Implicit Methods: SBML Model",legend=:outertopleft,size = (100
 ## Sparse Jacobian
 Finally we test using the generated sparse analytic Jacobian function.
 
+Note that the extrapolation methods currently do not support sparse Jacobians.
+
 ```julia
 setups = [
             #Dict(:alg=>CVODE_BDF()), #Fails!
@@ -835,16 +837,17 @@ setups = [
             #Dict(:alg=>lsoda()),
             #Dict(:alg=>radau()),
             #Dict(:alg=>seulex()),
-            Dict(:alg=>ImplicitEulerExtrapolation(autodiff = false,min_order = 8, init_order = 9,threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerExtrapolation(autodiff = false,min_order = 8, init_order = 9,threading = false)),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = false,min_order = 7, init_order = 8,threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = false,min_order = 7, init_order = 8,threading = false)),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = false,init_order = 5,threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = false,init_order = 5, threading = false)),
+            #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = false,min_order = 8, init_order = 9,threading = OrdinaryDiffEq.PolyesterThreads())),
+            #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = false,min_order = 8, init_order = 9,threading = false)),
+            #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = false,min_order = 7, init_order = 8,threading = OrdinaryDiffEq.PolyesterThreads())),
+            #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = false,min_order = 7, init_order = 8,threading = false)),
+            #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = false,init_order = 5,threading = OrdinaryDiffEq.PolyesterThreads())),
+            #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = false,init_order = 5, threading = false)),
             ]
 
-solnames = ["KenCarp4","Rodas4","QNDF","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
-            "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+solnames = ["KenCarp4","Rodas4","QNDF",#"ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+            #"ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"
+            ]
 
 wp = WorkPrecisionSet(sparsejacprob ,abstols,reltols,setups;
                       names = solnames,appxsol=test_sol,save_everystep=false,maxiters=Int(1e5),numruns=10)
