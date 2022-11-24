@@ -26,16 +26,16 @@ tf       = 100000.0
 
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
-show(to) 
+show(to)
 rn    = prnbng.rn
 obs = [eq.lhs for eq in observed(rn)]
 
 @timeit to "Create ODESys" osys = convert(ODESystem, rn)
-show(to) 
+show(to)
 
 tspan = (0.,tf)
 @timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
-show(to) 
+show(to)
 oprob_sparse = ODEProblem(osys, Float64[], tspan, Float64[]; sparse=true);
 ```
 
@@ -120,7 +120,7 @@ W = I - 1.0*jaccache
 prectmp = ilu(W, τ = 50.0)
 preccache = Ref(prectmp)
 
-τ1 = 1e2
+const τ1 = 1e2
 function psetupilu(p, t, u, du, jok, jcurPtr, gamma)
     if jok
         sparsejacprob.f.jac(jaccache,u,p,t)
@@ -139,7 +139,7 @@ function precilu(z,r,p,t,y,fy,gamma,delta,lr)
     ldiv!(z,preccache[],r)
 end
 
-τ2 = 1e10
+const τ2 = 1e2
 function incompletelu(W,du,u,p,t,newW,Plprev,Prprev,solverdata)
     if newW === nothing || newW
         Pl = ilu(convert(AbstractMatrix,W), τ = τ2)
@@ -163,7 +163,7 @@ Before proceding to the results, we note the notable omissions. CVODE with KLU d
 thus it is omitted from the results:
 
 ```julia
-solve(sparsejacprob,CVODE_BDF(linear_solver=:KLU), abstol=1e-5, reltol=1e-5)
+solve(sparsejacprob,CVODE_BDF(linear_solver=:KLU), abstol=1e-8, reltol=1e-8);
 ```
 
 ## Work-Precision Diagrams (CVODE and lsoda solvers)
@@ -242,10 +242,10 @@ plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
 
 ```julia
 setups = [
-        Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-        Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-        Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true)),
-        Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu_fceri,concrete_jac=true))
+        Dict(:alg=>TRBDF2(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+        Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+        Dict(:alg=>FBDF(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true)),
+        Dict(:alg=>KenCarp4(linsolve=KrylovJL_GMRES(),autodiff=false,precs=incompletelu,concrete_jac=true))
         ];
 ```
 
