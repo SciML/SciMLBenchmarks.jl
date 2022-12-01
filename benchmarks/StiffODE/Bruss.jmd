@@ -4,7 +4,7 @@ author: Chris Rackauckas and Utkarsh
 ---
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots, 
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots,
       ODEInterfaceDiffEq, LSODA, SparseArrays, LinearSolve,
       LinearAlgebra, IncompleteLU, AlgebraicMultigrid, Symbolics, ModelingToolkit
 gr()
@@ -229,7 +229,7 @@ prectmp = ilu(W, τ = 50.0)
 const preccache = Ref(prectmp)
 
 function psetupilu(p, t, u, du, jok, jcurPtr, gamma)
-  if jok
+  if !jok
     prob_mtk.f.jac(jaccache,u,p,t)
     jcurPtr[] = true
 
@@ -250,7 +250,7 @@ end
 prectmp2 = aspreconditioner(ruge_stuben(W, presmoother = AlgebraicMultigrid.Jacobi(rand(size(W,1))), postsmoother = AlgebraicMultigrid.Jacobi(rand(size(W,1)))))
 const preccache2 = Ref(prectmp2)
 function psetupamg(p, t, u, du, jok, jcurPtr, gamma)
-  if jok
+  if !jok
     prob_mtk.f.jac(jaccache,u,p,t)
     jcurPtr[] = true
 
@@ -283,7 +283,7 @@ setups = [
           Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES()), :prob_choice => 3),
 
           ]
-names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 KLU FastBruss", 
+names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 KLU FastBruss",
          "KenCarp47 GMRES", "KenCarp47 GMRES MTK", "KenCarp47 GMRES FastBruss"];
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -325,8 +325,8 @@ setups = [
           Dict(:alg=>KenCarp47(linsolve=KrylovJL_GMRES(),precs=algebraicmultigrid,concrete_jac=true), :prob_choice => 2),
 
           ]
-names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 UMFPACK", "KenCarp47 UMFPACK MTK", "KenCarp47 GMRES", 
-        "KenCarp47 GMRES MTK", "KenCarp47 iLU GMRES", "KenCarp47 iLU GMRES MTK", "KenCarp47 AMG GMRES", 
+names = ["KenCarp47 KLU","KenCarp47 KLU MTK","KenCarp47 UMFPACK", "KenCarp47 UMFPACK MTK", "KenCarp47 GMRES",
+        "KenCarp47 GMRES MTK", "KenCarp47 iLU GMRES", "KenCarp47 iLU GMRES MTK", "KenCarp47 AMG GMRES",
         "KenCarp47 AMG GMRES MTK"];
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;names = names,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
