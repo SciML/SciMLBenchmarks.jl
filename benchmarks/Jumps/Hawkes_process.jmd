@@ -1,0 +1,187 @@
+---
+title: Mutually exciting Hawkes process
+author: Guilherme Zagatti
+weave_options:
+      fig_ext: ".png"
+---
+
+```julia
+using JumpProcesses, Graphs, Plots, Statistics, BenchmarkTools
+```
+
+# Model and example solutions
+
+```julia
+function reset_history!(h; start_time = nothing)
+    if start_time === nothing
+        start_time = -Inf
+    end
+    @inbounds for i = 1:length(h)
+        hi = h[i]
+        ix = 0
+        while ((ix + 1) <= length(hi)) && hi[ix+1] <= start_time
+                ix += 1
+            end
+        end
+        h[i] = ix == 0 ? eltype(h)[] : hi[1:ix]
+    end
+    nothing
+end
+
+function hawkes_rate(i::Int, g, h)
+    function rate(u, p, t)
+        λ, α, β = p
+        x = zero(typeof(t))
+        for j in g[i]
+            for _t in reverse(h[j])
+                λij = α*exp(-β*(t - _t))
+                if λij ≈ 0 break end
+                x += λij
+            end
+        end
+        return λ + x
+    end
+    return rate
+end
+
+function hawkes_jump(i::Int, g, h)
+    rate = hawkes_rate(i, g, h)
+    lrate(u, p, t) = p[1]
+    urate = rate
+    function L(u, p, t)
+        _lrate = lrate(u, p, t)
+        _urate = urate(u, p, t)
+        return _urate == _lrate ? typemax(t) : 1/(2*_urate)
+    end
+    function affect!(integrator)
+        push!(h[i], integrator.t)
+        integrator.u[i] += 1
+    end
+    return VariableRateJump(rate, affect!; lrate=lrate, urate=urate, L=L)
+end
+
+function hawkes_jump(u, g, h)
+    return [hawkes_jump(i, g, h) for i in 1:length(u)]
+end
+
+function hawkes_problem(p, agg::QueueMethod; u=[0.], tspan=(0., 50.), save_positions=(false, true),
+    g = [[1]], h = [[]])
+    dprob = DiscreteProblem(u, tspan, p)
+    jumps = hawkes_jump(u, g, h)
+    jprob = JumpProblem(dprob, agg, jumps...;
+        dep_graph=g, save_positions=save_positions)
+    return jprob
+end
+
+function f!(du, u, p, t)
+    du .= 0
+    nothing
+end
+
+function hawkes_problem(p, agg; u=[0.], tspan=(0., 50.), save_positions=(false, true),
+    g = [[1]], h = [[]])
+    oprob = ODEProblem(f!, u, tspan, p)
+    jumps = hawkes_jump(u, g, h)
+    jprob = JumpProblem(oprob, agg, jumps...; save_positions=save_positions)
+    return jprob
+end
+```
+
+```julia
+methods = (Direct(), QueueMethod())
+shortlabels = [string(leg)[15:end-2] for leg in methods]
+
+V = 10
+G = erdos_renyi(V, 0.2)
+g = [neighbors(G, i) for i in 1:nv(G)]
+
+u = [0. for i in 1:nv(G)]
+p = (0.5, 0.1, 2.0)
+tspan = (0., 50.)
+h = [eltype(tspan)[] for _ in 1:nv(G)]
+
+plots = []
+for (i, method) in enumerate(methods)
+    jump_prob = hawkes_problem(p, method; u=u, tspan=tspan, g=g, h=h)
+    reset_history!(h)
+    if typeof(method) <: QueueMethod
+        sol = solve(jump_prob, SSAStepper())
+    else
+        sol = solve(jump_prob, Tsit5())
+    end
+        push!(plots, plot(sol.t, sol[1:V, :]', title=shortlabels[i], legend=false, format=fmt))
+end
+plot(plots..., layout=(1, 2), format=fmt)
+```
+
+# Benchmarking performance of the methods
+
+```julia
+Vs = append!([1], 5:5:100)
+Gs = [erdos_renyi(V, 0.2) for V in Vs]
+nsims = 50
+benchmarks = Vector{Vector{BenchmarkTools.Trial}}()
+# initialize variables for BenchmarkTools
+_G = nothing
+_g = nothing
+_u = nothing
+_h = nothing
+_jump_prob = nothing
+_stepper = nothing
+_trial = nothing
+for method in methods
+    println("Method: $(method)")
+    push!(benchmarks, Vector{BenchmarkTools.Trial}())
+    _bs = benchmarks[end]
+    for (i, V) in enumerate(Vs)
+        trial = try
+            _G = Gs[i]
+            _g = [neighbors(_G, i) for i in 1:nv(_G)]
+            _u = [0. for i in 1:nv(_G)]
+            _h = [eltype(tspan)[] for _ in 1:nv(_G)]
+            _jump_prob = hawkes_problem(p, method; u=u, tspan=tspan, g=g, h=h)
+            if typeof(method) <: QueueMethod
+                _stepper = SSAStepper()
+            else
+                _stepper = Tsit5()
+            end
+            @benchmark(
+                solve(_jump_prob, _stepper),
+                setup=(reset_history!(_h)),
+                samples=nsims,
+                evals=1,
+                seconds=60,
+            )
+        catch
+            BenchmarkTools.Trial(BenchmarkTools.Parameters(samples=nsims, evals=1, seconds=60))
+        end
+        push!(_bs, _trial)
+        if (V == 1 || V % 20 == 0) && (length(_bs[end]) > 0)
+            println("\tV = $V, b = $(_bs[end])")
+        end
+    end
+    time = Vector{Vector{Float64}}(undef, nsims)
+    run_benchmark!(time, jump_prob, stepper)
+    push!(benchmarks, time)
+end
+```
+
+```julia
+plot(yscale=:log10, xlabel="V", ylabel="Time (ns)", legend_position=:outertopright)
+for (i, method) in enumerate(methods)
+    _bs, _Vs = [], []
+    for (i, b) in enumerate(benchmarks)
+        if length(b) > 0
+            push!(_bs, median(b.times))
+            push!(_Vs, Vs[i])
+        end
+    end
+    plot!(_Vs, _bs, label="$method")
+end
+title!("Simulation, $nsims samples: processes × median time")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
