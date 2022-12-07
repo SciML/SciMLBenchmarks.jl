@@ -6,24 +6,16 @@ weave_options:
 ---
 
 ```julia
-using JumpProcesses, Graphs, Plots, Statistics, BenchmarkTools
+using JumpProcesses, Graphs, OrdinaryDiffEq, Plots, Statistics, BenchmarkTools
+fmt = :png
 ```
 
 # Model and example solutions
 
 ```julia
 function reset_history!(h; start_time = nothing)
-    if start_time === nothing
-        start_time = -Inf
-    end
     @inbounds for i = 1:length(h)
-        hi = h[i]
-        ix = 0
-        while ((ix + 1) <= length(hi)) && hi[ix+1] <= start_time
-                ix += 1
-            end
-        end
-        h[i] = ix == 0 ? eltype(h)[] : hi[1:ix]
+        h[i] = eltype(h)[]
     end
     nothing
 end
@@ -109,7 +101,7 @@ for (i, method) in enumerate(methods)
     else
         sol = solve(jump_prob, Tsit5())
     end
-        push!(plots, plot(sol.t, sol[1:V, :]', title=shortlabels[i], legend=false, format=fmt))
+    push!(plots, plot(sol.t, sol[1:V, :]', title=shortlabels[i], legend=false, format=fmt))
 end
 plot(plots..., layout=(1, 2), format=fmt)
 ```
@@ -117,7 +109,7 @@ plot(plots..., layout=(1, 2), format=fmt)
 # Benchmarking performance of the methods
 
 ```julia
-Vs = append!([1], 5:5:100)
+Vs = append!([1], 5:5:95)
 Gs = [erdos_renyi(V, 0.2) for V in Vs]
 nsims = 50
 benchmarks = Vector{Vector{BenchmarkTools.Trial}}()
@@ -128,22 +120,21 @@ _u = nothing
 _h = nothing
 _jump_prob = nothing
 _stepper = nothing
-_trial = nothing
 for method in methods
     println("Method: $(method)")
     push!(benchmarks, Vector{BenchmarkTools.Trial}())
     _bs = benchmarks[end]
     for (i, V) in enumerate(Vs)
         trial = try
-            _G = Gs[i]
-            _g = [neighbors(_G, i) for i in 1:nv(_G)]
-            _u = [0. for i in 1:nv(_G)]
-            _h = [eltype(tspan)[] for _ in 1:nv(_G)]
-            _jump_prob = hawkes_problem(p, method; u=u, tspan=tspan, g=g, h=h)
+            global _G = Gs[i]
+            global _g = [neighbors(_G, i) for i in 1:nv(_G)]
+            global _u = [0. for i in 1:nv(_G)]
+            global _h = [eltype(tspan)[] for _ in 1:nv(_G)]
+            global _jump_prob = hawkes_problem(p, method; u=_u, tspan=tspan, g=_g, h=_h)
             if typeof(method) <: QueueMethod
-                _stepper = SSAStepper()
+                global _stepper = SSAStepper()
             else
-                _stepper = Tsit5()
+                global _stepper = Tsit5()
             end
             @benchmark(
                 solve(_jump_prob, _stepper),
@@ -155,14 +146,11 @@ for method in methods
         catch
             BenchmarkTools.Trial(BenchmarkTools.Parameters(samples=nsims, evals=1, seconds=60))
         end
-        push!(_bs, _trial)
+        push!(_bs, trial)
         if (V == 1 || V % 20 == 0) && (length(_bs[end]) > 0)
             println("\tV = $V, b = $(_bs[end])")
         end
     end
-    time = Vector{Vector{Float64}}(undef, nsims)
-    run_benchmark!(time, jump_prob, stepper)
-    push!(benchmarks, time)
 end
 ```
 
@@ -170,10 +158,10 @@ end
 plot(yscale=:log10, xlabel="V", ylabel="Time (ns)", legend_position=:outertopright)
 for (i, method) in enumerate(methods)
     _bs, _Vs = [], []
-    for (i, b) in enumerate(benchmarks)
+    for (j, b) in enumerate(benchmarks[i])
         if length(b) > 0
             push!(_bs, median(b.times))
-            push!(_Vs, Vs[i])
+            push!(_Vs, Vs[j])
         end
     end
     plot!(_Vs, _bs, label="$method")
