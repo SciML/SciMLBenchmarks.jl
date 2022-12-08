@@ -56,7 +56,7 @@ function hawkes_jump(u, g, h)
     return [hawkes_jump(i, g, h) for i in 1:length(u)]
 end
 
-function hawkes_problem(p, agg::QueueMethod; u=[0.], tspan=(0., 50.), save_positions=(false, true),
+function hawkes_problem(p, agg::Coevolve; u=[0.], tspan=(0., 50.), save_positions=(false, true),
     g = [[1]], h = [[]])
     dprob = DiscreteProblem(u, tspan, p)
     jumps = hawkes_jump(u, g, h)
@@ -80,7 +80,7 @@ end
 ```
 
 ```julia
-methods = (Direct(), QueueMethod())
+methods = (Direct(), Coevolve())
 shortlabels = [string(leg)[15:end-2] for leg in methods]
 
 V = 10
@@ -96,7 +96,7 @@ plots = []
 for (i, method) in enumerate(methods)
     jump_prob = hawkes_problem(p, method; u=u, tspan=tspan, g=g, h=h)
     reset_history!(h)
-    if typeof(method) <: QueueMethod
+    if typeof(method) <: Coevolve
         sol = solve(jump_prob, SSAStepper())
     else
         sol = solve(jump_prob, Tsit5())
@@ -131,7 +131,7 @@ for method in methods
             global _u = [0. for i in 1:nv(_G)]
             global _h = [eltype(tspan)[] for _ in 1:nv(_G)]
             global _jump_prob = hawkes_problem(p, method; u=_u, tspan=tspan, g=_g, h=_h)
-            if typeof(method) <: QueueMethod
+            if typeof(method) <: Coevolve
                 global _stepper = SSAStepper()
             else
                 global _stepper = Tsit5()
