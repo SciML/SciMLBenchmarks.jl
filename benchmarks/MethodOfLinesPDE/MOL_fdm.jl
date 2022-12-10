@@ -81,7 +81,7 @@ probnu2 = discretize(pdesys1, discnu2; analytic=analytic)
 probs1 = [probupwind1, probupwind2, probnu1, probnu2, probweno1, probweno2]
 
 # Work-Precision Plot for Burgers Equation, Dirichlet BCs
-
+dummy_appxsol = [nothing for i in 1:length(probs1)]
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg => solver, :prob_choice => 1),
@@ -94,7 +94,7 @@ names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align", "Nonunifo
          "Nonuniform Upwind, edge_align", "WENO, center_align", "WENO, edge_align"];
 
 wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
-    save_everystep=false, maxiters=Int(1e5),
+    save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
     numruns=10, wrap=Val(false))
 plot(wp)
 
