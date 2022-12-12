@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 9, 12, 18, 4, 5, 8, 6, 10, 13, 19, 11, 17, 7, 16, 3, 14, 15, 2]
+    [1, 9, 12, 19, 4, 5, 8, 17, 6, 10, 13, 20, 11, 18, 7, 16, 3, 14, 15, 2]
 )
 
 names = [
@@ -60,6 +60,7 @@ names = [
     "Jump Process Equations (Gillespie Benchmarks)",
     "Parameter Estimation and Inverse Problem Benchmarks",
     "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
+    "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
     "SDE Adaptivity Benchmarks"]
