@@ -114,13 +114,14 @@ end
 #### Declare pre-conditioners
 ```julia
 using IncompleteLU, LinearAlgebra
+const τ = 1e2
+const τ2 = 1e2
 
 jaccache = sparsejacprob.f.jac(oprob.u0,oprob.p,0.0)
 W = I - 1.0*jaccache
-prectmp = ilu(W, τ = 50.0)
+prectmp = ilu(W, τ = τ1)
 preccache = Ref(prectmp)
 
-const τ1 = 1e2
 function psetupilu(p, t, u, du, jok, jcurPtr, gamma)
     if !jok
         sparsejacprob.f.jac(jaccache,u,p,t)
@@ -139,7 +140,6 @@ function precilu(z,r,p,t,y,fy,gamma,delta,lr)
     ldiv!(z,preccache[],r)
 end
 
-const τ2 = 1e2
 function incompletelu(W,du,u,p,t,newW,Plprev,Prprev,solverdata)
     if newW === nothing || newW
         Pl = ilu(convert(AbstractMatrix,W), τ = τ2)
@@ -252,7 +252,7 @@ setups = [
 #### Plot Work-Precision Diagram (using GMRES linear solver, with pre-conditioner).
 
 ```julia
-wp = WorkPrecisionSet(oprob_sparse,abstols,reltols,setups;error_estimate=:l2,
+wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                     saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),numruns=1)
 
 names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
