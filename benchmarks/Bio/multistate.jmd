@@ -31,12 +31,12 @@ obs = [eq.lhs for eq in observed(rn)]
 show(to) 
 
 tspan = (0.,tf)
-@timeit to "ODEProb No Jac" oprob = ODEProblem{true, SciMLBase.FullSpecialize}(osys, Float64[], tspan, Float64[])
+@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
 show(to);
 ```
 
 ```julia
-@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem{true, SciMLBase.FullSpecialize}(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
+@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
 show(to)
 ```
 
@@ -212,6 +212,38 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
 names = ["CVODE_Adams" "ROCK2"]
 xlimit,ylimit = plot_settings(wp)
 plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+```
+
+## Summary of results
+Finally, we compute a single diagram comparing the various solvers used.
+
+#### Declare solvers
+We designate the solvers we wish to compare.
+```julia
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),   
+          Dict(:alg=>Vern7())
+          ];
+```
+
+#### Plot Work-Precision Diagram
+
+For these, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
+
+names = ["lsoda" "CVODE_BDF" "QNDF" "KenCarp4" "Rodas5P" "Tsit5" "BS5" "VCABM" "Vern7"]
+colors = [:seagreen1 :chartreuse1 :deepskyblue1 :lightskyblue :blue :thistle2 :lightsteelblue2 :lightslateblue :mediumpurple3]
+xlimit,ylimit = plot_settings(wp)
+plot(wp;label=names,xlimit=xlimit,ylimit=ylimit,xticks=[1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3],yticks=[],color=colors,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, markershape=:diamond, gridlinewidth=7.5,size=(1100,1000))
 ```
 
 ```julia, echo = false
