@@ -1,10 +1,10 @@
 ---
-title: Multisite2 Work-Precision Diagrams
+title: Multistate Work-Precision Diagrams
 author: Torkel Loman
 ---
 
-The following benchmark is of 66 ODEs with 288 terms that describe a
-chemical reaction network. This multisite2 model was used as a benchmark model in [Gupta et
+The following benchmark is of 9 ODEs with 18 terms that describe a
+chemical reaction network. This multistate model was used as a benchmark model in [Gupta et
 al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). We use
 [`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
 to load the BioNetGen model files as a
@@ -15,15 +15,14 @@ Catalyst network model to ODEs.
 ```julia
 using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
-      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
-      LinearSolve
+      LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools
 
 gr()
 const to = TimerOutput()
-tf       = 2.0
+tf       = 20.0
 
 # generate ModelingToolkit ODEs
-@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multisite2.net"))
+@timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multistate.net"))
 show(to) 
 rn    = prnbng.rn
 obs = [eq.lhs for eq in observed(rn)]
@@ -32,12 +31,12 @@ obs = [eq.lhs for eq in observed(rn)]
 show(to) 
 
 tspan = (0.,tf)
-@timeit to "ODEProb No Jac" oprob = ODEProblem{true, SciMLBase.FullSpecialize}(osys, Float64[], tspan, Float64[])
+@timeit to "ODEProb No Jac" oprob = ODEProblem(osys, Float64[], tspan, Float64[])
 show(to);
 ```
 
 ```julia
-@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem{true, SciMLBase.FullSpecialize}(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
+@timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem(osys, Float64[], tspan, Float64[], jac=true, sparse=true)
 show(to)
 ```
 
@@ -182,7 +181,6 @@ We designate the solvers we wish to use, this also includes lsoda and CVODE.
 ```julia
 setups = [
           Dict(:alg=>lsoda()), 
-          Dict(:alg=>CVODE_Adams()), 
           Dict(:alg=>Tsit5()), 
           Dict(:alg=>BS5()), 
           Dict(:alg=>VCABM()),          
@@ -200,22 +198,54 @@ setups = [
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
 
-names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK4"]
+names = ["lsoda" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK4"]
 xlimit,ylimit = plot_settings(wp)
 plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
 ```
 
 #### Additional explicit solvers
-One additional explicit solver, `ROCK2`, performs noticeably worse as compared to the other ones.
+Two additional explicit solvers, `CVODE_Adams` and `ROCK2`, perform noticeably worse as compared to the other ones.
 ```julia
-setups = [Dict(:alg=>ROCK2())];
+setups = [Dict(:alg=>CVODE_Adams()), Dict(:alg=>ROCK2())];
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
-names = ["ROCK2"]
+names = ["CVODE_Adams" "ROCK2"]
 xlimit,ylimit = plot_settings(wp)
 plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
 ```
 
+## Summary of results
+Finally, we compute a single diagram comparing the various solvers used.
+
+#### Declare solvers
+We designate the solvers we wish to compare.
+```julia
+setups = [
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>Tsit5()), 
+          Dict(:alg=>BS5()), 
+          Dict(:alg=>VCABM()),   
+          Dict(:alg=>Vern7())
+          ];
+```
+
+#### Plot Work-Precision Diagram
+
+For these, we generate a work-precision diagram for the selection of solvers.
+```julia
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
+                      saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
+
+names = ["lsoda" "CVODE_BDF" "QNDF" "KenCarp4" "Rodas5P" "Tsit5" "BS5" "VCABM" "Vern7"]
+colors = [:seagreen1 :chartreuse1 :deepskyblue1 :lightskyblue :blue :orchid2 :thistle2 :lightsteelblue2 :mediumpurple1]
+markershapes = [:star4, :circle, :hexagon, :star5, :heptagon, :ltriangle, :star8, :heptagon, :star6]
+xlimit,ylimit = plot_settings(wp)
+plot(wp;label=names,xlimit=xlimit,ylimit=ylimit,xticks=[1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3],yticks=[],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, markershape=:diamond, gridlinewidth=7.5,size=(1100,1000))
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
