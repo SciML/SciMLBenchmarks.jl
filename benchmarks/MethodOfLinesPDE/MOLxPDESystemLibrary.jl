@@ -196,6 +196,7 @@ for ex in PSL.all_systems
 
         end
     catch e
-        println("Failed on $(ex.name): $(e)")
+        println("Failed on $(ex.name):")
+        println(e)
     end
 end
