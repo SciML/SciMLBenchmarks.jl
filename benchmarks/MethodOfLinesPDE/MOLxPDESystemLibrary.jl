@@ -84,7 +84,7 @@ for ex in PSL.all_systems
         if length(ivs) == 0
             continue
         elseif length(ivs) == length(ex.ivs)
-            # Skip time-independent systems until I know the syntax for that
+            # Skip nonlinear systems until I know the syntax for that
             continue
 
             # advection = false
@@ -143,7 +143,7 @@ for ex in PSL.all_systems
 
         else
             @parameters t
-
+            # Create discretizations
             advection = false
             discuu1 = uniformupwind1(ex, ivs, t, N)
             discuu2 = uniformupwind2(ex, ivs, t, N)
@@ -157,6 +157,7 @@ for ex in PSL.all_systems
                 push!(discs, discw1, discw2)
             end
 
+            # Create problems
             probs = map(discs) do disc
                 discretize(ex, disc, analytic = ex.analytic_func)
             end
@@ -189,8 +190,8 @@ for ex in PSL.all_systems
                     Dict(:alg => solver, :prob_choice => 2),
                     Dict(:alg => solver, :prob_choice => 3),
                     Dict(:alg => solver, :prob_choice => 4),]
-                names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-                         "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align"];
+                names = ["Uniform, center_align", "Uniform, edge_align",
+                         "Chebyshev, center_align", "Chebyshev, edge_align"];
 
                 wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
                     save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
