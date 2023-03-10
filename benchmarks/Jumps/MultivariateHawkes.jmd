@@ -270,56 +270,60 @@ push!(algorithms, (PDMPCHV(), CHV(Tsit5()), true, "PDMPCHV"));
 The Python `Tick` library can be accessed with the `PyCall.jl`. We install the required Python dependencies with `Conda.jl` and define a factory for the Multivariate Hawkes `PyTick` problem.
 
 ```julia
-const REBUILD_PYCALL = true
-if REBUILD_PYCALL
-  using Pkg, Conda
-
-  # rebuild PyCall to ensure it links to the python provided by Conda.jl
-  ENV["PYTHON"] = ""
-  Pkg.build("PyCall")
-
-  # PyCall only works with Conda.ROOTENV
-  # tick requires python=3.8
-  Conda.add("python=3.8", Conda.ROOTENV)
-  Conda.add("numpy", Conda.ROOTENV)
-  Conda.pip_interop(true, Conda.ROOTENV)
-  Conda.pip("install", "tick", Conda.ROOTENV)
-end
-
-using PyCall
+const BENCHMARK_PYTHON = false
+const REBUILD_PYCALL = false
 
 struct PyTick end
 
-function hawkes_problem(
-    p,
-    agg::PyTick;
-    u = [0.0],
-    tspan = (0.0, 50.0),
-    save_positions = (false, true),
-    g = [[1]],
-    use_recursion = true,
-)
-    λ, α, β = p
-    SimuHawkesSumExpKernels = pyimport("tick.hawkes")[:SimuHawkesSumExpKernels]
-    jprob = SimuHawkesSumExpKernels(
-        baseline = fill(λ, length(u)),
-        adjacency = [i in j ? α / β : 0.0 for j in g, i = 1:length(u), u = 1:1],
-        decays = [β],
-        end_time = tspan[2],
-        verbose = false,
-        force_simulation = true,
-    )
-    return jprob
-end
+if BENCHMARK_PYTHON
+  if REBUILD_PYCALL
+    using Pkg, Conda
 
-push!(algorithms, (PyTick(), nothing, true, "PyTick"));
+    # rebuild PyCall to ensure it links to the python provided by Conda.jl
+    ENV["PYTHON"] = ""
+    Pkg.build("PyCall")
+
+    # PyCall only works with Conda.ROOTENV
+    # tick requires python=3.8
+    Conda.add("python=3.8", Conda.ROOTENV)
+    Conda.add("numpy", Conda.ROOTENV)
+    Conda.pip_interop(true, Conda.ROOTENV)
+    Conda.pip("install", "tick", Conda.ROOTENV)
+  end
+
+  using PyCall
+
+  function hawkes_problem(
+      p,
+      agg::PyTick;
+      u = [0.0],
+      tspan = (0.0, 50.0),
+      save_positions = (false, true),
+      g = [[1]],
+      use_recursion = true,
+  )
+      λ, α, β = p
+      SimuHawkesSumExpKernels = pyimport("tick.hawkes")[:SimuHawkesSumExpKernels]
+      jprob = SimuHawkesSumExpKernels(
+          baseline = fill(λ, length(u)),
+          adjacency = [i in j ? α / β : 0.0 for j in g, i = 1:length(u), u = 1:1],
+          decays = [β],
+          end_time = tspan[2],
+          verbose = false,
+          force_simulation = true,
+      )
+      return jprob
+  end
+
+  push!(algorithms, (PyTick(), nothing, true, "PyTick"));
+end
 ```
 
 Now, we instantiate the problems, find their solutions and plot the results.
 
 ```julia
 let fig = []
-  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:6])
+  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:end])
     if typeof(algo) <: PyTick
         _p = (p[1], p[2], p[3])
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
