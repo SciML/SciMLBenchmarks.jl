@@ -14,7 +14,7 @@ using PDESystemLibrary
 """
 Next we define some functions to generate approproiate discretizations for the PDESystemLibrary systems.
 """
-function uniform_grid(ex, ivs, N)
+function center_uniform_grid(ex, ivs, N)
     map(ivs) do x
         xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
         x => (supremum(xdomain.domain) - infimum(xdomain.domain)) /
@@ -22,46 +22,61 @@ function uniform_grid(ex, ivs, N)
     end
 end
 
-function chebygrid(ex, ivs, N)
+function edge_uniform_grid(ex, ivs, N)
     map(ivs) do x
         xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
-        x => chebyspace(xdomain, floor(N^(1 / length(ivs))))
+        x => (supremum(xdomain.domain) - infimum(xdomain.domain)) /
+             (floor(N^(1 / length(ivs))))
+    end
+end
+
+function center_chebygrid(ex, ivs, N)
+    map(ivs) do x
+        xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
+        x => chebyspace(xdomain, trunc(Int, N^(1 / length(ivs))))
+    end
+end
+
+function edge_chebygrid(ex, ivs, N)
+    map(ivs) do x
+        xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
+        x => chebyspace(xdomain, trunc(Int, N^(1 / length(ivs))) - 1)
     end
 end
 
 function uniformupwind1(ex, ivs, t, N)
-    dxs = uniform_grid(ex, ivs, N)
+    dxs = center_uniform_grid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme())
 end
 
 function uniformupwind2(ex, ivs, t, N)
-    dxs = uniform_grid(ex, ivs, N)
+    dxs = edge_uniform_grid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme(), grid_align=edge_align)
 end
 
 function chebyupwind1(ex, ivs, t, N)
-    dxs = chebygrid(ex, ivs, N)
+    dxs = center_chebygrid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme())
 end
 
 function chebyupwind2(ex, ivs, t, N)
-    dxs = chebygrid(ex, ivs, N)
+    dxs = edge_chebygrid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme(), grid_align=edge_align)
 end
 
 
 function discweno1(ex, ivs, t, N)
-    dxs = uniform_grid(ex, ivs, N)
+    dxs = center_uniform_grid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=WENOScheme())
 end
 
 function discweno2(ex, ivs, t, N)
-    dxs = uniform_grid(ex, ivs, N)
+    dxs = edge_uniform_grid(ex, ivs, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=WENOScheme(), grid_align=edge_align)
 end
