@@ -130,12 +130,12 @@ function hawkes_problem(
 end
 ```
 
-The `Coevolve()` aggregator knows how to handle the `SSAStepper`, so it accepts a `DiscreteProblem`.
+The `Coevolve()` and `CoevolveSynced()` aggregator knows how to handle the `SSAStepper`, so it accepts a `DiscreteProblem`.
 
 ```julia
 function hawkes_problem(
     p,
-    agg::Coevolve;
+    agg::Union{Coevolve, CoevolveSynced};
     u = [0.0],
     tspan = (0.0, 50.0),
     save_positions = (false, true),
@@ -173,12 +173,15 @@ Now, we instantiate the problems, find their solutions and plot the results.
 algorithms = Tuple{Any, Any, Bool, String}[
   (Direct(), Tsit5(), false, "Direct (brute-force)"),
   (Coevolve(), SSAStepper(), false, "Coevolve (brute-force)"),
+  (CoevolveSynced(), SSAStepper(), false, "CoevolveSynced (brute-force)"),
   (Direct(), Tsit5(), true, "Direct (recursive)"),
   (Coevolve(), SSAStepper(), true, "Coevolve (recursive)"),
+  (CoevolveSynced(), SSAStepper(), true, "CoevolveSynced (recursive)"),
 ]
 
 let fig = []
   for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
+    @info label
     if use_recursion
         h = zeros(eltype(tspan), nv(G))
         urate = zeros(eltype(tspan), nv(G))
@@ -193,7 +196,7 @@ let fig = []
     sol = solve(jump_prob, stepper)
     push!(fig, plot(sol.t, sol[1:V, :]', title=label, legend=false, format=fmt))
   end
-  fig = plot(fig..., layout=(2,2), format=fmt)
+  fig = plot(fig..., layout=(3,2), format=fmt, size=(width_px, 3*height_px/2))
 end
 ```
 
@@ -270,8 +273,8 @@ push!(algorithms, (PDMPCHV(), CHV(Tsit5()), true, "PDMPCHV"));
 The Python `Tick` library can be accessed with the `PyCall.jl`. We install the required Python dependencies with `Conda.jl` and define a factory for the Multivariate Hawkes `PyTick` problem.
 
 ```julia
-const BENCHMARK_PYTHON = false
-const REBUILD_PYCALL = false
+const BENCHMARK_PYTHON::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_PYTHON", "false"))
+const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYCALL", "false"))
 
 struct PyTick end
 
@@ -323,7 +326,8 @@ Now, we instantiate the problems, find their solutions and plot the results.
 
 ```julia
 let fig = []
-  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:end])
+  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[7:end])
+    @info label
     if typeof(algo) <: PyTick
         _p = (p[1], p[2], p[3])
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
@@ -540,6 +544,7 @@ Now, we simulate all of the algorithms we defined in the previous Section $250$ 
 ```julia
 let fig = []
     for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
+        @info label
         if typeof(algo) <: PyTick
             _p = (p[1], p[2], p[3])
         elseif typeof(algo) <: PDMPCHV
@@ -579,7 +584,7 @@ let fig = []
         qqs = qq(runs, Λ)
         push!(fig, qqplot(qqs..., legend = false, aspect_ratio = :equal, title=label, fmt=fmt))
     end
-    fig = plot(fig..., layout = (3, 2), fmt=fmt, size=(width_px, 3*height_px/2))
+    fig = plot(fig..., layout = (4, 2), fmt=fmt, size=(width_px, 4*height_px/2))
 end
 ```
 
@@ -600,6 +605,7 @@ Gs = [erdos_renyi(V, 0.2, seed = 6221) for V in Vs]
 bs = Vector{Vector{BenchmarkTools.Trial}}()
 
 for (algo, stepper, use_recursion, label) in algorithms
+    @info label
     global _stepper = stepper
     push!(bs, Vector{BenchmarkTools.Trial}())
     _bs = bs[end]
