@@ -14,27 +14,27 @@ width_px, height_px = default(:size);
 
 # Model and example solutions
 
-Let a graph with $V$ nodes, then the multivariate Hawkes process is characterized by $V$ point processes such that the conditional intensity rate of node $i$ connected to a set of nodes $E_i$ in the graph is given by:
-$$
+Let a graph with ``V`` nodes, then the multivariate Hawkes process is characterized by ``V`` point processes such that the conditional intensity rate of node ``i`` connected to a set of nodes ``E_i`` in the graph is given by:
+```math
   \lambda_i^\ast (t) = \lambda + \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{n_j}) \right]
-$$
-This process is known as self-exciting, because the occurence of an event $ j $ at $t_{n_j}$ will increase the conditional intensity of all the processes connected to it by $\alpha$. The excited intensity then decreases at a rate proportional to $\beta$.
+```
+This process is known as self-exciting, because the occurence of an event ``j `` at ``t_{n_j}`` will increase the conditional intensity of all the processes connected to it by ``\alpha``. The excited intensity then decreases at a rate proportional to ``\beta``.
 
-The conditional intensity of this process has a recursive formulation which can significantly speed the simulation. The recursive formulation for the univariate case is derived in Laub et al. [2]. We derive the compound case here. Let $t_{N_i} = \max \{ t_{n_j} < t \mid j \in E_i \}$ and
-$$
+The conditional intensity of this process has a recursive formulation which can significantly speed the simulation. The recursive formulation for the univariate case is derived in Laub et al. [2]. We derive the compound case here. Let ``t_{N_i} = \max \{ t_{n_j} < t \mid j \in E_i \}`` and
+```math
 \begin{split}
   \phi_i^\ast (t)
     &= \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{N_i} + t_{N_i} - t_{n_j}) \right] \\
     &= \exp \left[ -\beta (t - t_{N_i}) \right] \sum_{j \in E_i} \sum_{t_{n_j} \leq t_{N_i}} \alpha \exp \left[-\beta (t_{N_i} - t_{n_j}) \right] \\
     &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi^\ast (t_{N_i}) \right)
 \end{split}
-$$
-Then the conditional intensity can be re-written in terms of $\phi_i^\ast (t_{N_i})$
-$$
+```
+Then the conditional intensity can be re-written in terms of ``\phi_i^\ast (t_{N_i})``
+```math
   \lambda_i^\ast (t) = \lambda + \phi_i^\ast (t) = \lambda + \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi_i^\ast (t_{N_i}) \right)
-$$
+```
 
-In Julia, we define a factory for the conditional intensity $\lambda_i$ which returns the brute-force or recursive versions of the intensity given node $i$ and network $g$.
+In Julia, we define a factory for the conditional intensity ``\lambda_i`` which returns the brute-force or recursive versions of the intensity given node ``i`` and network ``g``.
 
 ```julia
 function hawkes_rate(i::Int, g; use_recursion = false)
@@ -150,7 +150,7 @@ function hawkes_problem(
 end
 ```
 
-Lets solve the problems defined so far. We sample a random graph sampled from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at $0.2$. For illustration purposes, we fix $V = 10$.
+Lets solve the problems defined so far. We sample a random graph sampled from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at ``0.2``. For illustration purposes, we fix ``V = 10``.
 
 ```julia
 V = 10
@@ -158,7 +158,7 @@ G = erdos_renyi(V, 0.2, seed = 9103)
 g = [neighbors(G, i) for i = 1:nv(G)]
 ```
 
-We fix the Hawkes parameters at $\lambda = 0.5 , \alpha = 0.1 , \beta = 2.0$ which ensures the process does not explode.
+We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 2.0`` which ensures the process does not explode.
 
 ```julia
 tspan = (0.0, 50.0)
@@ -205,13 +205,13 @@ end
 We benchmark `JumpProcesses.jl` against `PiecewiseDeterministicMarkovProcesses.jl` and Python `Tick` library. 
 
 In order to compare with the `PiecewiseDeterministicMarkovProcesses.jl`, we need to reformulate our jump problem as a Piecewise Deterministic Markov Process (PDMP). In this setting, we need to describe how the conditional intensity changes with time which we derive below:
-$$
+```math
 \begin{split}
   \frac{d \lambda_i^\ast (t)}{d t}
     &= -\beta \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{n_j}) \right] \\
     &= -\beta \left( \lambda_i^\ast (t) - \lambda \right)
 \end{split}
-$$
+```
 
 ```julia
 function hawkes_drate(dxc, xc, xd, p, t)
@@ -350,10 +350,10 @@ end
 
 We check that the algorithms produce correct simulation by inspecting their QQ-plots. Point process theory says that transforming the simulated points using the compensator should produce points whose inter-arrival duration is distributed according to the exponential distribution (see Section 7.4 [1]).
 
-The compensator of any point process is the integral of the conditional intensity $\Lambda_i^\ast(t) = \int_0^t \lambda_i^\ast(u) du$. The compensator for the Multivariate Hawkes process is defined below.
-$$
+The compensator of any point process is the integral of the conditional intensity ``\Lambda_i^\ast(t) = \int_0^t \lambda_i^\ast(u) du``. The compensator for the Multivariate Hawkes process is defined below.
+```math
     \Lambda_i^\ast(t) = \lambda t + \frac{\alpha}{\beta} \sum_{j \in E_i} \sum_{t_{n_j} < t} ( 1 - \exp \left[-\beta (t - t_{n_j}) \right])
-$$
+```
 
 ```julia
 function hawkes_Λ(i::Int, g, p)
@@ -539,7 +539,7 @@ We can construct QQ-plots with a Plot recipe as following.
 end
 ```
 
-Now, we simulate all of the algorithms we defined in the previous Section $250$ times to produce their QQ-plots.
+Now, we simulate all of the algorithms we defined in the previous Section ``250`` times to produce their QQ-plots.
 
 ```julia
 let fig = []
@@ -592,9 +592,9 @@ end
 
 In this Section we benchmark all the algorithms introduced in the first Section.
 
-We generate networks in the range from $1$ to $95$ nodes and simulate the Multivariate Hawkes process $25$ units of time. 
+We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process ``25`` units of time. 
 
- and simulate models in the range from $1$ to $95$ nodes for $25$ units of time. We fix the Hawkes parameters at $\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0$ which ensures the process does not explode. We simulate $50$ trajectories with a limit of ten seconds to complete execution for each configuration.
+ and simulate models in the range from ``1`` to ``95`` nodes for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration.
 
 ```julia
 tspan = (0.0, 25.0)
@@ -677,7 +677,7 @@ for (algo, stepper, use_recursion, label) in algorithms
             median_time =
                 length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" :
                 "nan"
-            println("algo=$(label), V = $(nv(G)), length = $(length(trial.times)), median time = $median_time")
+            println("algo=``(label), V = ``(nv(G)), length = ``(length(trial.times)), median time = ``median_time")
         end
     end
 end
