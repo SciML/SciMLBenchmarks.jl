@@ -9,9 +9,15 @@ weave_options:
 using Synapse
 using PiecewiseDeterministicMarkovProcesses, JumpProcesses, OrdinaryDiffEq, Plots
 using BenchmarkTools
+fmt = :png
 ```
 
-# Parameters and initial conditions
+# Model and example solutions
+
+Here we implement the stochastic model of hippocampal synaptic plasticity with geometrical readount of enzyme dinamics from Rodrigues et al. [1].
+
+
+## Parameters and initial conditions
 
 ```julia
 p_synapse = SynapseParams(t_end = 1000.0);
@@ -30,7 +36,9 @@ xc0 = initial_conditions_continuous_temp(p_synapse);
 xd0 = initial_conditions_discrete(p_synapse);
 ```
 
-# Algorithms to benchmark
+## Algorithms to benchmark
+
+`CoevolveSynced` allow us to save at regular intervals. Thus, rather than saving when a jump occurs, we save at the same average frequency as obtained with `PDMP`.
 
 ```julia
 solver = AutoTsit5(Rosenbrock23());
@@ -43,7 +51,7 @@ algorithms = [
         saveat = [],
     ),
     (
-        label = "Coevolve",
+        label = "CoevolveSynced",
         agg = CoevolveSynced(),
         solver = (solver, solver),
         save_positions = (false, false),
@@ -52,7 +60,7 @@ algorithms = [
 ];
 ```
 
-# Model and example solutions
+## Example solutions
 
 ```julia
 results = []
@@ -130,6 +138,20 @@ end
 ```
 
 ```julia
+labels = [a.label for a in algorithms]
+medtimes = [text(string(round(median(b).time/1e9, digits=3),"s"), :center, 12) for b in bs]
+relmedtimes = [median(b).time for b in bs]
+relmedtimes ./= relmedtimes[1]
+bar(labels, relmedtimes, markeralpha=0, series_annotation=medtimes, fmt=fmt)
+title!("evolveSynapse (Median time)")
+```
+
+```julia
+medmem = [text(string(round(median(b).memory/1e6, digits=3),"Mb"), :center, 12) for b in bs]
+relmedmem = Float64[median(b).memory for b in bs]
+relmedmem ./= relmedmem[1]
+bar(labels, relmedmem, markeralpha=0, series_annotation=medmem, fmt=fmt)
+title!("evolveSynapse (Median memory)")
 ```
 
 # References
