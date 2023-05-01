@@ -273,8 +273,8 @@ push!(algorithms, (PDMPCHV(), CHV(Tsit5()), true, "PDMPCHV"));
 The Python `Tick` library can be accessed with the `PyCall.jl`. We install the required Python dependencies with `Conda.jl` and define a factory for the Multivariate Hawkes `PyTick` problem.
 
 ```julia
-const BENCHMARK_PYTHON::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_PYTHON", "false"))
-const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYCALL", "false"))
+const BENCHMARK_PYTHON::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_PYTHON", "true"))
+const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYCALL", "true"))
 
 struct PyTick end
 
@@ -294,7 +294,9 @@ if BENCHMARK_PYTHON
     Conda.pip("install", "tick", Conda.ROOTENV)
   end
 
+  ENV["PYTHON"] = ""
   using PyCall
+  @info "PyCall" PyCall.libpython PyCall.pyversion PyCall.conda
 
   function hawkes_problem(
       p,
@@ -677,7 +679,7 @@ for (algo, stepper, use_recursion, label) in algorithms
             median_time =
                 length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" :
                 "nan"
-            println("algo=``(label), V = ``(nv(G)), length = ``(length(trial.times)), median time = ``median_time")
+            println("algo=$(label), V = $(nv(G)), length = $(length(trial.times)), median time = $median_time")
         end
     end
 end
