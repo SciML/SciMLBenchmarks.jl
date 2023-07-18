@@ -52,14 +52,14 @@ function weave_file(folder,file,build_list=(:script,:github))
   end
 end
 
-function weave_all()
+function weave_all(build_list=(:script,:github))
   for folder in readdir(joinpath(repo_directory,"benchmarks"))
     folder == "test.jmd" && continue
     weave_folder(joinpath(repo_directory,"benchmarks",folder),build_list)
   end
 end
 
-function weave_folder(folder)
+function weave_folder(folder, build_list=(:script,:github))
   for file in readdir(folder)
       # Skip non-`.jmd` files
       if !endswith(file, ".jmd")
@@ -67,7 +67,7 @@ function weave_folder(folder)
       end
 
       try
-          weave_file(folder, file)
+          weave_file(folder, file, build_list)
       catch e
           @show folder, file
           @error(e)
