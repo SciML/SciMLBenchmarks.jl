@@ -261,7 +261,6 @@ setups = [
           Dict(:alg=>lsoda(), :prob_choice => 1),
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES), :prob_choice => 1),
           Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
-
           Dict(:alg=>QNDF(linsolve=KLUFactorization()), :prob_choice => 2),
           Dict(:alg=>BS5(), :prob_choice => 1),     
           Dict(:alg=>Vern6(), :prob_choice => 1), 
@@ -276,11 +275,12 @@ For these, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet([oprob,sparsejacprob],abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=[test_sol,test_sol],maxiters=Int(1e9),numruns=200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "BS5" "Vern6" "ROCK4"]
-colors = [:seagreen1 :darkgreen :deepskyblue1 :thistle2 :lightslateblue :purple4]
-markershapes = [:star4, :rect, :hexagon, :star8, :rtriangle, :square]
+names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "QNDF (KLU)" "BS5" "Vern6" "ROCK4"]
+colors = [:seagreen1 :darkgreen :deepskyblue1 :deepskyblue4 :thistle2 :lightslateblue :purple4]
+markershapes = [:star4 :rect :hexagon :octagon :star8 :rtriangle :square]
 xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit,xticks=[1e-10,1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3],yticks=[],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
+xlimit = xlimit .* [0.95,1/0.95]; ylimit = ylimit .* [0.95,1/0.95]; 
+plot(wp;label=names,left_margin=10Plots.mm,right_margin=10Plots.mm,xlimit=xlimit,ylimit=ylimit,xticks=[1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2],yticks=[1e-2,1e-1],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
 ```
 
 
