@@ -11,8 +11,8 @@ steps:
     plugins:
       - staticfloat/cryptic#v2:
           variables:
-            - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX19PKaFjxITJxFlY66D/vA9T/y/MzZ2Fs+bpWmlhRF0g5DbemJbuKKw9"
-            - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX19MkMLkCxkclrpxYMfzHvYlUJssaSbX/wkdNiL+H5/aHwiYiTsBXyXh2m/1pcIUMHCR0nerHevB8g=="
+            - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX1+x3xs1ZRRZRt3FmwFQmYYKnpV7o8xKkX5Ib6y0o5fv0+rskVAj+JKu"
+            - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX1+LWh1yX7LsMBlecEJLc08eJrgOhurhd47CY1/jS3wCGVCQmS1t6f2j70spBoFdfc9kn2naj8HH5A==" 
             - BUILDKITE_S3_DEFAULT_REGION="U2FsdGVkX18ccoE9FmtkwsCm1x0MLMBlN/FLcAyKkY4="
       - JuliaCI/julia#v1:
           version: 1.9
@@ -40,31 +40,8 @@ steps:
           s3_prefix: s3://julialang-buildkite-artifacts/scimlbenchmarks
     timeout_in_minutes: 4000
     commands: |
-      # Instantiate, to install the overall project dependencies, and `build()` for conda
-      echo "--- Instantiate"
-      julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
-
-      if [[ {PATH} == *BayesianInference* ]]
-      then
-        export CMDSTAN_HOME="$(pwd)/cmdstan-2.29.2/"
-        pwd
-        curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
-        tar -xzpf cmdstan-2.29.2.tar.gz --no-same-owner
-        ls -lia .
-        ls -lia ./cmdstan-2.29.2
-        ls -lia ./cmdstan-2.29.2/make
-        touch ./cmdstan-2.29.2/make/local
-        echo "STAN_THREADS=true" > ./cmdstan-2.29.2/make/local
-        echo "g++ version"
-        echo $(g++ -v)
-        cd cmdstan-2.29.2
-        make build
-        cd -
-      fi
-
-      # Run benchmark
-      echo "+++ Run benchmark for {PATH}"
-      julia --threads=auto --project=. benchmark.jl "{PATH}"
+      # Clear out these secrets as they're not needed during the actual build
+      BUILDKITE_S3_ACCESS_KEY_ID="" BUILDKITE_S3_SECRET_ACCESS_KEY="" ./.buildkite/build_benchmark.sh "{PATH}"
     agents:
       queue: "juliaecosystem"
       sandbox_capable: true
@@ -77,8 +54,8 @@ steps:
     plugins:
       - staticfloat/cryptic#v2:
           variables:
-            - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX19PKaFjxITJxFlY66D/vA9T/y/MzZ2Fs+bpWmlhRF0g5DbemJbuKKw9"
-            - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX19MkMLkCxkclrpxYMfzHvYlUJssaSbX/wkdNiL+H5/aHwiYiTsBXyXh2m/1pcIUMHCR0nerHevB8g=="
+            - BUILDKITE_S3_ACCESS_KEY_ID="U2FsdGVkX1+x3xs1ZRRZRt3FmwFQmYYKnpV7o8xKkX5Ib6y0o5fv0+rskVAj+JKu"
+            - BUILDKITE_S3_SECRET_ACCESS_KEY="U2FsdGVkX1+LWh1yX7LsMBlecEJLc08eJrgOhurhd47CY1/jS3wCGVCQmS1t6f2j70spBoFdfc9kn2naj8HH5A==" 
             - BUILDKITE_S3_DEFAULT_REGION="U2FsdGVkX18ccoE9FmtkwsCm1x0MLMBlN/FLcAyKkY4="
           files:
             - .buildkite/ssh_deploy.key

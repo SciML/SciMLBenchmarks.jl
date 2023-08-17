@@ -40,12 +40,13 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 10, 13, 19, 4, 5, 9, 6, 11, 14, 20, 12, 18, 7, 17, 3, 8, 15, 16, 2]
+    [1, 11, 8, 14, 20, 4, 5, 10, 6, 12, 15, 21, 13, 19, 7, 18, 3, 9, 16, 17, 2]
 )
 
 names = [
     "SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers",
     "Multi-Language Wrapper Benchmarks",
+    "Linear Solver Benchmarks",
     "Non-Stiff Ordinary Differential Equations",
     "Stiff Ordinary Differential Equations",
     "Biological Differential Equations",
