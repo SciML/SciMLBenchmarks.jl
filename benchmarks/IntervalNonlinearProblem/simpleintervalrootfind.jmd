@@ -1,0 +1,67 @@
+---
+title: Simple Interval Rootfinding (NonlinearSolve.jl vs Roots.jl vs MATLAB)
+author: Chris Rackauckas
+---
+
+This example comes from 
+[MATLAB's documentation showing improved rootfinding performance](https://twitter.com/walkingrandomly/status/1544615360833507329),
+and thus can be assumed to be considered optimized from MATLAB's perspective. MATLAB's results are:
+
+![](https://user-images.githubusercontent.com/1814174/262883161-d0ad6826-42fe-49c2-9645-0f08cfc3a723.png)
+
+In comparison, Roots.jl:
+
+```julia
+using Roots, BenchmarkTools
+
+N = 100_000;
+levels = 1.5 .* rand(N);
+out = zeros(N);
+myfun(x, lv) = x * sin(x) - lv
+function froots(out, levels, u0)
+    for i in 1:N
+        out[i] = find_zero(x->myfun(x, levels[i]), u0)
+    end
+end
+
+@btime froots(out, levels, (0, 2))
+```
+
+```julia
+using NonlinearSolve, BenchmarkTools
+
+function f(out, levels, u0)
+    for i in 1:N
+        out[i] = solve(IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
+                u0, levels[i]), ITP()).u
+    end
+end
+
+function f2(out, levels, u0)
+    for i in 1:N
+        out[i] = solve(IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
+                u0, levels[i]), NonlinearSolve.Bisection()).u
+    end
+end
+
+function f3(out, levels, u0)
+    for i in 1:N
+        out[i] = solve(NonlinearProblem{false}(NonlinearFunction{false}(myfun),
+                u0, levels[i]), SimpleNewtonRaphson()).u
+    end
+end
+
+@btime f(out, levels, (0.0, 2.0))
+@btime f2(out, levels, (0.0, 2.0))
+@btime f3(out, levels, 1.0)
+```
+
+MATLAB 2022a reportedly achieves 1.66s. Try this code yourself: we receive ~0.05 seconds, or a 33x speedup.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
+
