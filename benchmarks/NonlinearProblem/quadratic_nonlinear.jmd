@@ -1,0 +1,87 @@
+---
+title: Quadratic Nonlinear Rootfinding Benchmark
+author: Chris Rackauckas
+---
+
+This is a test of a simple small nonlinear rootfinding problem.
+
+```julia
+using NonlinearSolve, StaticArrays, BenchmarkTools
+
+f(u, p) = u .* u .- p
+u0 = @SVector[1.0, 1.0]
+p = 2.0
+probN = NonlinearProblem(f, u0, p)
+```
+
+```julia
+@btime sol = solve(probN, NewtonRaphson(), reltol = 1e-9)
+```
+
+```julia
+using SimpleNonlinearSolve
+@btime sol = solve(probN, SimpleNewtonRaphson(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, Halley(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, Klement(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, SimpleTrustRegion(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, SimpleDFSane(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, Broyden(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, LBroyden(), reltol = 1e-9)
+```
+
+```julia
+using NonlinearSolveMINPACK
+@btime sol = solve(probN, CMINPACK(method=:hybr), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, CMINPACK(method=:lm), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, CMINPACK(method=:lmdif), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, CMINPACK(method=:hybrid), reltol = 1e-9)
+```
+
+```julia
+using SciMLNLSolve
+@btime sol = solve(probN, NLSolveJL(), reltol = 1e-9)
+```
+
+```julia
+@btime sol = solve(probN, NLSolveJL(method=:newton), reltol = 1e-9)
+```
+
+```julia
+using Sundials
+@btime sol = solve(probN, KINSOL(), reltol = 1e-9)
+```
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
+
