@@ -1,11 +1,17 @@
-#=
-Implementation of the PDE of the spring-block model with non-linear resistance + setup of the simulations to be used for the Work-precision Diagram
-see https://discourse.julialang.org/t/boundserror-on-odeproblem-accelerated-with-modelingtoolkit-jl
-=#
+#=---
+title: Implementation of the PDE of the spring-block model with non-linear resistance + setup of the simulations to be used for the Work-precision Diagram 
+author: Luis Monzoheinen
+---=#
+#see https://discourse.julialang.org/t/boundserror-on-odeproblem-accelerated-with-modelingtoolkit-jl
+
 using OrdinaryDiffEq, Symbolics, ModelingToolkit, Sundials, LinearSolve, SparseArrays
 using NonlinearSolve
 using GaussianRandomFields
 using StableRNGs
+using DiffEqDevTools
+using Plots; gr()
+
+
 rng = StableRNG(3); #make the example reproducible
 #Function which defines the spatial distribution of Parameters
 function get_parameterDistribution(xmin,xmax;l = 6,p = 3)
@@ -123,57 +129,38 @@ reltol = 1e-8;
 #code (1): From u0 to onset of high cumulative velocity (>0.01)
 u0 = get_IC();
 tspan = (0.0,1e9); 
-prob = ODEProblem(f,u0,tspan,nothing);
-sys = modelingtoolkitize(prob);
-prob_mtk = ODEProblem(modelingtoolkitize(prob),[],tspan,jac=true,sparse=true);
-global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb1); #about 55 sec
+prob1 = ODEProblem(f,u0,tspan,nothing);
+sys = modelingtoolkitize(prob1);
+prob_mtk1 = ODEProblem(modelingtoolkitize(prob1),[],tspan,jac=true,sparse=true);
+global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk1,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb1); #about 55 sec
 u1 = sol.u[end];
 t1 = sol.t[end];
+test_sol1 = TestSolution(sol)
 #code (2): high cumulative velocity (>0.01) following phase (1)
 tspan = (0.0,1e4);
-prob = ODEProblem(f,convU0(u1),tspan,nothing);
-prob_mtk = ODEProblem(modelingtoolkitize(prob),[],tspan,jac=true,sparse=true);
-global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb2); #about 175 sec
+prob2 = ODEProblem(f,convU0(u1),tspan,nothing);
+prob_mtk2 = ODEProblem(modelingtoolkitize(prob2),[],tspan,jac=true,sparse=true);
+global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk2,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb2); #about 175 sec
 u2 = sol.u[end];
 t2 = t1 + sol.t[end];
 
-#=
-#attempt to run (1) + (2) in a single call does not succeed....
-    # tspan = (0.0,t2)
-    # prob = ODEProblem(f,u0,tspan,nothing);
-    # prob_mtk = ODEProblem(modelingtoolkitize(prob),[],tspan,jac=true,sparse=true);
-    # global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20);
+test_sol2 = TestSolution(sol)
 
-=#
-#--------------------------------------------------------------------------------------------------------------------------------
-#=
-#add setup for Work-Precision Diagram here, e.g. 
-using DiffEqDevTools
+#The WP diagram setup:
+
 abstols = 1.0 ./ 10.0 .^ (6:20)
-reltols = 1.0 ./ 10.0 .^ (4:16)
+reltols = 1.0 ./ 10.0 .^ (2:16)
 setups = [
-    Dict(:alg=>CVODE_BDF(linear_solver = :KLU)),
-    Dict(:alg=>KenCarp47(linsolve=KLUFactorization())),
-    Dict(:alg=>Rodas5()),
-    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice=>1),
+    Dict(:alg=>Rodas5(), :prob_choice=>1),
+    Dict(:alg=>Rodas5P(), :prob_choice=>1),
 ];
-names = ["CVODE MTK KLU","KenCarp47 KLU MTK","Rodas5 KLU MTK","Rodas5P KLU MTK"]
-...
-=#
+names = ["KenCarp47 KLU MTK","Rodas5 KLU MTK","Rodas5P KLU MTK"]
 
-#--------------------------------------------------------------------------------------------------------------------------------
-#Julia Version 1.8.4
+probs = [prob_mtk1, prob_mtk2]
+test_sols = [test_sol1, test_sol2]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
+                    save_everystep=false, maxiters=Int(1e5),
+                    numruns=10, appxsol=test_sols, callback = cb2, dtmin=1e-20)
 
-#=Package Status:
-Status `~/.julia/environments/v1.8/Project.toml`
-  [7a1cc6ca] FFTW v1.5.0
-  [e4b2fa32] GaussianRandomFields v2.1.6
-⌃ [7ed4a6bd] LinearSolve v1.32.1
-⌃ [961ee093] ModelingToolkit v8.38.0
-  [2774e3e8] NLsolve v4.5.1
-  [8913a72c] NonlinearSolve v1.1.1
-⌃ [1dea7af3] OrdinaryDiffEq v6.36.2
-  [860ef19b] StableRNGs v1.0.0
-⌃ [c3572dad] Sundials v4.11.4
-⌅ [0c5d862f] Symbolics v4.14.0
-=#
+plot(wp, label = reduce(hcat, names), markershape=:auto, title="Spring Block PDE work precision set")
