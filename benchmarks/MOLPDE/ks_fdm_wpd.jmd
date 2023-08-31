@@ -103,10 +103,10 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, l
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => IMEXEuler(linsolve=LinSolveGMRES()), :dts => 1e-9 * multipliers),
-          Dict(:alg => CNAB2(linsolve=LinSolveGMRES()), :dts => 1e-9 * multipliers),
-          Dict(:alg => CNLF2(linsolve=LinSolveGMRES()), :dts => 1e-9 * multipliers),
-          Dict(:alg => SBDF2(linsolve=LinSolveGMRES()), :dts => 1e-9 * multipliers)]
+setups = [Dict(:alg => IMEXEuler(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers),
+          Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers),
+          Dict(:alg => CNLF2(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers),
+          Dict(:alg => SBDF2(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers)]
 labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
                             print_names=true, names=labels,
@@ -145,7 +145,7 @@ abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
 setups = [Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
-          Dict(:alg => CNAB2(linsolve=LinSolveGMRES()), :dts => 1e-9 * multipliers),
+          Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers),
           Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers)]
 labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
 @time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
@@ -185,9 +185,9 @@ plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, m
 ```julia
 abstols = 0.1 .^ (7:13)
 reltols = 0.1 .^ (4:10)
-setups = [Dict(:alg => KenCarp3(linsolve=LinSolveGMRES())),
-          Dict(:alg => KenCarp4(linsolve=LinSolveGMRES())),
-          Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
+setups = [Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+          Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
+          Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES))]
@@ -231,7 +231,7 @@ reltols = 0.1 .^ (4:8)
 multipliers = 0.5 .^ (0:4)
 setups = [Dict(:alg => KenCarp5()),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense)),
-          Dict(:alg => KenCarp5(linsolve=LinSolveGMRES())),
+          Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
           Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
           Dict(:alg => ETDRK3(krylov=true, m=5), :dts => 1e-2 * multipliers),
           Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers)]
