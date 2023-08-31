@@ -1,9 +1,9 @@
-#=---
+---
 title: Implementation of the PDE of the spring-block model with non-linear resistance + setup of the simulations to be used for the Work-precision Diagram 
 author: Luis Monzoheinen
----=#
-#see https://discourse.julialang.org/t/boundserror-on-odeproblem-accelerated-with-modelingtoolkit-jl
-
+---
+see https://discourse.julialang.org/t/boundserror-on-odeproblem-accelerated-with-modelingtoolkit-jl
+```julia
 using OrdinaryDiffEq, Symbolics, ModelingToolkit, Sundials, LinearSolve, SparseArrays
 using NonlinearSolve
 using GaussianRandomFields
@@ -145,11 +145,11 @@ u2 = sol.u[end];
 t2 = t1 + sol.t[end];
 
 test_sol2 = TestSolution(sol)
-
-#The WP diagram setup:
-
-abstols = 1.0 ./ 10.0 .^ (6:20)
-reltols = 1.0 ./ 10.0 .^ (2:16)
+```
+The WP diagram setup:
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:12)
+reltols = 1.0 ./ 10.0 .^ (2:8)
 setups = [
     Dict(:alg=>KenCarp47(linsolve=KLUFactorization()), :prob_choice=>1),
     Dict(:alg=>Rodas5(), :prob_choice=>1),
@@ -164,3 +164,4 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
                     numruns=10, appxsol=test_sols, callback = cb2, dtmin=1e-20)
 
 plot(wp, label = reduce(hcat, names), markershape=:auto, title="Spring Block PDE work precision set")
+```
