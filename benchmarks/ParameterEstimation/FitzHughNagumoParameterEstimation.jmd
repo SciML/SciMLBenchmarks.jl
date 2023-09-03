@@ -7,7 +7,7 @@ author: Vaibhav Dixit, Chris Rackauckas
 
 ```julia
 using ParameterizedFunctions, OrdinaryDiffEq, DiffEqParamEstim, Optimization
-using OptimizationBBO, OptimizationNLopt, ForwardDiff, Plots 
+using OptimizationBBO, OptimizationNLopt, ForwardDiff, Plots, BenchmarkTools 
 gr(fmt=:png)
 ```
 
@@ -77,21 +77,21 @@ plot(data_sol)
 ```julia
 obj_short = build_loss_objective(prob_short,Tsit5(),L2Loss(t_short,data_short),tstops=t_short)
 optprob = OptimizationProblem(obj_short, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
-res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 # Lower tolerance could lead to smaller fitness (more accuracy)
 ```
 
 ```julia
 obj_short = build_loss_objective(prob_short,Tsit5(),L2Loss(t_short,data_short),tstops=t_short,reltol=1e-9)
 optprob = OptimizationProblem(obj_short, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
-res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 # Change in tolerance makes it worse
 ```
 
 ```julia
 obj_short = build_loss_objective(prob_short,Vern9(),L2Loss(t_short,data_short),tstops=t_short,reltol=1e-9,abstol=1e-9)
 optprob = OptimizationProblem(obj_short, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
-res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 # using the moe accurate Vern9() reduces the fitness marginally and leads to some increase in time taken
 ```
 
@@ -106,22 +106,22 @@ obj_short = build_loss_objective(prob_short,Vern9(),L2Loss(t_short,data_short),t
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 4)
 optprob = OptimizationProblem(obj_short, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 Now local optimization algorithms are used to check the global ones, these use the local constraints, different intial values and time step
@@ -133,42 +133,42 @@ optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub =
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_COBYLA, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_NEWUOA_BOUND, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_PRAXIS, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_SBPLX, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LD_MMA, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ### Now the longer problem is solved for a global solution
@@ -179,27 +179,27 @@ Vern9 solver with reltol=1e-9 and abstol=1e-9 is used and the dataset is increas
 ```julia
 obj = build_loss_objective(prob,Vern9(),L2Loss(t,data),Optimization.AutoForwardDiff(),tstops=t,reltol=1e-9,abstol=1e-9)
 optprob = OptimizationProblem(obj, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
-res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 4e3)
+@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 4e3)
 ```
 
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 4)
-res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 4)
-res1 = solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 4)
-res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
 ```
 
 ```julia
@@ -208,17 +208,17 @@ optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub =
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-9)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-9)
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 # Conclusion
