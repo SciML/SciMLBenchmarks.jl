@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 12, 9, 7, 18, 16, 24, 4, 5, 14, 10, 6, 13, 17, 25, 15, 23, 8, 19, 22, 3, 11, 20, 21, 2]
+    [1, 13, 11, 9, 19, 17, 26, 4, 6, 15, 24, 5, 7, 14, 18, 27, 16, 25, 10, 8, 20, 23, 3, 12, 21, 22, 2]
 )
 
 names = [
@@ -54,7 +54,8 @@ names = [
     "Biological Differential Equations",
     "Differential-Algebraic Equations (DAEs)",
     "Boundary Value Problems (BVPs)",
-    "Method of Lines Partial Differential Equations (PDEs)",
+    "Simple Handwritten Partial Differential Equations (PDEs) as ODEs",
+    "Complicated Partial Differential Equations (PDEs)",
     "Dynamical ODEs (Hamiltonian and Second Order)",
     "N-Body Problem Benchmarks",
     "Non-Stiff Stochastic Differential Equations (SDEs)",
@@ -62,6 +63,7 @@ names = [
     "Non-Stiff Delay Differential Equations (DDEs)",
     "Stiff Delay Differential equations (DDEs)",
     "Jump Process Equations (Gillespie Benchmarks)",
+    "Hybrid (Time-Dependent) Jump Processes",
     "Optimization Benchmarks",
     "Parameter Estimation and Inverse Problem Benchmarks",
     "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
