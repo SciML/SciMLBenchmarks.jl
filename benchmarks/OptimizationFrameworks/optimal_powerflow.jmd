@@ -3,6 +3,20 @@ title: Optimal Powerflow Nonlinear Optimization Benchmark
 author: Chris Rackauckas
 ---
 
+## Data Load
+
+```julia
+import PowerModels
+time_data_start = time()
+
+const data = PowerModels.parse_file(file_name)
+PowerModels.standardize_cost_terms!(data, order=2)
+PowerModels.calc_thermal_limits!(data)
+ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
+
+data_load_time = time() - time_data_start
+```
+
 ## Optimization.jl
 
 Constraint optimization implementation reference: https://github.com/SciML/Optimization.jl/blob/master/lib/OptimizationMOI/test/runtests.jl
@@ -10,23 +24,12 @@ Other AD libraries can be considered: https://docs.sciml.ai/dev/modules/Optimiza
 However ForwardDiff is the only one that is compatible with constraint functions
 
 ```julia
-import PowerModels
 import Optimization
 import OptimizationMOI
 import ModelingToolkit
 import Ipopt
 
 function solve_opf_optimization(file_name)
-    time_data_start = time()
-
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
-
-
     time_model_start = time()
 
     bus_pd = Dict(i => 0.0 for (i,bus) in ref[:bus])
@@ -390,14 +393,7 @@ import Ipopt
 import JuMP
 
 function solve_opf_jump(file_name)
-    time_data_start = time()
 
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
 
 
     time_model_start = time()
@@ -554,14 +550,7 @@ import ADNLPModels
 import NLPModelsIpopt
 
 function solve_opf_nlpmodels(file_name)
-    time_data_start = time()
 
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
 
 
     time_model_start = time()
@@ -915,14 +904,7 @@ Nonconvex.@load Ipopt
 
 
 function solve_opf_nonconvex(file_name)
-    time_data_start = time()
 
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
 
 
     time_model_start = time()
@@ -1183,14 +1165,7 @@ import PowerModels
 import Optim
 
 function solve_opf_optim(file_name)
-    time_data_start = time()
 
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
 
 
     time_model_start = time()
@@ -1583,14 +1558,7 @@ import PowerModels
 import PythonCall
 
 function solve_opf_casadi(file_name)
-    time_data_start = time()
 
-    data = PowerModels.parse_file(file_name)
-    PowerModels.standardize_cost_terms!(data, order=2)
-    PowerModels.calc_thermal_limits!(data)
-    ref = PowerModels.build_ref(data)[:it][:pm][:nw][0]
-
-    data_load_time = time() - time_data_start
 
     time_model_start = time()
 
