@@ -526,7 +526,7 @@ function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoForwar
     prob = Optimization.OptimizationProblem(optprob, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
 end
 
-function build_and_solve_optimization(dataset; adchoice = Optimization.AutoForwardDiff())
+function solve_opf_optimization(dataset; adchoice = Optimization.AutoForwardDiff())
     model_build_time = @elapsed prob = build_opf_optimization_prob(dataset; adchoice)
 
     # Correctness tests
@@ -762,14 +762,20 @@ jump_test_res = test_jump_prob(dataset, test_u0)
 @assert sort(abs.(jump_test_res[2])) ≈ sort(abs.(test_cons))
 ```
 
+```julia
+println(sort(abs.(jump_test_res[2])))
+```
+
+```julia
+println(sort(abs.(test_cons)))
+```
+
 ## NLPModels.jl
 
 Implementation reference: https://juliasmoothoptimizers.github.io/ADNLPModels.jl/stable/tutorial/
 Other AD libraries can be considered: https://juliasmoothoptimizers.github.io/ADNLPModels.jl/stable/
 
 ```julia
-import PowerModels
-import Symbolics
 import ADNLPModels
 import NLPModelsIpopt
 
@@ -1115,7 +1121,6 @@ Implementation reference: https://julianonconvex.github.io/Nonconvex.jl/stable/p
 Currently does not converge due to an upstream issue with the AD backend Zygote: https://github.com/JuliaNonconvex/Nonconvex.jl/issues/130
 
 ```julia
-import PowerModels
 import Nonconvex
 Nonconvex.@load Ipopt
 
@@ -1360,7 +1365,6 @@ function test_nonconvex_prob(dataset, test_u0)
         varsplit = split(v, "_")
         varname = varsplit[1]
         varint = parse.(Int, varsplit[2:end])
-        @show varname, varint
 
         idx = if varname == "p"
             lookup_p_lij[findfirst(x->x==Tuple(varint),lookup_lij)]
@@ -1399,7 +1403,11 @@ nonconvex_test_res = test_nonconvex_prob(dataset, test_u0)
 ```
 
 ```julia
-solve_opf_nonconvex(dataset)
+println(sort(abs.(nonconvex_test_res[2])))
+```
+
+```julia
+println(sort(abs.(test_cons)))
 ```
 
 ## Optim.jl
@@ -1409,7 +1417,6 @@ Currently does not converge to a feasible point, root cause in unclear
 `debug/optim-debug.jl` can be used to confirm it will converge if given a suitable starting point
 
 ```julia
-import PowerModels
 import Optim
 
 function build_opf_optim_prob(dataset)
@@ -1971,7 +1978,7 @@ dataset = load_and_setup_data(file_name);
 ```
 
 ```julia
-model, res = build_and_solve_optimization(dataset);
+model, res = solve_opf_optimization(dataset);
 ```
 
 ```julia
@@ -1983,6 +1990,10 @@ model, res = solve_opf_nlpmodels(dataset);
 ```
 
 ```julia
+model, res = solve_opf_nonconvex(dataset);
+```
+
+```julia
 model, res = solve_opf_optim(dataset);
 ```
 
@@ -1991,5 +2002,3 @@ model, res = solve_opf_optim(dataset);
 #dataset = load_and_setup_data(file_name);
 #build_and_solve_optimization(dataset)
 ```
-
-
