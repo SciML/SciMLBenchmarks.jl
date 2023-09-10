@@ -253,28 +253,28 @@ function load_and_setup_data(file_name)
 end
 ```
 
+## Test Setup
+
+Ensure that all objectives and constraints evaluate to the same value on a random vector on the same dataset
+
 ```julia
 file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m"
 dataset = load_and_setup_data(file_name);
-const data = dataset.data
-const ref = dataset.ref
-```
-
-## Test Setup
-
-Ensure that all objectives and constraints evaluate to the same value on a random vector
-
-```julia
 test_u0 = [0.6292298794022337, 0.30740951571225206, 0.0215258802699263, 0.38457509230779996, 0.9419186480931858, 0.34961116773074874, 0.875763562401991, 0.3203478635827923, 0.6354060958226175, 0.45537545721771266, 0.3120599359696674, 0.2421238802331842, 0.886455177641366, 0.49797378087768696, 0.652913329799645, 0.03590201299300255, 0.5618806749518928, 0.8142146688533769, 0.3973557130434364, 0.27827135011662674, 0.16456134856048643, 0.7465018431665373, 0.4898329811551083, 0.6966035226583556, 0.7419662648518377, 0.8505905798503723, 0.27102126066405097, 0.1988238097281576, 0.09684601934490256, 0.49238142828542797, 0.1366594202307445, 0.6337080281764231, 0.28814906958008235, 0.5404996094640431, 0.015153517398975858, 0.6338449294034381, 0.5165464961007717, 0.572879113636733, 0.9652420600585092, 0.26535868365228543, 0.865686920119479, 0.38426996353892773, 0.007412077949221274, 0.3889835001514599] 
 test_obj = 7079.190664351089
 test_cons = [0.0215258802699263, -1.0701734802505833, -5.108902216849063, -3.49724505910433, -2.617834191007569, 0.5457423426033834, -0.7150251969424766, -2.473175092089014, -2.071687022809815, -1.5522321037165985, -1.0107399030803794, 3.0047739260369246, 0.2849522377447594, -2.8227966798520674, 3.2236954017592256, 1.0793383525116511, -1.633412293595111, -3.1618224299953224, -0.7775962590542184, 1.7252573527333024, -4.23535583005632, -1.7030832394691608, 1.5810450617647889, -0.33289810365419437, 0.19476447251065077, 1.0688558672739048, 1.563372246165339, 9.915310272572729, 1.4932615291788414, 2.0016715378998793, -1.4038702698147258, -0.8834081057449231, 0.21730536348839036, -7.40879932706212, -1.6000837514115611, 0.8542376821320647, 0.06615508569119477, -0.6077039991323074, 0.6138802155526912, 0.0061762164203837955, -0.3065125522705683, 0.5843454392910835, 0.7251928172073308, 1.2740182727083802, 0.11298343104675009, 0.2518186223833513, 0.4202616621130535, 0.3751697141306502, 0.4019890236200105, 0.5950107614751935, 1.0021074654956683, 0.897077248544158, 0.15136310228960612]
 ```
 
-## Optimization.jl
+## Setup and Validations
+
+Now is the setup code for each optimization framework, along with the validation runs on the test case. Any test which fails the validation
+case, i.e. has `x_test_res[1] !≈ test_obj` or `x_test_res[2] !≈ test_cons` should be considered invalidated as this means that the model
+in that modeling platform does not evaluate to give the same results
+
+### Optimization.jl
 
 Constraint optimization implementation reference: https://github.com/SciML/Optimization.jl/blob/master/lib/OptimizationMOI/test/runtests.jl
 Other AD libraries can be considered: https://docs.sciml.ai/dev/modules/Optimization/API/optimization_function/
-However ForwardDiff is the only one that is compatible with constraint functions
 
 ```julia
 import Optimization
@@ -282,7 +282,7 @@ import OptimizationMOI
 import ModelingToolkit
 import Ipopt
 
-function build_opf_optimization_prob(dataset)
+function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoForwardDiff())
     (;data,
     ref,
     var_lookup,
@@ -522,21 +522,17 @@ function build_opf_optimization_prob(dataset)
     ret = Array{Float64}(undef, length(con_lbs))
     model_constraints = length(con_lbs)
 
-    optprob = Optimization.OptimizationFunction(opf_objective, Optimization.AutoForwardDiff(); cons=opf_constraints)
+    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
     prob = Optimization.OptimizationProblem(optprob, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
 end
 
-function build_and_solve_optimization(dataset)
-    model_build_time = @elapsed prob = build_opf_optimization_prob(dataset)
+function build_and_solve_optimization(dataset; adchoice = Optimization.AutoForwardDiff())
+    model_build_time = @elapsed prob = build_opf_optimization_prob(dataset; adchoice)
 
     # Correctness tests
     @assert prob.f(prob.u0, nothing) == 0.0
     ret = zeros(length(prob.lcons))
     prob.f.cons(ret, prob.u0, nothing)
-    @assert ret == [0.0, 0.0, -4.0, -3.0, -3.0, 0.0, 0.0, -1.3147, -0.9861, -0.9861, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-                    -0.0033699999999967645, -0.009259999999997603, -0.0033699999999967645, -0.003289999999999793, -0.015629999999987376, -0.0035600000000002296, 
-                    -0.0033699999999967645, -0.009259999999997603, -0.0033699999999967645, -0.003289999999999793, -0.015629999999987376, -0.0035600000000002296, 
-                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     @allocated prob.f(prob.u0, nothing) == 0
     @allocated prob.f.cons(ret, prob.u0, nothing) == 0
 
@@ -578,10 +574,6 @@ optimization_test_res = test_optimization_prob(dataset, test_u0)
 
 ```julia
 @assert optimization_test_res[2] == test_cons
-```
-
-```julia
-res = build_and_solve_optimization(dataset)
 ```
 
 ## JuMP.jl
@@ -713,6 +705,14 @@ end
 
 function test_jump_prob(dataset, test_u0)
     model, vars, constraints  = build_opf_jump_prob(dataset)
+    (;
+    lookup_pg,
+    lookup_qg,
+    lookup_va,
+    lookup_vm,
+    lookup_lij,
+    lookup_p_lij,
+    lookup_q_lij) = dataset
     f = JuMP.objective_function(model)
 
     flatvars = reduce(vcat,[reduce(vcat,vars[i]) for i in 1:length(vars)])
@@ -759,11 +759,7 @@ jump_test_res = test_jump_prob(dataset, test_u0)
 ```
 
 ```julia
-@assert jump_test_res[2] ≈ sort(abs.(test_cons))
-```
-
-```julia
-model, res = solve_opf_jump(dataset);
+@assert sort(abs.(jump_test_res[2])) ≈ sort(abs.(test_cons))
 ```
 
 ## NLPModels.jl
@@ -1113,10 +1109,6 @@ nlpmodels_test_res = test_nlpmodels_prob(dataset, test_u0)
 @assert nlpmodels_test_res[2] == test_cons
 ```
 
-```julia
-solve_opf_nlpmodels(dataset)
-```
-
 ## Nonconvex
 
 Implementation reference: https://julianonconvex.github.io/Nonconvex.jl/stable/problem/
@@ -1127,11 +1119,8 @@ import PowerModels
 import Nonconvex
 Nonconvex.@load Ipopt
 
-
-function solve_opf_nonconvex(file_name)
-
-
-
+function build_opf_nonconvex_prob(dataset)
+    (;data, ref) = dataset
     time_model_start = time()
 
     model = Nonconvex.DictModel()
@@ -1324,18 +1313,13 @@ function solve_opf_nonconvex(file_name)
         add_ineq_constraint!(model, x -> const_voltage_angle_difference_lb(x,l,i,j))
         add_ineq_constraint!(model, x -> const_voltage_angle_difference_ub(x,l,i,j))
     end
+    model
+end
 
-    model_variables = Nonconvex.NonconvexCore.getnvars(model)
-    model_constraints = Nonconvex.NonconvexCore.getnconstraints(model)
-    println("variables: $(model_variables)")
-    println("constraints: $(model_constraints)")
+function solve_opf_nonconvex(dataset)
+    model_build_time = @elapsed model = build_opf_nonconvex_prob(dataset)
 
-    model_build_time = time() - time_model_start
-
-
-    time_solve_start = time()
-
-    result = Nonconvex.optimize(
+    solve_time = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
@@ -1345,22 +1329,8 @@ function solve_opf_nonconvex(file_name)
     cost = result.minimum
     feasible = result.status == 0 # just guessing this is correct for Ipopt
 
-    solve_time = time() - time_solve_start
-    total_time = time() - time_data_start
-
-    println("")
-    println("\033[1mSummary\033[0m")
-    println("   case........: $(file_name)")
-    println("   variables...: $(model_variables)")
-    println("   constraints.: $(model_constraints)")
-    println("   feasible....: $(feasible)")
-    println("   cost........: $(round(Int, cost))")
-    println("   total time..: $(total_time)")
-    println("     data time.: $(data_load_time)")
-    println("     build time: $(model_build_time)")
-    println("     solve time: $(solve_time)")
-    # println("      callbacks: $(total_callback_time)")
-    println("")
+    model_variables = Nonconvex.NonconvexCore.getnvars(model)
+    model_constraints = Nonconvex.NonconvexCore.getnconstraints(model)
 
     return Dict(
         "case" => file_name,
@@ -1368,15 +1338,68 @@ function solve_opf_nonconvex(file_name)
         "constraints" => model_constraints,
         "feasible" => feasible,
         "cost" => cost,
-        "time_total" => total_time,
-        "time_data" => data_load_time,
         "time_build" => model_build_time,
         "time_solve" => solve_time,
         #"time_callbacks" => TBD,
     )
 end
 
-solve_opf_nonconvex("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
+function test_nonconvex_prob(dataset, test_u0)
+    model = build_opf_nonconvex_prob(dataset)
+        (;
+    lookup_pg,
+    lookup_qg,
+    lookup_va,
+    lookup_vm,
+    lookup_lij,
+    lookup_p_lij,
+    lookup_q_lij) = dataset
+
+    point = Dict()
+    for v in keys(model.init)
+        varsplit = split(v, "_")
+        varname = varsplit[1]
+        varint = parse.(Int, varsplit[2:end])
+        @show varname, varint
+
+        idx = if varname == "p"
+            lookup_p_lij[findfirst(x->x==Tuple(varint),lookup_lij)]
+        elseif varname == "q"
+            lookup_q_lij[findfirst(x->x==Tuple(varint),lookup_lij)]
+        elseif varname == "va"
+            lookup_va[varint[1]]
+        elseif varname == "pg"
+            lookup_pg[varint[1]]
+        elseif varname == "qg"
+            lookup_qg[varint[1]]
+        elseif varname == "vm"
+            lookup_vm[varint[1]]
+        else
+            error("Invalid $varname, $varint")
+        end
+        point[v] = test_u0[idx]
+    end
+    u0 = OrderedDict(keys(model.init) .=> getindex.((point,),keys(model.init)))
+    obj = model.objective(u0)
+    cons = vcat(model.eq_constraints(u0), model.ineq_constraints(u0))
+    obj, cons
+end
+```
+
+```julia
+nonconvex_test_res = test_nonconvex_prob(dataset, test_u0)
+```
+
+```julia
+@assert nonconvex_test_res[1] ≈ test_obj
+```
+
+```julia
+@assert sort(abs.(nonconvex_test_res[2])) ≈ sort(abs.(test_cons))
+```
+
+```julia
+solve_opf_nonconvex(dataset)
 ```
 
 ## Optim.jl
@@ -1389,11 +1412,8 @@ Currently does not converge to a feasible point, root cause in unclear
 import PowerModels
 import Optim
 
-function solve_opf_optim(file_name)
-
-
-
-    time_model_start = time()
+function build_opf_optim_prob(dataset)
+    (;data, ref) = dataset
 
     bus_pd = Dict(i => 0.0 for (i,bus) in ref[:bus])
     bus_qd = Dict(i => 0.0 for (i,bus) in ref[:bus])
@@ -1700,78 +1720,58 @@ function solve_opf_optim(file_name)
         push!(con_ubs, branch["rate_a"]^2)
     end
 
-    model_variables = length(var_init)
-    model_constraints = length(opf_constraints(zeros(length(con_lbs)), var_init))
-    println("variables: $(model_variables), $(length(var_lb)), $(length(var_ub))")
-    println("constraints: $(model_constraints), $(length(con_lbs)), $(length(con_ubs))")
-
     df = Optim.TwiceDifferentiable(opf_objective, var_init)
     dfc = Optim.TwiceDifferentiableConstraints(opf_constraints, var_lb, var_ub, con_lbs, con_ubs)
+    df, dfc, var_init, con_lbs, con_ubs
+end
 
-    model_build_time = time() - time_model_start
-
-    time_solve_start = time()
+function solve_opf_optim(dataset)
+    model_build_time = @elapsed df, dfc, var_init, con_lbs, con_ubs = build_opf_optim_prob(dataset)
 
     options = Optim.Options(show_trace=true)
-
-    # NOTE: had to change initial guess to be an interior point, otherwise getting NaN values
-    res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
-    #res = Optim.optimize(df, dfc, var_init, Optim.LBFGS(), options) #  StackOverflowError:
-    #res = Optim.optimize(df, dfc, var_init, Optim.NelderMead(), options) #  StackOverflowError:
-    display(res)
+    solve_time = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
 
     sol = res.minimizer
     cost = res.minimum
 
-    solve_time = time() - time_solve_start
-    total_time = time() - time_data_start
-
-
     # NOTE: confirmed these constraint violations can be eliminated
     # if a better starting point is used
-    sol_eval = opf_constraints(zeros(length(con_lbs)), sol)
+    sol_eval = dfc.c!(zeros(dfc.bounds.nc), sol)
     vio_lb = [max(v,0) for v in (con_lbs .- sol_eval)]
     vio_ub = [max(v,0) for v in (sol_eval .- con_ubs)]
     const_vio = vio_lb .+ vio_ub
-    #println(const_vio)
-    println("total constraint violation: $(sum(const_vio))")
     constraint_tol = 1e-6
     feasible = (sum(const_vio) <= constraint_tol)
 
-    if !feasible
-        @warn "Optim optimize failed to satify the problem constraints"
-    end
-
-    println("")
-    println("\033[1mSummary\033[0m")
-    println("   case........: $(file_name)")
-    println("   variables...: $(model_variables)")
-    println("   constraints.: $(model_constraints)")
-    println("   feasible....: $(feasible)")
-    println("   cost........: $(round(Int, cost))")
-    println("   total time..: $(total_time)")
-    println("     data time.: $(data_load_time)")
-    println("     build time: $(model_build_time)")
-    println("     solve time: $(solve_time)")
-    # println("      callbacks: $(total_callback_time)")
-    println("")
-
-
-    return Dict(
+    return (res,), Dict(
         "case" => file_name,
-        "variables" => model_variables,
-        "constraints" => model_constraints,
+        "variables" => length(var_init),
+        "constraints" => dfc.bounds.nc,
         "feasible" => feasible,
         "cost" => cost,
-        "time_total" => total_time,
-        "time_data" => data_load_time,
         "time_build" => model_build_time,
         "time_solve" => solve_time,
-        #"time_callbacks" => TBD,
     )
 end
 
-solve_opf_optim("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
+function test_optim_prob(dataset, test_u0)
+    df, dfc, var_init, con_lbs, con_ubs = build_opf_optim_prob(dataset)
+    obj = df.f(test_u0)
+    cons = dfc.c!(zeros(dfc.bounds.nc), test_u0)
+    obj, cons
+end
+```
+
+```julia
+optim_test_res = test_optim_prob(dataset, test_u0)
+```
+
+```julia
+@assert optim_test_res[1] == test_obj
+```
+
+```julia
+@assert optim_test_res[2] == test_cons
 ```
 
 ## CASADI
@@ -1786,8 +1786,8 @@ import PythonCall
 import CondaPkg
 CondaPkg.add("casadi")
 
-function solve_opf_casadi(file_name)
-
+function solve_opf_casadi(dataset)
+    (;data, ref) = dataset
 
     time_model_start = time()
 
@@ -1962,3 +1962,34 @@ end
 
 solve_opf_casadi("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
 ```
+
+## Start the Benchmarking
+
+```julia
+file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m"
+dataset = load_and_setup_data(file_name);
+```
+
+```julia
+model, res = build_and_solve_optimization(dataset);
+```
+
+```julia
+model, res = solve_opf_jump(dataset);
+```
+
+```julia
+model, res = solve_opf_nlpmodels(dataset);
+```
+
+```julia
+model, res = solve_opf_optim(dataset);
+```
+
+```julia
+#file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case118_ieee.m"
+#dataset = load_and_setup_data(file_name);
+#build_and_solve_optimization(dataset)
+```
+
+
