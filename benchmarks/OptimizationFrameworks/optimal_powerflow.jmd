@@ -1337,7 +1337,7 @@ function solve_opf_nonconvex(dataset)
     model_variables = Nonconvex.NonconvexCore.getnvars(model)
     model_constraints = Nonconvex.NonconvexCore.getnconstraints(model)
 
-    return Dict(
+    return (model, result), Dict(
         "case" => file_name,
         "variables" => model_variables,
         "constraints" => model_constraints,
@@ -1979,22 +1979,111 @@ dataset = load_and_setup_data(file_name);
 
 ```julia
 model, res = solve_opf_optimization(dataset);
+res
 ```
 
 ```julia
 model, res = solve_opf_jump(dataset);
+res
 ```
 
 ```julia
 model, res = solve_opf_nlpmodels(dataset);
+res
 ```
 
 ```julia
 model, res = solve_opf_nonconvex(dataset);
+res
 ```
 
 ```julia
 model, res = solve_opf_optim(dataset);
+res
+```
+
+```julia
+file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case3_lmbd.m"
+dataset = load_and_setup_data(file_name);
+```
+
+```julia
+model, res = solve_opf_optimization(dataset);
+res
+```
+
+```julia
+model, res = solve_opf_jump(dataset);
+res
+```
+
+```julia
+model, res = solve_opf_nlpmodels(dataset);
+res
+```
+
+```julia
+model, res = solve_opf_nonconvex(dataset);
+res
+```
+
+```julia
+model, res = solve_opf_optim(dataset);
+res
+```
+
+```julia
+using DataFrames, PrettyTables
+
+function multidata_multisolver_benchmark(dataset_files)
+
+    cases = String[]
+    vars = Int[]
+    cons = Int[]
+    optimization_time = Float64[]
+    jump_time = Float64[]
+    nlpmodels_time = Float64[]
+    nonconvex_time = Float64[]
+    optim_time = Float64[]
+
+    for file in dataset_files
+        @show file
+        dataset = load_and_setup_data(file)
+        model, res = solve_opf_optimization(dataset)
+        push!(cases, split(res["case"],"/")[end])
+        push!(vars, res["variables"])
+        push!(cons, res["constraints"])
+        push!(optimization_time, res["time_solve"])
+
+        model, res = solve_opf_jump(dataset)
+        push!(jump_time, res["time_solve"])
+
+        model, res = solve_opf_nlpmodels(dataset)
+        push!(nlpmodels_time, res["time_solve"])
+        
+        model, res = solve_opf_nonconvex(dataset)
+        push!(nonconvex_time, res["time_solve"])
+
+        model, res = solve_opf_optim(dataset)
+        push!(optim_time, res["time_solve"])
+    end
+    DataFrame(:case => cases, :vars => vars, :cons => cons, :optimization => optimization_time,
+              :jump => jump_time, :nlpmodels => nlpmodels_time, :nonconvex => nonconvex_time,
+              :optim => optim_time)
+end
+
+test_datasets = [
+    "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case3_lmbd.m",
+    "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m"
+    ]
+```
+
+```julia
+timing_data = multidata_multisolver_benchmark(test_datasets)
+```
+
+```julia
+pretty_table(timing_data)
 ```
 
 ```julia
