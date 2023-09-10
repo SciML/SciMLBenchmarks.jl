@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 13, 11, 9, 19, 17, 26, 4, 6, 15, 24, 5, 7, 14, 18, 27, 16, 25, 10, 8, 20, 23, 3, 12, 21, 22, 2]
+    [1, 13, 11, 9, 19, 17, 27, 4, 6, 15, 25, 5, 7, 14, 18, 28, 16, 26, 10, 8, 21, 20, 24, 3, 12, 22, 23, 2]
 )
 
 names = [
@@ -64,7 +64,8 @@ names = [
     "Stiff Delay Differential equations (DDEs)",
     "Jump Process Equations (Gillespie Benchmarks)",
     "Hybrid (Time-Dependent) Jump Processes",
-    "Optimization Benchmarks",
+    "Nonlinear Optimization Solver Benchmarks",
+    "Optimization Framework Benchmarks",
     "Parameter Estimation and Inverse Problem Benchmarks",
     "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
     "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
