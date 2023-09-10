@@ -570,7 +570,13 @@ end
 
 ```julia
 optimization_test_res = test_optimization_prob(dataset, test_u0)
+```
+
+```julia
 @assert optimization_test_res[1] == test_obj
+```
+
+```julia
 @assert optimization_test_res[2] == test_cons
 ```
 
@@ -590,6 +596,7 @@ import JuMP
 
 function build_opf_jump_prob(dataset)
     (;data, ref) = dataset
+    constraints = Any[]
     model = JuMP.Model(Ipopt.Optimizer)
     #JuMP.set_optimizer_attribute(model, "print_level", 0)
 
@@ -603,26 +610,26 @@ function build_opf_jump_prob(dataset)
     JuMP.@objective(model, Min, sum(gen["cost"][1]*pg[i]^2 + gen["cost"][2]*pg[i] + gen["cost"][3] for (i,gen) in ref[:gen]))
 
     for (i,bus) in ref[:ref_buses]
-        JuMP.@constraint(model, va[i] == 0)
+        push!(constraints,JuMP.@constraint(model, va[i] == 0))
     end
 
     for (i,bus) in ref[:bus]
         bus_loads = [ref[:load][l] for l in ref[:bus_loads][i]]
         bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
 
-        JuMP.@constraint(model,
+        push!(constraints,JuMP.@constraint(model,
             sum(p[a] for a in ref[:bus_arcs][i]) ==
             sum(pg[g] for g in ref[:bus_gens][i]) -
             sum(load["pd"] for load in bus_loads) -
             sum(shunt["gs"] for shunt in bus_shunts)*vm[i]^2
-        )
+        ))
 
-        JuMP.@constraint(model,
+        push!(constraints,JuMP.@constraint(model,
             sum(q[a] for a in ref[:bus_arcs][i]) ==
             sum(qg[g] for g in ref[:bus_gens][i]) -
             sum(load["qd"] for load in bus_loads) +
             sum(shunt["bs"] for shunt in bus_shunts)*vm[i]^2
-        )
+        ))
     end
 
     # Branch power flow physics and limit constraints
@@ -649,19 +656,19 @@ function build_opf_jump_prob(dataset)
         b_to = branch["b_to"]
 
         # From side of the branch flow
-        JuMP.@NLconstraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-b*tr-g*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
-        JuMP.@NLconstraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) )
+        push!(constraints,JuMP.@NLconstraint(model, p_fr ==  (g+g_fr)/ttm*vm_fr^2 + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-b*tr-g*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) ))
+        push!(constraints,JuMP.@NLconstraint(model, q_fr == -(b+b_fr)/ttm*vm_fr^2 - (-b*tr-g*ti)/ttm*(vm_fr*vm_to*cos(va_fr-va_to)) + (-g*tr+b*ti)/ttm*(vm_fr*vm_to*sin(va_fr-va_to)) ))
 
         # To side of the branch flow
-        JuMP.@NLconstraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-b*tr+g*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
-        JuMP.@NLconstraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) )
+        push!(constraints,JuMP.@NLconstraint(model, p_to ==  (g+g_to)*vm_to^2 + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-b*tr+g*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) ))
+        push!(constraints,JuMP.@NLconstraint(model, q_to == -(b+b_to)*vm_to^2 - (-b*tr+g*ti)/ttm*(vm_to*vm_fr*cos(va_to-va_fr)) + (-g*tr-b*ti)/ttm*(vm_to*vm_fr*sin(va_to-va_fr)) ))
 
         # Voltage angle difference limit
-        JuMP.@constraint(model, branch["angmin"] <= va_fr - va_to <= branch["angmax"])
+        push!(constraints,JuMP.@constraint(model, branch["angmin"] <= va_fr - va_to <= branch["angmax"]))
 
         # Apparent power limit, from side and to side
-        JuMP.@constraint(model, p_fr^2 + q_fr^2 <= branch["rate_a"]^2)
-        JuMP.@constraint(model, p_to^2 + q_to^2 <= branch["rate_a"]^2)
+        push!(constraints,JuMP.@constraint(model, p_fr^2 + q_fr^2 <= branch["rate_a"]^2))
+        push!(constraints,JuMP.@constraint(model, p_to^2 + q_to^2 <= branch["rate_a"]^2))
     end
 
     model_variables = JuMP.num_variables(model)
@@ -670,7 +677,7 @@ function build_opf_jump_prob(dataset)
     non_nl_constraints = sum(JuMP.num_constraints(model, ft, st) for (ft, st) in JuMP.list_of_constraint_types(model) if ft != JuMP.VariableRef)
     model_constraints = JuMP.num_nonlinear_constraints(model) + non_nl_constraints
 
-    model, vars
+    model, vars, constraints
 end
 
 function solve_opf_jump(dataset)
@@ -705,17 +712,54 @@ function solve_opf_jump(dataset)
 end
 
 function test_jump_prob(dataset, test_u0)
-    model, vars  = build_opf_jump_prob(dataset)
-    flatvars = reduce(vcat,[reduce(vcat,build_opf_jump_prob(dataset)[2][i]) for i in 1:length(vars)])
-    for (i,v) in enumerate(flatvars)
-        JuMP.set_start_value(v, test_u0[i])
+    model, vars, constraints  = build_opf_jump_prob(dataset)
+    f = JuMP.objective_function(model)
+
+    flatvars = reduce(vcat,[reduce(vcat,vars[i]) for i in 1:length(vars)])
+    point = Dict()
+    for v in flatvars
+        varname, varint = split(JuMP.name(v), "[")
+        idx = if varint[1] == '('
+            varint = (parse(Int, varint[2]), parse(Int, varint[5]), parse(Int, varint[8]))
+            if varname == "p"
+                lookup_p_lij[findfirst(x->x==varint,lookup_lij)]
+            elseif varname == "q"
+                lookup_q_lij[findfirst(x->x==varint,lookup_lij)]
+            else
+                error("Invalid $varname, $varint")
+            end
+        else
+            varint = parse(Int, varint[1:end-1])
+            if varname == "va"
+                lookup_va[varint]
+            elseif varname == "pg"
+                lookup_pg[varint]
+            elseif varname == "qg"
+                lookup_qg[varint]
+            elseif varname == "vm"
+                lookup_vm[varint]
+            else
+                error("Invalid $varname, $varint")
+            end
+        end
+        point[v] = test_u0[idx]
     end
-    JuMP.objective_value(model)
+    obj = JuMP.value(x->point[x], f)
+    cons = [JuMP.value(x->point[x], c) for c in constraints]
+    obj, cons
 end
 ```
 
 ```julia
-test_jump_prob(dataset, test_u0)
+jump_test_res = test_jump_prob(dataset, test_u0)
+```
+
+```julia
+@assert jump_test_res[1] ≈ test_obj
+```
+
+```julia
+@assert jump_test_res[2] ≈ sort(abs.(test_cons))
 ```
 
 ```julia
@@ -1059,6 +1103,14 @@ end
 
 ```julia
 nlpmodels_test_res = test_nlpmodels_prob(dataset, test_u0)
+```
+
+```julia
+@assert nlpmodels_test_res[1] == test_obj
+```
+
+```julia
+@assert nlpmodels_test_res[2] == test_cons
 ```
 
 ```julia
