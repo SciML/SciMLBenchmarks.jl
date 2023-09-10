@@ -117,24 +117,24 @@ function load_and_setup_data(file_name)
     @assert var_idx == length(var_init)+1
 
     ref_gen_idxs = [i for i in keys(ref[:gen])]
-    lookup_pg = Int[]
-    lookup_qg = Int[]
-    lookup_va = Int[]
-    lookup_vm = Int[]
+    lookup_pg = Dict{Int,Int}()
+    lookup_qg = Dict{Int,Int}()
+    lookup_va = Dict{Int,Int}()
+    lookup_vm = Dict{Int,Int}()
     lookup_lij = Tuple{Int,Int,Int}[]
     lookup_p_lij = Int[]
     lookup_q_lij = Int[]
-    cost_arrs = Vector{Float64}[]
+    cost_arrs = Dict{Int,Vector{Float64}}()
 
     for (i,gen) in ref[:gen]
-        push!(lookup_pg,var_lookup["pg_$(i)"])
-        push!(lookup_qg,var_lookup["qg_$(i)"])
-        push!(cost_arrs,gen["cost"])
+        lookup_pg[i] = var_lookup["pg_$(i)"]
+        lookup_qg[i] = var_lookup["qg_$(i)"]
+        cost_arrs[i] = gen["cost"]
     end
 
     for (i,bus) in ref[:bus]
-        push!(lookup_va,var_lookup["va_$(i)"])
-        push!(lookup_vm,var_lookup["vm_$(i)"])
+        lookup_va[i] = var_lookup["va_$(i)"]
+        lookup_vm[i] = var_lookup["vm_$(i)"]
     end
 
     for (l,i,j) in ref[:arcs]
@@ -143,12 +143,12 @@ function load_and_setup_data(file_name)
         push!(lookup_q_lij,var_lookup["q_$(l)_$(i)_$(j)"])
     end
 
-    f_bus = Int[]
-    t_bus = Int[]
+    f_bus = Dict{Int,Int}()
+    t_bus = Dict{Int,Int}()
 
     for (l,branch) in ref[:branch]
-        push!(f_bus,branch["f_bus"])
-        push!(t_bus,branch["t_bus"])
+        f_bus[l] = branch["f_bus"]
+        t_bus[l] = branch["t_bus"]
     end
 
     ref_bus_idxs = [i for i in keys(ref[:bus])]
@@ -265,7 +265,11 @@ const ref = dataset.ref
 Ensure that all objectives and constraints evaluate to the same value on a random vector
 
 ```julia
-test_u0 = rand(44)
+using StableRNGs
+rng = StableRNG(1111)
+test_u0 = rand(rng, 44)
+test_obj = 7079.190664351089
+test_cons = [0.0215258802699263, -1.0701734802505833, -5.108902216849063, -3.49724505910433, -2.617834191007569, 0.5457423426033834, -0.7150251969424766, -2.473175092089014, -2.071687022809815, -1.5522321037165985, -1.0107399030803794, 3.0047739260369246, 0.2849522377447594, -2.8227966798520674, 3.2236954017592256, 1.0793383525116511, -1.633412293595111, -3.1618224299953224, -0.7775962590542184, 1.7252573527333024, -4.23535583005632, -1.7030832394691608, 1.5810450617647889, -0.33289810365419437, 0.19476447251065077, 1.0688558672739048, 1.563372246165339, 9.915310272572729, 1.4932615291788414, 2.0016715378998793, -1.4038702698147258, -0.8834081057449231, 0.21730536348839036, -7.40879932706212, -1.6000837514115611, 0.8542376821320647, 0.06615508569119477, -0.6077039991323074, 0.6138802155526912, 0.0061762164203837955, -0.3065125522705683, 0.5843454392910835, 0.7251928172073308, 1.2740182727083802, 0.11298343104675009, 0.2518186223833513, 0.4202616621130535, 0.3751697141306502, 0.4019890236200105, 0.5950107614751935, 1.0021074654956683, 0.897077248544158, 0.15136310228960612]
 ```
 
 ## Optimization.jl
@@ -558,7 +562,7 @@ function build_and_solve_optimization(dataset)
 end
 
 function test_optimization_prob(dataset, test_u0)
-    build_opf_optimization_prob(dataset)
+    prob = build_opf_optimization_prob(dataset)
     ret = zeros(length(prob.lcons))
     prob.f.cons(ret, test_u0, nothing)
     obj = prob.f(test_u0, nothing)
@@ -568,6 +572,8 @@ end
 
 ```julia
 optimization_test_res = test_optimization_prob(dataset, test_u0)
+@assert optimization_test_res[1] == test_obj
+@assert optimization_test_res[2] == test_cons
 ```
 
 ```julia
@@ -729,12 +735,8 @@ import Symbolics
 import ADNLPModels
 import NLPModelsIpopt
 
-function solve_opf_nlpmodels(file_name)
-
-
-
-    time_model_start = time()
-
+function build_opf_nlpmodels_prob(dataset)
+    (;data, ref) = dataset
 
     bus_pd = Dict(i => 0.0 for (i,bus) in ref[:bus])
     bus_qd = Dict(i => 0.0 for (i,bus) in ref[:bus])
@@ -1023,53 +1025,46 @@ function solve_opf_nlpmodels(file_name)
 
     model_variables = length(var_init)
     model_constraints = length(opf_constraints!(similar(con_lbs), var_init))
-    println("variables: $(model_variables), $(length(var_lb)), $(length(var_ub))")
-    println("constraints: $(model_constraints), $(length(con_lbs)), $(length(con_ubs))")
 
     nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :optimized)
+end
 
-    model_build_time = time() - time_model_start
-
-
-    time_solve_start = time()
-
-    output = NLPModelsIpopt.ipopt(nlp)
+function solve_opf_nlpmodels(dataset)
+    model_build_time = @elapsed nlp = build_opf_nlpmodels_prob(dataset)
+    solve_time = @elapsed output = NLPModelsIpopt.ipopt(nlp)
     cost = output.objective
-    feasible = (output.primal_feas <= 1e-6)
-    
-    solve_time = time() - time_solve_start
-    total_time = time() - time_data_start
+    feasible = (output.primal_feas <= 1e-6)  
 
+    model_variables = nlp.meta.nvar
+    model_constraints = nlp.meta.ncon
 
-    println("")
-    println("\033[1mSummary\033[0m")
-    println("   case........: $(file_name)")
-    println("   variables...: $(model_variables)")
-    println("   constraints.: $(model_constraints)")
-    println("   feasible....: $(feasible)")
-    println("   cost........: $(round(Int, cost))")
-    println("   total time..: $(total_time)")
-    println("     data time.: $(data_load_time)")
-    println("     build time: $(model_build_time)")
-    println("     solve time: $(solve_time)")
-    # println("      callbacks: $(total_callback_time)")
-    println("")
-
-    return Dict(
+    return (nlp, output), Dict(
         "case" => file_name,
         "variables" => model_variables,
         "constraints" => model_constraints,
         "feasible" => feasible,
         "cost" => cost,
-        "time_total" => total_time,
-        "time_data" => data_load_time,
         "time_build" => model_build_time,
         "time_solve" => solve_time,
         #"time_callbacks" => TBD,
     )
 end
 
-solve_opf_nlpmodels("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
+function test_nlpmodels_prob(dataset, test_u0)
+    nlp = build_opf_nlpmodels_prob(dataset)
+    ret = zeros(nlp.meta.ncon)
+    nlp.c!(ret, test_u0)
+    obj = nlp.f(test_u0)
+    obj, ret
+end
+```
+
+```julia
+nlpmodels_test_res = test_nlpmodels_prob(dataset, test_u0)
+```
+
+```julia
+solve_opf_nlpmodels(dataset)
 ```
 
 ## Nonconvex
