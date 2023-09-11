@@ -12,6 +12,7 @@ before getting to the benchmarks.
 import PowerModels
 import ConcreteStructs
 using BenchmarkTools
+using Memento
 
 ConcreteStructs.@concrete struct DataRepresentation
     data
@@ -282,8 +283,9 @@ import Optimization
 import OptimizationMOI
 import ModelingToolkit
 import Ipopt
+import Enzyme
 
-function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoForwardDiff())
+function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme())
     (;data,
     ref,
     var_lookup,
@@ -746,7 +748,24 @@ function test_jump_prob(dataset, test_u0)
         point[v] = test_u0[idx]
     end
     obj = JuMP.value(x->point[x], f)
-    cons = [JuMP.value(x->point[x], c) for c in constraints]
+
+    # The JuMP assertion error is because JuMP and optimization.jl build different problems. JuMP builds f(x) == a and optimization.jl builds f(x) - a == 0
+    # Workaround this for consistent evaluation
+    # It's not a general purpose approach because only some of the Optimization.jl constraints are written as f(x) - a = 0 . 
+    # Others are written as f(x) <= a, like the p_fr^2 + q_fr^2 <= branch["rate_a"]^2 constraints
+
+    primal_value(set::JuMP.MOI.EqualTo) = JuMP.MOI.constant(set)
+    primal_value(set) = 0.0
+    function primal_value(f, constraint)
+        object = JuMP.constraint_object(constraint)
+        fx = JuMP.value(f, object.func)
+        return fx - primal_value(object.set)
+    end
+    function primal_value(f, constraint::JuMP.NonlinearConstraintRef)
+        return JuMP.value(f, constraint)
+    end
+    obj = JuMP.value(x->point[x], f)
+    cons = [primal_value(x->point[x], c) for c in constraints]
     obj, cons
 end
 ```
@@ -761,14 +780,6 @@ jump_test_res = test_jump_prob(dataset, test_u0)
 
 ```julia
 @assert sort(abs.(jump_test_res[2])) ≈ sort(abs.(test_cons))
-```
-
-```julia
-println(sort(abs.(jump_test_res[2])))
-```
-
-```julia
-println(sort(abs.(test_cons)))
 ```
 
 ## NLPModels.jl
