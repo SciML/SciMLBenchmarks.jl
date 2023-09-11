@@ -538,12 +538,12 @@ function solve_opf_optimization(dataset; adchoice = Optimization.AutoForwardDiff
     @allocated prob.f(prob.u0, nothing) == 0
     @allocated prob.f.cons(ret, prob.u0, nothing) == 0
 
-    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer())
+    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
     cost = sol.minimum
     feasible = (sol.retcode == Optimization.SciMLBase.ReturnCode.Success)
     #println(sol.u) # solution vector
 
-    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer())
+    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
     
     return (prob,sol),Dict(
         "case" => file_name,
@@ -1086,7 +1086,8 @@ end
 
 function solve_opf_nlpmodels(dataset)
     model_build_time = @elapsed nlp = build_opf_nlpmodels_prob(dataset)
-    solve_time = @elapsed output = NLPModelsIpopt.ipopt(nlp)
+    solve_time_with_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
+    solve_time_without_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
     cost = output.objective
     feasible = (output.primal_feas <= 1e-6)  
 
@@ -1100,8 +1101,8 @@ function solve_opf_nlpmodels(dataset)
         "feasible" => feasible,
         "cost" => cost,
         "time_build" => model_build_time,
-        "time_solve" => solve_time,
-        #"time_callbacks" => TBD,
+        "time_solve" => solve_time_without_compilation,
+        "time_solve_compilation" => solve_time_with_compilation,
     )
 end
 
@@ -1335,7 +1336,14 @@ end
 function solve_opf_nonconvex(dataset)
     model_build_time = @elapsed model = build_opf_nonconvex_prob(dataset)
 
-    solve_time = @elapsed result = Nonconvex.optimize(
+    solve_time_with_compilation = @elapsed result = Nonconvex.optimize(
+        model,
+        IpoptAlg(),
+        NonconvexCore.getinit(model);
+        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true),
+    )
+
+    solve_time_without_compilation = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
@@ -1355,8 +1363,8 @@ function solve_opf_nonconvex(dataset)
         "feasible" => feasible,
         "cost" => cost,
         "time_build" => model_build_time,
-        "time_solve" => solve_time,
-        #"time_callbacks" => TBD,
+        "time_solve" => solve_time_without_compilation,
+        "time_solve_compilation" => solve_time_with_compilation,
     )
 end
 
@@ -1746,8 +1754,9 @@ end
 function solve_opf_optim(dataset)
     model_build_time = @elapsed df, dfc, var_init, con_lbs, con_ubs = build_opf_optim_prob(dataset)
 
-    options = Optim.Options(show_trace=true)
-    solve_time = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
+    options = Optim.Options(show_trace=false)
+    solve_time_with_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
+    solve_time_without_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
 
     sol = res.minimizer
     cost = res.minimum
@@ -1768,7 +1777,8 @@ function solve_opf_optim(dataset)
         "feasible" => feasible,
         "cost" => cost,
         "time_build" => model_build_time,
-        "time_solve" => solve_time,
+        "time_solve" => solve_time_without_compilation,
+        "time_solve_compilation" => solve_time_with_compilation,
     )
 end
 
@@ -2051,11 +2061,24 @@ function multidata_multisolver_benchmark(dataset_files)
     cases = String[]
     vars = Int[]
     cons = Int[]
+
     optimization_time = Float64[]
     jump_time = Float64[]
     nlpmodels_time = Float64[]
     nonconvex_time = Float64[]
     optim_time = Float64[]
+
+    optimization_time_modelbuild = Float64[]
+    jump_time_modelbuild = Float64[]
+    nlpmodels_time_modelbuild = Float64[]
+    nonconvex_time_modelbuild = Float64[]
+    optim_time_modelbuild = Float64[]
+
+    optimization_time_compilation = Float64[]
+    jump_time_compilation = Float64[]
+    nlpmodels_time_compilation = Float64[]
+    nonconvex_time_compilation = Float64[]
+    optim_time_compilation = Float64[]
 
     optimization_cost = Float64[]
     jump_cost = Float64[]
@@ -2071,30 +2094,40 @@ function multidata_multisolver_benchmark(dataset_files)
         push!(vars, res["variables"])
         push!(cons, res["constraints"])
         push!(optimization_time, res["time_solve"])
+        push!(optimization_time_modelbuild, res["time_build"])
+        push!(optimization_time_compilation, res["time_solve_compilation"])
         push!(optimization_cost, res["cost"])
 
         model, res = solve_opf_jump(dataset)
         push!(jump_time, res["time_solve"])
+        push!(jump_time_modelbuild, res["time_build"])
+        push!(jump_time_compilation, res["time_solve_compilation"])
         push!(jump_cost, res["cost"])
 
         model, res = solve_opf_nlpmodels(dataset)
         push!(nlpmodels_time, res["time_solve"])
+        push!(nlpmodels_time_modelbuild, res["time_build"])
+        push!(nlpmodels_time_compilation, res["time_solve_compilation"])
         push!(nlpmodels_cost, res["cost"])
         
         model, res = solve_opf_nonconvex(dataset)
         push!(nonconvex_time, res["time_solve"])
+        push!(nonconvex_time_modelbuild, res["time_build"])
+        push!(nonconvex_time_compilation, res["time_solve_compilation"])
         push!(nonconvex_cost, res["cost"])
 
         model, res = solve_opf_optim(dataset)
         push!(optim_time, res["time_solve"])
+        push!(optim_time_modelbuild, res["time_build"])
+        push!(optim_time_compilation, res["time_solve_compilation"])
         push!(optim_cost, res["cost"])
     end
     DataFrame(:case => cases, :vars => vars, :cons => cons, 
-              :optimization => optimization_time, :optimization_cost => optimization_cost,
-              :jump => jump_time, :jump_cost => jump_cost, 
-              :nlpmodels => nlpmodels_time, :nlpmodels_cost => nlpmodels_cost, 
-              :nonconvex => nonconvex_time, :nonconvex_cost => nonconvex_cost,
-              :optim => optim_time, :optim_cost => optim_cost)
+              :optimization => optimization_time, :optimization_modelbuild => optimization_time_modelbuild, :optimization_wcompilation => optimization_time_compilation, :optimization_cost => optimization_cost,
+              :jump => jump_time, :jump_modelbuild => jump_time_modelbuild, :jump_wcompilation => jump_time_compilation, :jump_cost => jump_cost, 
+              :nlpmodels => nlpmodels_time, :nlpmodels_modelbuild => nlpmodels_time_modelbuild, :nlpmodels_wcompilation => nlpmodels_time_compilation,  :nlpmodels_cost => nlpmodels_cost, 
+              :nonconvex => nonconvex_time, :nonconvex_modelbuild => nonconvex_time_modelbuild, :nonconvex_wcompilation => nonconvex_time_compilation,  :nonconvex_cost => nonconvex_cost,
+              :optim => optim_time, :optim_modelbuild => optim_time_modelbuild, :optim_wcompilation => optim_time_compilation,  :optim_cost => optim_cost)
 end
 
 test_datasets = [
