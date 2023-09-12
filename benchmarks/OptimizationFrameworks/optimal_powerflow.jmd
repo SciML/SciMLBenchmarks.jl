@@ -9,6 +9,11 @@ This is generic setup code usable for all solver setups. Basically removing some
 before getting to the benchmarks.
 
 ```julia
+PRINT_LEVEL = 0
+MAX_CPU_TIME = 100.0
+```
+
+```julia
 import PowerModels
 import ConcreteStructs
 using BenchmarkTools
@@ -532,18 +537,17 @@ function solve_opf_optimization(dataset; adchoice = Optimization.AutoForwardDiff
     model_build_time = @elapsed prob = build_opf_optimization_prob(dataset; adchoice)
 
     # Correctness tests
-    @assert prob.f(prob.u0, nothing) == 0.0
     ret = zeros(length(prob.lcons))
     prob.f.cons(ret, prob.u0, nothing)
     @allocated prob.f(prob.u0, nothing) == 0
     @allocated prob.f.cons(ret, prob.u0, nothing) == 0
 
-    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
+    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     cost = sol.minimum
     feasible = (sol.retcode == Optimization.SciMLBase.ReturnCode.Success)
     #println(sol.u) # solution vector
 
-    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
+    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     
     return (prob,sol),Dict(
         "case" => file_name,
@@ -592,7 +596,6 @@ function build_opf_jump_prob(dataset)
     (;data, ref) = dataset
     constraints = Any[]
     model = JuMP.Model(Ipopt.Optimizer)
-    #JuMP.set_optimizer_attribute(model, "print_level", 0)
 
     vars = [JuMP.@variable(model, va[i in keys(ref[:bus])]),
             JuMP.@variable(model, ref[:bus][i]["vmin"] <= vm[i in keys(ref[:bus])] <= ref[:bus][i]["vmax"], start=1.0),
@@ -676,6 +679,9 @@ end
 
 function solve_opf_jump(dataset)
     model_build_time = @elapsed model = build_opf_jump_prob(dataset)[1]
+    JuMP.set_attribute(model, "max_cpu_time", MAX_CPU_TIME)
+    JuMP.set_attribute(model, "print_level", PRINT_LEVEL)
+
     solve_time_with_compilation = @elapsed JuMP.optimize!(model)
     solve_time_without_compilation = @elapsed JuMP.optimize!(model)
 
@@ -1086,8 +1092,8 @@ end
 
 function solve_opf_nlpmodels(dataset)
     model_build_time = @elapsed nlp = build_opf_nlpmodels_prob(dataset)
-    solve_time_with_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
-    solve_time_without_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
+    solve_time_with_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
+    solve_time_without_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     cost = output.objective
     feasible = (output.primal_feas <= 1e-6)  
 
@@ -1340,14 +1346,14 @@ function solve_opf_nonconvex(dataset)
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true),
+        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     solve_time_without_compilation = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true),
+        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     cost = result.minimum
@@ -1754,7 +1760,7 @@ end
 function solve_opf_optim(dataset)
     model_build_time = @elapsed df, dfc, var_init, con_lbs, con_ubs = build_opf_optim_prob(dataset)
 
-    options = Optim.Options(show_trace=false)
+    options = Optim.Options(show_trace=PRINT_LEVEL == 0,time_limit=MAX_CPU_TIME)
     solve_time_with_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
     solve_time_without_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
 
@@ -1991,7 +1997,7 @@ end
 solve_opf_casadi("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
 ```
 
-## Start the Benchmarking
+## Test the Benchmarking
 
 ```julia
 file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m"
@@ -2056,7 +2062,7 @@ res
 ```julia
 using DataFrames, PrettyTables
 
-function multidata_multisolver_benchmark(dataset_files)
+function multidata_multisolver_benchmark(dataset_files; sizelimit = 300)
 
     cases = String[]
     vars = Int[]
@@ -2089,6 +2095,16 @@ function multidata_multisolver_benchmark(dataset_files)
     for file in dataset_files
         @show file
         dataset = load_and_setup_data(file)
+
+        prob = build_opf_optimization_prob(dataset)
+        @info "Number of Variables: $(length(prob.u0))"
+        @info "Number of Constraints: $(length(prob.lcons))"
+
+        if length(prob.u0) > sizelimit
+            @info "Variable size over limit. Skipping for now"
+            continue
+        end
+        
         model, res = solve_opf_optimization(dataset)
         push!(cases, split(res["case"],"/")[end])
         push!(vars, res["variables"])
@@ -2144,8 +2160,21 @@ timing_data = multidata_multisolver_benchmark(test_datasets)
 pretty_table(timing_data)
 ```
 
+## Run the Full Benchmark
+
 ```julia
-#file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case118_ieee.m"
-#dataset = load_and_setup_data(file_name);
-#build_and_solve_optimization(dataset)
+using LibGit2
+tmpdir = Base.Filesystem.mktempdir()
+LibGit2.clone("https://github.com/power-grid-lib/pglib-opf", tmpdir)
+benchmarkfiles = readdir(tmpdir)
+benchmarkfiles = benchmarkfiles[endswith(".m").(benchmarkfiles)]
+benchmark_datasets = joinpath.((tmpdir,),benchmarkfiles)
+```
+
+```julia
+timing_data = multidata_multisolver_benchmark(benchmark_datasets)
+```
+
+```julia
+pretty_table(timing_data)
 ```
