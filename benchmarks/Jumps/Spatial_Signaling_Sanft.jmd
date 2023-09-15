@@ -110,7 +110,8 @@ plt = plot(sol.t, Ntot, label="Well-mixed", ylabel="Total Number of Molecules",
 # spatial model
 majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
 dprob = DiscreteProblem(u0, (0.0, end_time), copy(dprobwm.p))
-jprob = JumpProblem(dprob, DirectCRDirect(), majumps; hopping_constants = hopping_constants, spatial_system = grid, save_positions = (false, false))
+jprob = JumpProblem(dprob, DirectCRDirect(), majumps; hopping_constants,
+                    spatial_system = grid, save_positions = (false, false))
 spatial_sol = solve(jprob, SSAStepper(); saveat = end_time/200)
 Ntot = [sum(vec(u)) for u in spatial_sol.u]
 plot!(plt, spatial_sol.t, Ntot, label="Spatial",
