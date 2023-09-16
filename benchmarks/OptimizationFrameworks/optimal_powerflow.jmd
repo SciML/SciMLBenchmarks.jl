@@ -1095,8 +1095,21 @@ function build_opf_nlpmodels_prob(dataset)
 
     model_variables = length(var_init)
     model_constraints = length(opf_constraints!(similar(con_lbs), var_init))
+    backend = ADModelBackend(gradient_backend = ReverseDiffADGradient,
+                   hprod_backend = SDTForwardDiffADHvprod,
+                   jprod_backend = ForwardDiffADJprod, 
+                   jtprod_backend = ReverseDiffADJtprod, 
+                   jacobian_backend = ForwardDiffADJacobian, # SDTSparseADJacobian, 
+                   hessian_backend = ForwardDiffADHessian, # SparseADJacobian, 
+                   ghjvprod_backend = ForwardDiffADGHjvprod, 
+                   hprod_residual_backend = ReverseDiffADHvprod, 
+                   jprod_residual_backend = ForwardDiffADJprod, 
+                   jtprod_residual_backend = ReverseDiffADJtprod, 
+                   jacobian_residual_backend = ForwardDiffADHessian, # SparseADJacobian, 
+                   hessian_residual_backend = ForwardDiffADHessian
+                   )
 
-    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :optimized)
+    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = backend)
 end
 
 function solve_opf_nlpmodels(dataset)
@@ -2114,6 +2127,7 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
             continue
         end
         
+        @info "Running Optimization.jl"
         model, res = solve_opf_optimization(dataset)
         push!(cases, split(file,"/")[end])
         push!(vars, res["variables"])
@@ -2123,24 +2137,28 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(optimization_time_compilation, res["time_solve_compilation"])
         push!(optimization_cost, res["cost"])
 
+        @info "Running JuMP.jl"
         model, res = solve_opf_jump(dataset)
         push!(jump_time, res["time_solve"])
         push!(jump_time_modelbuild, res["time_build"])
         push!(jump_time_compilation, res["time_solve_compilation"])
         push!(jump_cost, res["cost"])
 
+        @info "Running NLPModels.jl"
         model, res = solve_opf_nlpmodels(dataset)
         push!(nlpmodels_time, res["time_solve"])
         push!(nlpmodels_time_modelbuild, res["time_build"])
         push!(nlpmodels_time_compilation, res["time_solve_compilation"])
         push!(nlpmodels_cost, res["cost"])
         
+        @info "Running Nonconvex.jl"
         model, res = solve_opf_nonconvex(dataset)
         push!(nonconvex_time, res["time_solve"])
         push!(nonconvex_time_modelbuild, res["time_build"])
         push!(nonconvex_time_compilation, res["time_solve_compilation"])
         push!(nonconvex_cost, res["cost"])
 
+        @info "Running Optim.jl"
         model, res = solve_opf_optim(dataset)
         push!(optim_time, res["time_solve"])
         push!(optim_time_modelbuild, res["time_build"])
