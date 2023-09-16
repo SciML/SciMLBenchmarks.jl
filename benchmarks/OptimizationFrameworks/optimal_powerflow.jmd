@@ -1095,7 +1095,9 @@ function build_opf_nlpmodels_prob(dataset)
 
     model_variables = length(var_init)
     model_constraints = length(opf_constraints!(similar(con_lbs), var_init))
-    backend = ADNLPModels.ADModelBackend(gradient_backend = ADNLPModels.ReverseDiffADGradient,
+    #=
+    backend = ADNLPModels.ADModelBackend(model_variables, opf_objective, model_constraints, opf_constraints!;
+                   gradient_backend = ADNLPModels.ReverseDiffADGradient,
                    hprod_backend = ADNLPModels.SDTForwardDiffADHvprod,
                    jprod_backend = ADNLPModels.ForwardDiffADJprod, 
                    jtprod_backend = ADNLPModels.ReverseDiffADJtprod, 
@@ -1108,8 +1110,8 @@ function build_opf_nlpmodels_prob(dataset)
                    jacobian_residual_backend = ADNLPModels.ForwardDiffADHessian, # SparseADJacobian, 
                    hessian_residual_backend = ADNLPModels.ForwardDiffADHessian
                    )
-
-    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = backend)
+    =#
+    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :default) # backend = :optimized)
 end
 
 function solve_opf_nlpmodels(dataset)
