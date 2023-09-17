@@ -1111,7 +1111,7 @@ function build_opf_nlpmodels_prob(dataset)
                    hessian_residual_backend = ADNLPModels.ForwardDiffADHessian
                    )
     =#
-    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :default) # backend = :optimized)
+    nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :optimized)
 end
 
 function solve_opf_nlpmodels(dataset)
@@ -1370,14 +1370,14 @@ function solve_opf_nonconvex(dataset)
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     solve_time_without_compilation = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     cost = result.minimum
