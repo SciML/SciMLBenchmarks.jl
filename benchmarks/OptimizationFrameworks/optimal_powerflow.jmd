@@ -1095,7 +1095,22 @@ function build_opf_nlpmodels_prob(dataset)
 
     model_variables = length(var_init)
     model_constraints = length(opf_constraints!(similar(con_lbs), var_init))
-
+    #=
+    backend = ADNLPModels.ADModelBackend(model_variables, opf_objective, model_constraints, opf_constraints!;
+                   gradient_backend = ADNLPModels.ReverseDiffADGradient,
+                   hprod_backend = ADNLPModels.SDTForwardDiffADHvprod,
+                   jprod_backend = ADNLPModels.ForwardDiffADJprod, 
+                   jtprod_backend = ADNLPModels.ReverseDiffADJtprod, 
+                   jacobian_backend = ADNLPModels.ForwardDiffADJacobian, # SDTSparseADJacobian, 
+                   hessian_backend = ADNLPModels.ForwardDiffADHessian, # SparseADJacobian, 
+                   ghjvprod_backend = ADNLPModels.ForwardDiffADGHjvprod, 
+                   hprod_residual_backend = ADNLPModels.ReverseDiffADHvprod, 
+                   jprod_residual_backend = ADNLPModels.ForwardDiffADJprod, 
+                   jtprod_residual_backend = ADNLPModels.ReverseDiffADJtprod, 
+                   jacobian_residual_backend = ADNLPModels.ForwardDiffADHessian, # SparseADJacobian, 
+                   hessian_residual_backend = ADNLPModels.ForwardDiffADHessian
+                   )
+    =#
     nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :optimized)
 end
 
@@ -1355,14 +1370,14 @@ function solve_opf_nonconvex(dataset)
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     solve_time_without_compilation = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     cost = result.minimum
@@ -2114,6 +2129,7 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
             continue
         end
         
+        @info "Running Optimization.jl"
         model, res = solve_opf_optimization(dataset)
         push!(cases, split(file,"/")[end])
         push!(vars, res["variables"])
@@ -2123,24 +2139,30 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(optimization_time_compilation, res["time_solve_compilation"])
         push!(optimization_cost, res["cost"])
 
+        @info "Running JuMP.jl"
         model, res = solve_opf_jump(dataset)
         push!(jump_time, res["time_solve"])
         push!(jump_time_modelbuild, res["time_build"])
         push!(jump_time_compilation, res["time_solve_compilation"])
         push!(jump_cost, res["cost"])
 
+        @info "Running NLPModels.jl"
         model, res = solve_opf_nlpmodels(dataset)
         push!(nlpmodels_time, res["time_solve"])
         push!(nlpmodels_time_modelbuild, res["time_build"])
         push!(nlpmodels_time_compilation, res["time_solve_compilation"])
         push!(nlpmodels_cost, res["cost"])
         
+        #=
+        @info "Running Nonconvex.jl"
         model, res = solve_opf_nonconvex(dataset)
         push!(nonconvex_time, res["time_solve"])
         push!(nonconvex_time_modelbuild, res["time_build"])
         push!(nonconvex_time_compilation, res["time_solve_compilation"])
         push!(nonconvex_cost, res["cost"])
-
+        =#
+        
+        @info "Running Optim.jl"
         model, res = solve_opf_optim(dataset)
         push!(optim_time, res["time_solve"])
         push!(optim_time_modelbuild, res["time_build"])
@@ -2151,7 +2173,7 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
               :optimization => optimization_time, :optimization_modelbuild => optimization_time_modelbuild, :optimization_wcompilation => optimization_time_compilation, :optimization_cost => optimization_cost,
               :jump => jump_time, :jump_modelbuild => jump_time_modelbuild, :jump_wcompilation => jump_time_compilation, :jump_cost => jump_cost, 
               :nlpmodels => nlpmodels_time, :nlpmodels_modelbuild => nlpmodels_time_modelbuild, :nlpmodels_wcompilation => nlpmodels_time_compilation,  :nlpmodels_cost => nlpmodels_cost, 
-              :nonconvex => nonconvex_time, :nonconvex_modelbuild => nonconvex_time_modelbuild, :nonconvex_wcompilation => nonconvex_time_compilation,  :nonconvex_cost => nonconvex_cost,
+              #:nonconvex => nonconvex_time, :nonconvex_modelbuild => nonconvex_time_modelbuild, :nonconvex_wcompilation => nonconvex_time_compilation,  :nonconvex_cost => nonconvex_cost,
               :optim => optim_time, :optim_modelbuild => optim_time_modelbuild, :optim_wcompilation => optim_time_compilation,  :optim_cost => optim_cost)
 end
 
