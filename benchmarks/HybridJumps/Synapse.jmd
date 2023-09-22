@@ -11,18 +11,19 @@ using Catalyst, Parameters, LazySets, StaticArrays, Distributions, LinearAlgebra
 using Plots
 using BenchmarkTools
 const PDMP = PiecewiseDeterministicMarkovProcesses
-fmt = :png
+const fmt = :png
 ```
 
-# Model and example solutions
+This benchmark implements the stochastic model of hippocampal synaptic plasticity with geometrical readount of enzyme dinamics from Rodrigues et al. [1]. The source code for the model was obtained from the Github repository [SynapseElife](https://github.com/rveltz/SynapseElife/) that accompanies the paper. The original source code is licensed with the MIT license. We have added comments on the parts of the code that were directly borrowed from the repository.
 
-Here we implement the stochastic model of hippocampal synaptic plasticity with geometrical readount of enzyme dinamics from Rodrigues et al. [1].
+# Model and example solutions
 
 ## Parameters and initial conditions
 
 ### Presynaptic parameters
 
 ```julia
+# adapted from  SynapseElife/src/ParamsSynapse.jl
 @with_kw struct PreSynapseParams
     "recovery constant of pre calcium decay function."
     τ_rec::Float64 = 20000
@@ -57,6 +58,7 @@ end
 
 
 ```julia
+# adapted from  SynapseElife/src/ParamsSynapse.jl
 @with_kw struct SynapseParams{Tp}
     "polygonal threshold."
     LTP_region::Tp = VPolygon([[6.35, 1.4], [10, 1.4], [6.35, 29.5], [10, 29.5]]) # VPolygon([SVector(6.35,1.4), SVector(10,1.4),SVector(6.35,29.5), SVector(10,29.5)])
@@ -567,15 +569,18 @@ end
 We define some utilities to help us construct the transition matrices.
 
 ```julia
+# adapted from SynapseElife/src/JumpMatrices.jl
 get_stoichmatrix(model) = transpose(Catalyst.netstoichmat(model)) |> Matrix
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 jump_matrix(matrix_list) = cat(matrix_list..., dims = (1, 2))
 ```
 
 Now we define each matrix one-by-one.
 
 ```julia
-ampa_model = @reaction_network begin
+# adapted from SynapseElife/src/JumpMatrices.jl
+const ampa_model = @reaction_network begin
     #1line
     #2line-GO
     1, C0 → C1
@@ -635,9 +640,11 @@ ampa_model = @reaction_network begin
     1, C4 → O4
 end
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 AMPA_matrix() = get_stoichmatrix(ampa_model)
 
-nmda_model_v2 = @reaction_network begin #same structure for N2A and N2B
+# adapted from SynapseElife/src/JumpMatrices.jl
+const nmda_model_v2 = @reaction_network begin #same structure for N2A and N2B
     #1line-GO
     1, A0 → A1
     1, A1 → A2
@@ -654,8 +661,10 @@ nmda_model_v2 = @reaction_network begin #same structure for N2A and N2B
     1, A1 → A0
 end
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 NMDA_matrix() = get_stoichmatrix(nmda_model_v2)
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 R_channel_matrix() = [
     [-1 1 0 0] # CaR m0h0 -> m1h0
     [1 -1 0 0] # CaR m1h0 -> m0h0
@@ -667,6 +676,7 @@ R_channel_matrix() = [
     [0 0 1 -1] # CaR    O -> m0h1
 ]
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 T_channel_matrix() = [
     [-1 1 0 0] # CaT m0h0 -> m1h0
     [1 -1 0 0] # CaT m1h0 -> m0h0
@@ -678,6 +688,7 @@ T_channel_matrix() = [
     [0 0 1 -1] # CaT    O -> m0h
 ]
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 L_channel_matrix() = [
     [-1 1 0] # CaL C -> O1
     [1 -1 0] # CaL O1 -> C
@@ -685,16 +696,19 @@ L_channel_matrix() = [
     [1 0 -1] # CaL O2 -> C
 ]
 
-plasticity = @reaction_network begin
+# adapted from SynapseElife/src/JumpMatrices.jl
+const plasticity = @reaction_network begin
     1, NC → LTD
     1, LTD → NC
     1, NC → LTP
     1, LTP → NC
 end
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 LTP_LTD_matrix() = get_stoichmatrix(plasticity)
 
-gaba_destexhe = @reaction_network begin
+# adapted from SynapseElife/src/JumpMatrices.jl
+const gaba_destexhe = @reaction_network begin
     #1line-GO
     (1, 1), CO ↔ C1
     (1, 1), C1 ↔ C2
@@ -702,21 +716,23 @@ gaba_destexhe = @reaction_network begin
     (1, 1), C2 ↔ O2
 end
 
+# adapted from SynapseElife/src/JumpMatrices.jl
 GABA_matrix() = get_stoichmatrix(gaba_destexhe)
 ```
 
 Finally, we define a wrapper function to build the main transition matrix.
 
 ```julia
+# adapted from SynapseElife/src/SynapseModel.jl
 function buildTransitionMatrix()
     matrix_list = [AMPA_matrix()]
-    push!(matrix_list, NMDA_matrix())          # for GluN2A
+    push!(matrix_list, NMDA_matrix()) # for GluN2A
     push!(matrix_list, Matrix{Int64}(I, 1, 1)) # print from Poisson Rate
     push!(matrix_list, R_channel_matrix())
     push!(matrix_list, T_channel_matrix())
     push!(matrix_list, L_channel_matrix())
     push!(matrix_list, LTP_LTD_matrix())
-    push!(matrix_list, NMDA_matrix())          # for GluN2B
+    push!(matrix_list, NMDA_matrix()) # for GluN2B
     push!(matrix_list, GABA_matrix())
     return sparse(jump_matrix(matrix_list))
 end
@@ -727,18 +743,19 @@ end
 Parameters.
 
 ```julia
-p_synapse = SynapseParams(t_end = 1000.0);
-glu = 0.0;
-events_sorted_times = [500.0];
-is_pre_or_post_event = [true];
-events_bap = events_sorted_times[is_pre_or_post_event.==false];
-bap_by_epsp = Float64[];
-nu = buildTransitionMatrix();
+const p_synapse = SynapseParams(t_end = 1000.0);
+const glu = 0.0;
+const events_sorted_times = [500.0];
+const is_pre_or_post_event = [true];
+const events_bap = events_sorted_times[is_pre_or_post_event.==false];
+const bap_by_epsp = Float64[];
+const nu = buildTransitionMatrix();
 ```
 
 Initial conditions.
 
 ```julia
+# adapted from SynapseElife/src/UtilsData.jl
 function initial_conditions_continuous_temp(param_synapse)
     @unpack_SynapseParams param_synapse
     if temp_rates <= 25
@@ -863,6 +880,7 @@ function initial_conditions_continuous_temp(param_synapse)
     end
 end
 
+# adapted from SynapseElife/src/UtilsData.jl
 function initial_conditions_discrete(param_synapse)
     @unpack_SynapseParams param_synapse
 
@@ -922,8 +940,8 @@ end
 ```
 
 ```julia
-xc0 = initial_conditions_continuous_temp(p_synapse);
-xd0 = initial_conditions_discrete(p_synapse);
+const xc0 = initial_conditions_continuous_temp(p_synapse);
+const xd0 = initial_conditions_discrete(p_synapse);
 ```
 
 ## Model
@@ -935,12 +953,19 @@ Rodrigues et al. [1] synapse model that replaces NMDA model with fully state-bas
 Helper functions.
 
 ```julia
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline alpha_m(V) = 0.4 * (V + 30) / (1 - exp(-(V + 30) / 7.2))
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline beta_m(V) = 0.124 * (V + 30) / (exp((V + 30) / 7.2) - 1)
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline alpha_h(V) = 0.01 * (V + 45) / (exp((V + 45) / 1.5) - 1)
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline beta_h(V) = 0.03 * (V + 45) / (1 - exp(-(V + 45) / 1.5))
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline alpha_n(V, nspeedfactor = 1) = nspeedfactor * exp(-0.11 * (V - 13))
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline beta_n(V, nspeedfactor = 1) = nspeedfactor * exp(-0.08 * (V - 13))
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function ghk(V, Ca_int, Ca_ext, p_synapse)
     # Kelvin physiological temp.
     @unpack_SynapseParams p_synapse
@@ -948,7 +973,9 @@ Helper functions.
     v = z * x * faraday * ((Ca_int) - (Ca_ext) * exp(-x)) / (1 - exp(-x))
     return v
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline SK_chnnl(Ca) = Ca^6 / (Ca^6 + 0.333^6) #0.333
+# adapted from SynapseElife/src/UtilsDynamics.jl
 function inputBaP(t, bapTimes::Vector, duration, amp::T) where {T}
     if isempty(bapTimes)
         return zero(T)
@@ -960,13 +987,16 @@ function inputBaP(t, bapTimes::Vector, duration, amp::T) where {T}
     end
     return res * amp
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline rates_adapt(a, b, c, d, Ca) = a * b / (c + d * Ca)
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline B(v, Mg) = 1 / (1 + exp(-0.062 * v) * (Mg / 3.57)) #Jahr Stevens
 ```
 
 The continuous evolution.
 
 ```julia
+# adapted from SynapseElife/src/SynapseModel.jl
 function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_epsp)
     @unpack_SynapseParams p_synapse
 
@@ -1261,6 +1291,7 @@ For the PDMP package we need to define the rates in which the jumps occur.
 Helper functions.
 
 ```julia
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function rates_m_r(Vsp)
     beta_m_r_star = 1 / (4e-1) # /ms
     minf_m_r_star = 1 / (1 + exp((3 - 10) / 8))
@@ -1271,6 +1302,7 @@ Helper functions.
     beta_m_r = (1 - minf_r) / tau_m_r
     return alpha_m_r, beta_m_r
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function rates_h_r(Vsp)
     tau_h_r = 100 # ms
     hinf_r = 1 / (1 + exp((Vsp + 39) / 9.2))
@@ -1278,6 +1310,7 @@ end
     beta_h_r = (1 - hinf_r) / tau_h_r
     return alpha_h_r, beta_h_r
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function rates_m_t(Vsp)
     beta_m_t_star = 1 # /ms
     minf_m_t_star = 1 / (1 + exp((-32 + 20) / 7))
@@ -1288,6 +1321,7 @@ end
     beta_m_t = (1 - minf_t) / tau_m_t
     return alpha_m_t, beta_m_t
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function rates_h_t(Vsp)
     tau_h_t = 50 # ms
     hinf_t = 1 / (1 + exp((Vsp + 70) / 6.5))
@@ -1295,11 +1329,13 @@ end
     beta_h_t = (1 - hinf_t) / tau_h_t
     return alpha_h_t, beta_h_t
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function rates_l(Vsp)
     return 0.83 / (1 + exp((13.7 - Vsp) / 6.1)),
     0.53 / (1 + exp((Vsp - 11.5) / 6.4)),
     1.86 / (1 + exp((Vsp - 18.8) / 6.17))
 end
+# adapted from SynapseElife/src/UtilsDynamics.jl
 @inline function plasticityRate(p, nhill, K)
     Pmax = 1
     r = p^nhill
@@ -1310,6 +1346,7 @@ end
 The rate function.
 
 ```julia
+# adapted from SynapseElife/src/SynapseModel.jl
 function R_synapse(rate, xc, xd, p_synapse::SynapseParams, t, sum_rate, glu = 0)
 
     @unpack_SynapseParams p_synapse
@@ -1477,6 +1514,9 @@ Alternatively, for the JumpProcesses packages we need to define the jumps. First
 
 ```julia
 """
+Macro to help with defining the Synapse problem for the JumpProcesses package, used in the `J_synapse` function body.
+
+# Arguments
 - i : Jump index
 - p_synapse : Synapse parameters
 - rate_ex : Rate as Julia expression
@@ -1932,8 +1972,8 @@ We define a custom saving callback for the `JumpProcesses` problem to bring the 
 using DiffEqCallbacks: SavedValues, SavingAffect
 import DataStructures
 
+# adapted from DiffEqCallbacks.jl/src/saving.jl
 function (affect!::SavingAffect)(integrator, force_save = false)
-    # adapted from DiffEqCallbacks.jl/src/saving.jl
     just_saved = false
     # see OrdinaryDiffEq.jl -> integrator_utils.jl, function savevalues!
     while !isempty(affect!.saveat) &&
@@ -1982,8 +2022,8 @@ function (affect!::SavingAffect)(integrator, force_save = false)
     u_modified!(integrator, false)
 end
 
+# adapted from DiffEqCallbacks.jl/src/saving.jl
 function saving_initialize!(cb, u, t, integrator)
-    # adapted from DiffEqCallbacks.jl/src/saving.jl
     integrator.p.xd .= integrator.p.xd0
     cb.affect!.saveat = deepcopy(integrator.opts.saveat)
     cb.affect!.save_everystep = integrator.opts.save_everystep
@@ -1993,8 +2033,8 @@ function saving_initialize!(cb, u, t, integrator)
     cb.affect!.save_start && cb.affect!(integrator, true)
 end
 
+# adapted from DiffEqCallbacks.jl/src/saving.jl
 function SavingCallback(save_func, saved_values::SavedValues; save_modified = true)
-    # adapted from DiffEqCallbacks.jl/src/saving.jl
     saveat_internal =
         DataStructures.BinaryHeap{eltype(saved_values.t)}(DataStructures.FasterForward())
     affect! = SavingAffect(
@@ -2124,6 +2164,7 @@ end
 We define functions to run the evolution of the whole synapse. The evolution includes a period before glutamate is released and after.
 
 ```julia
+# adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse(
     xc0::Vector{T},
     xd0,
@@ -2165,6 +2206,7 @@ function evolveSynapse(
     out = formatSynapseResult(tt, XC, XD)
 end
 
+# adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse_noformat(
     xc0::Vector{T},
     xd0,
@@ -2281,7 +2323,7 @@ function evolveSynapse_noformat(
 
     # reaching tend: we simulate the synapse with Glutamate OFF until simulation end time required
     # by the user. In  most protocol, this is taking most of the time.
-    res = @time SimGluOFF(XC[:, end], XD[:, end], tt[end], p_synapse.t_end)
+    res = SimGluOFF(XC[:, end], XD[:, end], tt[end], p_synapse.t_end)
     formatSimResult!(res, XC, XD, tt)
     if isnothing(agg)
         @info "last bit" agg length(res.time) tt[end] p_synapse.t_end
@@ -2310,6 +2352,7 @@ function formatSimResult!(res::NamedTuple, XC, XD, tt)
     nothing
 end
 
+# adapted from SynapseElife/src/SynapseModel.jl
 function formatSynapseResult(tt, XC, XD)
     namesC = (
         :Vsp,
@@ -2357,8 +2400,8 @@ end
 `CoevolveSynced` allow us to save at regular intervals. Thus, rather than saving when a jump occurs, we save at the same average frequency as obtained with `PDMP`.
 
 ```julia
-solver = AutoTsit5(Rosenbrock23());
-algorithms = [
+const solver = AutoTsit5(Rosenbrock23());
+const algorithms = (
     (
         label = "PDMP",
         agg = nothing,
@@ -2371,7 +2414,7 @@ algorithms = [
         solver = (solver, solver),
         saveat = 1 / p_synapse.sampling_rate,
     ),
-];
+);
 ```
 
 ## Example solutions
