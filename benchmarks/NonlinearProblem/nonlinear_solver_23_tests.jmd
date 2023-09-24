@@ -25,13 +25,15 @@ solvers = [ Dict(:alg=>NewtonRaphson()),
             Dict(:alg=>LevenbergMarquardt()),
             Dict(:alg=>CMINPACK(method=:hybr)),
             Dict(:alg=>CMINPACK(method=:lm)),
-            Dict(:alg=>NLSolveJL())]
+            Dict(:alg=>NLSolveJL()),
+            Dict(:alg=>KINSOL())]
 solvernames =  ["Newton Raphson"; 
                 "Newton Trust Region"; 
                 "Levenberg-Marquardt"; 
                 "Modified Powell (CMINPACK)"; 
                 "Levenberg-Marquardt (CMINPACK)"; 
-                "Newton Trust Region (NLSolveJL)"];
+                "Newton Trust Region (NLSolveJL)"; 
+                "KINSOL (Sundials)"];
 ```
 Sets tolerances.
 ```julia
@@ -55,12 +57,12 @@ function check_solver(prob, solver, solvername)
     try
         true_sol = solve(prob.prob, solver[:alg]; abstol=1e-18, reltol=1e-18, maxiters=10000000)
         if !SciMLBase.successful_retcode(true_sol.retcode)
-            @warn "Solver $solvername returned retcode $(true_sol.retcode)."
+            Base.printstyled("[Warn] Solver $solvername returned retcode $(true_sol.retcode)."; color=:red)
             return false
         end
         WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver]; names=[solvername], numruns=20, appxsol=true_sol, error_estimate=:l2, maxiters=10000000)
     catch e
-        @warn "Solver $solvername threw an error: $e."
+        Base.printstyled("[Warn] Solver $solvername threw an error: $e."; color=:red)    
         return false
     end
     return true
