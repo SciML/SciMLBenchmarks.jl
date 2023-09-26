@@ -9,7 +9,9 @@ These benchmarks comapres the runtime and error for a range of nonlinear solvers
 - NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
 - MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
 - MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
+- NLSolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL(method=:newton)`).
 - NLSolveJL's [Newton trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL()`).
+- NLSolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL(method=:anderson)`).
 - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
 # Setup
@@ -25,13 +27,19 @@ solvers = [ Dict(:alg=>NewtonRaphson()),
             Dict(:alg=>LevenbergMarquardt()),
             Dict(:alg=>CMINPACK(method=:hybr)),
             Dict(:alg=>CMINPACK(method=:lm)),
-            Dict(:alg=>NLSolveJL())]
+            Dict(:alg=>NLSolveJL(method=:newton)),
+            Dict(:alg=>NLSolveJL()),
+            Dict(:alg=>NLSolveJL(method=:anderson)),
+            Dict(:alg=>KINSOL())]
 solvernames =  ["Newton Raphson"; 
                 "Newton Trust Region"; 
                 "Levenberg-Marquardt"; 
                 "Modified Powell (CMINPACK)"; 
                 "Levenberg-Marquardt (CMINPACK)"; 
-                "Newton Trust Region (NLSolveJL)"];
+                "Newton Raphson (NLSolveJL)"; 
+                "Newton Trust Region (NLSolveJL)"; 
+                "Anderson acceleration (NLSolveJL)"; 
+                "Newton-Krylov (Sundials)"];
 ```
 Sets tolerances.
 ```julia
@@ -41,8 +49,8 @@ reltols = 1.0 ./ 10.0 .^ (4:12);
 Set plotting defaults.
 ```julia
 default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=12, legendfontsize=9, lw=2)
-colors = [1 2 3 4 5 6 7]
-markershapes = [:circle :rect :heptagon :cross :xcross :utriangle :star5];
+markershapes = [:rect, :pentagon, :hexagon, :utriangle, :dtriangle, :star4, :star5, :star7, :circle]
+colors = [:darkslategray1, :royalblue1, :blue3, :coral2, :red3, :olivedrab1, :green2, :forestgreen, :darkgoldenrod1];
 ```
 Function for determening which solvers can solve a given problem.
 ```julia
@@ -55,12 +63,12 @@ function check_solver(prob, solver, solvername)
     try
         true_sol = solve(prob.prob, solver[:alg]; abstol=1e-18, reltol=1e-18, maxiters=10000000)
         if !SciMLBase.successful_retcode(true_sol.retcode)
-            Base.printstyled("[Warn] Solver $solvername returned retcode $(true_sol.retcode)."; color=:red)
+            Base.printstyled("[Warn] Solver $solvername returned retcode $(true_sol.retcode).\n"; color=:red)
             return false
         end
         WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver]; names=[solvername], numruns=20, appxsol=true_sol, error_estimate=:l2, maxiters=10000000)
     catch e
-        Base.printstyled("[Warn] Solver $solvername threw an error: $e."; color=:red)    
+        Base.printstyled("[Warn] Solver $solvername threw an error: $e.\n"; color=:red)    
         return false
     end
     return true
