@@ -160,8 +160,8 @@ for ex in PDESystemLibrary.all_systems
                 discretize(ex, disc, analytic = ex.analytic_func)
             end
 
-            title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
-            println("Running $title")
+            title = "$(ex.name), Tags: $(ex.metadata)"
+            println("Running Work Precision Diagram for $title")
             dummy_appxsol = [nothing for i in 1:length(probs)]
             abstols = 1.0 ./ 10.0 .^ (5:8)
             reltols = 1.0 ./ 10.0 .^ (1:4);
