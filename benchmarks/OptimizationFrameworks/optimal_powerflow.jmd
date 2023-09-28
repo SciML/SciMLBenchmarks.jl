@@ -538,7 +538,12 @@ function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme
     ret = Array{Float64}(undef, length(con_lbs))
     model_constraints = length(con_lbs)
 
-    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
+    optf = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
+    optprob = Optimization.instantiate_function(optf, var_init, adchoice, nothing, length(con_lbs))
+    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints, 
+    grad = optprob.grad, hess = optprob.hess, cons_j = optprob.cons_j, cons_h = optprob.cons_h, 
+    hess_prototype = optprob.hess_prototype, cons_jac_prototype = optprob.cons_jac_prototype, cons_hess_prototype = optprob.cons_hess_prototype,
+    hess_colorvec = optprob.hess_colorvec, cons_jac_colorvec = optprob.cons_jac_colorvec, cons_hess_colorvec = optprob.cons_hess_colorvec)
     prob = Optimization.OptimizationProblem(optprob, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
 end
 
