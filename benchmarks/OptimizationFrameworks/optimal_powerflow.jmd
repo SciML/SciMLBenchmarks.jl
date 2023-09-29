@@ -596,6 +596,197 @@ optimization_test_res = test_optimization_prob(dataset, test_u0)
 @assert optimization_test_res[2] == test_cons
 ```
 
+## ModelingToolkit.jl
+
+Showcases symbolic interface to Optimization.jl, through ModelingToolkit.jl. 
+Equivalent to using `AutoModelingToolkit` as the AD backend in `OptimizationFunction`, the values for the objectives don't match exactly 
+because of structural simplification.
+
+```julia
+
+import PowerModels
+import Ipopt
+using ModelingToolkit, Optimization, OptimizationMOI
+import ModelingToolkit: ≲
+
+function build_opf_mtk_prob(dataset)
+    (;data, ref) = dataset
+
+    vars = Num[]
+    lb = Float64[]
+    ub = Float64[]
+
+    ModelingToolkit.@variables va[keys(ref[:bus])]
+    for i in keys(ref[:bus])
+        push!(lb, -Inf)
+        push!(ub, Inf)
+    end
+    ModelingToolkit.@variables vm[keys(ref[:bus])]
+    for i in keys(ref[:bus])
+        push!(lb, ref[:bus][i]["vmin"])
+        push!(ub, ref[:bus][i]["vmax"])
+    end
+    vars = vcat(vars, [va[i] for i in keys(ref[:bus])], [vm[i] for i in keys(ref[:bus])])
+    ModelingToolkit.@variables pg[keys(ref[:gen])]
+    for i in keys(ref[:gen])
+        push!(lb, ref[:gen][i]["pmin"])
+        push!(ub, ref[:gen][i]["pmax"])
+    end
+    ModelingToolkit.@variables qg[keys(ref[:gen])]
+    for i in keys(ref[:gen])
+        push!(lb, ref[:gen][i]["qmin"])
+        push!(ub, ref[:gen][i]["qmax"])
+    end
+    vars = vcat(vars, [pg[i] for i in keys(ref[:gen])], [qg[i] for i in keys(ref[:gen])])
+    i_inds, j_inds, l_inds = maximum(first.(ref[:arcs])), maximum(getindex.(ref[:arcs], Ref(2))), maximum(last.(ref[:arcs]))
+    ModelingToolkit.@variables p[1:i_inds, 1:j_inds, 1:l_inds]
+    ModelingToolkit.@variables q[1:i_inds, 1:j_inds, 1:l_inds]
+
+    for (l, i, j) in ref[:arcs]
+        push!(vars, p[l, i, j])
+        push!(lb, -ref[:branch][l]["rate_a"])
+        push!(ub, ref[:branch][l]["rate_a"])
+    end
+
+    for (l, i, j) in ref[:arcs]
+        push!(vars, q[l, i, j])
+        push!(lb, -ref[:branch][l]["rate_a"])
+        push!(ub, ref[:branch][l]["rate_a"])
+    end
+
+    loss = sum(gen["cost"][1] * pg[i]^2 + gen["cost"][2] * pg[i] + gen["cost"][3] for (i, gen) in ref[:gen])
+
+    cons = Array{Union{ModelingToolkit.Equation,ModelingToolkit.Inequality}}([])
+    for (i, bus) in ref[:ref_buses]
+        push!(cons, va[i] ~ 0)
+    end
+
+    for (i, bus) in ref[:bus]
+        bus_loads = [ref[:load][l] for l in ref[:bus_loads][i]]
+        bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
+        push!(cons,
+            sum(p[a...] for a in ref[:bus_arcs][i]) ~
+                (sum(pg[g] for g in ref[:bus_gens][i]; init = 0.0)) -
+                (sum(load["pd"] for load in bus_loads; init = 0.0)) -
+             sum(shunt["gs"] for shunt in bus_shunts; init = 0.0)*vm[i]^2
+        )
+
+        push!(cons,
+            sum(q[a...] for a in ref[:bus_arcs][i]) ~
+                (sum(qg[g] for g in ref[:bus_gens][i]; init = 0.0)) -
+                (sum(load["qd"] for load in bus_loads; init = 0.0))
+             + sum(shunt["bs"] for shunt in bus_shunts; init = 0.0)*vm[i]^2
+        )
+    end
+
+    # Branch power flow physics and limit constraints
+    for (i, branch) in ref[:branch]
+        f_idx = (i, branch["f_bus"], branch["t_bus"])
+        t_idx = (i, branch["t_bus"], branch["f_bus"])
+
+        p_fr = p[f_idx...]
+        q_fr = q[f_idx...]
+        p_to = p[t_idx...]
+        q_to = q[t_idx...]
+
+        vm_fr = vm[branch["f_bus"]]
+        vm_to = vm[branch["t_bus"]]
+        va_fr = va[branch["f_bus"]]
+        va_to = va[branch["t_bus"]]
+
+        g, b = PowerModels.calc_branch_y(branch)
+        tr, ti = PowerModels.calc_branch_t(branch)
+        ttm = tr^2 + ti^2
+        g_fr = branch["g_fr"]
+        b_fr = branch["b_fr"]
+        g_to = branch["g_to"]
+        b_to = branch["b_to"]
+
+        # From side of the branch flow
+        push!(cons, p_fr ~ (g + g_fr) / ttm * vm_fr^2 + (-g * tr + b * ti) / ttm * (vm_fr * vm_to * cos(va_fr - va_to)) + (-b * tr - g * ti) / ttm * (vm_fr * vm_to * sin(va_fr - va_to)))
+        push!(cons, q_fr ~ -(b + b_fr) / ttm * vm_fr^2 - (-b * tr - g * ti) / ttm * (vm_fr * vm_to * cos(va_fr - va_to)) + (-g * tr + b * ti) / ttm * (vm_fr * vm_to * sin(va_fr - va_to)))
+
+        # To side of the branch flow
+        push!(cons, p_to ~ (g + g_to) * vm_to^2 + (-g * tr - b * ti) / ttm * (vm_to * vm_fr * cos(va_to - va_fr)) + (-b * tr + g * ti) / ttm * (vm_to * vm_fr * sin(va_to - va_fr)))
+        push!(cons, q_to ~ -(b + b_to) * vm_to^2 - (-b * tr + g * ti) / ttm * (vm_to * vm_fr * cos(va_to - va_fr)) + (-g * tr - b * ti) / ttm * (vm_to * vm_fr * sin(va_to - va_fr)))
+
+        # Voltage angle difference limit
+        push!(cons, va_fr - va_to ≲ branch["angmax"])
+        push!(cons, branch["angmin"] ≲ va_fr - va_to)
+
+        # Apparent power limit, from side and to side
+        push!(cons, p_fr^2 + q_fr^2 ≲ branch["rate_a"]^2)
+        push!(cons, p_to^2 + q_to^2 ≲ branch["rate_a"]^2)
+    end
+
+    optsys = ModelingToolkit.OptimizationSystem(loss, vars, [], constraints=cons, name=:rosetta)
+    optsys = ModelingToolkit.structural_simplify(optsys)
+    u0map = Dict([k => 0.0 for k in collect(optsys.states)])
+    for key in keys(ref[:bus])
+        if vm[key] in keys(u0map)
+            # println(vm[key])
+            u0map[vm[key]] = 1.0
+        end
+    end
+
+    inds = Int[]
+    for k in collect(optsys.states)
+        push!(inds, findall(x -> isequal(x, k), vars)[1])
+    end
+    prob = Optimization.OptimizationProblem(optsys, u0map, lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
+end
+
+function solve_opf_mtk(dataset)
+    model_build_time = @elapsed prob = build_opf_mtk_prob(dataset)
+
+    # @assert prob.f(prob.u0, nothing) == 0.0 #MTK with simplification doesn't evaluate the same
+    ret = zeros(length(prob.lcons))
+    prob.f.cons(ret, prob.u0, nothing, )
+    @allocated prob.f(prob.u0, nothing) == 0
+    @allocated prob.f.cons(ret, prob.u0, nothing) == 0
+
+
+    solve_time_with_compilation = @elapsed sol = OptimizationMOI.solve(prob, Ipopt.Optimizer())
+    solve_time_without_compilation = @elapsed sol = OptimizationMOI.solve(prob, Ipopt.Optimizer())
+
+    cost = sol.minimum
+    feasible = (sol.retcode == Optimization.SciMLBase.ReturnCode.Success)
+
+   return (prob,sol),Dict(
+        "case" => file_name,
+        "variables" => length(prob.u0),
+        "constraints" => length(prob.lcons),
+        "feasible" => feasible,
+        "cost" => cost,
+        "time_build" => model_build_time,
+        "time_solve" => solve_time_without_compilation,
+        "time_solve_compilation" => solve_time_with_compilation,
+    )
+end
+
+function test_mtk_prob(dataset, test_u0)
+    prob = build_opf_mtk_prob(dataset)
+    ret = zeros(length(prob.lcons))
+    prob.f.cons(ret, test_u0, nothing)
+    obj = prob.f(test_u0, nothing)
+    obj, ret
+end
+```
+
+
+```julia
+mtk_test_res = test_optimization_prob(dataset, test_u0)
+```
+
+```julia
+@assert mtk_test_res[1] == test_obj
+```
+
+```julia
+@assert mtk_test_res[2] == test_cons
+```
+
+
 ## JuMP.jl
 
 Implementation reference: https://github.com/lanl-ansi/PowerModelsAnnex.jl/blob/master/src/model/ac-opf.jl
@@ -2143,6 +2334,17 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(optimization_time_modelbuild, res["time_build"])
         push!(optimization_time_compilation, res["time_solve_compilation"])
         push!(optimization_cost, res["cost"])
+
+        @info "Running ModelingToolkit.jl"
+        model, res = solve_opf_mtk(dataset)
+        push!(cases, split(file,"/")[end])
+        push!(vars, res["variables"])
+        push!(cons, res["constraints"])
+        push!(mtk_time, res["time_solve"])
+        push!(mtk_time_modelbuild, res["time_build"])
+        push!(mtk_time_compilation, res["time_solve_compilation"])
+        push!(mtk_cost, res["cost"])
+
 
         @info "Running JuMP.jl"
         model, res = solve_opf_jump(dataset)
