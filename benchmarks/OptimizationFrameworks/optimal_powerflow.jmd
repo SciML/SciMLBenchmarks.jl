@@ -2325,7 +2325,7 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         @info "Number of Constraints: $(length(prob.lcons))"
 
         if length(prob.u0) > sizelimit
-            @info "Variable size over limit. Skipping for now"
+            @info "Variable size over global limit. Skipping for now"
             continue
         end
         
@@ -2370,12 +2370,21 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(nonconvex_cost, res["cost"])
         =#
         
-        @info "Running Optim.jl"
-        model, res = solve_opf_optim(dataset)
-        push!(optim_time, res["time_solve"])
-        push!(optim_time_modelbuild, res["time_build"])
-        push!(optim_time_compilation, res["time_solve_compilation"])
-        push!(optim_cost, res["cost"])
+        if length(prob.u0) > 400
+            @info "Running Optim.jl"
+            model, res = solve_opf_optim(dataset)
+            push!(optim_time, NaN)
+            push!(optim_time_modelbuild, NaN)
+            push!(optim_time_compilation, NaN)
+            push!(optim_cost, NaN)
+        else
+            @info "Running Optim.jl"
+            model, res = solve_opf_optim(dataset)
+            push!(optim_time, res["time_solve"])
+            push!(optim_time_modelbuild, res["time_build"])
+            push!(optim_time_compilation, res["time_solve_compilation"])
+            push!(optim_cost, res["cost"])
+        end
     end
     DataFrame(:case => cases, :vars => vars, :cons => cons, 
               :optimization => optimization_time, :optimization_modelbuild => optimization_time_modelbuild, :optimization_wcompilation => optimization_time_compilation, :optimization_cost => optimization_cost,
