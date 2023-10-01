@@ -47,24 +47,21 @@ solvernames =  ["Newton Raphson (No line search)";
                 "Newton Raphson (NLSolveJL)"; 
                 "Newton Trust Region (NLSolveJL)"; 
                 "Anderson acceleration (NLSolveJL)"; 
-                "Newton-Krylov (Sundials)"]
-nothing # hide
+                "Newton-Krylov (Sundials)"];
 ```
 Sets tolerances.
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:12)
-reltols = 1.0 ./ 10.0 .^ (4:12)
-nothing # hide
+reltols = 1.0 ./ 10.0 .^ (4:12);
 ```
 Set plotting defaults.
 ```julia
 mm = Plots.Measures.mm
 default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=12, legendfontsize=9, lw=2, ms=6, left_margin=6mm, bottom_margin=6mm, right_margin=2mm)
-markershapes = [:utriangle, :rect, :pentagon, :heptagon, :octagon]
-colors = [:violet, :magenta1, :orchid4, :darkorchid2, :blueviolet]
+markershapes_NR = [:utriangle, :rect, :pentagon, :heptagon, :octagon]
+colors_NR = [:violet, :magenta1, :orchid4, :darkorchid2, :blueviolet]
 markershapes = [:hexagon, :hexagon, :hexagon, :hexagon, :diamond, :rect, :utriangle, :dtriangle, :star4, :star5, :star7, :circle]
-colors = [:lightslateblue, :lightslateblue, :lightslateblue, :lightslateblue, :dodgerblue3, :blue3, :coral2, :red3, :olivedrab1, :green2, :forestgreen, :aqua]
-nothing # hide
+colors = [:lightslateblue, :lightslateblue, :lightslateblue, :lightslateblue, :dodgerblue3, :blue3, :coral2, :red3, :olivedrab1, :green2, :forestgreen, :aqua];
 ```
 Function for determening which solvers can solve a given problem.
 ```julia
@@ -90,8 +87,7 @@ function check_solver(prob, solver, solvername)
         return false
     end
     return true
-end
-nothing # hide
+end;
 ```
 Plotting formating helper function.
 ```julia
@@ -140,8 +136,7 @@ function plot_wps(wp_NR, wp, selected_NR_solvers, selected_solvers; kwargs...)
     wp_dia_NR = plot_wp(wp_NR, selected_NR_solvers;  colors=permutedims(getindex(colors_NR,selected_NR_solvers)[:,:]), markershapes=permutedims(getindex(markershapes_NR,selected_NR_solvers)[:,:]), kwargs...)
     wp_dia = plot_wp(wp, selected_solvers; yguide="", kwargs...)
     plot(wp_dia_NR, wp_dia, size=(1100,400))
-end
-nothing # hide
+end;
 ```
 
 # Benchmarks
@@ -368,8 +363,7 @@ Finally, we print a summar of which solvers sucesfully solved which problems.
 function assembly_row(solvers1,solvers2; n=length(solvers))
     all_solvers = union(solvers1,solvers2)
     return [(i in all_solvers) ? "O" : "X" for j in 1:1, i in 1:n]
-end
-nothing # hide
+end;
 ```
 ```julia
 sucessful_solvers = [
@@ -395,14 +389,16 @@ assembly_row(selected_NR_solvers_20, selected_solvers_20; n=length(solvers));
 assembly_row(selected_NR_solvers_21, selected_solvers_21; n=length(solvers));
 assembly_row(selected_NR_solvers_22, selected_solvers_22; n=length(solvers));
 assembly_row(selected_NR_solvers_23, selected_solvers_23; n=length(solvers))
-]
-nothing #
+];
 ```
-```julia
+```julia; wrap = false; results = "md2html"
 using PrettyTables
-pretty_table(sucessful_solvers; header=solvernames, alignment=:c)
+io = IOBuffer()
+println(io, "```@raw html")
+pretty_table(io, sucessful_solvers; backend = Val(:html), header=solvernames, alignment=:c)
+println(io, "```")
+Text(String(take!(io)))
 ```
-
 
 # Appendix
 ```julia, echo = false
