@@ -34,7 +34,7 @@ Fetch required packages.
 ```julia
 using NonlinearSolve, NonlinearSolveMINPACK, SciMLNLSolve, SimpleNonlinearSolve, StaticArrays, Sundials
 using BenchmarkTools, DiffEqDevTools, NonlinearProblemLibrary, Plots
-RUP = RadiusUpdateSchemes
+RUS = RadiusUpdateSchemes;
 ```
 Declare the benchmarked solvers (and their names and plotting options).
 ```julia
@@ -45,20 +45,21 @@ solvers_all = [
     (type = :NR,      name = "Newton Raphson (Nocedal & Wright line search)",      solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),               color = :firebrick,       markershape = :star7),
     (type = :NR,      name = "Newton Raphson (Static line search)",                solver = Dict(:alg=>NewtonRaphson(linesearch=Static())),                     color = :red4,            markershape = :star8),
     (type = :TR,      name = "Newton Trust Region",                                solver = Dict(:alg=>TrustRegion()),                                         color = :darkslategray1,  markershape = :circle),
-    (type = :TR,      name = "Newton Trust Region (Simple radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.Simple)),        color = :cadetblue3,      markershape = :vline),
-    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",        solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.NLsolve)),       color = :deepskyblue1,    markershape = :utriangle),
-    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)", solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.NocedalWright)), color = :cadetblue,       markershape = :rect),
-    (type = :TR,      name = "Newton Trust Region (Hei radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.Hei)),           color = :lightslateblue,  markershape = :pentagon),
-    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",           solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.Yuan)),          color = :royalblue2,      markershape = :hexagon),
-    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.Bastin)),        color = :blue1,           markershape = :heptagon),
-    (type = :TR,      name = "Newton Trust Region (Fan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUP.Fan)),           color = :navy,            markershape = :octagon),
+    (type = :TR,      name = "Newton Trust Region (Simple radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Simple)),        color = :cadetblue3,      markershape = :vline),
+    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",        solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),       color = :deepskyblue1,    markershape = :utriangle),
+    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)", solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)), color = :cadetblue,       markershape = :rect),
+    (type = :TR,      name = "Newton Trust Region (Hei radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),           color = :lightslateblue,  markershape = :pentagon),
+    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",           solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),          color = :royalblue2,      markershape = :hexagon),
+    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),        color = :blue1,           markershape = :heptagon),
+    (type = :TR,      name = "Newton Trust Region (Fan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),           color = :navy,            markershape = :octagon),
     (type = :general, name = "Levenberg-Marquardt",                                solver = Dict(:alg=>LevenbergMarquardt()),                                  color = :purple4,         markershape = :diamond),
     (type = :general, name = "Modified Powell (CMINPACK)",                         solver = Dict(:alg=>CMINPACK(method=:hybr)),                                color = :lightgoldenrod2, markershape = :+),
     (type = :general, name = "Levenberg-Marquardt (CMINPACK)",                     solver = Dict(:alg=>CMINPACK(method=:lm)),                                  color = :gold1,           markershape = :x),
     (type = :general, name = "Newton Raphson (NLSolveJL)",                         solver = Dict(:alg=>NLSolveJL(method=:newton)),                             color = :olivedrab1,      markershape = :dtriangle),
     (type = :general, name = "Newton Trust Region (NLSolveJL)",                    solver = Dict(:alg=>NLSolveJL()),                                           color = :green2,          markershape = :rtriangle),
     (type = :general, name = "Anderson acceleration (NLSolveJL)",                  solver = Dict(:alg=>NLSolveJL(method=:anderson)),                           color = :forestgreen,     markershape = :ltriangle)
-];
+]
+solver_tracker = [];
 ```
 Sets tolerances.
 ```julia
@@ -122,7 +123,7 @@ function add_solver!(solvers_general, selected_solver_name, additional_solver_se
     selected_solver = findfirst(s -> s.name==selected_solver_name, additional_solver_set)
     isnothing(selected_solver) && error("The $(selected_solver_name) was designated to be added to the general solver set, however, it seemed to fail on this problem.")
     push!(solvers_general, additional_solver_set[selected_solver])
-end
+end;
 ```
 Plotting related helper functions.
 ```julia
@@ -167,7 +168,7 @@ function get_ticks(limit)
         return 10 .^[limit[1];ticks;limit[2]]
     end
     return 10 .^sequences[selected_seq]
-end
+end;
 ```
 # Benchmarks
 We here run benchmarks for each of the 23 models. 
