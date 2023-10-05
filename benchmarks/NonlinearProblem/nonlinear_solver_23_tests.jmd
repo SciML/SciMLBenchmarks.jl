@@ -32,8 +32,7 @@ and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using bot
 Fetch required packages.
 ```julia
 using NonlinearSolve, NonlinearSolveMINPACK, SciMLNLSolve, SimpleNonlinearSolve, StaticArrays, Sundials
-using BenchmarkTools, DiffEqDevTools, NonlinearProblemLibrary, Plots
-using LinearAlgebra
+using BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, Plots
 RUS = RadiusUpdateSchemes;
 ```
 Declare the benchmarked solvers (and their names and plotting options).
@@ -69,7 +68,7 @@ reltols = 1.0 ./ 10.0 .^ (4:12);
 Set plotting defaults.
 ```julia
 mm = Plots.Measures.mm
-default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=12, legendfontsize=9, lw=2, ms=6, left_margin=6mm, bottom_margin=6mm, right_margin=2mm)
+default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=25, legendfontsize=16, lw=3, la=0.8, ms=10, ma=0.8, left_margin=20mm, bottom_margin=15mm, right_margin=0mm)
 ```
 Prepares various helper functions for benchmarking a specific problem.
 ```julia
@@ -86,29 +85,29 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
     solvers_NR = filter(s -> s.type==:NR, successful_solvers)
     solvers_TR = filter(s -> s.type==:TR, successful_solvers)
     solvers_LM = filter(s -> s.type==:LM, successful_solvers)
-    wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver); names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l2, maxiters=10000000)
-    wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver); names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l2, maxiters=10000000)
-    wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver); names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l2, maxiters=10000000)
+    wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver); names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l2, maxiters=1000000)
+    wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver); names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l2, maxiters=1000000)
+    wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver); names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l2, maxiters=1000000)
 
     # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
-    add_solver!(solvers_general, selected_NR, solvers_NR, wp_NR)
     add_solver!(solvers_general, selected_TR, solvers_TR, wp_TR)
     add_solver!(solvers_general, selected_LM, solvers_LM, wp_LM)
-    wp_general = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name), numruns=100, error_estimate=:l2, maxiters=10000000)
+    add_solver!(solvers_general, selected_NR, solvers_NR, wp_NR)
+    wp_general = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name), numruns=100, error_estimate=:l2, maxiters=1000000)
     
     xlimit, ylimit, xticks, yticks = get_limits_and_ticks(wp_general, wp_NR, wp_TR, wp_LM)
     wp_plot_general = plot_wp(wp_general, solvers_general)
     wp_plot_NR = plot_wp(wp_NR, solvers_NR; yguide="", xlimit=xlimit, ylimit=ylimit, xticks=xticks, yticks=yticks)
     wp_plot_TR = plot_wp(wp_TR, solvers_TR; yguide="", xlimit=xlimit, ylimit=ylimit, xticks=xticks, yticks=yticks)
     wp_plot_LM = plot_wp(wp_LM, solvers_LM; yguide="", xlimit=xlimit, ylimit=ylimit, xticks=xticks, yticks=yticks)
-    plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(1,4), size=(2300,400), xlimit=xlimit, ylimit=ylimit, xticks=xticks, yticks=yticks)
+    plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(1,4), size=(3000,800), xlimit=xlimit, ylimit=ylimit, xticks=xticks, yticks=yticks)
 end
 
 # Checks if a solver can sucessfully solve a given problem.
 function check_solver(prob, solver)
     try
-        sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8, maxiters=10000000)
+        sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8, maxiters=1000000)
         if !SciMLBase.successful_retcode(sol.retcode)
             Base.printstyled("\n[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n"; color=:red)
             return false
@@ -116,7 +115,7 @@ function check_solver(prob, solver)
             Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n"; color=:red)
             return false
         end
-        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver]; names=[solver.name], numruns=100, error_estimate=:l2, maxiters=10000000)
+        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver]; names=[solver.name], numruns=100, error_estimate=:l2, maxiters=1000000)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)    
         return false
@@ -144,7 +143,7 @@ function plot_wp(wp, selected_solvers; kwargs...)
     isempty(wp.wps) && (return plot(xaxis=:log10, yaxis=:log10 ;kwargs...))
     color = reshape(getfield.(selected_solvers, :color),1,length(selected_solvers))
     markershape = reshape(getfield.(selected_solvers, :markershape),1,length(selected_solvers))
-    plot(wp; color=color, markershape=markershape, kwargs...)
+    plot(wp; color=color, markershape=markershape, legend=:outertop, kwargs...)
 end
 
 # For a set of wp diaggras, get ticks and limits.
