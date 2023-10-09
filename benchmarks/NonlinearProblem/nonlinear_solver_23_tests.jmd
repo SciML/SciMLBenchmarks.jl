@@ -28,6 +28,8 @@ and for NonlinearSolve.jl's Newton trust region we try the following radius upda
 - `Fan` 
 and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`).
 
+For each benchmarked problem, the second, third, and fourth plots comapres the performance of NonlinearSolve's Newton Raphson, Newton trust region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods avaiable from other packages. At the end of the benchmarks, we print a summary table of which solvers suceeded for which problems.
+
 # Setup
 Fetch required packages.
 ```julia
@@ -68,7 +70,7 @@ reltols = 1.0 ./ 10.0 .^ (4:12);
 Set plotting defaults.
 ```julia
 mm = Plots.Measures.mm
-default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=25, tickfontsize=18, legendfontsize=16, lw=3, la=0.8, ms=10, ma=0.8)
+default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=25, tickfontsize=18, legendfontsize=16, lw=5, la=0.7, ms=12, ma=0.8)
 ```
 Prepares various helper functions for benchmarking a specific problem.
 ```julia
@@ -97,11 +99,11 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name), numruns=100, error_estimate=:l2, maxiters=1000000)
     
     xlimit, ylimit, xticks, yticks = get_limits_and_ticks(wp_general, wp_NR, wp_TR, wp_LM)
-    wp_plot_general = plot_wp(wp_general, solvers_general, xguide="", xlimit, ylimit, true, xticks=(xticks, fill("", length(xticks))),yticks=yticks, left_margin=10mm)
-    wp_plot_NR = plot_wp(wp_NR, solvers_NR, xlimit, ylimit, true; xguide="", yguide="", xticks=(xticks, fill("", length(xticks))), yticks=(yticks, fill("", length(yticks))), left_margin=10mm)
-    wp_plot_TR = plot_wp(wp_TR, solvers_TR, xlimit, ylimit, false; xticks=xticks, yticks=yticks, right_margin=7mm)
+    wp_plot_general = plot_wp(wp_general, solvers_general, xguide="", xlimit, ylimit, true, xticks=(xticks, fill("", length(xticks))),yticks=yticks)
+    wp_plot_NR = plot_wp(wp_NR, solvers_NR, xlimit, ylimit, true; xguide="", yguide="", xticks=(xticks, fill("", length(xticks))), yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
+    wp_plot_TR = plot_wp(wp_TR, solvers_TR, xlimit, ylimit, false; xticks=xticks, yticks=yticks)
     wp_plot_LM = plot_wp(wp_LM, solvers_LM, xlimit, ylimit, false; yguide="", xticks=xticks, yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
-    plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(2,2), size=(1600,2000))
+    plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(2,2), size=(1600,2000), left_margin=10mm)
 end
 
 # Checks if a solver can sucessfully solve a given problem.
@@ -144,12 +146,14 @@ function plot_wp(wp, selected_solvers, xlimit, ylimit, top; kwargs...)
     markershape = reshape(getfield.(selected_solvers, :markershape),1,length(selected_solvers))
 
     if isempty(wp.wps)
-        plt = plot(xlimit=xlimit, ylimit=ylimit, legend=:none, kwargs...)
+        (:xguide in keys(kwargs)) || (kwargs = (; xguide="Error", kwargs...))
+        (:yguide in keys(kwargs)) || (kwargs = (; yguide="Time (s)", kwargs...))
+        plt = plot(;xlimit=xlimit, ylimit=ylimit, legend=:none, xaxis=:log10, yaxis=:log10, kwargs...)
         if top
-            plt_legend = plot(xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outerbottom, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
+            plt_legend = plot(;xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outerbottom, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
             return plot(plt_legend, plt, layout = grid(2, 1, heights=[0.25, 0.75]), top_margin=0mm, bottom_margin=0mm)
         else
-            plt_legend = plot(xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outertop, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
+            plt_legend = plot(;xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outertop, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
             return plot(plt, plt_legend, layout = grid(2, 1, heights=[0.75, 0.25]), top_margin=0mm, bottom_margin=0mm)
         end
     end
