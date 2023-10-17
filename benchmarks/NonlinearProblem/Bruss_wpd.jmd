@@ -1,0 +1,124 @@
+---
+title: Ill-Conditioned Nonlinear System Work-Precision Diagrams
+author: Qingyu Qu
+---
+
+# Setups
+
+Fetch required packages
+
+```julia
+using NonlinearSolve, NonlinearSolveMINPACK, SciMLNLSolve, SimpleNonlinearSolve, Sundials
+using LinearAlgebra, SparseArrays, DiffEqDevTools, Plots
+RUS = RadiusUpdateSchemes;
+```
+
+Define the Brussletor problem.
+
+```julia
+const N = 32
+const xyd_brusselator = range(0, stop = 1, length = N)
+brusselator_f(x, y) = (((x - 0.3)^2 + (y - 0.6)^2) <= 0.1^2) * 5.0
+limit(a, N) = a == N + 1 ? 1 : a == 0 ? N : a
+function brusselator_2d_loop(du, u, p)
+    A, B, alpha, dx = p
+    alpha = alpha / dx^2
+
+    du = reshape(du, 32, 32, 2)
+    u = reshape(u, 32, 32, 2)
+    @inbounds for I in CartesianIndices((N, N))
+        i, j = Tuple(I)
+        x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
+        ip1, im1, jp1, jm1 = limit(i + 1, N), limit(i - 1, N), limit(j + 1, N),
+        limit(j - 1, N)
+        du[i, j, 1] = alpha * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
+                       4u[i, j, 1]) +
+                      B + u[i, j, 1]^2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
+                      brusselator_f(x, y)
+        du[i, j, 2] = alpha * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
+                       4u[i, j, 2]) +
+                      A * u[i, j, 1] - u[i, j, 1]^2 * u[i, j, 2]
+    end
+    du = vec(du); u = vec(u)
+end
+p = (3.4, 1.0, 10.0, step(xyd_brusselator))
+
+function init_brusselator_2d(xyd)
+    N = length(xyd)
+    u = zeros(N, N, 2)
+    for I in CartesianIndices((N, N))
+        x = xyd[I[1]]
+        y = xyd[I[2]]
+        u[I, 1] = 22 * (y * (1 - y))^(3 / 2)
+        u[I, 2] = 27 * (x * (1 - x))^(3 / 2)
+    end
+    u
+end
+u0 = init_brusselator_2d(xyd_brusselator)
+prob_brusselator_2d = NonlinearProblem(brusselator_2d_loop, vec(u0), p)
+```
+
+Set up the benchmarked solvers.
+
+```julia
+setups = [ 
+    Dict(:alg=>NewtonRaphson()),
+    Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),
+    Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),
+    Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),
+    Dict(:alg=>TrustRegion()),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),
+    Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),
+    Dict(:alg=>LevenbergMarquardt()),
+    Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),
+    Dict(:alg=>CMINPACK(method=:hybr)),
+    Dict(:alg=>CMINPACK(method=:lm)),
+    Dict(:alg=>NLSolveJL(method=:newton)),
+    Dict(:alg=>NLSolveJL()),
+    Dict(:alg=>NLSolveJL(method=:anderson)),
+    Dict(:alg=>KINSOL()),
+]
+labels = ["Newton Raphson (No line search)";
+            "Newton Raphson (Hager & Zhang line search)";
+            "Newton Raphson (More & Thuente line search)";
+            "Newton Raphson (Nocedal & Wright line search)";
+            "Newton Trust Region";
+            "Newton Trust Region (NLsolve radius update)";
+            "Newton Trust Region (Nocedal Wright radius update)";
+            "Newton Trust Region (Hei radius update)";
+            "Newton Trust Region (Yuan radius update)";
+            "Newton Trust Region (Bastin radius update)";
+            "Newton Trust Region (Fan radius update)";
+            "Levenberg-Marquardt (default α_geodesic)";
+            "Levenberg-Marquardt (α_geodesic=0.5)";
+            "Modified Powell (CMINPACK)";
+            "Levenberg-Marquardt (CMINPACK)";
+            "Newton Raphson (NLSolveJL)";
+            "Newton Trust Region (NLSolveJL)";
+            "Anderson acceleration (NLSolveJL)";
+            "Newton-Krylov (Sundials)";]
+```
+
+Sets tolerances.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:12)
+reltols = 1.0 ./ 10.0 .^ (4:12);
+```
+
+# Benchmarks
+
+Here we run the benchmarks of nonlinear solvers from different packages on Brusselator problem.
+
+```julia
+wp = WorkPrecisionSet(prob_brusselator_2d, abstols, reltols, setups; error_estimate = :l2, names = labels, print_names = true, maxiters=100000)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
