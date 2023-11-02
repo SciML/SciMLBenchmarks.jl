@@ -417,7 +417,7 @@ Now, we instantiate the problems, find their solutions and plot the results.
 let fig = []
   for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:end])
     @info label
-    if typeof(algo) <: PyTick
+    if algo isa PyTick
         _p = (p[1], p[2], p[3])
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         jump_prob.reset()
@@ -425,7 +425,7 @@ let fig = []
         t = tspan[1]:0.1:tspan[2]
         N = [[sum(jumps .< _t) for _t in t] for jumps in jump_prob.timestamps]
         push!(fig, plot(t, N, title=label, legend=false, format=fmt))
-    elseif typeof(algo) <: PDMPCHVSimple
+    elseif algo isa PDMPCHVSimple
         if use_recursion
           h = zeros(eltype(tspan), nv(G))
           ϕ = zeros(eltype(tspan), nv(G))
@@ -437,7 +437,7 @@ let fig = []
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         sol = solve(jump_prob, stepper)
         push!(fig, plot(sol.time, sol.xd[1:V, :]', title=label, legend=false, format=fmt))
-    elseif typeof(algo) <: PDMPCHVFull
+    elseif algo isa PDMPCHVFull
         _p = (p[1], p[2], p[3], nothing, nothing, g)
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         sol = solve(jump_prob, stepper)
@@ -509,7 +509,7 @@ end
 
 function histories(sol::S) where {S<:ODESolution}
     # get u and permute the dimensions to get a matrix n x k with n obsevations and k processes.
-    if typeof(sol.u[1]) <: ExtendedJumpArray
+    if sol.u[1] isa ExtendedJumpArray
         u = map((u) -> u.u, sol.u)
     else
         u = sol.u
@@ -647,9 +647,9 @@ Now, we simulate all of the algorithms we defined in the previous Section ``250`
 let fig = []
     for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
         @info label
-        if typeof(algo) <: PyTick
+        if algo isa PyTick
             _p = (p[1], p[2], p[3])
-        elseif typeof(algo) <: PDMPCHVSimple
+        elseif algo isa PDMPCHVSimple
             if use_recursion
                 h = zeros(eltype(tspan), nv(G))
                 ϕ = zeros(eltype(tspan), nv(G))
@@ -658,7 +658,7 @@ let fig = []
                 h = [eltype(tspan)[] for _ in 1:nv(G)]
                 _p = (p[1], p[2], p[3], h, g)
             end
-        elseif typeof(algo) <: PDMPCHVFull
+        elseif algo isa PDMPCHVFull
             _p = (p[1], p[2], p[3], nothing, nothing, g)
         else
             if use_recursion
@@ -675,19 +675,19 @@ let fig = []
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         runs = Vector{Vector{Vector{Number}}}(undef, 250)
         for n = 1:length(runs)
-            if typeof(algo) <: PyTick
+            if algo isa PyTick
                 jump_prob.reset()
                 jump_prob.simulate()
                 runs[n] = jump_prob.timestamps
             else
-                if ~(typeof(algo) <: PDMPCHVFull)
+                if ~(algo isa PDMPCHVFull)
                     if use_recursion
                         h .= 0
                         ϕ .= 0
                     else
                         for _h in h empty!(_h) end
                     end
-                    if ~(typeof(algo) <: PDMPCHVSimple)
+                    if ~(algo isa PDMPCHVSimple)
                         urate .= 0
                     end
                 end
@@ -725,9 +725,9 @@ for (algo, stepper, use_recursion, label) in algorithms
     for (i, G) in enumerate(Gs)
         local g = [neighbors(G, i) for i = 1:nv(G)]
         local u = [0.0 for i = 1:nv(G)]
-        if typeof(algo) <: PyTick
+        if algo isa PyTick
             _p = (p[1], p[2], p[3])
-        elseif typeof(algo) <: PDMPCHVSimple
+        elseif algo isa PDMPCHVSimple
             if use_recursion
               global h = zeros(eltype(tspan), nv(G))
               global ϕ = zeros(eltype(tspan), nv(G))
@@ -736,7 +736,7 @@ for (algo, stepper, use_recursion, label) in algorithms
               global h = [eltype(tspan)[] for _ in 1:nv(G)]
               _p = (p[1], p[2], p[3], h, g)
             end
-        elseif typeof(algo) <: PDMPCHVFull
+        elseif algo isa PDMPCHVFull
             _p = (p[1], p[2], p[3], nothing, nothing, g)
         else
             if use_recursion
@@ -752,7 +752,7 @@ for (algo, stepper, use_recursion, label) in algorithms
         end
         global jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         trial = try
-            if typeof(algo) <: PyTick
+            if algo isa PyTick
                 @benchmark(
                     jump_prob.simulate(),
                     setup = (jump_prob.reset()),
@@ -761,7 +761,7 @@ for (algo, stepper, use_recursion, label) in algorithms
                     seconds = 10,
                 )
             else
-                if typeof(algo) <: PDMPCHVFull
+                if algo isa PDMPCHVFull
                     @benchmark(
                         solve(jump_prob, _stepper),
                         setup = (),
@@ -769,7 +769,7 @@ for (algo, stepper, use_recursion, label) in algorithms
                         evals = 1,
                         seconds = 10,
                     )
-                elseif typeof(algo) <: PDMPCHVSimple
+                elseif algo isa PDMPCHVSimple
                     if use_recursion
                         @benchmark(solve(jump_prob, _stepper),
                                    setup=(h .= 0; ϕ .= 0),
