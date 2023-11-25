@@ -9,6 +9,20 @@ This is generic setup code usable for all solver setups. Basically removing some
 before getting to the benchmarks.
 
 ```julia
+PRINT_LEVEL = 0
+
+# This is a soft upper limit to the time of each optimization.
+# If times go above this, they will halt early
+MAX_CPU_TIME = 100.0
+
+# Maximum number of variables in an optimization problem for the benchmark
+# Anything with more variables is rejected and not run
+# This is for testing. 100 is a good size for running a test of changes
+# Should be set to typemax(Int) to run the whole benchmark
+SIZE_LIMIT = 1000
+```
+
+```julia
 import PowerModels
 import ConcreteStructs
 using BenchmarkTools
@@ -524,26 +538,30 @@ function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme
     ret = Array{Float64}(undef, length(con_lbs))
     model_constraints = length(con_lbs)
 
-    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
+    optf = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
+    optprob = Optimization.instantiate_function(optf, var_init, adchoice, nothing, length(con_lbs))
+    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints, 
+    grad = optprob.grad, hess = optprob.hess, cons_j = optprob.cons_j, cons_h = optprob.cons_h, 
+    hess_prototype = optprob.hess_prototype, cons_jac_prototype = optprob.cons_jac_prototype, cons_hess_prototype = optprob.cons_hess_prototype,
+    hess_colorvec = optprob.hess_colorvec, cons_jac_colorvec = optprob.cons_jac_colorvec, cons_hess_colorvec = optprob.cons_hess_colorvec)
     prob = Optimization.OptimizationProblem(optprob, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
 end
 
-function solve_opf_optimization(dataset; adchoice = Optimization.AutoForwardDiff())
+function solve_opf_optimization(dataset; adchoice = Optimization.AutoSparseReverseDiff(true))
     model_build_time = @elapsed prob = build_opf_optimization_prob(dataset; adchoice)
 
     # Correctness tests
-    @assert prob.f(prob.u0, nothing) == 0.0
     ret = zeros(length(prob.lcons))
     prob.f.cons(ret, prob.u0, nothing)
     @allocated prob.f(prob.u0, nothing) == 0
     @allocated prob.f.cons(ret, prob.u0, nothing) == 0
 
-    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
+    solve_time_with_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     cost = sol.minimum
     feasible = (sol.retcode == Optimization.SciMLBase.ReturnCode.Success)
     #println(sol.u) # solution vector
 
-    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = 0)
+    solve_time_without_compilation = @elapsed sol = Optimization.solve(prob, Ipopt.Optimizer(), print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     
     return (prob,sol),Dict(
         "case" => file_name,
@@ -578,6 +596,197 @@ optimization_test_res = test_optimization_prob(dataset, test_u0)
 @assert optimization_test_res[2] == test_cons
 ```
 
+## ModelingToolkit.jl
+
+Showcases symbolic interface to Optimization.jl, through ModelingToolkit.jl. 
+Equivalent to using `AutoModelingToolkit` as the AD backend in `OptimizationFunction`, the values for the objectives don't match exactly 
+because of structural simplification.
+
+```julia
+
+import PowerModels
+import Ipopt
+using ModelingToolkit, Optimization, OptimizationMOI
+import ModelingToolkit: ≲
+
+function build_opf_mtk_prob(dataset)
+    (;data, ref) = dataset
+
+    vars = Num[]
+    lb = Float64[]
+    ub = Float64[]
+
+    ModelingToolkit.@variables va[1:maximum(keys(ref[:bus]))]
+    for i in keys(ref[:bus])
+        push!(lb, -Inf)
+        push!(ub, Inf)
+    end
+    ModelingToolkit.@variables vm[1:maximum(keys(ref[:bus]))]
+    for i in keys(ref[:bus])
+        push!(lb, ref[:bus][i]["vmin"])
+        push!(ub, ref[:bus][i]["vmax"])
+    end
+    vars = vcat(vars, [va[i] for i in keys(ref[:bus])], [vm[i] for i in keys(ref[:bus])])
+    ModelingToolkit.@variables pg[1:maximum(keys(ref[:gen]))]
+    for i in keys(ref[:gen])
+        push!(lb, ref[:gen][i]["pmin"])
+        push!(ub, ref[:gen][i]["pmax"])
+    end
+    ModelingToolkit.@variables qg[1:maximum(keys(ref[:gen]))]
+    for i in keys(ref[:gen])
+        push!(lb, ref[:gen][i]["qmin"])
+        push!(ub, ref[:gen][i]["qmax"])
+    end
+    vars = vcat(vars, [pg[i] for i in keys(ref[:gen])], [qg[i] for i in keys(ref[:gen])])
+    i_inds, j_inds, l_inds = maximum(first.(ref[:arcs])), maximum(getindex.(ref[:arcs], Ref(2))), maximum(last.(ref[:arcs]))
+    ModelingToolkit.@variables p[1:i_inds, 1:j_inds, 1:l_inds]
+    ModelingToolkit.@variables q[1:i_inds, 1:j_inds, 1:l_inds]
+
+    for (l, i, j) in ref[:arcs]
+        push!(vars, p[l, i, j])
+        push!(lb, -ref[:branch][l]["rate_a"])
+        push!(ub, ref[:branch][l]["rate_a"])
+    end
+
+    for (l, i, j) in ref[:arcs]
+        push!(vars, q[l, i, j])
+        push!(lb, -ref[:branch][l]["rate_a"])
+        push!(ub, ref[:branch][l]["rate_a"])
+    end
+
+    loss = sum(gen["cost"][1] * pg[i]^2 + gen["cost"][2] * pg[i] + gen["cost"][3] for (i, gen) in ref[:gen])
+
+    cons = Array{Union{ModelingToolkit.Equation,ModelingToolkit.Inequality}}([])
+    for (i, bus) in ref[:ref_buses]
+        push!(cons, va[i] ~ 0)
+    end
+
+    for (i, bus) in ref[:bus]
+        bus_loads = [ref[:load][l] for l in ref[:bus_loads][i]]
+        bus_shunts = [ref[:shunt][s] for s in ref[:bus_shunts][i]]
+        push!(cons,
+            sum(p[a...] for a in ref[:bus_arcs][i]) ~
+                (sum(pg[g] for g in ref[:bus_gens][i]; init = 0.0)) -
+                (sum(load["pd"] for load in bus_loads; init = 0.0)) -
+             sum(shunt["gs"] for shunt in bus_shunts; init = 0.0)*vm[i]^2
+        )
+
+        push!(cons,
+            sum(q[a...] for a in ref[:bus_arcs][i]) ~
+                (sum(qg[g] for g in ref[:bus_gens][i]; init = 0.0)) -
+                (sum(load["qd"] for load in bus_loads; init = 0.0))
+             + sum(shunt["bs"] for shunt in bus_shunts; init = 0.0)*vm[i]^2
+        )
+    end
+
+    # Branch power flow physics and limit constraints
+    for (i, branch) in ref[:branch]
+        f_idx = (i, branch["f_bus"], branch["t_bus"])
+        t_idx = (i, branch["t_bus"], branch["f_bus"])
+
+        p_fr = p[f_idx...]
+        q_fr = q[f_idx...]
+        p_to = p[t_idx...]
+        q_to = q[t_idx...]
+
+        vm_fr = vm[branch["f_bus"]]
+        vm_to = vm[branch["t_bus"]]
+        va_fr = va[branch["f_bus"]]
+        va_to = va[branch["t_bus"]]
+
+        g, b = PowerModels.calc_branch_y(branch)
+        tr, ti = PowerModels.calc_branch_t(branch)
+        ttm = tr^2 + ti^2
+        g_fr = branch["g_fr"]
+        b_fr = branch["b_fr"]
+        g_to = branch["g_to"]
+        b_to = branch["b_to"]
+
+        # From side of the branch flow
+        push!(cons, p_fr ~ (g + g_fr) / ttm * vm_fr^2 + (-g * tr + b * ti) / ttm * (vm_fr * vm_to * cos(va_fr - va_to)) + (-b * tr - g * ti) / ttm * (vm_fr * vm_to * sin(va_fr - va_to)))
+        push!(cons, q_fr ~ -(b + b_fr) / ttm * vm_fr^2 - (-b * tr - g * ti) / ttm * (vm_fr * vm_to * cos(va_fr - va_to)) + (-g * tr + b * ti) / ttm * (vm_fr * vm_to * sin(va_fr - va_to)))
+
+        # To side of the branch flow
+        push!(cons, p_to ~ (g + g_to) * vm_to^2 + (-g * tr - b * ti) / ttm * (vm_to * vm_fr * cos(va_to - va_fr)) + (-b * tr + g * ti) / ttm * (vm_to * vm_fr * sin(va_to - va_fr)))
+        push!(cons, q_to ~ -(b + b_to) * vm_to^2 - (-b * tr + g * ti) / ttm * (vm_to * vm_fr * cos(va_to - va_fr)) + (-g * tr - b * ti) / ttm * (vm_to * vm_fr * sin(va_to - va_fr)))
+
+        # Voltage angle difference limit
+        push!(cons, va_fr - va_to ≲ branch["angmax"])
+        push!(cons, branch["angmin"] ≲ va_fr - va_to)
+
+        # Apparent power limit, from side and to side
+        push!(cons, p_fr^2 + q_fr^2 ≲ branch["rate_a"]^2)
+        push!(cons, p_to^2 + q_to^2 ≲ branch["rate_a"]^2)
+    end
+
+    optsys = ModelingToolkit.OptimizationSystem(loss, vars, [], constraints=cons, name=:rosetta)
+    optsys = ModelingToolkit.structural_simplify(optsys)
+    u0map = Dict([k => 0.0 for k in collect(optsys.states)])
+    for key in keys(ref[:bus])
+        if vm[key] in keys(u0map)
+            # println(vm[key])
+            u0map[vm[key]] = 1.0
+        end
+    end
+
+    inds = Int[]
+    for k in collect(optsys.states)
+        push!(inds, findall(x -> isequal(x, k), vars)[1])
+    end
+    prob = Optimization.OptimizationProblem(optsys, u0map, lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
+end
+
+function solve_opf_mtk(dataset)
+    model_build_time = @elapsed prob = build_opf_mtk_prob(dataset)
+
+    # @assert prob.f(prob.u0, nothing) == 0.0 #MTK with simplification doesn't evaluate the same
+    ret = zeros(length(prob.lcons))
+    prob.f.cons(ret, prob.u0, nothing, )
+    @allocated prob.f(prob.u0, nothing) == 0
+    @allocated prob.f.cons(ret, prob.u0, nothing) == 0
+
+
+    solve_time_with_compilation = @elapsed sol = OptimizationMOI.solve(prob, Ipopt.Optimizer())
+    solve_time_without_compilation = @elapsed sol = OptimizationMOI.solve(prob, Ipopt.Optimizer())
+
+    cost = sol.minimum
+    feasible = (sol.retcode == Optimization.SciMLBase.ReturnCode.Success)
+
+   return (prob,sol),Dict(
+        "case" => file_name,
+        "variables" => length(prob.u0),
+        "constraints" => length(prob.lcons),
+        "feasible" => feasible,
+        "cost" => cost,
+        "time_build" => model_build_time,
+        "time_solve" => solve_time_without_compilation,
+        "time_solve_compilation" => solve_time_with_compilation,
+    )
+end
+
+function test_mtk_prob(dataset, test_u0)
+    prob = build_opf_mtk_prob(dataset)
+    ret = zeros(length(prob.lcons))
+    prob.f.cons(ret, test_u0, nothing)
+    obj = prob.f(test_u0, nothing)
+    obj, ret
+end
+```
+
+
+```julia
+mtk_test_res = test_optimization_prob(dataset, test_u0)
+```
+
+```julia
+@assert mtk_test_res[1] == test_obj
+```
+
+```julia
+@assert mtk_test_res[2] == test_cons
+```
+
+
 ## JuMP.jl
 
 Implementation reference: https://github.com/lanl-ansi/PowerModelsAnnex.jl/blob/master/src/model/ac-opf.jl
@@ -592,7 +801,6 @@ function build_opf_jump_prob(dataset)
     (;data, ref) = dataset
     constraints = Any[]
     model = JuMP.Model(Ipopt.Optimizer)
-    #JuMP.set_optimizer_attribute(model, "print_level", 0)
 
     vars = [JuMP.@variable(model, va[i in keys(ref[:bus])]),
             JuMP.@variable(model, ref[:bus][i]["vmin"] <= vm[i in keys(ref[:bus])] <= ref[:bus][i]["vmax"], start=1.0),
@@ -676,6 +884,9 @@ end
 
 function solve_opf_jump(dataset)
     model_build_time = @elapsed model = build_opf_jump_prob(dataset)[1]
+    JuMP.set_attribute(model, "max_cpu_time", MAX_CPU_TIME)
+    JuMP.set_attribute(model, "print_level", PRINT_LEVEL)
+
     solve_time_with_compilation = @elapsed JuMP.optimize!(model)
     solve_time_without_compilation = @elapsed JuMP.optimize!(model)
 
@@ -1080,14 +1291,29 @@ function build_opf_nlpmodels_prob(dataset)
 
     model_variables = length(var_init)
     model_constraints = length(opf_constraints!(similar(con_lbs), var_init))
-
+    #=
+    backend = ADNLPModels.ADModelBackend(model_variables, opf_objective, model_constraints, opf_constraints!;
+                   gradient_backend = ADNLPModels.ReverseDiffADGradient,
+                   hprod_backend = ADNLPModels.SDTForwardDiffADHvprod,
+                   jprod_backend = ADNLPModels.ForwardDiffADJprod, 
+                   jtprod_backend = ADNLPModels.ReverseDiffADJtprod, 
+                   jacobian_backend = ADNLPModels.ForwardDiffADJacobian, # SDTSparseADJacobian, 
+                   hessian_backend = ADNLPModels.ForwardDiffADHessian, # SparseADJacobian, 
+                   ghjvprod_backend = ADNLPModels.ForwardDiffADGHjvprod, 
+                   hprod_residual_backend = ADNLPModels.ReverseDiffADHvprod, 
+                   jprod_residual_backend = ADNLPModels.ForwardDiffADJprod, 
+                   jtprod_residual_backend = ADNLPModels.ReverseDiffADJtprod, 
+                   jacobian_residual_backend = ADNLPModels.ForwardDiffADHessian, # SparseADJacobian, 
+                   hessian_residual_backend = ADNLPModels.ForwardDiffADHessian
+                   )
+    =#
     nlp = ADNLPModels.ADNLPModel!(opf_objective, var_init, var_lb, var_ub, opf_constraints!, con_lbs, con_ubs, backend = :optimized)
 end
 
 function solve_opf_nlpmodels(dataset)
     model_build_time = @elapsed nlp = build_opf_nlpmodels_prob(dataset)
-    solve_time_with_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
-    solve_time_without_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp)
+    solve_time_with_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
+    solve_time_without_compilation = @elapsed output = NLPModelsIpopt.ipopt(nlp, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME)
     cost = output.objective
     feasible = (output.primal_feas <= 1e-6)  
 
@@ -1340,14 +1566,14 @@ function solve_opf_nonconvex(dataset)
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     solve_time_without_compilation = @elapsed result = Nonconvex.optimize(
         model,
         IpoptAlg(),
         NonconvexCore.getinit(model);
-        options = IpoptOptions(; first_order=false, symbolic=true, sparse=true),
+        options = IpoptOptions(; first_order=false, symbolic=false, sparse=true, print_level = PRINT_LEVEL, max_cpu_time = MAX_CPU_TIME),
     )
 
     cost = result.minimum
@@ -1754,7 +1980,7 @@ end
 function solve_opf_optim(dataset)
     model_build_time = @elapsed df, dfc, var_init, con_lbs, con_ubs = build_opf_optim_prob(dataset)
 
-    options = Optim.Options(show_trace=false)
+    options = Optim.Options(show_trace=PRINT_LEVEL != 0,time_limit=MAX_CPU_TIME)
     solve_time_with_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
     solve_time_without_compilation = @elapsed res = Optim.optimize(df, dfc, var_init, Optim.IPNewton(), options)
 
@@ -1991,7 +2217,7 @@ end
 solve_opf_casadi("../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m")
 ```
 
-## Start the Benchmarking
+## Test the Benchmarking
 
 ```julia
 file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case5_pjm.m"
@@ -2056,31 +2282,35 @@ res
 ```julia
 using DataFrames, PrettyTables
 
-function multidata_multisolver_benchmark(dataset_files)
+function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
 
     cases = String[]
     vars = Int[]
     cons = Int[]
 
     optimization_time = Float64[]
+    mtk_time = Float64[]
     jump_time = Float64[]
     nlpmodels_time = Float64[]
     nonconvex_time = Float64[]
     optim_time = Float64[]
 
     optimization_time_modelbuild = Float64[]
+    mtk_time_modelbuild = Float64[]
     jump_time_modelbuild = Float64[]
     nlpmodels_time_modelbuild = Float64[]
     nonconvex_time_modelbuild = Float64[]
     optim_time_modelbuild = Float64[]
 
     optimization_time_compilation = Float64[]
+    mtk_time_compilation = Float64[]
     jump_time_compilation = Float64[]
     nlpmodels_time_compilation = Float64[]
     nonconvex_time_compilation = Float64[]
     optim_time_compilation = Float64[]
 
     optimization_cost = Float64[]
+    mtk_cost = Float64[]
     jump_cost = Float64[]
     nlpmodels_cost = Float64[]
     nonconvex_cost = Float64[]
@@ -2089,8 +2319,19 @@ function multidata_multisolver_benchmark(dataset_files)
     for file in dataset_files
         @show file
         dataset = load_and_setup_data(file)
+
+        prob = build_opf_optimization_prob(dataset)
+        @info "Number of Variables: $(length(prob.u0))"
+        @info "Number of Constraints: $(length(prob.lcons))"
+
+        if length(prob.u0) > sizelimit
+            @info "Variable size over global limit. Skipping for now"
+            continue
+        end
+        
+        @info "Running Optimization.jl"
         model, res = solve_opf_optimization(dataset)
-        push!(cases, split(res["case"],"/")[end])
+        push!(cases, split(file,"/")[end])
         push!(vars, res["variables"])
         push!(cons, res["constraints"])
         push!(optimization_time, res["time_solve"])
@@ -2098,35 +2339,59 @@ function multidata_multisolver_benchmark(dataset_files)
         push!(optimization_time_compilation, res["time_solve_compilation"])
         push!(optimization_cost, res["cost"])
 
+        @info "Running ModelingToolkit.jl"
+        model, res = solve_opf_mtk(dataset)
+        push!(mtk_time, res["time_solve"])
+        push!(mtk_time_modelbuild, res["time_build"])
+        push!(mtk_time_compilation, res["time_solve_compilation"])
+        push!(mtk_cost, res["cost"])
+
+
+        @info "Running JuMP.jl"
         model, res = solve_opf_jump(dataset)
         push!(jump_time, res["time_solve"])
         push!(jump_time_modelbuild, res["time_build"])
         push!(jump_time_compilation, res["time_solve_compilation"])
         push!(jump_cost, res["cost"])
 
+        @info "Running NLPModels.jl"
         model, res = solve_opf_nlpmodels(dataset)
         push!(nlpmodels_time, res["time_solve"])
         push!(nlpmodels_time_modelbuild, res["time_build"])
         push!(nlpmodels_time_compilation, res["time_solve_compilation"])
         push!(nlpmodels_cost, res["cost"])
         
+        #=
+        @info "Running Nonconvex.jl"
         model, res = solve_opf_nonconvex(dataset)
         push!(nonconvex_time, res["time_solve"])
         push!(nonconvex_time_modelbuild, res["time_build"])
         push!(nonconvex_time_compilation, res["time_solve_compilation"])
         push!(nonconvex_cost, res["cost"])
-
-        model, res = solve_opf_optim(dataset)
-        push!(optim_time, res["time_solve"])
-        push!(optim_time_modelbuild, res["time_build"])
-        push!(optim_time_compilation, res["time_solve_compilation"])
-        push!(optim_cost, res["cost"])
+        =#
+        
+        if length(prob.u0) > 400
+            @info "Running Optim.jl"
+            model, res = solve_opf_optim(dataset)
+            push!(optim_time, NaN)
+            push!(optim_time_modelbuild, NaN)
+            push!(optim_time_compilation, NaN)
+            push!(optim_cost, NaN)
+        else
+            @info "Running Optim.jl"
+            model, res = solve_opf_optim(dataset)
+            push!(optim_time, res["time_solve"])
+            push!(optim_time_modelbuild, res["time_build"])
+            push!(optim_time_compilation, res["time_solve_compilation"])
+            push!(optim_cost, res["cost"])
+        end
     end
     DataFrame(:case => cases, :vars => vars, :cons => cons, 
               :optimization => optimization_time, :optimization_modelbuild => optimization_time_modelbuild, :optimization_wcompilation => optimization_time_compilation, :optimization_cost => optimization_cost,
+              :mtk => mtk_time, :mtk_time_modelbuild => mtk_time_modelbuild, :mtk_time_wcompilation => mtk_time_compilation, :mtk_cost => mtk_cost,
               :jump => jump_time, :jump_modelbuild => jump_time_modelbuild, :jump_wcompilation => jump_time_compilation, :jump_cost => jump_cost, 
               :nlpmodels => nlpmodels_time, :nlpmodels_modelbuild => nlpmodels_time_modelbuild, :nlpmodels_wcompilation => nlpmodels_time_compilation,  :nlpmodels_cost => nlpmodels_cost, 
-              :nonconvex => nonconvex_time, :nonconvex_modelbuild => nonconvex_time_modelbuild, :nonconvex_wcompilation => nonconvex_time_compilation,  :nonconvex_cost => nonconvex_cost,
+              #:nonconvex => nonconvex_time, :nonconvex_modelbuild => nonconvex_time_modelbuild, :nonconvex_wcompilation => nonconvex_time_compilation,  :nonconvex_cost => nonconvex_cost,
               :optim => optim_time, :optim_modelbuild => optim_time_modelbuild, :optim_wcompilation => optim_time_compilation,  :optim_cost => optim_cost)
 end
 
@@ -2136,16 +2401,39 @@ test_datasets = [
     ]
 ```
 
-```julia
+```julia; wrap = false
 timing_data = multidata_multisolver_benchmark(test_datasets)
 ```
 
-```julia
-pretty_table(timing_data)
+```julia; wrap = false; results = "md2html"
+io = IOBuffer()
+println(io, "```@raw html")
+pretty_table(io, timing_data; backend = Val(:html))
+# show(io, "text/html", pretty_table(timing_data; backend = Val(:html)))
+println(io, "```")
+Text(String(take!(io)))
 ```
 
+## Run the Full Benchmark
+
 ```julia
-#file_name = "../../benchmarks/OptimizationFrameworks/opf_data/pglib_opf_case118_ieee.m"
-#dataset = load_and_setup_data(file_name);
-#build_and_solve_optimization(dataset)
+using LibGit2
+tmpdir = Base.Filesystem.mktempdir()
+LibGit2.clone("https://github.com/power-grid-lib/pglib-opf", tmpdir)
+benchmarkfiles = readdir(tmpdir)
+benchmarkfiles = benchmarkfiles[endswith(".m").(benchmarkfiles)]
+benchmark_datasets = joinpath.((tmpdir,),benchmarkfiles)
+```
+
+```julia; wrap = false
+timing_data = multidata_multisolver_benchmark(benchmark_datasets)
+```
+
+```julia; wrap = false; results = "md2html"
+io = IOBuffer()
+println(io, "```@raw html")
+pretty_table(io, timing_data; backend = Val(:html))
+# show(io, "text/html", pretty_table(timing_data; backend = Val(:html)))
+println(io, "```")
+Text(String(take!(io)))
 ```
