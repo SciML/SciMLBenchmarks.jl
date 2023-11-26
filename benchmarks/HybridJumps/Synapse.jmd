@@ -1,6 +1,6 @@
 ---
 title: Synapse model
-author: Yuri Rodrigues, Cian O'Donnel, Romain Veltz, Guilherme Zagatti
+author: Guilherme Zagatti
 weave_options:
     fig_ext: ".png"
 ---
@@ -15,6 +15,8 @@ const fmt = :png
 ```
 
 This benchmark implements the stochastic model of hippocampal synaptic plasticity with geometrical readount of enzyme dinamics from Rodrigues et al. [1]. The source code for the model was obtained from the Github repository [SynapseElife](https://github.com/rveltz/SynapseElife/) that accompanies the paper. The original source code is licensed with the MIT license. We have added comments on the parts of the code that were directly borrowed from the repository.
+
+Initial idea for benchmarking this model comes from a [Discourse discussion](https://discourse.julialang.org/t/help-me-beat-lsoda/88236).
 
 # Model and example solutions
 
@@ -974,9 +976,17 @@ Helper functions.
     return v
 end
 # adapted from SynapseElife/src/UtilsDynamics.jl
-@inline SK_chnnl(Ca) = Ca^6 / (Ca^6 + 0.333^6) #0.333
+@inline SK_chnnl(Ca) = Ca^6 / (Ca^6 + 0.333^6) # 0.333
 # adapted from SynapseElife/src/UtilsDynamics.jl
-function inputBaP(t, bapTimes::Vector, duration, amp::T) where {T}
+@inline function mollifier(t, duration::T; pw = 20) where {T}
+    if abs(t/duration) > 10
+        return zero(T)
+    else
+        return one(T) / (one(T) + (t/duration)^pw)
+    end
+end
+# adapted from SynapseElife/src/UtilsDynamics.jl
+@inline function inputBaP(t, bapTimes::Vector, duration::T, amp::T) where {T}
     if isempty(bapTimes)
         return zero(T)
     end
