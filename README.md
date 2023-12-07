@@ -163,7 +163,7 @@ over the set of tested equations and some specific examples may differ.
 - The choice of global versus local optimization make a huge difference in the timings. BBO tends to find
   the correct solution for a global optimization setup. For local optimization, most methods in NLopt,
   like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
-- The different backends options available for Bayesian method offer some tradeoffs beteween
+- The different backends options available for Bayesian method offer some tradeoffs between
   time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
   priors and number of iterations being passed.
