@@ -9,9 +9,9 @@ These benchmarks compares the runtime and error for a range of nonlinear solvers
 - NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
 - MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
 - MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
-- NLSolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL(method=:newton)`).
-- NLSolveJL's [Newton trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL()`).
-- NLSolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLSolveJL(method=:anderson)`).
+- NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
+- NLsolveJL's [Newton trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
+- NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
 - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
 Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following line search options (in addition to the default):
@@ -26,40 +26,40 @@ and for NonlinearSolve.jl's Newton trust region we try the following radius upda
 - `Yuan` 
 - `Bastin` 
 - `Fan` 
-and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `NormalCholeskyFactorization` linear solver.
+and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
 
 For the benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Newton trust region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded.
 
 # Setup
 Fetch required packages.
 ```julia
-using NonlinearSolve, NonlinearSolveMINPACK, SciMLNLSolve, SimpleNonlinearSolve, LinearSolve, StaticArrays, Sundials
+using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials
 using BenchmarkTools, LinearAlgebra, DiffEqDevTools, Plots
 RUS = RadiusUpdateSchemes;
 ```
 Declare the benchmarked solvers (and their names and plotting options).
 ```julia
 solvers_all = [ 
-    (type = :NR,      name = "Newton Raphson (No line search)",                    solver = Dict(:alg=>NewtonRaphson()),                                       color = :salmon1,         markershape = :star4),
-    (type = :NR,      name = "Newton Raphson (Hager & Zhang line search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                color = :tomato1,         markershape = :pentagon),
-    (type = :NR,      name = "Newton Raphson (More & Thuente line search)",        solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),               color = :red3,            markershape = :star6),
-    (type = :NR,      name = "Newton Raphson (Nocedal & Wright line search)",      solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),              color = :firebrick,       markershape = :heptagon),
-    (type = :TR,      name = "Newton Trust Region",                                solver = Dict(:alg=>TrustRegion()),                                         color = :darkslategray1,  markershape = :utriangle),
-    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",        solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),       color = :deepskyblue1,    markershape = :rect),
-    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)", solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)), color = :cadetblue,       markershape = :diamond),
-    (type = :TR,      name = "Newton Trust Region (Hei radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),           color = :lightslateblue,  markershape = :star5),
-    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",           solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),          color = :royalblue2,      markershape = :hexagon),
-    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),        color = :blue1,           markershape = :star7),
-    (type = :TR,      name = "Newton Trust Region (Fan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),           color = :navy,            markershape = :octagon),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",                   solver = Dict(:alg=>LevenbergMarquardt()),                                                            color = :fuchsia,         markershape = :circle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic, with CCholesky)",        solver = Dict(:alg=>LevenbergMarquardt(linsolve = NormalCholeskyFactorization())),                    color = :orchid4,         markershape = :rtriangle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                    solver = Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),                                              color = :darkorchid1,     markershape = :ltriangle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5, with CCholesky)",    solver = Dict(:alg=>LevenbergMarquardt(linsolve = NormalCholeskyFactorization(), α_geodesic=0.5)),    color = :purple4,         markershape = :star8),
-    (type = :general, name = "Modified Powell (CMINPACK)",                         solver = Dict(:alg=>CMINPACK(method=:hybr)),                                color = :lightgoldenrod2, markershape = :+),
-    (type = :general, name = "Levenberg-Marquardt (CMINPACK)",                     solver = Dict(:alg=>CMINPACK(method=:lm)),                                  color = :gold1,           markershape = :x),
-    (type = :general, name = "Newton Raphson (NLSolveJL)",                         solver = Dict(:alg=>NLSolveJL(method=:newton)),                             color = :olivedrab1,      markershape = :dtriangle),
-    (type = :general, name = "Newton Trust Region (NLSolveJL)",                    solver = Dict(:alg=>NLSolveJL()),                                           color = :green2,          markershape = :rtriangle),
-    (type = :general, name = "Newton-Krylov (Sundials)",                           solver = Dict(:alg=>KINSOL()),                                              color = :darkorange,      markershape = :circle)
+    (type = :NR,      name = "Newton Raphson (No line search)",                     solver = Dict(:alg=>NewtonRaphson()),                                                        color = :salmon1,         markershape = :star4),
+    (type = :NR,      name = "Newton Raphson (Hager & Zhang line search)",          solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                                 color = :tomato1,         markershape = :pentagon),
+    (type = :NR,      name = "Newton Raphson (More & Thuente line search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),                                color = :red3,            markershape = :star6),
+    (type = :NR,      name = "Newton Raphson (BackTracking line search)",           solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),                               color = :firebrick,       markershape = :heptagon),
+    (type = :TR,      name = "Newton Trust Region",                                 solver = Dict(:alg=>TrustRegion()),                                                          color = :darkslategray1,  markershape = :utriangle),
+    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),                        color = :deepskyblue1,    markershape = :rect),
+    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)",  solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)),                  color = :cadetblue,       markershape = :diamond),
+    (type = :TR,      name = "Newton Trust Region (Hei radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),                            color = :lightslateblue,  markershape = :star5),
+    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),                           color = :royalblue2,      markershape = :hexagon),
+    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",          solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),                         color = :blue1,           markershape = :star7),
+    (type = :TR,      name = "Newton Trust Region (Fan radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),                            color = :navy,            markershape = :octagon),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",               solver = Dict(:alg=>LevenbergMarquardt()),                                                   color = :fuchsia,         markershape = :circle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",     solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization())),                 color = :orchid4,         markershape = :rtriangle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                solver = Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),                                     color = :darkorchid1,     markershape = :ltriangle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5, with Cholesky)", solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization(), α_geodesic=0.5)), color = :purple4,         markershape = :star8),
+    (type = :general, name = "Modified Powell (CMINPACK)",                          solver = Dict(:alg=>CMINPACK(method=:hybr)),                                                 color = :lightgoldenrod2, markershape = :+),
+    (type = :general, name = "Levenberg-Marquardt (CMINPACK)",                      solver = Dict(:alg=>CMINPACK(method=:lm)),                                                   color = :gold1,           markershape = :x),
+    (type = :general, name = "Newton Raphson (NLsolveJL)",                          solver = Dict(:alg=>NLsolveJL(method=:newton)),                                              color = :olivedrab1,      markershape = :dtriangle),
+    (type = :general, name = "Newton Trust Region (NLsolveJL)",                     solver = Dict(:alg=>NLsolveJL()),                                                            color = :green2,          markershape = :rtriangle),
+    (type = :general, name = "Newton-Krylov (Sundials)",                            solver = Dict(:alg=>KINSOL()),                                                               color = :darkorange,      markershape = :circle)
 ]
 solver_tracker = [];
 ```
@@ -140,16 +140,16 @@ function benchmark_problem!(prob; solver_tracker=solver_tracker, selected_NR=not
     solvers_NR = filter(s -> s.type==:NR, successful_solvers)
     solvers_TR = filter(s -> s.type==:TR, successful_solvers)
     solvers_LM = filter(s -> s.type==:LM, successful_solvers)
-    wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver); names=getfield.(solvers_NR, :name), numruns=50, error_estimate=:l2, maxiters=1000)
-    wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver); names=getfield.(solvers_TR, :name), numruns=50, error_estimate=:l2, maxiters=1000)
-    wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver); names=getfield.(solvers_LM, :name), numruns=50, error_estimate=:l2, maxiters=1000)
+    wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver); names=getfield.(solvers_NR, :name), numruns=50, error_estimate=:l2, maxiters=10000)
+    wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver); names=getfield.(solvers_TR, :name), numruns=50, error_estimate=:l2, maxiters=10000)
+    wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver); names=getfield.(solvers_LM, :name), numruns=50, error_estimate=:l2, maxiters=10000)
 
     # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
     add_solver!(solvers_general, selected_TR, solvers_TR, wp_TR)
     add_solver!(solvers_general, selected_LM, solvers_LM, wp_LM)
     add_solver!(solvers_general, selected_NR, solvers_NR, wp_NR)
-    wp_general = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name), numruns=50, error_estimate=:l2, maxiters=1000)
+    wp_general = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name), numruns=50, error_estimate=:l2, maxiters=10000)
     
     xlimit, ylimit, xticks, yticks = get_limits_and_ticks(wp_general, wp_NR, wp_TR, wp_LM)
     wp_plot_general = plot_wp(wp_general, solvers_general, xguide="", xlimit, ylimit, linewidth=7, true, xticks=(xticks, fill("", length(xticks))),yticks=yticks)
@@ -162,7 +162,7 @@ end
 # Checks if a solver can successfully solve a given problem.
 function check_solver(prob, solver)
     try
-        sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-6, reltol=1e-6, maxiters=1000)
+        sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-4, reltol=1e-4, maxiters=10000)
         err = norm(sol.resid)
         if !SciMLBase.successful_retcode(sol.retcode)
             Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n"; color=:red)
@@ -174,8 +174,8 @@ function check_solver(prob, solver)
             Base.printstyled("[Warn] Solver $(solver.name) had a residual of $(err).\n"; color=:red)
             return false
         end
-        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem.\n"; color=:green)
-        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver]; names=[solver.name], numruns=100, error_estimate=:l2, maxiters=1000)
+        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n"; color=:green)
+        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver]; names=[solver.name], numruns=50, error_estimate=:l2, maxiters=10000)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)    
         return false
@@ -307,4 +307,3 @@ Text(String(take!(io)))
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
-
