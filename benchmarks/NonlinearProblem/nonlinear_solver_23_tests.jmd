@@ -14,12 +14,12 @@ These benchmarks compares the runtime and error for a range of nonlinear solvers
 - NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
 - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
-Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following line search options (in addition to the default):
+Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following Line Search options (in addition to the default):
 - `HagerZhang`
 - `MoreThuente`
 - `BackTracking`
 
-and for NonlinearSolve.jl's Newton trust region we try the following radius update schemes (in addition to the default):
+and for NonlinearSolve.jl's Newton trust region we try the following Radius Update schemes (in addition to the default):
 - `NLsolve` 
 - `NocedalWright` 
 - `Hei` 
@@ -31,26 +31,30 @@ and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using bot
 For each benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Newton trust region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded for which problems.
 
 # Setup
+
 Fetch required packages.
+
 ```julia
 using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials
 using BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, Plots
 RUS = RadiusUpdateSchemes;
 ```
+
 Declare the benchmarked solvers (and their names and plotting options).
+
 ```julia
 solvers_all = [ 
-    (type = :NR,      name = "Newton Raphson (No line search)",                     solver = Dict(:alg=>NewtonRaphson()),                                                         color = :salmon1,         markershape = :star4),
-    (type = :NR,      name = "Newton Raphson (Hager & Zhang line search)",          solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                                  color = :tomato1,         markershape = :pentagon),
-    (type = :NR,      name = "Newton Raphson (More & Thuente line search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),                                 color = :red3,            markershape = :star6),
-    (type = :NR,      name = "Newton Raphson (BackTracking line search)",           solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),                                color = :firebrick,       markershape = :heptagon),
+    (type = :NR,      name = "Newton Raphson (No Line Search)",                     solver = Dict(:alg=>NewtonRaphson()),                                                         color = :salmon1,         markershape = :star4),
+    (type = :NR,      name = "Newton Raphson (Hager & Zhang Line Search)",          solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                                  color = :tomato1,         markershape = :pentagon),
+    (type = :NR,      name = "Newton Raphson (More & Thuente Line Search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),                                 color = :red3,            markershape = :star6),
+    (type = :NR,      name = "Newton Raphson (BackTracking Line Search)",           solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),                                color = :firebrick,       markershape = :heptagon),
     (type = :TR,      name = "Newton Trust Region",                                 solver = Dict(:alg=>TrustRegion()),                                                           color = :darkslategray1,  markershape = :utriangle),
-    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),                         color = :deepskyblue1,    markershape = :rect),
-    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)",  solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)),                   color = :cadetblue,       markershape = :diamond),
-    (type = :TR,      name = "Newton Trust Region (Hei radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),                             color = :lightslateblue,  markershape = :star5),
-    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),                            color = :royalblue2,      markershape = :hexagon),
-    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",          solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),                          color = :blue1,           markershape = :star7),
-    (type = :TR,      name = "Newton Trust Region (Fan radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),                             color = :navy,            markershape = :octagon),
+    (type = :TR,      name = "Newton Trust Region (NLsolve Radius Update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),                         color = :deepskyblue1,    markershape = :rect),
+    (type = :TR,      name = "Newton Trust Region (Nocedal Wright Radius Update)",  solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)),                   color = :cadetblue,       markershape = :diamond),
+    (type = :TR,      name = "Newton Trust Region (Hei Radius Update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),                             color = :lightslateblue,  markershape = :star5),
+    (type = :TR,      name = "Newton Trust Region (Yuan Radius Update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),                            color = :royalblue2,      markershape = :hexagon),
+    (type = :TR,      name = "Newton Trust Region (Bastin Radius Update)",          solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),                          color = :blue1,           markershape = :star7),
+    (type = :TR,      name = "Newton Trust Region (Fan Radius Update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),                             color = :navy,            markershape = :octagon),
     (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",               solver = Dict(:alg=>LevenbergMarquardt()),                                                    color = :fuchsia,         markershape = :circle),
     (type = :LM,      name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",     solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization())),                  color = :orchid4,         markershape = :rtriangle),
     (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                solver = Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),                                      color = :darkorchid1,     markershape = :ltriangle),
@@ -63,17 +67,23 @@ solvers_all = [
 ]
 solver_tracker = [];
 ```
+
 Sets tolerances.
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:12)
 reltols = 1.0 ./ 10.0 .^ (4:12);
 ```
+
 Set plotting defaults.
+
 ```julia
 mm = Plots.Measures.mm
 default(framestyle=:box,legend=:topleft,gridwidth=2, guidefontsize=25, tickfontsize=18, legendfontsize=16, la=0.7, ms=12, ma=0.8)
 ```
+
 Prepares various helper functions for benchmarking a specific problem.
+
 ```julia
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
 function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_NR=nothing, selected_TR=nothing, selected_LM=nothing)
@@ -139,7 +149,9 @@ function add_solver!(solvers_general, selected_solver_name, additional_solver_se
     isnothing(selected_idx) || pushfirst!(solvers_general, additional_solver_set[selected_idx])   
 end;
 ```
+
 Plotting related helper functions.
+
 ```julia
 # Plots a work-precision diagram.
 function plot_wp(wp, selected_solvers, xlimit, ylimit, top; kwargs...)
@@ -189,7 +201,7 @@ end
 # Finds good x and y limits for a work precision diagram.
 function xy_limits(wp)
     times = vcat(map(wp -> wp.times, wp.wps)...)
-    errors = vcat(map(wp -> wp.errors, wp.wps)...)
+    errors = vcat(map(wp -> wp.errors.l2, wp.wps)...)
     xlimit = 10 .^ (floor(log10(minimum(errors))), ceil(log10(maximum(errors))))
     ylimit = 10 .^ (floor(log10(minimum(times))), ceil(log10(maximum(times))))
     return xlimit, ylimit
@@ -221,125 +233,151 @@ function get_ticks(limit)
     return 10 .^sequences[selected_seq]
 end;
 ```
+
 # Benchmarks
+
 We here run benchmarks for each of the 23 models. 
 
 ### Problem 1 (Generalized Rosenbrock function)
+
 ```julia
 benchmark_problem!("Generalized Rosenbrock function")
 ```
 
 ### Problem 2 (Powell singular function)
+
 ```julia
 benchmark_problem!("Powell singular function")
 ```
 
 ### Problem 3 (Powell badly scaled function)
+
 ```julia
 benchmark_problem!("Powell badly scaled function")
 ```
 
 ### Problem 4 (Wood function)
+
 ```julia
 benchmark_problem!("Wood function")
 ```
 
 ### Problem 5 (Helical valley function)
+
 ```julia
 benchmark_problem!("Helical valley function")
 ```
 
 ### Problem 6 (Watson function)
+
 ```julia
 benchmark_problem!("Watson function")
 ```
 
 ### Problem 7 (Chebyquad function)
+
 ```julia
 benchmark_problem!("Chebyquad function")
 ```
 
 ### Problem 8 (Brown almost linear function)
+
 ```julia
 benchmark_problem!("Brown almost linear function")
 ```
 
 ### Problem 9 (Discrete boundary value function)
+
 ```julia
 benchmark_problem!("Discrete boundary value function")
 ```
 
 ### Problem 10 (Discrete integral equation function)
+
 ```julia
 benchmark_problem!("Discrete integral equation function")
 ```
 
 ### Problem 11 (Trigonometric function)
+
 ```julia
 benchmark_problem!("Trigonometric function")
 ```
 
 ### Problem 12 (Variably dimensioned function)
+
 ```julia
 benchmark_problem!("Variably dimensioned function")
 ```
 
 ### Problem 13 (Broyden tridiagonal function)
+
 ```julia
 benchmark_problem!("Broyden tridiagonal function")
 ```
 
 ### Problem 14 (Broyden banded function)
+
 ```julia
 benchmark_problem!("Broyden banded function")
 ```
 
 ### Problem 15 (Hammarling 2 by 2 matrix square root problem)
+
 ```julia
 benchmark_problem!("Hammarling 2 by 2 matrix square root problem")
 ```
 
 ### Problem 16 (Hammarling 3 by 3 matrix square root problem)
+
 ```julia
 benchmark_problem!("Hammarling 3 by 3 matrix square root problem")
 ```
 
 ### Problem 17 (Dennis and Schnabel 2 by 2 example)
+
 ```julia
 benchmark_problem!("Dennis and Schnabel 2 by 2 example")
 ```
 
 ### Problem 18 (Sample problem 18)
+
 ```julia
 benchmark_problem!("Sample problem 18")
 ```
 
 ### Problem 19 (Sample problem 19)
+
 ```julia
 benchmark_problem!("Sample problem 19")
 ```
 
 ### Problem 20 (Scalar problem f(x) = x(x - 5)^2)
+
 ```julia
 benchmark_problem!("Scalar problem f(x) = x(x - 5)^2")
 ```
 
 ### Problem 21 (Freudenstein-Roth function)
+
 ```julia
 benchmark_problem!("Freudenstein-Roth function")
 ```
 
 ### Problem 22 (Boggs function)
+
 ```julia
 benchmark_problem!("Boggs function")
 ```
 
 ### Problem 23 (Chandrasekhar function)
+
 ```julia
 benchmark_problem!("Chandrasekhar function")
 ```
 
 ## Summary of successful solvers
+
 Finally, we print a summary of which solvers successfully solved which problems.
 
 ```julia
@@ -347,6 +385,7 @@ solver_successes = [(solver in prob[2]) ? "O" : "X" for prob in solver_tracker, 
 total_successes = [sum(solver_successes[:,i] .== "O") for i in 1:length(solvers_all)]
 solver_outcomes = vcat(total_successes', solver_successes);
 ```
+
 ```julia; wrap = false; results = "md2html"
 using PrettyTables
 io = IOBuffer()
@@ -361,4 +400,3 @@ Text(String(take!(io)))
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
-
