@@ -33,33 +33,33 @@ For each benchmarked problem, the second, third, and fourth plots compares the p
 # Setup
 Fetch required packages.
 ```julia
-using NonlinearSolve, MINPACK, NLsolve, SimpleNonlinearSolve, LinearSolve, StaticArrays, Sundials
+using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials
 using BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, Plots
 RUS = RadiusUpdateSchemes;
 ```
 Declare the benchmarked solvers (and their names and plotting options).
 ```julia
 solvers_all = [ 
-    (type = :NR,      name = "Newton Raphson (No line search)",                    solver = Dict(:alg=>NewtonRaphson()),                                       color = :salmon1,         markershape = :star4),
-    (type = :NR,      name = "Newton Raphson (Hager & Zhang line search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                color = :tomato1,         markershape = :pentagon),
-    (type = :NR,      name = "Newton Raphson (More & Thuente line search)",        solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),               color = :red3,            markershape = :star6),
-    (type = :NR,      name = "Newton Raphson (BackTracking line search)",      solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),              color = :firebrick,       markershape = :heptagon),
-    (type = :TR,      name = "Newton Trust Region",                                solver = Dict(:alg=>TrustRegion()),                                         color = :darkslategray1,  markershape = :utriangle),
-    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",        solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),       color = :deepskyblue1,    markershape = :rect),
-    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)", solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)), color = :cadetblue,       markershape = :diamond),
-    (type = :TR,      name = "Newton Trust Region (Hei radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),           color = :lightslateblue,  markershape = :star5),
-    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",           solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),          color = :royalblue2,      markershape = :hexagon),
-    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),        color = :blue1,           markershape = :star7),
-    (type = :TR,      name = "Newton Trust Region (Fan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),           color = :navy,            markershape = :octagon),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",                   solver = Dict(:alg=>LevenbergMarquardt()),                                                            color = :fuchsia,         markershape = :circle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",        solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization())),                    color = :orchid4,         markershape = :rtriangle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                    solver = Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),                                              color = :darkorchid1,     markershape = :ltriangle),
-    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5, with Cholesky)",    solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization(), α_geodesic=0.5)),    color = :purple4,         markershape = :star8),
-    (type = :general, name = "Modified Powell (CMINPACK)",                         solver = Dict(:alg=>CMINPACK(method=:hybr)),                                color = :lightgoldenrod2, markershape = :+),
-    (type = :general, name = "Levenberg-Marquardt (CMINPACK)",                     solver = Dict(:alg=>CMINPACK(method=:lm)),                                  color = :gold1,           markershape = :x),
-    (type = :general, name = "Newton Raphson (NLsolveJL)",                         solver = Dict(:alg=>NLsolveJL(method=:newton)),                             color = :olivedrab1,      markershape = :dtriangle),
-    (type = :general, name = "Newton Trust Region (NLsolveJL)",                    solver = Dict(:alg=>NLsolveJL()),                                           color = :green2,          markershape = :rtriangle),
-    (type = :general, name = "Newton-Krylov (Sundials)",                           solver = Dict(:alg=>KINSOL()),                                              color = :darkorange,      markershape = :circle)
+    (type = :NR,      name = "Newton Raphson (No line search)",                     solver = Dict(:alg=>NewtonRaphson()),                                                         color = :salmon1,         markershape = :star4),
+    (type = :NR,      name = "Newton Raphson (Hager & Zhang line search)",          solver = Dict(:alg=>NewtonRaphson(linesearch=HagerZhang())),                                  color = :tomato1,         markershape = :pentagon),
+    (type = :NR,      name = "Newton Raphson (More & Thuente line search)",         solver = Dict(:alg=>NewtonRaphson(linesearch=MoreThuente())),                                 color = :red3,            markershape = :star6),
+    (type = :NR,      name = "Newton Raphson (BackTracking line search)",           solver = Dict(:alg=>NewtonRaphson(linesearch=BackTracking())),                                color = :firebrick,       markershape = :heptagon),
+    (type = :TR,      name = "Newton Trust Region",                                 solver = Dict(:alg=>TrustRegion()),                                                           color = :darkslategray1,  markershape = :utriangle),
+    (type = :TR,      name = "Newton Trust Region (NLsolve radius update)",         solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NLsolve)),                         color = :deepskyblue1,    markershape = :rect),
+    (type = :TR,      name = "Newton Trust Region (Nocedal Wright radius update)",  solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.NocedalWright)),                   color = :cadetblue,       markershape = :diamond),
+    (type = :TR,      name = "Newton Trust Region (Hei radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Hei)),                             color = :lightslateblue,  markershape = :star5),
+    (type = :TR,      name = "Newton Trust Region (Yuan radius update)",            solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Yuan)),                            color = :royalblue2,      markershape = :hexagon),
+    (type = :TR,      name = "Newton Trust Region (Bastin radius update)",          solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Bastin)),                          color = :blue1,           markershape = :star7),
+    (type = :TR,      name = "Newton Trust Region (Fan radius update)",             solver = Dict(:alg=>TrustRegion(radius_update_scheme = RUS.Fan)),                             color = :navy,            markershape = :octagon),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",               solver = Dict(:alg=>LevenbergMarquardt()),                                                    color = :fuchsia,         markershape = :circle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",     solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization())),                  color = :orchid4,         markershape = :rtriangle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                solver = Dict(:alg=>LevenbergMarquardt(α_geodesic=0.5)),                                      color = :darkorchid1,     markershape = :ltriangle),
+    (type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5, with Cholesky)", solver = Dict(:alg=>LevenbergMarquardt(linsolve = CholeskyFactorization(), α_geodesic=0.5)),  color = :purple4,         markershape = :star8),
+    (type = :general, name = "Modified Powell (CMINPACK)",                          solver = Dict(:alg=>CMINPACK(method=:hybr)),                                                  color = :lightgoldenrod2, markershape = :+),
+    (type = :general, name = "Levenberg-Marquardt (CMINPACK)",                      solver = Dict(:alg=>CMINPACK(method=:lm)),                                                    color = :gold1,           markershape = :x),
+    (type = :general, name = "Newton Raphson (NLsolveJL)",                          solver = Dict(:alg=>NLsolveJL(method=:newton)),                                               color = :olivedrab1,      markershape = :dtriangle),
+    (type = :general, name = "Newton Trust Region (NLsolveJL)",                     solver = Dict(:alg=>NLsolveJL()),                                                             color = :green2,          markershape = :rtriangle),
+    (type = :general, name = "Newton-Krylov (Sundials)",                            solver = Dict(:alg=>KINSOL()),                                                                color = :darkorange,      markershape = :circle)
 ]
 solver_tracker = [];
 ```
