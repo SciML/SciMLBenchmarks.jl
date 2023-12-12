@@ -38,10 +38,8 @@ Fetch required packages.
 
 ```julia
 using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials
-using BenchmarkTools, LinearAlgebra, DiffEqDevTools, Plots, LaTeXStrings
+using BenchmarkTools, LinearAlgebra, DiffEqDevTools, CairoMakie
 RUS = RadiusUpdateSchemes;
-
-Plots.theme(:default)
 ```
 
 Declare the benchmarked solvers (and their names and plotting options).
@@ -75,6 +73,7 @@ solvers_all = [
 Setup the problem
 
 ```julia
+
 function f!(out, u, p = nothing)
     out[1] = -u[33]
     out[2] = -u[32]
@@ -258,38 +257,36 @@ wp_set, successful_solvers = generate_wpset(testcase, solvers_all)
 ## Plot and Save the Plot
 
 ```julia
-plt = begin
-    Plots.theme(:wong)
+fig = with_theme(theme_latexfonts(); fontsize = 32) do 
+    fig = Figure(; size = (1300, 1000))
+    ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", xlabel = L"Error: $f(x^\ast)$ $L_2$-norm",
+        xscale = log10, yscale = log10, title = "Battery Problem")
 
-    xlimit = (1/(10^(6.25)), 1/(10^(5.75)))
-    ylimit = (0.00005, 0.15)
-    xticks = [(1 ./ (10 .^ (6.25:-0.25:5.75)))...]
-    yticks = [10 .^ (-4.0:1.0:0.0)...]
-
-    plt = plot(; ylabel = L"Time ($s$)", xlabel = L"Error: $f(x^\ast)$ $L_2$-norm",
-        xscale = :log10, yscale = :log10, title = "Battery Problem", grid = true,
-        size = (1300, 1000), font_size = 32, top_margin = 10Plots.mm,
-        bottom_margin = -15Plots.mm, legend = :outerbottom, legend_columns = 2,
-        legendfontsize = 12, left_margin = 10Plots.mm, right_margin = 15Plots.mm,
-        gridlinewidth = 3, xticks = xticks, yticks = yticks, xlim = xlimit, ylim = ylimit,
-        guidefontsize = 25, tickfontsize = 18, la = 0.7, ms = 12, ma = 0.8,
-        titlefontsize = 32)
-
+    ls, scs = [], []
+    
     for (wp, solver) in zip(wp_set.wps, successful_solvers)
         (; name, times, errors) = wp
         errors = [err.l2 for err in errors]
-        plot!(errors, times; label = name, linewidth = 5, markersize = 16,
-            color = solver.color, marker = solver.markershape, strokewidth = 2)
+        l = lines!(ax, errors, times; label = name, linewidth = 3, color = solver.color)
+        sc = scatter!(ax, errors, times; label = name, markersize = 16,
+            marker = solver.markershape, color = solver.color, strokewidth = 2)
+        push!(ls, l)
+        push!(scs, sc)
     end
 
-    plt
+    Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+        [solver.name for solver in successful_solvers], position = :ct, color = :white,
+        framevisible=false, label = "Solvers", orientation = :horizontal,
+        tellwidth = false, tellheight = true, nbanks = 5, labelsize = 20)
+
+    fig
 end
 
-plt
+fig
 ```
 
 ```julia
-savefig(plt, "battery_problem_work_precision.svg")
+save("battery_problem_work_precision.svg", fig)
 ```
 
 ## Summary of successful solvers
@@ -311,7 +308,6 @@ Docs.Text(String(take!(io)))
 ```
 
 # Appendix
-
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
