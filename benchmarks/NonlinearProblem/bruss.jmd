@@ -1,0 +1,188 @@
+---
+title: Ill-Conditioned Nonlinear System Work-Precision Diagrams
+author: Avik Pal
+---
+
+# Setup
+
+Fetch required packages
+
+```julia
+using NonlinearSolve, NLsolve, MINPACK, SparseDiffTools, Sundials
+using LinearAlgebra, SparseArrays, DiffEqDevTools, CairoMakie, Symbolics
+using BenchmarkTools
+RUS = RadiusUpdateSchemes;
+
+NonlinearSolve.__cond(A::SparseMatrixCSC) = cond(Matrix(A), 2)  # UPSTREAM
+```
+
+Define the Brussletor problem.
+
+```julia
+brusselator_f(x, y) = (((x - 3 // 10) ^ 2 + (y - 6 // 10) ^ 2) ≤ 0.01) * 5
+
+limit(a, N) = ifelse(a == N + 1, 1, ifelse(a == 0, N, a))
+
+function init_brusselator_2d(xyd, N)
+    N = length(xyd)
+    u = zeros(N, N, 2)
+    for I in CartesianIndices((N, N))
+        x = xyd[I[1]]
+        y = xyd[I[2]]
+        u[I, 1] = 22 * (y * (1 - y))^(3 / 2)
+        u[I, 2] = 27 * (x * (1 - x))^(3 / 2)
+    end
+    return u
+end
+
+function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
+    xyd_brusselator = range(0; stop = 1, length = N)
+
+    function brusselator_2d_loop(du_, u_, p)
+        A, B, α, δx = p
+        α = α / δx ^ 2
+
+        du = reshape(du_, N, N, 2)
+        u = reshape(u_, N, N, 2)
+
+        @inbounds for I in CartesianIndices((N, N))
+            i, j = Tuple(I)
+            x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
+            ip1, im1 = limit(i + 1, N), limit(i - 1, N)
+            jp1, jm1 = limit(j + 1, N), limit(j - 1, N)
+
+            du[i, j, 1] = α * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
+                               4u[i, j, 1]) +
+                          B + u[i, j, 1] ^ 2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
+                          brusselator_f(x, y)
+
+            du[i, j, 2] = α * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
+                               4u[i, j, 2]) +
+                            A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
+        end
+        return nothing
+    end
+
+    p = (3.4, 1.0, 10.0, step(xyd_brusselator))
+
+    u0 = init_brusselator_2d(xyd_brusselator, N)
+
+    nlfunc = NonlinearFunction(brusselator_2d_loop; sparsity)
+    return NonlinearProblem(nlfunc, vec(u0), p; kwargs...)
+end
+```
+
+# Scaling with Problem Size
+
+First, let us experiment the scaling of each algorithm with the problem size.
+
+```julia
+Ns = 2 .^ (2:6)
+solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
+    "NewtonRaphson (Exact Sparse)", "TrustRegion (Dense)",
+    "TrustRegion (Approximate Sparse)", "TrustRegion (Exact Sparse)",
+    "KINSOL", "CMINPACK", "NLsolveJL (Trust Region)", "SimpleNewtonRaphson",
+    "SimpleTrustRegion"]
+runtimes_scaling = zeros(length(solver_names), length(Ns))
+
+for (i, N) in enumerate(Ns)
+    prob_dense = generate_brusselator_problem(N; abstol=1e-10, reltol=1e-10)
+    prob_approx_sparse = generate_brusselator_problem(N;
+        sparsity = ApproximateJacobianSparsity(), abstol=1e-10, reltol=1e-10)
+    prob_exact_sparse = generate_brusselator_problem(N;
+        sparsity = SymbolicsSparsityDetection(), abstol=1e-10, reltol=1e-10)
+
+    println("Benchmarking N = $N")
+
+    sol = solve(prob_dense, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[1, i] = @belapsed solve($prob_dense, $NewtonRaphson())
+    println("    Dense (Newton Raphson): ", runtimes_scaling[1, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_approx_sparse, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[2, i] = @belapsed solve($prob_approx_sparse, $NewtonRaphson())
+    println("    Approximate Sparse (Newton Raphson): ", runtimes_scaling[2, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_exact_sparse, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[3, i] = @belapsed solve($prob_exact_sparse, $NewtonRaphson())
+    println("    Exact Sparse (Newton Raphson): ", runtimes_scaling[3, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[4, i] = @belapsed solve($prob_dense, $TrustRegion())
+    println("    Dense (Trust Region): ", runtimes_scaling[4, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_approx_sparse, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[5, i] = @belapsed solve($prob_approx_sparse, $TrustRegion())
+    println("    Approximate Sparse (Trust Region): ", runtimes_scaling[5, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_exact_sparse, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    runtimes_scaling[6, i] = @belapsed solve($prob_exact_sparse, $TrustRegion())
+    println("    Exact Sparse (Trust Region): ", runtimes_scaling[6, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, KINSOL())
+    runtimes_scaling[7, i] = @belapsed solve($prob_dense, $KINSOL())
+    println("    KINSOL: ", runtimes_scaling[7, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, CMINPACK())
+    runtimes_scaling[8, i] = @belapsed solve($prob_dense, $CMINPACK())
+    println("    CMINPACK: ", runtimes_scaling[8, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, NLsolveJL())
+    runtimes_scaling[9, i] = @belapsed solve($prob_dense, $NLsolveJL())
+    println("    NLsolveJL: ", runtimes_scaling[9, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, SimpleNewtonRaphson(; autodiff = AutoFiniteDiff()))
+    runtimes_scaling[10, i] = @belapsed solve($prob_dense, $SimpleNewtonRaphson())
+    println("    SimpleNewtonRaphson: ", runtimes_scaling[10, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    sol = solve(prob_dense, SimpleTrustRegion(; autodiff = AutoFiniteDiff()))
+    runtimes_scaling[11, i] = @belapsed solve($prob_dense, $SimpleTrustRegion())
+    println("    SimpleTrustRegion: ", runtimes_scaling[11, i],
+        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+        " stats = ", sol.stats)
+
+    println()
+end
+```
+
+Plot the results.
+
+```julia
+fig = with_theme(theme_latexfonts(); fontsize = 32) do 
+    fig = Figure(; size = (1300, 1000))
+    ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
+        xscale = log2, yscale = log2, title = "Brusselator 2D Scaling with Problem Size")
+
+    ls, scs = [], []
+    for (i, solver_name) in enumerate(solver_names)
+        push!(ls, lines!(Ns, runtimes_scaling[i, :]; linewidth = 3))
+        push!(scs, scatter!(Ns, runtimes_scaling[i, :]; markersize = 10))
+    end
+
+    Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+        solver_names, position = :ct, color = :white, framevisible=false, label = "Solvers",
+        orientation = :horizontal, tellwidth = false, tellheight = true, nbanks = 5,
+        labelsize = 20)
+
+    return fig
+end
+```
