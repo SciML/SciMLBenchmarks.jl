@@ -12,8 +12,6 @@ using NonlinearSolve, NLsolve, MINPACK, SparseDiffTools, Sundials
 using LinearAlgebra, SparseArrays, DiffEqDevTools, CairoMakie, Symbolics
 using BenchmarkTools
 RUS = RadiusUpdateSchemes;
-
-NonlinearSolve.__cond(A::SparseMatrixCSC) = cond(Matrix(A), 2)  # UPSTREAM
 ```
 
 Define the Brussletor problem.
@@ -77,7 +75,7 @@ end
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-Ns = 2 .^ (2:6)
+Ns = 2 .^ (1:8)
 solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
     "NewtonRaphson (Exact Sparse)", "TrustRegion (Dense)",
     "TrustRegion (Approximate Sparse)", "TrustRegion (Exact Sparse)",
@@ -86,45 +84,45 @@ solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
 runtimes_scaling = zeros(length(solver_names), length(Ns))
 
 for (i, N) in enumerate(Ns)
-    prob_dense = generate_brusselator_problem(N; abstol=1e-10, reltol=1e-10)
+    prob_dense = generate_brusselator_problem(N; abstol=1e-6, reltol=1e-6)
     prob_approx_sparse = generate_brusselator_problem(N;
-        sparsity = ApproximateJacobianSparsity(), abstol=1e-10, reltol=1e-10)
+        sparsity = ApproximateJacobianSparsity(), abstol=1e-6, reltol=1e-6)
     prob_exact_sparse = generate_brusselator_problem(N;
-        sparsity = SymbolicsSparsityDetection(), abstol=1e-10, reltol=1e-10)
+        sparsity = SymbolicsSparsityDetection(), abstol=1e-6, reltol=1e-6)
 
     println("Benchmarking N = $N")
 
-    sol = solve(prob_dense, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_dense, NewtonRaphson())
     runtimes_scaling[1, i] = @belapsed solve($prob_dense, $NewtonRaphson())
     println("    Dense (Newton Raphson): ", runtimes_scaling[1, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_approx_sparse, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_approx_sparse, NewtonRaphson())
     runtimes_scaling[2, i] = @belapsed solve($prob_approx_sparse, $NewtonRaphson())
     println("    Approximate Sparse (Newton Raphson): ", runtimes_scaling[2, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_exact_sparse, NewtonRaphson(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_exact_sparse, NewtonRaphson())
     runtimes_scaling[3, i] = @belapsed solve($prob_exact_sparse, $NewtonRaphson())
     println("    Exact Sparse (Newton Raphson): ", runtimes_scaling[3, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_dense, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_dense, TrustRegion())
     runtimes_scaling[4, i] = @belapsed solve($prob_dense, $TrustRegion())
     println("    Dense (Trust Region): ", runtimes_scaling[4, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_approx_sparse, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_approx_sparse, TrustRegion())
     runtimes_scaling[5, i] = @belapsed solve($prob_approx_sparse, $TrustRegion())
     println("    Approximate Sparse (Trust Region): ", runtimes_scaling[5, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_exact_sparse, TrustRegion(); show_trace = Val(true), trace_level = TraceAll())
+    sol = solve(prob_exact_sparse, TrustRegion())
     runtimes_scaling[6, i] = @belapsed solve($prob_exact_sparse, $TrustRegion())
     println("    Exact Sparse (Trust Region): ", runtimes_scaling[6, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
@@ -148,13 +146,13 @@ for (i, N) in enumerate(Ns)
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_dense, SimpleNewtonRaphson(; autodiff = AutoFiniteDiff()))
+    sol = solve(prob_dense, SimpleNewtonRaphson())
     runtimes_scaling[10, i] = @belapsed solve($prob_dense, $SimpleNewtonRaphson())
     println("    SimpleNewtonRaphson: ", runtimes_scaling[10, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
         " stats = ", sol.stats)
 
-    sol = solve(prob_dense, SimpleTrustRegion(; autodiff = AutoFiniteDiff()))
+    sol = solve(prob_dense, SimpleTrustRegion())
     runtimes_scaling[11, i] = @belapsed solve($prob_dense, $SimpleTrustRegion())
     println("    SimpleTrustRegion: ", runtimes_scaling[11, i],
         " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
