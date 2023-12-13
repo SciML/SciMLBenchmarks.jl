@@ -75,7 +75,7 @@ end
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-Ns = 2 .^ (2:8)
+Ns = 2 .^ (2:7)
 solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
     "NewtonRaphson (Exact Sparse)", "TrustRegion (Dense)",
     "TrustRegion (Approximate Sparse)", "TrustRegion (Exact Sparse)",
@@ -165,22 +165,31 @@ end
 Plot the results.
 
 ```julia
-fig = with_theme(theme_latexfonts(); fontsize = 32) do 
+cycle = Cycle([:color, :linestyle, :marker], covary = true)
+theme = merge(theme_latexfonts(), Theme(Lines = (cycle = cycle,),
+    Scatter = (cycle = cycle,)))
+
+fig = with_theme(theme; fontsize = 32) do 
     fig = Figure(; size = (1300, 1000))
     ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
-        xscale = log2, yscale = log2, title = "Brusselator 2D Scaling with Problem Size")
+        xscale = log2, yscale = log2, title = "Brusselator 2D: Scaling with Problem Size",
+        )
 
     ls, scs = [], []
     for (i, solver_name) in enumerate(solver_names)
         push!(ls, lines!(Ns, runtimes_scaling[i, :]; linewidth = 3))
-        push!(scs, scatter!(Ns, runtimes_scaling[i, :]; markersize = 10))
+        push!(scs, scatter!(Ns, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2))
     end
 
     Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
         solver_names, position = :ct, color = :white, framevisible=false, label = "Solvers",
-        orientation = :horizontal, tellwidth = false, tellheight = true, nbanks = 5,
+        orientation = :horizontal, tellwidth = false, tellheight = true, nbanks = 4,
         labelsize = 20)
 
     return fig
 end
+```
+
+```julia
+save("brusselator_scaling.svg", fig)
 ```
