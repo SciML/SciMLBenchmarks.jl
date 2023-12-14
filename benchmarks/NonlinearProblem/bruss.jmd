@@ -14,6 +14,26 @@ using BenchmarkTools
 RUS = RadiusUpdateSchemes;
 ```
 
+Define a utility to timeout the benchmark after a certain time.
+
+```julia
+macro timeout(seconds, expr, fail = nothing)
+    quote
+        tsk = @task $(esc(expr))
+        schedule(tsk)
+        Timer($(esc(seconds))) do timer
+            istaskdone(tsk) || Base.throwto(tsk, InterruptException())
+        end
+        try
+            fetch(tsk)
+        catch err
+            Base.printstyled("Timed Out.\n"; color = :red)
+            $(esc(fail))
+        end
+    end
+end
+```
+
 Define the Brussletor problem.
 
 ```julia
@@ -81,7 +101,12 @@ solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
     "TrustRegion (Approximate Sparse)", "TrustRegion (Exact Sparse)",
     "KINSOL", "CMINPACK", "NLsolveJL (Trust Region)", "SimpleNewtonRaphson",
     "SimpleTrustRegion"]
-runtimes_scaling = zeros(length(solver_names), length(Ns))
+runtimes_scaling = zeros(length(solver_names), length(Ns)) .- 1
+prob_alg_mapping = [
+    (:dense, NewtonRaphson()), (:approx, NewtonRaphson()), (:exact, NewtonRaphson()),
+    (:dense, TrustRegion()), (:approx, TrustRegion()), (:exact, TrustRegion()),
+    (:dense, KINSOL()), (:dense, CMINPACK()), (:dense, NLsolveJL()),
+    (:dense, SimpleNewtonRaphson()), (:dense, SimpleTrustRegion())]
 
 for (i, N) in enumerate(Ns)
     prob_dense = generate_brusselator_problem(N; abstol=1e-6, reltol=1e-6)
@@ -92,71 +117,33 @@ for (i, N) in enumerate(Ns)
 
     println("Benchmarking N = $N")
 
-    sol = solve(prob_dense, NewtonRaphson())
-    runtimes_scaling[1, i] = @belapsed solve($prob_dense, $NewtonRaphson())
-    println("    Dense (Newton Raphson): ", runtimes_scaling[1, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
+    for (j, (ptype, alg)) in enumerate(prob_alg_mapping)
+        if ptype == :dense
+            prob = prob_dense
+        elseif ptype == :approx
+            prob = prob_approx_sparse
+        elseif ptype == :exact
+            prob = prob_exact_sparse
+        end
 
-    sol = solve(prob_approx_sparse, NewtonRaphson())
-    runtimes_scaling[2, i] = @belapsed solve($prob_approx_sparse, $NewtonRaphson())
-    println("    Approximate Sparse (Newton Raphson): ", runtimes_scaling[2, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_exact_sparse, NewtonRaphson())
-    runtimes_scaling[3, i] = @belapsed solve($prob_exact_sparse, $NewtonRaphson())
-    println("    Exact Sparse (Newton Raphson): ", runtimes_scaling[3, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, TrustRegion())
-    runtimes_scaling[4, i] = @belapsed solve($prob_dense, $TrustRegion())
-    println("    Dense (Trust Region): ", runtimes_scaling[4, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_approx_sparse, TrustRegion())
-    runtimes_scaling[5, i] = @belapsed solve($prob_approx_sparse, $TrustRegion())
-    println("    Approximate Sparse (Trust Region): ", runtimes_scaling[5, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_exact_sparse, TrustRegion())
-    runtimes_scaling[6, i] = @belapsed solve($prob_exact_sparse, $TrustRegion())
-    println("    Exact Sparse (Trust Region): ", runtimes_scaling[6, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, KINSOL())
-    runtimes_scaling[7, i] = @belapsed solve($prob_dense, $KINSOL())
-    println("    KINSOL: ", runtimes_scaling[7, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, CMINPACK())
-    runtimes_scaling[8, i] = @belapsed solve($prob_dense, $CMINPACK())
-    println("    CMINPACK: ", runtimes_scaling[8, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, NLsolveJL())
-    runtimes_scaling[9, i] = @belapsed solve($prob_dense, $NLsolveJL())
-    println("    NLsolveJL: ", runtimes_scaling[9, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, SimpleNewtonRaphson())
-    runtimes_scaling[10, i] = @belapsed solve($prob_dense, $SimpleNewtonRaphson())
-    println("    SimpleNewtonRaphson: ", runtimes_scaling[10, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
-
-    sol = solve(prob_dense, SimpleTrustRegion())
-    runtimes_scaling[11, i] = @belapsed solve($prob_dense, $SimpleTrustRegion())
-    println("    SimpleTrustRegion: ", runtimes_scaling[11, i],
-        " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
-        " stats = ", sol.stats)
+        if j > 1 && runtimes_scaling[j - 1, i] == -1
+            # The last benchmark failed so skip this too
+            runtimes_scaling[j, i] = NaN
+            println("    $(solver_names[j]): Would Have Timed out")
+        else
+            @timeout 1000 begin
+                sol = solve(prob, alg)
+                runtimes_scaling[j, i] = @belapsed solve($prob, $alg)
+                println("    $(solver_names[j]): ", runtimes_scaling[j, i],
+                    " resid = ", norm(sol.resid), " retcode = ", sol.retcode,
+                    " stats = ", sol.stats)
+            end
+            if runtimes_scaling[j, i] == -1
+                println("    $(solver_names[j]): Timed out")
+                runtimes_scaling[j, i] = NaN
+            end
+        end
+    end
 
     println()
 end
