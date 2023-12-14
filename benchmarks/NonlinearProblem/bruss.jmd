@@ -95,18 +95,18 @@ end
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-Ns = 2 .^ (2:7)
+Ns = 2 .^ (2:6)
 solver_names = ["NewtonRaphson (Dense)", "NewtonRaphson (Approximate Sparse)",
     "NewtonRaphson (Exact Sparse)", "TrustRegion (Dense)",
     "TrustRegion (Approximate Sparse)", "TrustRegion (Exact Sparse)",
-    "KINSOL", "CMINPACK", "NLsolveJL (Trust Region)", "SimpleNewtonRaphson",
-    "SimpleTrustRegion"]
+    "KINSOL", "NLsolveJL (Trust Region)", "SimpleNewtonRaphson",
+    "SimpleTrustRegion", "CMINPACK"]
 runtimes_scaling = zeros(length(solver_names), length(Ns)) .- 1
 prob_alg_mapping = [
     (:dense, NewtonRaphson()), (:approx, NewtonRaphson()), (:exact, NewtonRaphson()),
     (:dense, TrustRegion()), (:approx, TrustRegion()), (:exact, TrustRegion()),
-    (:dense, KINSOL()), (:dense, CMINPACK()), (:dense, NLsolveJL()),
-    (:dense, SimpleNewtonRaphson()), (:dense, SimpleTrustRegion())]
+    (:dense, KINSOL()), (:dense, NLsolveJL()), (:dense, SimpleNewtonRaphson()),
+    (:dense, SimpleTrustRegion()), (:dense, CMINPACK())]
 
 for (i, N) in enumerate(Ns)
     prob_dense = generate_brusselator_problem(N; abstol=1e-6, reltol=1e-6)
@@ -126,12 +126,12 @@ for (i, N) in enumerate(Ns)
             prob = prob_exact_sparse
         end
 
-        if j > 1 && runtimes_scaling[j - 1, i] == -1
+        if (j > 1 && runtimes_scaling[j - 1, i] == -1) || (N > 32 && alg isa CMINPACK) # CMINPACK is pretty worthless and our macro doesn't work with it
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             println("    $(solver_names[j]): Would Have Timed out")
         else
-            @timeout 1000 begin
+            @timeout 600 begin
                 sol = solve(prob, alg)
                 runtimes_scaling[j, i] = @belapsed solve($prob, $alg)
                 println("    $(solver_names[j]): ", runtimes_scaling[j, i],
