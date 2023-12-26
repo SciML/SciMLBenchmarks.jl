@@ -15,23 +15,6 @@ These benchmarks compares the runtime and error for a range of nonlinear solvers
 - NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
 - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
-Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following line search options (in addition to the default):
-
-- `HagerZhang`
-- `MoreThuente`
-- `BackTracking`
-
-and for NonlinearSolve.jl's Newton trust region we try the following radius update schemes (in addition to the default):
-
-- `NLsolve` 
-- `NocedalWright` 
-- `Hei` 
-- `Yuan` 
-- `Bastin` 
-- `Fan`
-
-The plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded.
-
 # Setup
 
 Fetch required packages.
@@ -98,7 +81,7 @@ solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",            solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (BackTracking LineSearch)",           solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking()))),
     (; pkg = :nonlinearsolve,       name = "Newton Krylov with GMRES",                           solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson",                              solver = Dict(:alg => SimpleNewtonRaphson())),
+    (; pkg = :nonlinearsolve,       name = "DFSane",                                             solver = Dict(:alg => DFSane())),
     (; pkg = :nonlinearsolve,       name = "Trust Region",                                       solver = Dict(:alg => TrustRegion())),
     (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
     (; pkg = :nonlinearsolve,       name = "Trust Region (Nocedal Wright)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright))),
@@ -106,9 +89,8 @@ solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Trust Region (Yuan)",                                solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan))),
     (; pkg = :nonlinearsolve,       name = "Trust Region (Bastin)",                              solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin))),
     (; pkg = :nonlinearsolve,       name = "Trust Region (Fan)",                                 solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region",                                solver = Dict(:alg => SimpleTrustRegion())),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt ",                               solver = Dict(:alg => LevenbergMarquardt())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (Cholesky)",                     solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                  solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
     (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :hybr))),
     (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(; method = :lm))),
     (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
@@ -247,8 +229,8 @@ testcase = (; prob = NonlinearProblem(f!, dict["start"]), true_sol = dict["sol"]
 
 Sets tolerances.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (3:0.5:6)
-reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
+abstols = 1.0 ./ 10.0 .^ (1:0.5:7)
+reltols = 1.0 ./ 10.0 .^ (1:0.5:7);
 ```
 
 Prepares various helper functions for benchmarking a specific problem.
@@ -288,7 +270,7 @@ function generate_wpset(prob, solvers)
     return WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(successful_solvers, :solver);
         names = getfield.(successful_solvers, :name), numruns = 50, error_estimate = :l∞,
-        maxiters = 10000), successful_solvers
+        maxiters = 10000, verbose = true), successful_solvers
 end
 ```
 
@@ -299,50 +281,52 @@ We here run benchmarks for each of the solvers.
 ## Problem
 
 ```julia
-wp_set, successful_solvers = generate_wpset(testcase, solvers_all)
+wp_set, successful_solvers = generate_wpset(testcase, solvers_all);
 ```
 
 ## Plot and Save the Plot
 
 ```julia
-LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
-    :wrapper => :dot)
-ASPECT_RATIO = (sqrt(5.0) - 1) / 2
-WIDTH = 1400
-HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+fig = begin
+    LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+        :wrapper => :dot)
+    ASPECT_RATIO = 0.7 #(sqrt(5) - 1) / 2
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
 
-cycle = Cycle([:color, :marker], covary = true)
-base_theme = Theme(fonts = (; regular = "Libertine", bold = "Libertine Bold"))
-plot_theme = merge(base_theme, Theme(Lines = (; cycle,), Scatter = (; cycle,)))
+    cycle = Cycle([:color, :marker], covary = true)
+    base_theme = Theme(fonts = (; regular = "Libertine", bold = "Libertine Bold"))
+    plot_theme = merge(base_theme, Theme(Lines = (; cycle,), Scatter = (; cycle,)))
 
-fig = with_theme(plot_theme; fontsize = 32) do 
-    fig = Figure(; size = (WIDTH, HEIGHT))
-    # `textbf` doesn't work
-    ax = Axis(fig[1, 1], ylabel = L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$",
-        title = "Battery Problem",
-        xlabel = L"$\mathrm{\mathbf{Error}}$: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
-        xscale = log10, yscale = log10, xtickwidth = 5, ytickwidth = 5, titlesize = 36,
-        spinewidth = 5)
+    with_theme(plot_theme; fontsize = 32) do 
+        fig = Figure(; size = (WIDTH, HEIGHT))
+        # `textbf` doesn't work
+        ax = Axis(fig[1, 1], ylabel = L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$",
+            title = "Battery Problem",
+            xlabel = L"$\mathrm{\mathbf{Error}}$: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+            xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+            ytickwidth = STROKEWIDTH, titlesize = 36, spinewidth = STROKEWIDTH)
 
-    ls, scs = [], []
+        ls, scs = [], []
 
-    for (wp, solver) in zip(wp_set.wps, successful_solvers)
-        (; name, times, errors) = wp
-        errors = [err.l∞ for err in errors]
-        l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
-            linewidth = 5)
-        sc = scatter!(ax, errors, times; label = name, markersize = 24, strokewidth = 3,
-            alpha = 0.75)
-        push!(ls, l)
-        push!(scs, sc)
+        for (wp, solver) in zip(wp_set.wps, successful_solvers)
+            (; name, times, errors) = wp
+            errors = [err.l∞ for err in errors]
+            l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
+                linewidth = 5)
+            sc = scatter!(ax, errors, times; label = name, markersize = 24, strokewidth = 1)
+            push!(ls, l)
+            push!(scs, sc)
+        end
+
+        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+            [solver.name for solver in successful_solvers], "Successful Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 24, margin = (-85.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
+
+        fig
     end
-
-    Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
-        [solver.name for solver in successful_solvers], "Successful Solvers";
-        framevisible=true, framewidth=3, orientation = :horizontal, titlesize = 24,
-        margin = (-100.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
-
-    fig
 end
 
 fig
