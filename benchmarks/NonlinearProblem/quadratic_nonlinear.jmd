@@ -8,8 +8,8 @@ This is a test of a simple small nonlinear rootfinding problem.
 ```julia
 using NonlinearSolve, StaticArrays, DiffEqDevTools, Sundials, CairoMakie, LinearSolve,
     LinearAlgebra, LoopVectorization, StableRNGs
-import PolyesterForwardDiff
-import MINPACK, NLsolve, SpeedMapping
+import PolyesterForwardDiff, MINPACK, NLsolve, SpeedMapping
+RUS = RadiusUpdateSchemes;
 
 f_oop(u, p) = u .* u .- p
 
@@ -20,8 +20,7 @@ function f_iip(du, u, p)
 end
 
 function generate_prob(::Val{N}, ::Val{static}) where {N, static}
-    # u0_ = rand(StableRNG(0), N)
-    u0_ = ones(N)
+    u0_ = ones(N) .+ randn(StableRNG(0), N) * 0.01
     u0 = static ? SVector{N, Float64}(u0_) : u0_
     prob = static ? NonlinearProblem{false}(f_oop, u0, 2.0) :
            NonlinearProblem{true}(f_iip, u0, 2.0)
@@ -33,29 +32,31 @@ List of Solvers to Benchmark:
 
 ```julia
 solvers = [
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoFiniteDiff())), name = "SimpleNewtonRaphson (FiniteDiff)"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoFiniteDiff())), name = "SimpleTrustRegion (FiniteDiff)"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson()), name = "SimpleNewtonRaphson (Polyester)"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion()), name = "SimpleTrustRegion (Polyester)"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoForwardDiff())), name = "SimpleNewtonRaphson"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoForwardDiff())), name = "SimpleTrustRegion"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleKlement()), name = "SimpleKlement"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleDFSane()), name = "SimpleDFSane"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleBroyden()), name = "SimpleBroyden"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => NewtonRaphson(; autodiff = AutoFiniteDiff())), name = "NewtonRaphson (FiniteDiff)"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => TrustRegion(; autodiff = AutoFiniteDiff())), name = "TrustRegion (FiniteDiff)"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => NewtonRaphson()), name = "NewtonRaphson"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => TrustRegion()), name = "TrustRegion"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => Broyden()), name = "Broyden"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => Klement()), name = "Klement"),
-    (; type = :nonlinearsolve, solver = Dict(:alg => DFSane()), name = "DFSane"),
-    (; type = :others, solver = Dict(:alg => KINSOL()), name = "Sundials: KINSOL"),
-    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :lm)), name = "MINPACK: Levenberg-Marquardt"),
-    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :hybr)), name = "MINPACK: Modified Powell"),
-    (; type = :others, solver = Dict(:alg => SpeedMappingJL()), name = "SpeedMapping.jl: speedmapping"),
-    (; type = :others, solver = Dict(:alg => NLsolveJL(; autodiff = :forward)), name = "NLsolve: TrustRegion"),
-    (; type = :others, solver = Dict(:alg => NLsolveJL()), name = "NLsolve: TrustRegion (FiniteDiff)"),
-]
+    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                              solver = Dict(:alg => nothing)),
+    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson -- FiniteDiff",                solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoFiniteDiff()))),
+    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region -- FiniteDiff",                  solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoFiniteDiff()))),
+    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson",                              solver = Dict(:alg => SimpleNewtonRaphson())),
+    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region",                                solver = Dict(:alg => SimpleTrustRegion())),
+    (; pkg = :simplenonlinearsolve, name = "Simple Klement",                                     solver = Dict(:alg => SimpleKlement())),
+    (; pkg = :simplenonlinearsolve, name = "Simple Broyden",                                     solver = Dict(:alg => SimpleBroyden())),
+    (; pkg = :simplenonlinearsolve, name = "Simple DFSane",                                      solver = Dict(:alg => SimpleDFSane())),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                     solver = Dict(:alg => NewtonRaphson())),
+    (; pkg = :nonlinearsolve,       name = "DFSane",                                             solver = Dict(:alg => DFSane())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region",                                       solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve,       name = "Broyden",                                            solver = Dict(:alg => Broyden())),
+    (; pkg = :nonlinearsolve,       name = "Klement",                                            solver = Dict(:alg => Klement())),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt ",                               solver = Dict(:alg => LevenbergMarquardt())),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                  solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
+    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(; method = :lm))),
+    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                          solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                          solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                    solver = Dict(:alg => SpeedMappingJL())),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseForwardDiff",                solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseForwardDiff()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseFiniteDiff",                 solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseFiniteDiff()))),
+];
 ```
 
 Configurations:
@@ -69,6 +70,7 @@ Helper Functions:
 
 ```julia
 function check_solver(prob, solver)
+    prob.u0 isa StaticArray && solver.pkg === :wrapper && return false
     try
         sol = solve(prob, solver.solver[:alg]; abstol = 1e-5, reltol = 1e-5,
             maxiters = 10000)
@@ -106,34 +108,72 @@ end
 Plotting Functions:
 
 ```julia
-function plot_wpset(wpset, successful_solvers, title)
+# This is hardcoded for 4 input length
+function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
+    @assert length(wpset_list) == length(titles) == 4
+    LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+        :wrapper => :dot)
+    ASPECT_RATIO = 0.7 #(sqrt(5) - 1) / 2
+    WIDTH = 1400 * 2
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
     cycle = Cycle([:color, :marker], covary = true)
-    theme = merge(theme_latexfonts(), Theme(Lines = (cycle = cycle,),
-        Scatter = (cycle = cycle,)))
+    base_theme = Theme(fonts = (; regular = "Libertine", bold = "Libertine Bold"))
+    plot_theme = merge(base_theme, Theme(Lines = (; cycle,), Scatter = (; cycle,)))
 
-    linestyle = Dict(:simplenonlinearsolve => :solid, :nonlinearsolve => :dash,
-        :others => :dot)
+    fig = with_theme(plot_theme; fontsize = 32) do 
+        fig = Figure(; size = (WIDTH, HEIGHT))
+        # `textbf` doesn't work
+        axs = Matrix{Any}(undef, 2, 2)
 
-    fig = with_theme(theme; fontsize = 32) do 
-        fig = Figure(; size = (1400, 1200))
-        ax = Axis(fig[1, 1]; ylabel = L"Time ($s$)", title, xscale = log10, yscale = log10,
-            xlabel = L"Error: $f(u^\ast)$ $L_{\infty}$-norm")
-
-        ls, scs = [], []
-        
-        for (wp, solver) in zip(wpset.wps, successful_solvers)
-            (; name, times, errors) = wp
-            errors = [err.l∞ for err in errors]
-            l = lines!(ax, errors, times; label = name, linewidth = 3, linestyle = linestyle[solver.type])
-            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 3)
-            push!(ls, l)
-            push!(scs, sc)
+        for i in 1:2, j in 1:2
+            ylabel = j == 1 ? L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$" : ""
+            xlabel = i == 2 ? L"$\mathrm{\mathbf{Error}}$: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$" : ""
+            ax = Axis(fig[i, j]; ylabel = ylabel, title = titles[2 * (i - 1) + j],
+                xlabel = xlabel, xticksvisible =  i == 2, yticksvisible = j == 1,
+                xticklabelsvisible = i == 2, yticklabelsvisible = j == 1,
+                xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+                ytickwidth = STROKEWIDTH, titlesize = 36, spinewidth = STROKEWIDTH)
+            axs[i, j] = ax
         end
 
-        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in successful_solvers], position = :ct, color = :white,
-            framevisible=false, label = "Solvers", orientation = :horizontal,
-            tellwidth = false, tellheight = true, nbanks = 6, labelsize = 20)
+        ls, scs = [], []
+        label_list = []
+
+        for (idx_solver, solver) in enumerate(reverse(solver_all))
+            first_success = true
+            for i in 1:2, j in 1:2
+                wpset, successful_solvers = wpset_list[2 * (i - 1) + j]
+
+                idx = findfirst(==(solver.name), [solver.name for solver in successful_solvers])
+                idx === nothing && continue
+
+                (; name, times, errors) = wpset.wps[idx]
+                errors = [err.l∞ for err in errors]
+                l = lines!(axs[i, j], errors, times; linestyle = LINESTYLES[solver.pkg],
+                    label = name, linewidth = 3, color = Cycled(idx_solver))
+                sc = scatter!(axs[i, j], errors, times; label = name, markersize = 24,
+                    strokewidth = 1, marker = Cycled(idx_solver),
+                    color = Cycled(idx_solver))
+
+                if first_success
+                    push!(ls, l)
+                    push!(scs, sc)
+                    push!(label_list, solver.name)
+                    first_success = false
+                end
+            end
+        end
+
+        linkaxes!(axs...)
+
+        Legend(fig[3, :], collect(reverse([[l, sc] for (l, sc) in zip(ls, scs)])),
+            collect(reverse(label_list)),
+            "Solvers"; framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 30, margin = (-85.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 24)
+
+        fig[0, :] = Label(fig, suptitle, fontsize = 48, font = :bold)
 
         fig
     end
@@ -144,70 +184,30 @@ end
 
 ## Static Array Versions
 
-### N = 2
-
 ```julia
-prob = generate_prob(Val(2), Val(true))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 2")
+probs = [generate_prob(Val(N), Val(true)) for N in [2, 4, 8, 12]]
+wpsets = [generate_wpset(prob, solvers) for prob in probs]
+titles = ["N = 2", "N = 4", "N = 8", "N = 12"]
+
+fig = plot_all_wpsets(wpsets, solvers, titles, "Static Arrays")
 ```
 
-### N = 4
-
 ```julia
-prob = generate_prob(Val(4), Val(true))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 4")
+save("static_arrays_quadratic.svg", fig)
 ```
 
-### N = 8
+## Regular Julia Arrays
 
 ```julia
-prob = generate_prob(Val(8), Val(true))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 8")
+probs = [generate_prob(Val(N), Val(false)) for N in [4, 16, 128, 1024]]
+wpsets = [(@show length(prob.u0); generate_wpset(prob, solvers)) for prob in probs]
+titles = ["N = 4", "N = 16", "N = 128", "N = 1024"]
+
+fig = plot_all_wpsets(wpsets, solvers, titles, "Regular Julia Arrays")
 ```
 
-### N = 10
-
 ```julia
-prob = generate_prob(Val(10), Val(true))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 10")
-```
-
-## Julia Arrays
-
-### N = 2
-
-```julia
-prob = generate_prob(Val(2), Val(false))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 2")
-```
-
-### N = 8
-
-```julia
-prob = generate_prob(Val(8), Val(false))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 8")
-```
-
-### N = 32
-
-```julia
-prob = generate_prob(Val(32), Val(false))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 32")
-```
-
-### N = 128
-
-```julia
-prob = generate_prob(Val(128), Val(false))
-wpset, successful_solvers = generate_wpset(prob, solvers);
-fig = plot_wpset(wpset, successful_solvers, "N = 128")
+save("regular_arrays_quadratic.svg", fig)
 ```
 
 ## Appendix
