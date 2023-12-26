@@ -50,6 +50,7 @@ DEFAULT_AD = AutoForwardDiff(; chunksize = 12)
 
 solvers_all = [
 <<<<<<< HEAD
+<<<<<<< HEAD
     (; name = "Newton Raphson (No Line Search)",                    solver = Dict(:alg => NewtonRaphson(; autodiff = DEFAULT_AD))),
     (; name = "Newton Raphson (Hager & Zhang Line Search)",         solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = HagerZhang()), autodiff = DEFAULT_AD))),
     (; name = "Newton Raphson (More & Thuente Line Search)",        solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = MoreThuente()), autodiff = DEFAULT_AD))),
@@ -90,6 +91,8 @@ solvers_all = [
     (; name = "Broyden (No Line Search)",                           solver = Dict(:alg => Broyden())),
     (; name = "Broyden (True Jacobian + No Line Search)",           solver = Dict(:alg => Broyden(; init_jacobian = Val(:true_jacobian)))),
 =======
+=======
+>>>>>>> 68045cd (Bad rebase)
     (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                     solver = Dict(:alg => NewtonRaphson())),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",             solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang()))),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",            solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
@@ -114,17 +117,12 @@ solvers_all = [
     (; pkg = :wrapper,              name = "Newton Krylov [GMRES] (Sundials)",                   solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
     (; pkg = :wrapper,              name = "Newton Raphson with LineSearch (Sundials)",          solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
     (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                    solver = Dict(:alg => SpeedMappingJL()))
->>>>>>> 4786a86 (Make the plots look same)
 ];
 ```
 
 Setup the problem
 
 ```julia
-<<<<<<< HEAD
-
-=======
->>>>>>> 4786a86 (Make the plots look same)
 function f!(out, u, p = nothing)
     out[1] = -u[33]
     out[2] = -u[32]
@@ -256,10 +254,6 @@ reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
 Prepares various helper functions for benchmarking a specific problem.
 
 ```julia
-<<<<<<< HEAD
-
-=======
->>>>>>> 4786a86 (Make the plots look same)
 function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-5, reltol = 1e-5,
@@ -311,24 +305,6 @@ wp_set, successful_solvers = generate_wpset(testcase, solvers_all)
 ## Plot and Save the Plot
 
 ```julia
-<<<<<<< HEAD
-cycle = Cycle([:color, :linestyle, :marker], covary = true)
-theme = merge(theme_latexfonts(), Theme(Lines = (cycle = cycle,),
-    Scatter = (cycle = cycle,)))
-
-fig = with_theme(theme; fontsize = 32) do 
-    fig = Figure(; size = (1300, 1000))
-    ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", title = "Battery Problem",
-        xlabel = L"Error: $f(x^\ast)$ $L_{\infty}$-norm", xscale = log10, yscale = log10)
-
-    ls, scs = [], []
-    
-    for (wp, solver) in zip(wp_set.wps, successful_solvers)
-        (; name, times, errors) = wp
-        errors = [err.l∞ for err in errors]
-        l = lines!(ax, errors, times; label = name, linewidth = 3)
-        sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2)
-=======
 LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
     :wrapper => :dot)
 ASPECT_RATIO = (sqrt(5.0) - 1) / 2
@@ -357,21 +333,14 @@ fig = with_theme(plot_theme; fontsize = 32) do
             linewidth = 5)
         sc = scatter!(ax, errors, times; label = name, markersize = 24, strokewidth = 3,
             alpha = 0.75)
->>>>>>> 4786a86 (Make the plots look same)
         push!(ls, l)
         push!(scs, sc)
     end
 
     Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
-<<<<<<< HEAD
-        [solver.name for solver in successful_solvers], position = :ct, color = :white,
-        framevisible=false, label = "Solvers", orientation = :horizontal,
-        tellwidth = false, tellheight = true, nbanks = 5, labelsize = 20)
-=======
         [solver.name for solver in successful_solvers], "Successful Solvers";
         framevisible=true, framewidth=3, orientation = :horizontal, titlesize = 24,
         margin = (-100.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
->>>>>>> 4786a86 (Make the plots look same)
 
     fig
 end
