@@ -37,8 +37,9 @@ The plot compares the best methods from each of these categories to the various 
 Fetch required packages.
 
 ```julia
-using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials,
-    BenchmarkTools, LinearAlgebra, DiffEqDevTools, CairoMakie
+using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
+    BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie,
+    TuePlots
 RUS = RadiusUpdateSchemes;
 ```
 
@@ -48,6 +49,7 @@ Declare the benchmarked solvers (and their names and plotting options).
 DEFAULT_AD = AutoForwardDiff(; chunksize = 12)
 
 solvers_all = [
+<<<<<<< HEAD
     (; name = "Newton Raphson (No Line Search)",                    solver = Dict(:alg => NewtonRaphson(; autodiff = DEFAULT_AD))),
     (; name = "Newton Raphson (Hager & Zhang Line Search)",         solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = HagerZhang()), autodiff = DEFAULT_AD))),
     (; name = "Newton Raphson (More & Thuente Line Search)",        solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = MoreThuente()), autodiff = DEFAULT_AD))),
@@ -63,6 +65,23 @@ solvers_all = [
     (; name = "Levenberg-Marquardt (α_geodesic=0.75)",              solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_AD))),
     (; name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",    solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), autodiff = DEFAULT_AD))),
     (; name = "Levenberg-Marquardt (No Geodesic Accln.)",           solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = DEFAULT_AD))),
+=======
+<<<<<<< HEAD
+    (; name = "Newton Raphson (No Line Search)",                    solver = Dict(:alg => NewtonRaphson())),
+    (; name = "Newton Raphson (Hager & Zhang Line Search)",         solver = Dict(:alg => NewtonRaphson(linesearch = HagerZhang()))),
+    (; name = "Newton Raphson (More & Thuente Line Search)",        solver = Dict(:alg => NewtonRaphson(linesearch = MoreThuente()))),
+    (; name = "Newton Raphson (BackTracking Line Search)",          solver = Dict(:alg => NewtonRaphson(linesearch = BackTracking()))),
+    (; name = "Newton Krylov with GMRES",                           solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; name = "Newton Trust Region",                                solver = Dict(:alg => TrustRegion()),),
+    (; name = "Newton Trust Region (NLsolve Radius Update)",        solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.NLsolve))),
+    (; name = "Newton Trust Region (Nocedal Wright Radius Update)", solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.NocedalWright))),
+    (; name = "Newton Trust Region (Hei Radius Update)",            solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Hei))),
+    (; name = "Newton Trust Region (Yuan Radius Update)",           solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Yuan))),
+    (; name = "Newton Trust Region (Bastin Radius Update)",         solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Bastin))),
+    (; name = "Newton Trust Region (Fan Radius Update)",            solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Fan))),
+    (; name = "Levenberg-Marquardt (α_geodesic=0.75)",              solver = Dict(:alg => LevenbergMarquardt())),
+    (; name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",    solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
+>>>>>>> c0703f3 (Make the plots look same)
     (; name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(method = :hybr))),
     (; name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(method = :lm))),
     (; name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(method = :newton))),
@@ -70,13 +89,42 @@ solvers_all = [
     (; name = "KINSOL (Sundials)",                                  solver = Dict(:alg => KINSOL())),
     (; name = "Broyden (No Line Search)",                           solver = Dict(:alg => Broyden())),
     (; name = "Broyden (True Jacobian + No Line Search)",           solver = Dict(:alg => Broyden(; init_jacobian = Val(:true_jacobian)))),
+=======
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                     solver = Dict(:alg => NewtonRaphson())),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",             solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",            solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (BackTracking LineSearch)",           solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Krylov with GMRES",                           solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson",                              solver = Dict(:alg => SimpleNewtonRaphson())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region",                                       solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Nocedal Wright)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Hei)",                                 solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Yuan)",                                solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Bastin)",                              solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Fan)",                                 solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan))),
+    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region",                                solver = Dict(:alg => SimpleTrustRegion())),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt ",                               solver = Dict(:alg => LevenbergMarquardt())),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (Cholesky)",                     solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
+    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(; method = :lm))),
+    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                          solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                          solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              name = "Newton Krylov [GMRES] (Sundials)",                   solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch (Sundials)",          solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
+    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                    solver = Dict(:alg => SpeedMappingJL()))
+>>>>>>> 4786a86 (Make the plots look same)
 ];
 ```
 
 Setup the problem
 
 ```julia
+<<<<<<< HEAD
 
+=======
+>>>>>>> 4786a86 (Make the plots look same)
 function f!(out, u, p = nothing)
     out[1] = -u[33]
     out[2] = -u[32]
@@ -208,7 +256,10 @@ reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
 Prepares various helper functions for benchmarking a specific problem.
 
 ```julia
+<<<<<<< HEAD
 
+=======
+>>>>>>> 4786a86 (Make the plots look same)
 function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-5, reltol = 1e-5,
@@ -260,6 +311,7 @@ wp_set, successful_solvers = generate_wpset(testcase, solvers_all)
 ## Plot and Save the Plot
 
 ```julia
+<<<<<<< HEAD
 cycle = Cycle([:color, :linestyle, :marker], covary = true)
 theme = merge(theme_latexfonts(), Theme(Lines = (cycle = cycle,),
     Scatter = (cycle = cycle,)))
@@ -276,14 +328,50 @@ fig = with_theme(theme; fontsize = 32) do
         errors = [err.l∞ for err in errors]
         l = lines!(ax, errors, times; label = name, linewidth = 3)
         sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2)
+=======
+LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+    :wrapper => :dot)
+ASPECT_RATIO = (sqrt(5.0) - 1) / 2
+WIDTH = 1400
+HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+
+cycle = Cycle([:color, :marker], covary = true)
+base_theme = Theme(fonts = (; regular = "Libertine", bold = "Libertine Bold"))
+plot_theme = merge(base_theme, Theme(Lines = (; cycle,), Scatter = (; cycle,)))
+
+fig = with_theme(plot_theme; fontsize = 32) do 
+    fig = Figure(; size = (WIDTH, HEIGHT))
+    # `textbf` doesn't work
+    ax = Axis(fig[1, 1], ylabel = L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$",
+        title = "Battery Problem",
+        xlabel = L"$\mathrm{\mathbf{Error}}$: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+        xscale = log10, yscale = log10, xtickwidth = 5, ytickwidth = 5, titlesize = 36,
+        spinewidth = 5)
+
+    ls, scs = [], []
+
+    for (wp, solver) in zip(wp_set.wps, successful_solvers)
+        (; name, times, errors) = wp
+        errors = [err.l∞ for err in errors]
+        l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
+            linewidth = 5)
+        sc = scatter!(ax, errors, times; label = name, markersize = 24, strokewidth = 3,
+            alpha = 0.75)
+>>>>>>> 4786a86 (Make the plots look same)
         push!(ls, l)
         push!(scs, sc)
     end
 
     Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+<<<<<<< HEAD
         [solver.name for solver in successful_solvers], position = :ct, color = :white,
         framevisible=false, label = "Solvers", orientation = :horizontal,
         tellwidth = false, tellheight = true, nbanks = 5, labelsize = 20)
+=======
+        [solver.name for solver in successful_solvers], "Successful Solvers";
+        framevisible=true, framewidth=3, orientation = :horizontal, titlesize = 24,
+        margin = (-100.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
+>>>>>>> 4786a86 (Make the plots look same)
 
     fig
 end

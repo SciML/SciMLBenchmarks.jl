@@ -7,14 +7,22 @@ This is a test of a simple small nonlinear rootfinding problem.
 
 ```julia
 using NonlinearSolve, StaticArrays, DiffEqDevTools, Sundials, CairoMakie, LinearSolve,
-    LinearAlgebra
+    LinearAlgebra, LoopVectorization, StableRNGs
+import PolyesterForwardDiff
 import MINPACK, NLsolve, SpeedMapping
 
 f_oop(u, p) = u .* u .- p
-f_iip(du, u, p) = (du .= u .* u .- p)
+
+function f_iip(du, u, p)
+    @turbo for i in eachindex(u)
+        du[i] = u[i] * u[i] - p
+    end
+end
 
 function generate_prob(::Val{N}, ::Val{static}) where {N, static}
-    u0 = static ? ones(SVector{N, Float64}) : ones(N)
+    # u0_ = rand(StableRNG(0), N)
+    u0_ = ones(N)
+    u0 = static ? SVector{N, Float64}(u0_) : u0_
     prob = static ? NonlinearProblem{false}(f_oop, u0, 2.0) :
            NonlinearProblem{true}(f_iip, u0, 2.0)
     return prob
@@ -25,21 +33,28 @@ List of Solvers to Benchmark:
 
 ```julia
 solvers = [
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson()), name = "SimpleNewtonRaphson"),
-    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion()), name = "SimpleTrustRegion"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoFiniteDiff())), name = "SimpleNewtonRaphson (FiniteDiff)"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoFiniteDiff())), name = "SimpleTrustRegion (FiniteDiff)"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson()), name = "SimpleNewtonRaphson (Polyester)"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion()), name = "SimpleTrustRegion (Polyester)"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoForwardDiff())), name = "SimpleNewtonRaphson"),
+    (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoForwardDiff())), name = "SimpleTrustRegion"),
     (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleKlement()), name = "SimpleKlement"),
     (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleDFSane()), name = "SimpleDFSane"),
     (; type = :simplenonlinearsolve, solver = Dict(:alg => SimpleBroyden()), name = "SimpleBroyden"),
+    (; type = :nonlinearsolve, solver = Dict(:alg => NewtonRaphson(; autodiff = AutoFiniteDiff())), name = "NewtonRaphson (FiniteDiff)"),
+    (; type = :nonlinearsolve, solver = Dict(:alg => TrustRegion(; autodiff = AutoFiniteDiff())), name = "TrustRegion (FiniteDiff)"),
     (; type = :nonlinearsolve, solver = Dict(:alg => NewtonRaphson()), name = "NewtonRaphson"),
     (; type = :nonlinearsolve, solver = Dict(:alg => TrustRegion()), name = "TrustRegion"),
     (; type = :nonlinearsolve, solver = Dict(:alg => Broyden()), name = "Broyden"),
     (; type = :nonlinearsolve, solver = Dict(:alg => Klement()), name = "Klement"),
     (; type = :nonlinearsolve, solver = Dict(:alg => DFSane()), name = "DFSane"),
-    (; type = :others, solver = Dict(:alg => KINSOL()), name = "Newton's Method (Sundials)"),
-    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :lm)), name = "Levenberg-Marquardt (CMINPACK)"),
-    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :hybr)), name = "Hybrid Powell (CMINPACK)"),
-    (; type = :others, solver = Dict(:alg => SpeedMappingJL()), name = "SpeedMapping"),
-    (; type = :others, solver = Dict(:alg => NLsolveJL()), name = "NLsolve"),
+    (; type = :others, solver = Dict(:alg => KINSOL()), name = "Sundials: KINSOL"),
+    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :lm)), name = "MINPACK: Levenberg-Marquardt"),
+    (; type = :others, solver = Dict(:alg => CMINPACK(; method = :hybr)), name = "MINPACK: Modified Powell"),
+    (; type = :others, solver = Dict(:alg => SpeedMappingJL()), name = "SpeedMapping.jl: speedmapping"),
+    (; type = :others, solver = Dict(:alg => NLsolveJL(; autodiff = :forward)), name = "NLsolve: TrustRegion"),
+    (; type = :others, solver = Dict(:alg => NLsolveJL()), name = "NLsolve: TrustRegion (FiniteDiff)"),
 ]
 ```
 
@@ -102,7 +117,7 @@ function plot_wpset(wpset, successful_solvers, title)
     fig = with_theme(theme; fontsize = 32) do 
         fig = Figure(; size = (1400, 1200))
         ax = Axis(fig[1, 1]; ylabel = L"Time ($s$)", title, xscale = log10, yscale = log10,
-            xlabel = L"Error: $f(x^\ast)$ $L_{\infty}$-norm")
+            xlabel = L"Error: $f(u^\ast)$ $L_{\infty}$-norm")
 
         ls, scs = [], []
         
@@ -118,7 +133,7 @@ function plot_wpset(wpset, successful_solvers, title)
         Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in successful_solvers], position = :ct, color = :white,
             framevisible=false, label = "Solvers", orientation = :horizontal,
-            tellwidth = false, tellheight = true, nbanks = 3, labelsize = 20)
+            tellwidth = false, tellheight = true, nbanks = 6, labelsize = 20)
 
         fig
     end
