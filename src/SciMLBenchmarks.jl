@@ -4,6 +4,14 @@ using Weave, Pkg, IJulia, InteractiveUtils, Markdown
 
 repo_directory = joinpath(@__DIR__,"..")
 
+macro subprocess(ex, wait=true)
+  quote
+    local project = Pkg.project().path
+    local ex_str = $(esc(sprint(Base.show_unquoted, ex)))
+    run(`$(Base.julia_cmd()) --project=$(project) -e "$(ex_str)"`; wait=$(wait))
+  end
+end
+
 function weave_file(folder,file,build_list=(:script,:github))
   target = joinpath(folder, file)
   @info("Weaving $(target)")
@@ -61,17 +69,20 @@ end
 
 function weave_folder(folder, build_list=(:script,:github))
   for file in readdir(folder)
-      # Skip non-`.jmd` files
-      if !endswith(file, ".jmd")
-          continue
-      end
+    # Skip non-`.jmd` files
+    if !endswith(file, ".jmd")
+      continue
+    end
 
-      try
-          weave_file(folder, file, build_list)
-      catch e
-          @show folder, file
-          @error(e)
+    try
+      @eval @subprocess begin
+        using SciMLBenchmarks
+        SciMLBenchmarks.weave_file($folder, $file, $build_list)
       end
+    catch e
+      @show folder, file
+      @error(e)
+    end
   end
 end
 
