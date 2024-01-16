@@ -45,21 +45,24 @@ RUS = RadiusUpdateSchemes;
 Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
+DEFAULT_AD = AutoForwardDiff(; chunksize = 12)
+
 solvers_all = [
-    (; name = "Newton Raphson (No Line Search)",                    solver = Dict(:alg => NewtonRaphson())),
-    (; name = "Newton Raphson (Hager & Zhang Line Search)",         solver = Dict(:alg => NewtonRaphson(linesearch = HagerZhang()))),
-    (; name = "Newton Raphson (More & Thuente Line Search)",        solver = Dict(:alg => NewtonRaphson(linesearch = MoreThuente()))),
-    (; name = "Newton Raphson (BackTracking Line Search)",          solver = Dict(:alg => NewtonRaphson(linesearch = BackTracking()))),
-    (; name = "Newton Krylov with GMRES",                           solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
-    (; name = "Newton Trust Region",                                solver = Dict(:alg => TrustRegion()),),
-    (; name = "Newton Trust Region (NLsolve Radius Update)",        solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.NLsolve))),
-    (; name = "Newton Trust Region (Nocedal Wright Radius Update)", solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.NocedalWright))),
-    (; name = "Newton Trust Region (Hei Radius Update)",            solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Hei))),
-    (; name = "Newton Trust Region (Yuan Radius Update)",           solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Yuan))),
-    (; name = "Newton Trust Region (Bastin Radius Update)",         solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Bastin))),
-    (; name = "Newton Trust Region (Fan Radius Update)",            solver = Dict(:alg => TrustRegion(radius_update_scheme = RUS.Fan))),
-    (; name = "Levenberg-Marquardt (α_geodesic=0.75)",              solver = Dict(:alg => LevenbergMarquardt())),
-    (; name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",    solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
+    (; name = "Newton Raphson (No Line Search)",                    solver = Dict(:alg => NewtonRaphson(; autodiff = DEFAULT_AD))),
+    (; name = "Newton Raphson (Hager & Zhang Line Search)",         solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = HagerZhang()), autodiff = DEFAULT_AD))),
+    (; name = "Newton Raphson (More & Thuente Line Search)",        solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = MoreThuente()), autodiff = DEFAULT_AD))),
+    (; name = "Newton Raphson (BackTracking Line Search)",          solver = Dict(:alg => NewtonRaphson(; linesearch = LineSearchesJL(; method = BackTracking()), autodiff = DEFAULT_AD))),
+    (; name = "Newton Krylov with GMRES",                           solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region",                                solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_AD)),),
+    (; name = "Newton Trust Region (NLsolve Radius Update)",        solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve, autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region (Nocedal Wright Radius Update)", solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright, autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region (Hei Radius Update)",            solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei, autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region (Yuan Radius Update)",           solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan, autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region (Bastin Radius Update)",         solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin, autodiff = DEFAULT_AD))),
+    (; name = "Newton Trust Region (Fan Radius Update)",            solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan, autodiff = DEFAULT_AD))),
+    (; name = "Levenberg-Marquardt (α_geodesic=0.75)",              solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_AD))),
+    (; name = "Levenberg-Marquardt (α_geodesic, with Cholesky)",    solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), autodiff = DEFAULT_AD))),
+    (; name = "Levenberg-Marquardt (No Geodesic Accln.)",           solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = DEFAULT_AD))),
     (; name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(method = :hybr))),
     (; name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(method = :lm))),
     (; name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(method = :newton))),
