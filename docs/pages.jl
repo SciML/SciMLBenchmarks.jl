@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 13, 11, 9, 19, 17, 27, 4, 6, 15, 25, 5, 7, 14, 18, 28, 16, 26, 10, 8, 21, 20, 24, 3, 12, 22, 23, 2]
+    [1, 13, 11, 9, 19, 17, 27, 4, 6, 15, 25, 5, 7, 14, 18, 28, 16, 26, 10, 8, 21, 20, 24, 3, 12, 22, 23, 2, 29]
 )
 
 names = [
@@ -71,7 +71,8 @@ names = [
     "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
-    "SDE Adaptivity Benchmarks"]
+    "SDE Adaptivity Benchmarks",
+    "Surrogate Benchmarks"]
 
 for i in 1:length(pages)
     pages[i] = names[i] => pages[i][2]
