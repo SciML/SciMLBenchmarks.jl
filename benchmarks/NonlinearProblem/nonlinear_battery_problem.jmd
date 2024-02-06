@@ -21,41 +21,43 @@ Fetch required packages.
 
 ```julia
 using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
-    BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie,
-    TuePlots
+    BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie
 RUS = RadiusUpdateSchemes;
 ```
 
 Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
-DEFAULT_AD = AutoForwardDiff(; chunksize = 12)
+DEFAULT_FORWARD_AD = AutoForwardDiff(; chunksize = 12)
 
 solvers_all = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                              solver = Dict(:alg => nothing)),
-    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson -- FiniteDiff",                solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoFiniteDiff()))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region -- FiniteDiff",                  solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoFiniteDiff()))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson",                              solver = Dict(:alg => SimpleNewtonRaphson())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region",                                solver = Dict(:alg => SimpleTrustRegion())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Klement",                                     solver = Dict(:alg => SimpleKlement())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Broyden",                                     solver = Dict(:alg => SimpleBroyden())),
-    (; pkg = :simplenonlinearsolve, name = "Simple DFSane",                                      solver = Dict(:alg => SimpleDFSane())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                     solver = Dict(:alg => NewtonRaphson())),
-    (; pkg = :nonlinearsolve,       name = "DFSane",                                             solver = Dict(:alg => DFSane())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region",                                       solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve,       name = "Broyden",                                            solver = Dict(:alg => Broyden())),
-    (; pkg = :nonlinearsolve,       name = "Klement",                                            solver = Dict(:alg => Klement())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt ",                               solver = Dict(:alg => LevenbergMarquardt())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                  solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
-    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :hybr))),
-    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(; method = :lm))),
-    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                          solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                          solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                    solver = Dict(:alg => SpeedMappingJL())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseForwardDiff",                solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseForwardDiff()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseFiniteDiff",                 solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseFiniteDiff()))),
+    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => nothing)),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson(; autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",                 solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",                solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (BackTracking LineSearch)",               solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Krylov with GMRES",                               solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve,       name = "DFSane",                                                 solver = Dict(:alg => DFSane())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region",                                           solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                          solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Nocedal Wright)",                          solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.NocedalWright))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Hei)",                                     solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.Hei))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Yuan)",                                    solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.Yuan))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Bastin)",                                  solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.Bastin))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Fan)",                                     solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD, radius_update_scheme = RUS.Fan))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt",                                    solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_FORWARD_AD, linsolve = CholeskyFactorization()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (α_geodesic=0.75)",                  solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_FORWARD_AD, α_geodesic=0.75))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = DEFAULT_FORWARD_AD, linsolve = CholeskyFactorization()))),
+    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
+    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                              solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              name = "Newton Krylov [GMRES] (Sundials)",                       solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch (Sundials)",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
+    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                        solver = Dict(:alg => SpeedMappingJL()))
 ];
 ```
 
@@ -186,8 +188,8 @@ testcase = (; prob = NonlinearProblem(f!, dict["start"]), true_sol = dict["sol"]
 
 Sets tolerances.
 ```julia
-abstols = 1.0 ./ 10.0 .^ (3:0.5:7)
-reltols = 1.0 ./ 10.0 .^ (3:0.5:7);
+abstols = 1.0 ./ 10.0 .^ (3:0.5:6)
+reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
 ```
 
 Prepares various helper functions for benchmarking a specific problem.
@@ -195,9 +197,9 @@ Prepares various helper functions for benchmarking a specific problem.
 ```julia
 function check_solver(prob, solver)
     try
-        sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-5, reltol = 1e-5,
+        sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-4, reltol = 1e-4,
             maxiters = 10000)
-        err = norm(sol.resid)
+        err = norm(sol.resid, Inf)
         if !SciMLBase.successful_retcode(sol.retcode)
             Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
                 color = :red)
@@ -247,14 +249,13 @@ wp_set, successful_solvers = generate_wpset(testcase, solvers_all);
 fig = begin
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
         :wrapper => :dot)
-    ASPECT_RATIO = 0.7 #(sqrt(5) - 1) / 2
+    ASPECT_RATIO = 0.7
     WIDTH = 1400
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:color, :marker], covary = true)
-    base_theme = Theme(fonts = (; regular = "Libertine", bold = "Libertine Bold"))
-    plot_theme = merge(base_theme, Theme(Lines = (; cycle,), Scatter = (; cycle,)))
+    plot_theme = Theme(Lines = (; cycle,), Scatter = (; cycle,))
 
     with_theme(plot_theme; fontsize = 32) do 
         fig = Figure(; size = (WIDTH, HEIGHT))
@@ -280,7 +281,7 @@ fig = begin
         Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in successful_solvers], "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 24, margin = (-85.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
+            titlesize = 24, margin = (-85.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 16)
 
         fig
     end
@@ -298,7 +299,7 @@ save("battery_problem_work_precision.svg", fig)
 Finally, we print a summary of which solvers successfully solved which problems.
 
 ```julia
-solver_successes = [(solver in successful_solvers) ? "O" : "X" for solver in solvers_all];
+solver_successes = [(solver in successful_solvers) ? "✔" : "✖" for solver in solvers_all];
 ```
 
 ```julia; wrap = false; results = "md2html"
@@ -311,7 +312,6 @@ println(io, "```")
 Docs.Text(String(take!(io)))
 ```
 
-# Appendix
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
