@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Instantiate, to install the overall project dependencies, and `build()` for conda
-echo "--- Instantiate"
+echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
 if [[ "${1}" == *BayesianInference* ]]; then
@@ -17,6 +17,6 @@ if [[ "${1}" == *BayesianInference* ]]; then
 fi
 
 # Run benchmark
-echo "+++ Run benchmark for ${1}"
+echo "+++ :julia: Run benchmark for ${1}"
 julia --threads=auto --project=. benchmark.jl "${1}"
 
