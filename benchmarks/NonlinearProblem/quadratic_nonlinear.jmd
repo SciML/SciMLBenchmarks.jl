@@ -7,17 +7,12 @@ This is a test of a simple small nonlinear rootfinding problem.
 
 ```julia
 using NonlinearSolve, StaticArrays, DiffEqDevTools, Sundials, CairoMakie, LinearSolve,
-    LinearAlgebra, LoopVectorization, StableRNGs
+    LinearAlgebra, StableRNGs, BenchmarkTools, Setfield
 import PolyesterForwardDiff, MINPACK, NLsolve, SpeedMapping
 RUS = RadiusUpdateSchemes;
 
 f_oop(u, p) = u .* u .- p
-
-function f_iip(du, u, p)
-    @turbo for i in eachindex(u)
-        du[i] = u[i] * u[i] - p
-    end
-end
+f_iip(du, u, p) = @. du = u * u - p
 
 function generate_prob(::Val{N}, ::Val{static}) where {N, static}
     u0_ = ones(N) .+ randn(StableRNG(0), N) * 0.01
@@ -32,30 +27,24 @@ List of Solvers to Benchmark:
 
 ```julia
 solvers = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                              solver = Dict(:alg => nothing)),
-    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson -- FiniteDiff",                solver = Dict(:alg => SimpleNewtonRaphson(; autodiff = AutoFiniteDiff()))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region -- FiniteDiff",                  solver = Dict(:alg => SimpleTrustRegion(; autodiff = AutoFiniteDiff()))),
-    (; pkg = :simplenonlinearsolve, name = "Simple Newton Raphson",                              solver = Dict(:alg => SimpleNewtonRaphson())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Trust Region",                                solver = Dict(:alg => SimpleTrustRegion())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Klement",                                     solver = Dict(:alg => SimpleKlement())),
-    (; pkg = :simplenonlinearsolve, name = "Simple Broyden",                                     solver = Dict(:alg => SimpleBroyden())),
-    (; pkg = :simplenonlinearsolve, name = "Simple DFSane",                                      solver = Dict(:alg => SimpleDFSane())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                     solver = Dict(:alg => NewtonRaphson())),
-    (; pkg = :nonlinearsolve,       name = "DFSane",                                             solver = Dict(:alg => DFSane())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region",                                       solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                      solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve,       name = "Broyden",                                            solver = Dict(:alg => Broyden())),
-    (; pkg = :nonlinearsolve,       name = "Klement",                                            solver = Dict(:alg => Klement())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt ",                               solver = Dict(:alg => LevenbergMarquardt())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                  solver = Dict(:alg => LevenbergMarquardt(linsolve = CholeskyFactorization()))),
-    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :hybr))),
-    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                      solver = Dict(:alg => CMINPACK(; method = :lm))),
-    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                          solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                          solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                    solver = Dict(:alg => SpeedMappingJL())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseForwardDiff",                solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseForwardDiff()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson -- SparseFiniteDiff",                 solver = Dict(:alg => NewtonRaphson(; autodiff = AutoSparseFiniteDiff()))),
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Default PolyAlgorithm",           solver = Dict(:alg => nothing)),
+
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Newton Raphson",           solver = Dict(:alg => SimpleNewtonRaphson())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple DFSane",                   solver = Dict(:alg => SimpleDFSane())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Trust Region",             solver = Dict(:alg => SimpleTrustRegion())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Broyden",                  solver = Dict(:alg => SimpleBroyden())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Klement",                  solver = Dict(:alg => SimpleKlement())),
+
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Newton Raphson",                  solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "DFSane",                          solver = Dict(:alg => DFSane())),
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Trust Region",                    solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Broyden",                         solver = Dict(:alg => Broyden())),
+    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Klement",                         solver = Dict(:alg => Klement(; linsolve = \))),
+
+    (; pkg = :wrapper,              full_pkgname = "NLsolve.jl",              name = "Newton Raphson (NLsolve.jl)",     solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              full_pkgname = "NLsolve.jl",              name = "Trust Region (NLsolve.jl)",       solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              full_pkgname = "Sundials",                name = "Newton Raphson (Sundials)",       solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              full_pkgname = "SpeedMapping.jl",         name = "Speed Mapping (SpeedMapping.jl)", solver = Dict(:alg => SpeedMappingJL())),
 ];
 ```
 
@@ -76,20 +65,20 @@ function check_solver(prob, solver)
             maxiters = 10000)
         err = norm(sol.resid)
         if !SciMLBase.successful_retcode(sol.retcode)
-            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
-                color = :red)
+            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) \
+                              with an residual norm = $(norm(sol.resid)).\n"; color = :red)
             return false
         elseif err > 1e3
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
-                color = :red)
+            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm \
+                              = $(norm(sol.resid))).\n"; color = :red)
             return false
         elseif isinf(err) || isnan(err)
             Base.printstyled("[Warn] Solver $(solver.name) had a residual of $(err).\n";
                 color = :red)
             return false
         end
-        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
-            color = :green)
+        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem \
+                          (norm = $(norm(sol.resid))).\n"; color = :green)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
         return false
@@ -113,7 +102,7 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
     @assert length(wpset_list) == length(titles) == 4
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
         :wrapper => :dot)
-    ASPECT_RATIO = 0.7 #(sqrt(5) - 1) / 2
+    ASPECT_RATIO = 0.7
     WIDTH = 1400 * 2
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
@@ -205,8 +194,162 @@ titles = ["N = 4", "N = 16", "N = 128", "N = 1024"]
 fig = plot_all_wpsets(wpsets, solvers, titles, "Regular Julia Arrays")
 ```
 
+## Comparison against SimpleNonlinearSolve
+
 ```julia
-save("regular_arrays_quadratic.svg", fig)
+function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm{CJ, N}, ck) where {CJ, N}
+    ad = AutoForwardDiff(; chunksize = ck)
+    return GeneralizedFirstOrderAlgorithm{CJ, N}(; solver.descent, solver.linesearch,
+        solver.trustregion, jacobian_ad = ad, solver.max_shrink_times, solver.forward_ad,
+        solver.reverse_ad)
+end
+function __set_ad_chunksize(solver::SimpleNewtonRaphson, ck)
+    solver.autodiff === nothing || return solver
+    autodiff = AutoForwardDiff(; chunksize = ck)
+    return SimpleNewtonRaphson(; autodiff)
+end
+function __set_ad_chunksize(solver::SimpleTrustRegion, ck)
+    solver.autodiff === nothing || return solver
+    autodiff = AutoForwardDiff(; chunksize = ck)
+    return SimpleTrustRegion(; autodiff)
+end
+__set_ad_chunksize(solver, _) = solver
+
+function benchmark_combinations(solvers, probs)
+    return map(Iterators.product(solvers, probs)) do (solver, prob)
+        try
+            solver_concrete = prob.u0 isa SArray ? solver.solver[:alg] :
+                __set_ad_chunksize(solver.solver[:alg],
+                    min(NonlinearSolve.pickchunksize(prob.u0), 6))
+
+            sol = solve(prob, solver_concrete; abstol = 1e-10, reltol = 1e-10,
+                maxiters = 1000, termination_condition = AbsNormTerminationMode())
+            @info "Solver $(solver.name) successfully solved the problem with norm = \
+                $(norm(sol.resid, Inf))."
+            
+            if norm(sol.resid, Inf) ≤ 1e-10
+                tt = @belapsed solve($prob, $solver_concrete; abstol = 1e-10,
+                    reltol = 1e-10, maxiters = 1000)
+                @info "Solver $(solver.name) took $(tt) seconds."
+                return tt
+            else
+                return NaN
+            end
+        catch e
+            @error "Solver $(solver.name) threw an error."
+            return NaN
+        end
+    end
+end
+
+probs_sa = [generate_prob(Val(N), Val(true)) for N in [2, 4, 8, 12]];
+solve_timings_sa = benchmark_combinations(solvers, probs_sa)
+
+probs_reg = [generate_prob(Val(N), Val(false)) for N in [4, 16, 128, 1024]];
+solve_timings_reg = benchmark_combinations(solvers, probs_reg)
+
+function create_structure_data(solve_timings)
+    df = []
+    for (i, solver_setup) in enumerate(solvers)
+        if solver_setup.pkg === :simplenonlinearsolve
+            alg_name = string(solver_setup.name[8:end])
+            timings = solve_timings[i, :]
+            list = []
+            for (j, other_solver) in enumerate(solvers)
+                if other_solver.pkg !== :simplenonlinearsolve &&
+                    contains(other_solver.name, alg_name)
+                    this_timings = solve_timings[j, :]
+                    push!(list, other_solver.name => this_timings ./ timings)
+                end
+            end
+            push!(df, alg_name => list)
+        end
+    end
+    return df
+end
+
+df_sa = create_structure_data(solve_timings_sa)
+df_reg = create_structure_data(solve_timings_reg)
+
+fig = begin
+    ASPECT_RATIO = 0.7
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
+    fig = Figure(; size = (WIDTH, HEIGHT))
+
+    axs = Matrix{Any}(undef, 1, 4)
+
+    xs = reduce(vcat, [fill(i, length(dfᵢ.second)) for (i, dfᵢ) in enumerate(df_sa)])
+    dodge = reduce(vcat, [collect(1:length(dfᵢ.second)) for (i, dfᵢ) in enumerate(df_sa)])
+
+    for i in 1:4
+        ys = reduce(vcat, [[xx.second[i] for xx in dfᵢ.second] for dfᵢ in df_sa])
+
+        ax = Axis(fig[1, i];
+            ylabel = i == 1 ? L"Relative to $\mathbf{\mathrm{SimpleNonlinearSolve}}$" : "",
+            title = L"N = %$(length(probs_sa[i].u0))$",
+            xticksvisible = false, yticksvisible = true,
+            xticklabelsvisible = false, yticklabelsvisible = true, titlesize = 22,
+            spinewidth = STROKEWIDTH, xlabelsize = 20, ylabelsize = 20,
+            # xticks = (1:length(df_sa), [d.first for d in df_sa]),
+            xticklabelrotation = π / 4, xticklabelsize = 16, yticklabelsize = 16)
+        axs[1, i] = ax
+
+        barplot!(ax, xs, ys; dogde = dodge, color = dodge, colormap = :berlin,
+            strokewidth = 2.0)
+
+        hlines!(ax, [1.0], color = :black, linestyle = :dash, linewidth = 2)
+    end
+
+    linkaxes!(axs...)
+
+    axs = Matrix{Any}(undef, 1, 4)
+
+    xs = reduce(vcat, [fill(i, length(dfᵢ.second)) for (i, dfᵢ) in enumerate(df_reg)])
+    dodge = reduce(vcat, [collect(1:length(dfᵢ.second)) for (i, dfᵢ) in enumerate(df_reg)])
+
+    for i in 1:4
+        ys = reduce(vcat, [[xx.second[i] for xx in dfᵢ.second] for dfᵢ in df_reg])
+
+        ax = Axis(fig[2, i];
+            ylabel = i == 1 ? L"Relative to $\mathbf{\mathrm{SimpleNonlinearSolve}}$" : "",
+            title = L"N = %$(length(probs_reg[i].u0))$",
+            xticksvisible = true, yticksvisible = true,
+            xticklabelsvisible = true, yticklabelsvisible = true, titlesize = 22,
+            spinewidth = STROKEWIDTH, xlabelsize = 20, ylabelsize = 20,
+            xticks = (1:length(df_sa), [d.first for d in df_sa]),
+            xticklabelrotation = π / 4, xticklabelsize = 16, yticklabelsize = 16)
+        axs[1, i] = ax
+
+        barplot!(ax, xs, ys; color = dodge, dodge = dodge, colormap = :berlin,
+            strokewidth = 2.0)
+
+        hlines!(ax, [1.0], color = :black, linestyle = :dash, linewidth = 2)
+    end
+
+    linkaxes!(axs...)
+
+    fig[0, :] = Label(fig, "Simple Algorithms on Quadratic Root-Finding Problem",
+        fontsize = 24, font = :bold)
+    fig[1, 0] = Label(fig, "Static Arrays", fontsize = 24, rotation = π / 2,
+        tellheight = false)
+    fig[2, 0] = Label(fig, "Regular Julia Arrays", fontsize = 24, rotation = π / 2,
+        tellheight = false)
+
+    labels = ["NonlinearSolve.jl", "NLsolve.jl", "Sundials"]
+    colors = cgrad(:berlin, length(labels); categorical = true)
+    elements = [PolyElement(polycolor = colors[i]) for i in 1:3]
+    axislegend(axs[1, 4], elements, labels, "Package",
+        labelsize = 16, titlesize = 16, framewidth = STROKEWIDTH)
+
+    fig
+end
+```
+
+```julia
+save("summary_plot_simplenonlinearsolve.svg", fig)
 ```
 
 ```julia, echo = false
