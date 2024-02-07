@@ -43,30 +43,31 @@ RUS = RadiusUpdateSchemes;
 Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
-solvers_all = [ 
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson (No Line Search)",                        solver = Dict(:alg=>NewtonRaphson(; linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson (Hager & Zhang Line Search)",             solver = Dict(:alg=>NewtonRaphson(; linesearch = HagerZhang(), linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson (More & Thuente Line Search)",            solver = Dict(:alg=>NewtonRaphson(; linesearch = MoreThuente(), linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson (BackTracking Line Search)",              solver = Dict(:alg=>NewtonRaphson(; linesearch = BackTracking(), linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region",                                           solver = Dict(:alg=>TrustRegion(; linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (NLsolve Radius Update)",                   solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (Nocedal Wright Radius Update)",            solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.NocedalWright, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (Hei Radius Update)",                       solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.Hei, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (Yuan Radius Update)",                      solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.Yuan, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (Bastin Radius Update)",                    solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.Bastin, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region (Fan Radius Update)",                       solver = Dict(:alg=>TrustRegion(; radius_update_scheme = RUS.Fan, linsolve = LUFactorization()))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75)",                  solver = Dict(:alg=>LevenbergMarquardt(; linsolve = QRFactorization()))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.75, with Cholesky)",   solver = Dict(:alg=>LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5)",                   solver = Dict(:alg=>LevenbergMarquardt(; linsolve = QRFactorization(), α_geodesic=0.5))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (α_geodesic=0.5, with Cholesky)",    solver = Dict(:alg=>LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic=0.5))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (no Geodesic Accln.)",               solver = Dict(:alg=>LevenbergMarquardt(; disable_geodesic = Val(true)))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt (no Geodesic Accln. with Cholesky)",  solver = Dict(:alg=>LevenbergMarquardt(; linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
-    (; pkg = :wrapper,        type = :general, name = "PseudoTransient (alpha_initial=10.0)",                   solver = Dict(:alg=>PseudoTransient(; linsolve = LUFactorization(), alpha_initial=10.0))),
-    (; pkg = :wrapper,        type = :general, name = "Modified Powell (CMINPACK)",                             solver = Dict(:alg=>CMINPACK(; method=:hybr))),
-    (; pkg = :wrapper,        type = :general, name = "Levenberg-Marquardt (CMINPACK)",                         solver = Dict(:alg=>CMINPACK(; method=:lm))),
-    (; pkg = :wrapper,        type = :general, name = "Newton Raphson (NLsolveJL)",                             solver = Dict(:alg=>NLsolveJL(; method=:newton))),
-    (; pkg = :wrapper,        type = :general, name = "Trust Region (NLsolveJL)",                               solver = Dict(:alg=>NLsolveJL())),
-    (; pkg = :wrapper,        type = :general, name = "Newton Raphson (Sundials)",                              solver = Dict(:alg=>KINSOL()))
+solvers_all = [
+    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson(; linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",                                        solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang(), linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",                                       solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente(), linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (BackTracking)",                                      solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking(), linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region",                                           solver = Dict(:alg => TrustRegion(; linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (NLsolve Update)",                                    solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Nocedal Wright)",                                    solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Hei)",                                               solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Yuan)",                                              solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Bastin)",                                            solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Fan)",                                               solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan, linsolve = LUFactorization()))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt",                                    solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization()))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "LM with Cholesky",                                       solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5)",                                    solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), α_geodesic=0.5))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5) Chol.",                              solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic=0.5))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.)",                                         solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true)))),
+    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.) Chol.",                                   solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
+    (; pkg = :wrapper,        type = :general, name = "Pseudo Transient",                                       solver = Dict(:alg => PseudoTransient(; linsolve = LUFactorization(), alpha_initial=10.0))),
+    (; pkg = :wrapper,        type = :general, name = "Powell (MINPACK)",                                       solver = Dict(:alg => CMINPACK(; method=:hybr))),
+    (; pkg = :wrapper,        type = :general, name = "LM (MINPACK)",                                           solver = Dict(:alg => CMINPACK(; method=:lm))),
+    (; pkg = :wrapper,        type = :general, name = "NR (NLsolve.jl)",                                        solver = Dict(:alg => NLsolveJL(; method=:newton))),
+    (; pkg = :wrapper,        type = :general, name = "TR (NLsolve.jl)",                                        solver = Dict(:alg => NLsolveJL())),
+    (; pkg = :wrapper,        type = :general, name = "NR (Sundials)",                                          solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,        type = :general, name = "NR LineSearch (Sundials)",                               solver = Dict(:alg => KINSOL(; globalization_strategy=:LineSearch)))
 ];
 solver_tracker = [];
 ```
@@ -104,9 +105,10 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
     prob = nlprob_23_testcases[prob_name]
 
     # Finds the solvers that can solve the problem
-    solvers_concrete = set_ad_chunksize(solvers_all, prob.prob.u0)
-    successful_solvers = filter(solver -> check_solver(prob, solver), solvers_concrete)
-    push!(solver_tracker, prob_name => successful_solvers)
+    solvers_concrete = set_ad_chunksize(solvers_all, prob.prob.u0);
+    successful_solvers = filter(solver -> check_solver(prob, solver), solvers_concrete);
+    solver_tracker_2 = []
+    push!(solver_tracker_2, prob_name => successful_solvers);
 
     # Handles the non-general cases.
     solvers_NR = filter(s -> s.type==:NR, successful_solvers)
@@ -124,26 +126,19 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
 
     # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
-    add_solver!(solvers_general, selected_TR, solvers_TR, wp_TR)
-    add_solver!(solvers_general, selected_LM, solvers_LM, wp_LM)
-    add_solver!(solvers_general, selected_NR, solvers_NR, wp_NR)
+    add_solver!(solvers_general, nothing, solvers_TR, wp_TR)
+    add_solver!(solvers_general, nothing, solvers_LM, wp_LM)
+    add_solver!(solvers_general, nothing, solvers_NR, wp_NR)
 
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
         numruns=100, error_estimate=:l∞, maxiters=10000)
     
-    xlimit, ylimit, xticks, yticks = get_limits_and_ticks(wp_general, wp_NR, wp_TR, wp_LM)
-    wp_plot_general = plot_wp(wp_general, solvers_general, xguide="", xlimit, ylimit,
-        linewidth=7, true, xticks=(xticks, fill("", length(xticks))), yticks=yticks)
-    wp_plot_NR = plot_wp(wp_NR, solvers_NR, xlimit, ylimit, linewidth=7, true; xguide="",
-        yguide="", xticks=(xticks, fill("", length(xticks))),
-        yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
-    wp_plot_TR = plot_wp(wp_TR, solvers_TR, xlimit, ylimit, linewidth=7, false;
-        xticks=xticks, yticks=yticks)
-    wp_plot_LM = plot_wp(wp_LM, solvers_LM, xlimit, ylimit, linewidth=7, false; yguide="",
-        xticks=xticks, yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
-    plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(2,2),
-        size=(1600,2100), left_margin=12mm)
+    fig = plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
+
+    save(replace(lowercase(prob_name), " " => "_") * "_wpd.svg", fig)
+
+    return fig
 end
 
 # Checks if a solver can successfully solve a given problem.
@@ -152,15 +147,18 @@ function check_solver(prob, solver)
         sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8,
             maxiters=10000000, termination_condition=AbsNormTerminationMode())
         if norm(sol.resid, Inf) < 1e-6
-            Base.printstyled("[Info] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid, Inf)).\n"; color=:green)
+            Base.printstyled("[Info] Solver $(solver.name) returned retcode $(sol.retcode) \
+                with an residual norm = $(norm(sol.resid, Inf)).\n"; color=:green)
             return true
         else
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid, Inf))).\n"; color=:red)
+            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual \
+                (norm = $(norm(sol.resid, Inf))).\n"; color=:red)
             return false
         end
-        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver]; names=[solver.name], numruns=100, error_estimate=:l∞, maxiters=10000000)
+        WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver];
+            names=[solver.name], numruns=100, error_estimate=:l∞, maxiters=10000000)
     catch e
-        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)    
+        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)
         return false
     end
     return true
@@ -174,9 +172,12 @@ function add_solver!(solvers_general, selected_solver_name, additional_solver_se
         selected_idx = argmin(median.(getfield.(wp.wps, :times))) 
     else
         selected_idx = findfirst(s -> s.name==selected_solver_name, additional_solver_set)
-        isnothing(selected_solver) && error("The $(selected_solver_name) was designated to be added to the general solver set, however, it seemed to fail on this problem.")
+        isnothing(selected_solver) && error("The $(selected_solver_name) was designated to \
+            be added to the general solver set, however, it seemed to fail on this \
+            problem.")
     end
-    isnothing(selected_idx) || pushfirst!(solvers_general, additional_solver_set[selected_idx])   
+    isnothing(selected_idx) ||
+        pushfirst!(solvers_general, additional_solver_set[selected_idx])
 end;
 ```
 
@@ -184,86 +185,75 @@ Plotting related helper functions.
 
 ```julia
 # Plots a work-precision diagram.
-function plot_wp(wp, selected_solvers, xlimit, ylimit, top; kwargs...)
-    color = reshape(getfield.(selected_solvers, :color),1,length(selected_solvers))
-    markershape = reshape(getfield.(selected_solvers, :markershape),1,length(selected_solvers))
+function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
+    LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+        :wrapper => :dot)
+    ASPECT_RATIO = 0.7
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
 
-    if isempty(wp.wps)
-        (:xguide in keys(kwargs)) || (kwargs = (; xguide="Error", kwargs...))
-        (:yguide in keys(kwargs)) || (kwargs = (; yguide="Time (s)", kwargs...))
-        plt = plot(;xlimit=xlimit, ylimit=ylimit, legend=:none, xaxis=:log10, yaxis=:log10, kwargs...)
-        if top
-            plt_legend = plot(;xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outerbottom, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
-            return plot(plt_legend, plt, layout = grid(2, 1, heights=[0.25, 0.75]), top_margin=0mm, bottom_margin=0mm)
-        else
-            plt_legend = plot(;xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outertop, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
-            return plot(plt, plt_legend, layout = grid(2, 1, heights=[0.75, 0.25]), top_margin=0mm, bottom_margin=0mm)
+    colors = cgrad(:berlin, length(solvers_all); categorical = true)
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+    fig = with_theme(plot_theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+        axs = []
+
+        for i in 1:2, j in 1:2
+            wp = (wp_general, wp_NR, wp_TR, wp_LM)[2 * (i - 1) + j]
+
+            if isempty(wp.wps)
+                error("TODO")
+            end
+
+            ax = Axis(fig[i + 1, j], ylabel = j == 1 ? L"Time $\mathbf{(s)}$" : "",
+                xlabelsize = 22, ylabelsize = 22,
+                xlabel = i == 2 ? L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$" : "",
+                xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+                ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
+                xticklabelsize = 20, yticklabelsize = 20,
+                xticklabelsvisible = i == 2, yticklabelsvisible = j == 1,
+                xticksvisible = i == 2, yticksvisible = j == 1,)
+            push!(axs, ax)
+
+            ls = []
+            scs = []
+
+            for wpᵢ in wp.wps
+                idx = findfirst(s -> s.name == wpᵢ.name, solvers_all)
+                errs = getindex.(wpᵢ.errors, :l∞)
+                errs = ifelse.(iszero.(errs), 1e-40, errs)
+                times = wpᵢ.times
+                l = lines!(ax, errs, times; color = colors[idx], linewidth = 5,
+                    linestyle = LINESTYLES[solvers_all[idx].pkg], alpha = 0.8,
+                    label = wpᵢ.name)
+                sc = scatter!(ax, errs, times; color = colors[idx], markersize = 16,
+                    strokewidth = 2, marker = Cycled(idx), alpha = 0.8, label = wpᵢ.name)
+                push!(ls, l)
+                push!(scs, sc)
+            end
+
+            legend_title = ("", "Newton Raphson", "Trust Region", "Levenberg-Marquardt")[2 * (i - 1) + j]
+
+            Legend(fig[ifelse(i == 1, 1, 4), j], [[l, sc] for (l, sc) in zip(ls, scs)],
+                [wpᵢ.name for wpᵢ in wp.wps], legend_title;
+                framevisible=true, framewidth = STROKEWIDTH,
+                nbanks = 3, labelsize = 16, titlesize = 16,
+                tellheight = true, tellwidth = false)
         end
-    end
-    plt = plot(wp; color=color, markershape=markershape, xlimit=xlimit, ylimit=ylimit, legend=:none, kwargs...)
-    if top
-        plt_legend = plot(wp; color=color, markershape=markershape, xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outerbottom, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
-        return plot(plt_legend, plt, layout = grid(2, 1, heights=[0.25, 0.75]), top_margin=0mm, bottom_margin=0mm)
-    else
-        plt_legend = plot(wp; color=color, markershape=markershape, xlimit=(1e6,1e6+1), ylimit=(0.01,0.011), legend=:outertop, axis=false, grid=false, framestyle=:none, margin=0mm, kwargs...)
-        return plot(plt, plt_legend, layout = grid(2, 1, heights=[0.75, 0.25]), top_margin=0mm, bottom_margin=0mm)
-    end
-end
 
-# For a set of wp diaggras, get ticks and limits.
-function get_limits_and_ticks(args...)
-    xlimit = [Inf, -Inf]
-    ylimit = [Inf, -Inf]
-    for wp in args
-        isempty(wp.wps) && continue
-        xlim, ylim = xy_limits(wp)
-        (xlimit[1] > xlim[1]) && (xlimit[1] = xlim[1])
-        (xlimit[2] < xlim[2]) && (xlimit[2] = xlim[2])
-        (ylimit[1] > ylim[1]) && (ylimit[1] = ylim[1])
-        (ylimit[2] < ylim[2]) && (ylimit[2] = ylim[2])
-    end
-    xlimit = Tuple(xlimit)
-    ylimit = Tuple(ylimit)
-    xticks = get_ticks(xlimit)
-    yticks = get_ticks(ylimit)
-    return xlimit, ylimit, xticks, yticks 
-end
+        linkaxes!(axs...)
 
-# Finds good x and y limits for a work precision diagram.
-function xy_limits(wp)
-    times = vcat(map(wp -> wp.times, wp.wps)...)
-    errors = vcat(map(wp -> wp.errors.l∞, wp.wps)...)
-    xlimit = 10 .^ (floor(log10(minimum(errors))), ceil(log10(maximum(errors))))
-    ylimit = 10 .^ (floor(log10(minimum(times))), ceil(log10(maximum(times))))
-    return xlimit, ylimit
-end
+        fig[0, :] = Label(fig, "Work-Precision Diagram for $(prob_name)",
+            fontsize = 24, tellwidth = false, font = :bold)
 
-# Finds good x and y ticks for a work precision diagram.
-function arithmetic_sequences(v1, v2)
-    sequences = []
-    for n in 2:(v2-v1+1)
-        d = (v2 - v1) / (n - 1)
-        if d == floor(d)  
-            sequence = [v1 + (j-1)*d for j in 1:n]
-            push!(sequences, sequence)
-        end
+        fig
     end
-    return sequences
-end
 
-function get_ticks(limit)
-    (limit == (Inf, -Inf)) && (return [])
-    limit = log10.(limit)
-    (limit[1]==-Inf) && return 10.0 .^[limit[1], limit[2]]
-    sequences = arithmetic_sequences(limit...)
-    selected_seq = findlast(length.(sequences) .< 5)
-    if length(sequences[selected_seq]) < 4
-        step = (limit[2] - limit[1]) / 6.0
-        ticks = [round(Int, limit[1] + i*step) for i in 1:5]
-        return 10 .^[limit[1];ticks;limit[2]]
-    end
-    return 10 .^sequences[selected_seq]
-end;
+    return fig
+end
 ```
 
 # Benchmarks
@@ -274,55 +264,6 @@ We here run benchmarks for each of the 23 models.
 
 ```julia
 benchmark_problem!("Generalized Rosenbrock function")
-```
-
-```julia
-# Testing
-prob_name = "Generalized Rosenbrock function"
-prob = nlprob_23_testcases[prob_name]
-
-# Finds the solvers that can solve the problem
-solvers_concrete = set_ad_chunksize(solvers_all, prob.prob.u0);
-successful_solvers = filter(solver -> check_solver(prob, solver), solvers_concrete);
-solver_tracker_2 = []
-push!(solver_tracker_2, prob_name => successful_solvers);
-
-# Handles the non-general cases.
-solvers_NR = filter(s -> s.type==:NR, successful_solvers)
-solvers_TR = filter(s -> s.type==:TR, successful_solvers)
-solvers_LM = filter(s -> s.type==:LM, successful_solvers)
-wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver);
-    names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l∞,
-    maxiters=10000, termination_condition = AbsNormTerminationMode())
-wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver);
-    names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l∞,
-    maxiters=10000, termination_condition = AbsNormTerminationMode())
-wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver);
-    names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l∞,
-    maxiters=10000, termination_condition = AbsNormTerminationMode())
-
-# Handles the general case
-solvers_general = filter(s -> s.type==:general, successful_solvers)
-add_solver!(solvers_general, nothing, solvers_TR, wp_TR)
-add_solver!(solvers_general, nothing, solvers_LM, wp_LM)
-add_solver!(solvers_general, nothing, solvers_NR, wp_NR)
-
-wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
-    getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
-    numruns=100, error_estimate=:l∞, maxiters=10000)
-
-xlimit, ylimit, xticks, yticks = get_limits_and_ticks(wp_general, wp_NR, wp_TR, wp_LM)
-wp_plot_general = plot_wp(wp_general, solvers_general, xguide="", xlimit, ylimit,
-    linewidth=7, true, xticks=(xticks, fill("", length(xticks))), yticks=yticks)
-wp_plot_NR = plot_wp(wp_NR, solvers_NR, xlimit, ylimit, linewidth=7, true; xguide="",
-    yguide="", xticks=(xticks, fill("", length(xticks))),
-    yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
-wp_plot_TR = plot_wp(wp_TR, solvers_TR, xlimit, ylimit, linewidth=7, false;
-    xticks=xticks, yticks=yticks)
-wp_plot_LM = plot_wp(wp_LM, solvers_LM, xlimit, ylimit, linewidth=7, false; yguide="",
-    xticks=xticks, yticks=(yticks, fill("", length(yticks))), right_margin=7mm)
-plot(wp_plot_general, wp_plot_NR, wp_plot_TR, wp_plot_LM, layout=(2,2),
-    size=(1600,2100), left_margin=12mm)
 ```
 
 ### Problem 2 (Powell singular function)
