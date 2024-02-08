@@ -1,6 +1,6 @@
 ---
 title: Nonlinear Solver 23 Test Problems
-author: Torkel Loman
+author: Torkel Loman & Avik Pal
 ---
 
 These benchmarks compares the runtime and error for a range of nonlinear solvers. The problems are a standard set of problems as described [here](https://people.sc.fsu.edu/~jburkardt/m_src/test_nonlin/test_nonlin.html). The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. For each problem we test the following solvers:
@@ -70,6 +70,7 @@ solvers_all = [
     (; pkg = :wrapper,        type = :general, name = "NR LineSearch (Sundials)",  solver = Dict(:alg => KINSOL(; globalization_strategy=:LineSearch)))
 ];
 solver_tracker = [];
+wp_general_tracker = [];
 ```
 
 Sets tolerances.
@@ -99,8 +100,7 @@ end
 __set_ad_chunksize(solver, ck) = solver
 
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
-function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_NR=nothing,
-        selected_TR=nothing, selected_LM=nothing)
+function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     # Finds the problem and the true solution.
     prob = nlprob_23_testcases[prob_name]
 
@@ -133,6 +133,8 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
         numruns=100, error_estimate=:l∞, maxiters=10000)
+
+    push!(wp_general_tracker, prob_name => wp_general)
 
     fig = plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
 
@@ -205,7 +207,6 @@ tickformatter(values) = map(values) do v
 end
 
 function __filter_nearzero((ticks, ticklabels))
-    @show ticks[1]
     if first(ticks) ≈ 1e-100
         idxs = findall(x -> x ≈ 1e-100 || x ≥ 10^-40, ticks)
         return ticks[idxs], ticklabels[idxs]
@@ -460,6 +461,114 @@ println(io, "```@raw html")
 pretty_table(io, solver_outcomes; backend = Val(:html), header = getfield.(solvers_all, :name), alignment=:c)
 println(io, "```")
 Text(String(take!(io)))
+```
+
+## Summary of General Solver Performance on All Problems
+
+```julia
+# TODO: Remove Starts
+wp_general_tracker_final = []
+for k in keys(nlprob_23_testcases)
+    push!(wp_general_tracker_final, k => wp_general_tracker[1].second)
+end
+wp_general_tracker = wp_general_tracker_final
+# TODO: Remove Ends
+```
+
+```julia
+fig = begin
+    LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+        :wrapper => :dot)
+    ASPECT_RATIO = 1
+    WIDTH = 1800
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+    
+    colors = cgrad(:berlin, length(solvers_all); categorical = true)
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+    with_theme(plot_theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+
+        axs = Matrix{Any}(undef, 5, 5)
+
+        ls = []
+        scs = []
+        labels = []
+
+        for i in 1:5, j in 1:5
+            idx = 5 * (i - 1) + j
+
+            idx > length(wp_general_tracker) && break
+
+            prob_name, wp = wp_general_tracker[idx]
+
+            ax = Axis(fig[i, j],
+                xscale = __log10_zero, yscale = __log10_zero,
+                xtickwidth = STROKEWIDTH,
+                ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
+                title = prob_name, titlegap = 10,
+                xticklabelsize = 16, yticklabelsize = 16)
+
+            xmin, xmax, ymin, ymax = Inf, -Inf, Inf, -Inf
+
+            for wpᵢ in wp.wps
+                idx = findfirst(s -> s.name == wpᵢ.name, solvers_all)
+                errs = getindex.(wpᵢ.errors, :l∞)
+                times = wpᵢ.times
+
+                emin, emax = extrema(errs)
+                tmin, tmax = extrema(times)
+                emin < xmin && (xmin = emin)
+                emax > xmax && (xmax = emax)
+                tmin < ymin && (ymin = tmin)
+                tmax > ymax && (ymax = tmax)
+
+                l = lines!(ax, errs, times; color = colors[idx], linewidth = 5,
+                    linestyle = LINESTYLES[solvers_all[idx].pkg], alpha = 0.8,
+                    label = wpᵢ.name)
+                sc = scatter!(ax, errs, times; color = colors[idx], markersize = 16,
+                    strokewidth = 2, marker = Cycled(idx), alpha = 0.8, label = wpᵢ.name)
+
+                if wpᵢ.name ∉ labels
+                    push!(ls, l)
+                    push!(scs, sc)
+                    push!(labels, wpᵢ.name)
+                end
+            end
+
+            xticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
+                __log10_zero, tickformatter, xmin, xmax))
+            yticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
+                __log10_zero, tickformatter, ymin, ymax))
+
+            ax.xticks = xticks
+            ax.yticks = yticks
+        end
+
+        fig[0, :] = Label(fig, "Work-Precision Diagram for 23 Test Problems",
+            fontsize = 24, tellwidth = false, font = :bold)
+
+        fig[:, 0] = Label(fig, "Time (s)", fontsize = 20, tellheight = false, font = :bold,
+            rotation = π / 2)
+        fig[end + 1, :] = Label(fig,
+            L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+            fontsize = 20, tellwidth = false, font = :bold)
+
+        Legend(fig[5, 4:5], [[l, sc] for (l, sc) in zip(ls, scs)],
+            labels, "Successful Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 16, nbanks = 6, labelsize = 16,
+            tellheight = false, tellwidth = false)
+
+        return fig
+    end
+end
+```
+
+```julia
+save("gsummary_wp_23test_problems.svg", fig)
 ```
 
 # Appendix

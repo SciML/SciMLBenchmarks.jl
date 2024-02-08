@@ -31,7 +31,7 @@ solvers = [
 
     (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Newton Raphson",           solver = Dict(:alg => SimpleNewtonRaphson())),
     (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple DFSane",                   solver = Dict(:alg => SimpleDFSane())),
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Trust Region",             solver = Dict(:alg => SimpleTrustRegion())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Trust Region",             solver = Dict(:alg => SimpleTrustRegion(; nlsolve_update_rule = Val(true)))),
     (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Broyden",                  solver = Dict(:alg => SimpleBroyden())),
     (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Klement",                  solver = Dict(:alg => SimpleKlement())),
 
@@ -103,14 +103,14 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
         :wrapper => :dot)
     ASPECT_RATIO = 0.7
-    WIDTH = 1400 * 2
+    WIDTH = 1400
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:color, :marker], covary = true)
     plot_theme = Theme(Lines = (; cycle,), Scatter = (; cycle,))
 
-    fig = with_theme(plot_theme; fontsize = 32) do 
+    fig = with_theme(plot_theme) do 
         fig = Figure(; size = (WIDTH, HEIGHT))
         # `textbf` doesn't work
         axs = Matrix{Any}(undef, 2, 2)
@@ -119,10 +119,12 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
             ylabel = j == 1 ? L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$" : ""
             xlabel = i == 2 ? L"$\mathrm{\mathbf{Error}}$: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$" : ""
             ax = Axis(fig[i, j]; ylabel = ylabel, title = titles[2 * (i - 1) + j],
+                titlesize = 22, xlabelsize = 22, ylabelsize = 22,
+                xticklabelsize = 20, yticklabelsize = 20,
                 xlabel = xlabel, xticksvisible =  i == 2, yticksvisible = j == 1,
                 xticklabelsvisible = i == 2, yticklabelsvisible = j == 1,
                 xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
-                ytickwidth = STROKEWIDTH, titlesize = 36, spinewidth = STROKEWIDTH)
+                ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
             axs[i, j] = ax
         end
 
@@ -141,7 +143,7 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
                 errors = [err.l∞ for err in errors]
                 l = lines!(axs[i, j], errors, times; linestyle = LINESTYLES[solver.pkg],
                     label = name, linewidth = 3, color = Cycled(idx_solver))
-                sc = scatter!(axs[i, j], errors, times; label = name, markersize = 24,
+                sc = scatter!(axs[i, j], errors, times; label = name, markersize = 16,
                     strokewidth = 1, marker = Cycled(idx_solver),
                     color = Cycled(idx_solver))
 
@@ -158,10 +160,12 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
 
         Legend(fig[3, :], collect(reverse([[l, sc] for (l, sc) in zip(ls, scs)])),
             collect(reverse(label_list)),
-            "Solvers"; framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 30, margin = (-85.0, 0.0, 0.0, 0.0), nbanks = 3, labelsize = 20)
+            "Successful Solvers"; framevisible=true, framewidth = STROKEWIDTH,
+            orientation = :horizontal,
+            titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false)
 
-        fig[0, :] = Label(fig, suptitle, fontsize = 48, font = :bold)
+        fig[0, :] = Label(fig, suptitle, fontsize = 24, tellwidth = false, font = :bold)
 
         fig
     end
@@ -296,13 +300,12 @@ fig = begin
             title = L"N = %$(length(probs_sa[i].u0))$",
             xticksvisible = false, yticksvisible = true,
             xticklabelsvisible = false, yticklabelsvisible = true, titlesize = 22,
-            spinewidth = STROKEWIDTH, xlabelsize = 20, ylabelsize = 20,
-            # xticks = (1:length(df_sa), [d.first for d in df_sa]),
-            xticklabelrotation = π / 4, xticklabelsize = 16, yticklabelsize = 16)
+            spinewidth = STROKEWIDTH, xlabelsize = 22, ylabelsize = 22,
+            xticklabelrotation = π / 4, xticklabelsize = 20, yticklabelsize = 20)
         axs[1, i] = ax
 
         barplot!(ax, xs, ys; dogde = dodge, color = dodge, colormap = :berlin,
-            strokewidth = 2.0)
+            strokewidth = 2)
 
         hlines!(ax, [1.0], color = :black, linestyle = :dash, linewidth = 2)
     end
@@ -322,13 +325,13 @@ fig = begin
             title = L"N = %$(length(probs_reg[i].u0))$",
             xticksvisible = true, yticksvisible = true,
             xticklabelsvisible = true, yticklabelsvisible = true, titlesize = 22,
-            spinewidth = STROKEWIDTH, xlabelsize = 20, ylabelsize = 20,
+            spinewidth = STROKEWIDTH, xlabelsize = 22, ylabelsize = 22,
             xticks = (1:length(df_sa), [d.first for d in df_sa]),
-            xticklabelrotation = π / 4, xticklabelsize = 16, yticklabelsize = 16)
+            xticklabelrotation = π / 4, xticklabelsize = 20, yticklabelsize = 20)
         axs[1, i] = ax
 
         barplot!(ax, xs, ys; color = dodge, dodge = dodge, colormap = :berlin,
-            strokewidth = 2.0)
+            strokewidth = 2)
 
         hlines!(ax, [1.0], color = :black, linestyle = :dash, linewidth = 2)
     end
