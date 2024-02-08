@@ -133,7 +133,7 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker, selected_N
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
         numruns=100, error_estimate=:l∞, maxiters=10000)
-    
+
     fig = plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
 
     save(replace(lowercase(prob_name), " " => "_") * "_wpd.svg", fig)
@@ -156,7 +156,7 @@ function check_solver(prob, solver)
             return false
         end
         WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver];
-            names=[solver.name], numruns=100, error_estimate=:l∞, maxiters=10000000)
+            names=[solver.name], numruns=5, error_estimate=:l∞, maxiters=1000)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)
         return false
@@ -184,6 +184,34 @@ end;
 Plotting related helper functions.
 
 ```julia
+__log10_zero(x) = ifelse(iszero(x), -100, log10(x))
+Makie.inverse_transform(::typeof(__log10_zero)) = exp10
+Makie.defaultlimits(::typeof(__log10_zero)) = Makie.defaultlimits(log10)
+Makie.defined_interval(::typeof(__log10_zero)) = 0.0..Inf
+
+# Skip minor ticks for __log10_zero scale
+function Makie.get_minor_tickvalues(i::IntervalsBetween, scale::typeof(__log10_zero),
+        tickvalues, vmin, vmax)
+    return []
+end
+
+tickformatter(values) = map(values) do v
+    e = log10(v)
+    if isinteger(e) && e == -100
+        return rich("10", superscript("-∞"))
+    end
+    sup = isinteger(e) ? Int(e) : round(e; digits=2)
+    return rich("10", superscript(string(sup)))
+end
+
+function __filter_nearzero((ticks, ticklabels))
+    if first(ticks) ≈ 1e-100
+        idxs = findall(x -> x ≈ 1e-100 || x ≥ 10^-40, ticks)
+        return ticks[idxs], ticklabels[idxs]
+    end
+    return ticks, ticklabels
+end
+
 # Plots a work-precision diagram.
 function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
@@ -201,13 +229,15 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
         fig = Figure(; size = (WIDTH, HEIGHT))
         axs = []
 
+        xmin, xmax, ymin, ymax = Inf, -Inf, Inf, -Inf
+
         for i in 1:2, j in 1:2
             wp = (wp_general, wp_NR, wp_TR, wp_LM)[2 * (i - 1) + j]
 
             ax = Axis(fig[i + 1, j], ylabel = j == 1 ? L"Time $\mathbf{(s)}$" : "",
                 xlabelsize = 22, ylabelsize = 22,
                 xlabel = i == 2 ? L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$" : "",
-                xscale = log10, yscale = log10,
+                xscale = __log10_zero, yscale = __log10_zero,
                 xtickwidth = STROKEWIDTH,
                 ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
                 xticklabelsize = 20, yticklabelsize = 20,
@@ -221,8 +251,15 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
             for wpᵢ in wp.wps
                 idx = findfirst(s -> s.name == wpᵢ.name, solvers_all)
                 errs = getindex.(wpᵢ.errors, :l∞)
-                errs = ifelse.(iszero.(errs), 1e-41, errs)
                 times = wpᵢ.times
+
+                emin, emax = extrema(errs)
+                tmin, tmax = extrema(times)
+                emin < xmin && (xmin = emin)
+                emax > xmax && (xmax = emax)
+                tmin < ymin && (ymin = tmin)
+                tmax > ymax && (ymax = tmax)
+
                 l = lines!(ax, errs, times; color = colors[idx], linewidth = 5,
                     linestyle = LINESTYLES[solvers_all[idx].pkg], alpha = 0.8,
                     label = wpᵢ.name)
@@ -242,6 +279,18 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
         end
 
         linkaxes!(axs...)
+
+        xticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(10)),
+            __log10_zero, tickformatter, xmin, xmax))
+        yticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(10)),
+            __log10_zero, tickformatter, ymin, ymax))
+
+        @show xticks[1]
+
+        foreach(axs) do ax
+            ax.xticks = xticks
+            ax.yticks = yticks
+        end
 
         fig[0, :] = Label(fig, "Work-Precision Diagram for $(prob_name)",
             fontsize = 24, tellwidth = false, font = :bold)
