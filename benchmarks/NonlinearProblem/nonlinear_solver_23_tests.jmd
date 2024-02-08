@@ -302,8 +302,6 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
 
     return fig
 end
-
-benchmark_problem!("Sample problem 19")
 ```
 
 # Benchmarks
@@ -464,20 +462,10 @@ io = IOBuffer()
 println(io, "```@raw html")
 pretty_table(io, solver_outcomes; backend = Val(:html), header = getfield.(solvers_all, :name), alignment=:c)
 println(io, "```")
-Text(String(take!(io)))
+Base.Text(String(take!(io)))
 ```
 
 ## Summary of General Solver Performance on All Problems
-
-```julia
-# TODO: Remove Starts
-wp_general_tracker_final = []
-for k in keys(nlprob_23_testcases)
-    push!(wp_general_tracker_final, k => wp_general_tracker[1].second)
-end
-wp_general_tracker = wp_general_tracker_final
-# TODO: Remove Ends
-```
 
 ```julia
 fig = begin
@@ -542,6 +530,8 @@ fig = begin
                 end
             end
 
+            xmin = max(xmin, 10^-100)
+
             xticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
                 __log10_zero, tickformatter, xmin, xmax))
             yticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
@@ -572,7 +562,7 @@ end
 ```
 
 ```julia
-save("gsummary_wp_23test_problems.svg", fig)
+save("summary_wp_23test_problems.svg", fig)
 ```
 
 # Appendix

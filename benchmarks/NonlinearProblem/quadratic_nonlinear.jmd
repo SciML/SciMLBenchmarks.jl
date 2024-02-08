@@ -107,7 +107,8 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    cycle = Cycle([:color, :marker], covary = true)
+    colors = cgrad(:berlin, length(solver_all); categorical = true)
+    cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle,), Scatter = (; cycle,))
 
     fig = with_theme(plot_theme) do 
@@ -142,10 +143,10 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
                 (; name, times, errors) = wpset.wps[idx]
                 errors = [err.l∞ for err in errors]
                 l = lines!(axs[i, j], errors, times; linestyle = LINESTYLES[solver.pkg],
-                    label = name, linewidth = 3, color = Cycled(idx_solver))
+                    label = name, linewidth = 3, color = colors[idx_solver])
                 sc = scatter!(axs[i, j], errors, times; label = name, markersize = 16,
                     strokewidth = 1, marker = Cycled(idx_solver),
-                    color = Cycled(idx_solver))
+                    color = colors[idx_solver])
 
                 if first_success
                     push!(ls, l)
