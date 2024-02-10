@@ -8,10 +8,35 @@ author: Avik Pal
 Fetch required packages
 
 ```julia
-using NonlinearSolve, NLsolve, MINPACK, SparseDiffTools, Sundials
-using LinearAlgebra, SparseArrays, DiffEqDevTools, CairoMakie, Symbolics
-using BenchmarkTools
+using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevTools,
+    CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials
+import NLsolve, MINPACK
 RUS = RadiusUpdateSchemes;
+```
+
+Define a utility to timeout the benchmark after a certain time.
+
+```julia
+# Taken from ReTestItems.jl
+function timeout(f, timeout)
+    cond = Threads.Condition()
+    timer = Timer(timeout) do tm
+        close(tm)
+        ex = ErrorException("timed out after $timeout seconds")
+        @lock cond notify(cond, ex; error=false)
+    end
+    Threads.@spawn begin
+        try
+            ret = $f()
+            isopen(timer) && @lock cond notify(cond, ret)
+        catch e
+            isopen(timer) && @lock cond notify(cond, CapturedException(e, catch_backtrace()); error=true)
+        finally
+            close(timer)
+        end
+    end
+    return @lock cond wait(cond) # will throw if we timeout
+end
 ```
 
 Define the Brussletor problem.
@@ -36,9 +61,13 @@ end
 function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
     xyd_brusselator = range(0; stop = 1, length = N)
 
-    function brusselator_2d_loop(du, u, p)
+    function brusselator_2d_loop(du_, u_, p)
         A, B, α, δx = p
         α = α / δx ^ 2
+
+        du = reshape(du_, N, N, 2)
+        u = reshape(u_, N, N, 2)
+
         @inbounds for I in CartesianIndices((N, N))
             i, j = Tuple(I)
             x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
@@ -62,8 +91,50 @@ function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
     u0 = init_brusselator_2d(xyd_brusselator, N)
 
     nlfunc = NonlinearFunction(brusselator_2d_loop; sparsity)
-    return NonlinearProblem(nlfunc, u0, p; kwargs...)
+    return NonlinearProblem(nlfunc, vec(u0), p; kwargs...)
 end
+```
+
+```julia
+function __ad_backend(sparsity, psize, ck)
+    if sparsity === nothing
+        if psize ≥ 16
+            return AutoPolyesterForwardDiff(; chunksize = ck)
+        else
+            return AutoForwardDiff(; chunksize = ck)
+        end
+    else
+        return AutoSparseForwardDiff(; chunksize = ck)
+    end
+end
+
+function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm{CJ, N}, ck,
+        sparsity, psize) where {CJ, N}
+    ad = __ad_backend(sparsity, psize, ck)
+    return GeneralizedFirstOrderAlgorithm{CJ, N}(; solver.descent, solver.linesearch,
+        solver.trustregion, jacobian_ad = ad, solver.max_shrink_times, solver.forward_ad,
+        solver.reverse_ad)
+end
+function __set_ad_chunksize(solver::ApproximateJacobianSolveAlgorithm{CJ, N}, ck,
+        sparsity, psize) where {CJ, N}
+    ad = __ad_backend(sparsity, psize, ck)
+    initialization = solver.initialization isa NonlinearSolve.TrueJacobianInitialization ?
+        NonlinearSolve.TrueJacobianInitialization(NonlinearSolve.FullStructure(), ad) : solver.initialization
+    return ApproximateJacobianSolveAlgorithm{CJ, N}(; solver.descent, solver.linesearch,
+        solver.trustregion, solver.update_rule, solver.max_shrink_times, solver.max_resets,
+        initialization, solver.reinit_rule)
+end
+function __set_ad_chunksize(solver::SimpleNewtonRaphson, ck, sparsity, psize)
+    solver.autodiff === nothing || return solver
+    autodiff = __ad_backend(nothing, psize, ck)
+    return SimpleNewtonRaphson(; autodiff)
+end
+function __set_ad_chunksize(solver::SimpleTrustRegion, ck, sparsity, psize)
+    solver.autodiff === nothing || return solver
+    autodiff = __ad_backend(nothing, psize, ck)
+    return SimpleTrustRegion(; autodiff)
+end
+__set_ad_chunksize(solver, ck, sparsity, psize) = solver
 ```
 
 # Scaling with Problem Size
@@ -71,13 +142,136 @@ end
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-prob_dense = generate_brusselator_problem(4)
-prob_approx_sparse = generate_brusselator_problem(4;
-    sparsity = ApproximateJacobianSparsity())
-prob_exact_sparse = generate_brusselator_problem(4;
-    sparsity = SymbolicsSparsityDetection())
+Ns = 2 .^ (2:7)
 
-@btime solve(prob_dense, NewtonRaphson())
-@btime solve(prob_approx_sparse, NewtonRaphson())
-@btime solve(prob_exact_sparse, NewtonRaphson())
+solvers_scaling = [
+    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (Dense)",                     alg = NewtonRaphson(; linsolve = LUFactorization())),
+    (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Sparse)",            alg = NewtonRaphson(; linsolve = LUFactorization())),
+    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparse)",              alg = NewtonRaphson(; linsolve = LUFactorization())),
+    (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleNR (Dense)",               alg = SimpleNewtonRaphson()),
+    (; pkg = :wrapper,              sparsity = :none,   name = "NR (NLsolve.jl)",                alg = NLsolveJL(; method = :newton, autodiff = :forward)),
+    (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR (Sundials)",             alg = KINSOL()),
+
+    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (Dense)",                     alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = LUFactorization())),
+    (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Sparse)",            alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = LUFactorization())),
+    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparse)",              alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = LUFactorization())),
+    (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleTR (Dense)",               alg = SimpleTrustRegion()),
+    (; pkg = :wrapper,              sparsity = :none,   name = "TR (NLsolve.jl)",                alg = NLsolveJL(; autodiff = :forward)),
+
+    (; pkg = :wrapper,              sparsity = :none,   name = "MINPACK",                       alg = CMINPACK()),
+
+    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "Mod. Broyden (Dense)",          alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+    (; pkg = :nonlinearsolve,       sparsity = :approx, name = "Mod. Broyden (Approx. Sparse)", alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "Mod. Broyden (Exact Sparse)",   alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+]
+
+runtimes_scaling = zeros(length(solvers_scaling), length(Ns)) .- 1
+
+for (i, N) in enumerate(Ns)
+    prob_dense = generate_brusselator_problem(N)
+    prob_approx_sparse = generate_brusselator_problem(N;
+        sparsity = ApproximateJacobianSparsity())
+    prob_exact_sparse = generate_brusselator_problem(N;
+        sparsity = SymbolicsSparsityDetection())
+
+    @info "Benchmarking N = $N"
+
+    for (j, solver) in enumerate(solvers_scaling)
+        ptype = solver.sparsity
+        alg = solver.alg
+        name = solver.name
+
+        if ptype == :none
+            prob = prob_dense
+        elseif ptype == :approx
+            prob = prob_approx_sparse
+        elseif ptype == :exact
+            prob = prob_exact_sparse
+        end
+
+        if j > 1 && runtimes_scaling[j - 1, i] == -1
+            # The last benchmark failed so skip this too
+            runtimes_scaling[j, i] = NaN
+            @warn "$(name): Would Have Timed out"
+        else
+            alg_concrete = __set_ad_chunksize(alg, NonlinearSolve.pickchunksize(prob.u0),
+                prob.f.sparsity, length(prob.u0))
+
+            function __benchmark_function()
+                sol = solve(prob, alg_concrete; abstol=1e-6, reltol=1e-6,
+                    termination_condition=AbsNormTerminationMode())
+                runtimes_scaling[j, i] = @belapsed solve($prob, $alg_concrete; abstol=1e-6,
+                    reltol=1e-6, termination_condition=$AbsNormTerminationMode())
+                @info "$(name): $(runtimes_scaling[j, i]) | $(norm(sol.resid, Inf)) | $(sol.retcode)"
+            end
+            timeout(__benchmark_function, 600)
+            if runtimes_scaling[j, i] == -1
+                @warn "$(name): Timed out"
+                runtimes_scaling[j, i] = NaN
+            end
+        end
+    end
+
+    println()
+end
 ```
+
+Plot the results.
+
+```julia
+fig = begin
+    ASPECT_RATIO = 0.7
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
+    cycle = Cycle([:marker], covary = true)
+    colors = cgrad(:berlin, length(solvers_scaling); categorical = true)
+    theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
+    LINESTYLES = Dict(
+        (:nonlinearsolve, :none) => :solid,
+        (:nonlinearsolve, :approx) => Linestyle([0.5, 1.0, 1.5, 2.5]),
+        (:nonlinearsolve, :exact) => :dashdot,
+        (:simplenonlinearsolve, :none) => :dash,
+        (:wrapper, :none) => :dot,
+    )
+
+    with_theme(theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+
+        ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
+            xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
+            xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
+            ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
+
+        ls, scs = [], []
+        for (i, solver) in enumerate(solvers_scaling)
+            linestyle = LINESTYLES[(solver.pkg, solver.sparsity)]
+            l = lines!(Ns, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
+                linestyle)
+            sc = scatter!(Ns, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2,
+                color = colors[i])
+            push!(ls, l)
+            push!(scs, sc)
+        end
+
+        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+            [s.name for s in solvers_scaling], "Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false)
+
+        fig[0, :] = Label(fig,
+            "Brusselator 2D: Scaling of First-Order Nonlinear Solvers with Problem Size",
+            fontsize = 24, tellwidth = false, font = :bold)
+
+        return fig
+    end
+end
+```
+
+```julia
+save("brusselator_scaling.svg", fig)
+```
+
+# Krylov Methods
