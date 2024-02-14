@@ -12,6 +12,7 @@ using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevToo
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials
 import NLsolve, MINPACK
 RUS = RadiusUpdateSchemes;
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5;
 ```
 
 Define a utility to timeout the benchmark after a certain time.
@@ -68,7 +69,7 @@ function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
         du = reshape(du_, N, N, 2)
         u = reshape(u_, N, N, 2)
 
-        @inbounds for I in CartesianIndices((N, N))
+        @inbounds @simd for I in CartesianIndices((N, N))
             i, j = Tuple(I)
             x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
             ip1, im1 = limit(i + 1, N), limit(i - 1, N)
@@ -137,6 +138,171 @@ end
 __set_ad_chunksize(solver, ck, sparsity, psize) = solver
 ```
 
+# Scaling of Sparsity Detection Algorithm
+
+We increase the problem size, and compute the jacobian 10 times similar to a real workload
+where the jacobian is computed several times and amortizes the cost for computing the
+sparsity pattern.
+
+```julia
+test_problem = generate_brusselator_problem(4)
+bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
+y = similar(u0)
+
+sd = SymbolicsSparsityDetection()
+adtype = AutoSparseFiniteDiff()
+
+J = sparse_jacobian(adtype, sd, bruss_f!, y, u0)
+
+colors = matrix_colors(J)
+
+begin
+    J_ = copy(J)
+    rows = rowvals(J)
+    vals = nonzeros(J)
+    for j in 1:size(J, 2)
+        for i in nzrange(J, j)
+            row = rows[i]
+            J_[row, j] = colors[j]
+        end
+    end
+end
+
+function cache_and_compute_10_jacobians(adtype, sd, f!::F, y, x) where {F}
+    cache = sparse_jacobian_cache(adtype, sd, f!, y, x)
+    J = init_jacobian(cache)
+    for i in 1:10
+        sparse_jacobian!(J, adtype, cache, f!, y, x)
+    end
+    return J
+end
+
+Ns = [2^i for i in 1:7]
+sd = [SymbolicsSparsityDetection(), ApproximateJacobianSparsity(; ntrials = 3)]
+adtypes = [AutoSparseFiniteDiff(), AutoSparseForwardDiff(; chunksize = 8)]
+algs = Iterators.product(sd, adtypes)
+times = Matrix{Float64}(undef, length(Ns), length(algs) + 1)
+
+for (i, N) in enumerate(Ns)
+    @info N
+    test_problem = generate_brusselator_problem(N)
+    bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
+    y = similar(u0)
+    for (j, (sd, adtype)) in enumerate(algs)
+        times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
+        @info times[i, j]
+    end
+    sd, adtype = NoSparsityDetection(), AutoPolyesterForwardDiff(; chunksize = 8)
+    times[i, end] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
+    @info times[i, end]
+end
+```
+
+Plotting the results.
+
+```julia
+fig = begin
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+    with_theme(plot_theme) do
+        fig = Figure(; size = (1400, 1400 * 0.5))
+
+        ax = Axis(fig[1, 1]; title = "Sparsity Pattern for 2D Brusselator Jacobian",
+            titlesize = 22, titlegap = 10,
+            xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
+            xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5, yreversed = true)
+
+        spy!(ax, J_; markersize = 12, marker = :circle, framecolor = :lightgray,
+            colormap = :berlin)
+
+        ax = Axis(fig[1, 2]; title = "Scaling of Sparse Jacobian Computation Algorithms",
+            titlesize = 22, titlegap = 10, xscale = log2, yscale = log2,
+            xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
+            xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5,
+            xlabel = L"Input Dimension ($\mathbf{N}$)", ylabel = L"Time $\mathbf{(s)}$", xlabelsize = 22,
+            ylabelsize = 22, yaxisposition = :right)
+
+        colors = cgrad(:berlin, length(algs) + 1; categorical = true)
+
+        line_list = []
+        scatter_list = []
+
+        Ns_ = Ns .^ 2 .* 2
+
+        push!(line_list,
+            lines!(
+                ax, Ns_, times[:, 1], color = colors[1], linewidth = 3, linestyle = :dash))
+        push!(
+            scatter_list, scatter!(ax, Ns_, times[:, 1], color = colors[1], markersize = 16))
+        push!(line_list, lines!(ax, Ns_, times[:, 2], color = colors[2], linewidth = 3))
+        push!(
+            scatter_list, scatter!(ax, Ns_, times[:, 2], color = colors[2], markersize = 16))
+        push!(line_list,
+            lines!(
+                ax, Ns_, times[:, 3], color = colors[3], linewidth = 3, linestyle = :dash))
+        push!(
+            scatter_list, scatter!(ax, Ns_, times[:, 3], color = colors[3], markersize = 16))
+        push!(line_list, lines!(ax, Ns_, times[:, 4], color = colors[4], linewidth = 3))
+        push!(
+            scatter_list, scatter!(ax, Ns_, times[:, 4], color = colors[4], markersize = 16))
+        push!(line_list,
+            lines!(
+                ax, Ns_, times[:, 5], color = colors[5], linewidth = 3, linestyle = :dot))
+        push!(
+            scatter_list, scatter!(ax, Ns_, times[:, 5], color = colors[5], markersize = 16))
+
+        group_symbolics = [
+            [
+                LineElement(; color = line_list[idx].color,
+                    linestyle = line_list[idx].linestyle,
+                    linewidth = line_list[idx].linewidth),
+                MarkerElement(; color = scatter_list[idx].color,
+                    marker = scatter_list[idx].marker,
+                    markersize = scatter_list[idx].markersize)
+            ]
+            for idx in [1, 3]]
+        group_approx = [
+            [
+                LineElement(; color = line_list[idx].color,
+                    linestyle = line_list[idx].linestyle,
+                    linewidth = line_list[idx].linewidth),
+                MarkerElement(; color = scatter_list[idx].color,
+                    marker = scatter_list[idx].marker,
+                    markersize = scatter_list[idx].markersize)
+            ]
+            for idx in [2, 4]]
+        legend_polyester = [
+            [
+                LineElement(; color = line_list[5].color,
+                    linestyle = line_list[5].linestyle,
+                    linewidth = line_list[5].linewidth),
+                MarkerElement(; color = scatter_list[5].color,
+                    marker = scatter_list[5].marker,
+                    markersize = scatter_list[5].markersize)
+            ]
+        ]
+
+        axislegend(ax,
+            [group_symbolics, group_approx, legend_polyester],
+            [
+                ["AutoSparseFiniteDiff", "AutoSparseForwardDiff"],
+                ["AutoSparseFiniteDiff", "AutoSparseForwardDiff"],
+                ["AutoPolyesterForwardDiff"]
+            ],
+            ["SymbolicsSparsityDetection", "ApproximateSparsityDetection", "NoSparsityDetection"];
+            position = :rb, framevisible = true, framewidth = 2.5, titlesize = 16,
+            labelsize = 16)
+
+        fig
+    end
+end
+```
+
+```julia
+save("brusselator_sparse_jacobian_scaling.svg", fig)
+```
+
 # Scaling with Problem Size
 
 First, let us experiment the scaling of each algorithm with the problem size.
@@ -148,21 +314,21 @@ solvers_scaling = [
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (Dense)",                     alg = NewtonRaphson(; linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Sparse)",            alg = NewtonRaphson(; linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparse)",              alg = NewtonRaphson(; linsolve = nothing)),
-    (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleNR (Dense)",               alg = SimpleNewtonRaphson()),
+    # (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleNR (Dense)",               alg = SimpleNewtonRaphson()),
     (; pkg = :wrapper,              sparsity = :none,   name = "NR (NLsolve.jl)",                alg = NLsolveJL(; method = :newton, autodiff = :forward)),
     (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR (Sundials)",             alg = KINSOL()),
 
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (Dense)",                     alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Sparse)",            alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparse)",              alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
-    (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleTR (Dense)",               alg = SimpleTrustRegion()),
+    # (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleTR (Dense)",               alg = SimpleTrustRegion()),
     (; pkg = :wrapper,              sparsity = :none,   name = "TR (NLsolve.jl)",                alg = NLsolveJL(; autodiff = :forward)),
 
     (; pkg = :wrapper,              sparsity = :none,   name = "MINPACK",                       alg = CMINPACK()),
 
-    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "Mod. Broyden (Dense)",          alg = Broyden(; init_jacobian = Val(:true_jacobian))),
-    (; pkg = :nonlinearsolve,       sparsity = :approx, name = "Mod. Broyden (Approx. Sparse)", alg = Broyden(; init_jacobian = Val(:true_jacobian))),
-    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "Mod. Broyden (Exact Sparse)",   alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+    # (; pkg = :nonlinearsolve,       sparsity = :none,   name = "Mod. Broyden (Dense)",          alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "Mod. Broyden (Approx. Sparse)", alg = Broyden(; init_jacobian = Val(:true_jacobian))),
+    # (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "Mod. Broyden (Exact Sparse)",   alg = Broyden(; init_jacobian = Val(:true_jacobian))),
 ]
 
 runtimes_scaling = zeros(length(solvers_scaling), length(Ns)) .- 1
@@ -189,7 +355,7 @@ for (i, N) in enumerate(Ns)
             prob = prob_exact_sparse
         end
 
-        if j > 1 && runtimes_scaling[j - 1, i] == -1
+        if (j > 1 && runtimes_scaling[j - 1, i] == -1) || (alg isa CMINPACK && N > 32)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
