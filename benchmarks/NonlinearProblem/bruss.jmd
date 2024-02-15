@@ -238,23 +238,23 @@ fig = begin
             lines!(
                 ax, Ns_, times[:, 1], color = colors[1], linewidth = 3, linestyle = :dash))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 1], color = colors[1], markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 1], color = colors[1], strokewidth = 2, markersize = 16))
         push!(line_list, lines!(ax, Ns_, times[:, 2], color = colors[2], linewidth = 3))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 2], color = colors[2], markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 2], color = colors[2], strokewidth = 2, markersize = 16))
         push!(line_list,
             lines!(
                 ax, Ns_, times[:, 3], color = colors[3], linewidth = 3, linestyle = :dash))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 3], color = colors[3], markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 3], color = colors[3], strokewidth = 2, markersize = 16))
         push!(line_list, lines!(ax, Ns_, times[:, 4], color = colors[4], linewidth = 3))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 4], color = colors[4], markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 4], color = colors[4], strokewidth = 2, markersize = 16))
         push!(line_list,
             lines!(
                 ax, Ns_, times[:, 5], color = colors[5], linewidth = 3, linestyle = :dot))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 5], color = colors[5], markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 5], color = colors[5], strokewidth = 2, markersize = 16))
 
         group_symbolics = [
             [
@@ -263,6 +263,7 @@ fig = begin
                     linewidth = line_list[idx].linewidth),
                 MarkerElement(; color = scatter_list[idx].color,
                     marker = scatter_list[idx].marker,
+                    strokewidth = scatter_list[idx].strokewidth,
                     markersize = scatter_list[idx].markersize)
             ]
             for idx in [1, 3]]
@@ -273,6 +274,7 @@ fig = begin
                     linewidth = line_list[idx].linewidth),
                 MarkerElement(; color = scatter_list[idx].color,
                     marker = scatter_list[idx].marker,
+                    strokewidth = scatter_list[idx].strokewidth,
                     markersize = scatter_list[idx].markersize)
             ]
             for idx in [2, 4]]
@@ -283,6 +285,7 @@ fig = begin
                     linewidth = line_list[5].linewidth),
                 MarkerElement(; color = scatter_list[5].color,
                     marker = scatter_list[5].marker,
+                    strokewidth = scatter_list[5].strokewidth,
                     markersize = scatter_list[5].markersize)
             ]
         ]
@@ -296,7 +299,7 @@ fig = begin
             ],
             ["Symbolic Sparsity", "Approx. Sparsity", "No Sparsity"];
             position = :rb, framevisible = true, framewidth = 2.5, titlesize = 16,
-            labelsize = 16)
+            labelsize = 16, patchsize = (40.0f0, 20.0f0))
 
         fig
     end
@@ -406,10 +409,12 @@ fig = begin
         (:wrapper, :none) => :dot,
     )
 
+    Ns_ = Ns .^ 2 .* 2
+
     with_theme(theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
 
-        ax = Axis(fig[1, 1], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
+        ax = Axis(fig[1, 1:3], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
             xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
@@ -417,19 +422,39 @@ fig = begin
         ls, scs = [], []
         for (i, solver) in enumerate(solvers_scaling)
             linestyle = LINESTYLES[(solver.pkg, solver.sparsity)]
-            l = lines!(Ns, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
+            l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
                 linestyle)
-            sc = scatter!(Ns, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2,
+            sc = scatter!(Ns_, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2,
                 color = colors[i])
             push!(ls, l)
             push!(scs, sc)
         end
 
-        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [s.name for s in solvers_scaling], "Solvers";
+        main_legend = [
+            [
+                LineElement(; color = ls[idx].color, linestyle = ls[idx].linestyle,
+                    linewidth = ls[idx].linewidth),
+                MarkerElement(; color = scs[idx].color, marker = scs[idx].marker,
+                    markersize = scs[idx].markersize, strokewidth = scs[idx].strokewidth)
+            ]
+            for idx in 1:length(solvers_scaling)
+        ]
+
+        sparsity_legend = [
+            LineElement(; linestyle = :solid, linewidth = 5),
+            LineElement(; linestyle = Linestyle([0.5, 1.0, 1.5, 2.5]), linewidth = 5),
+            LineElement(; linestyle = :dashdot, linewidth = 5),
+        ]
+
+        Legend(fig[2, 1:2], main_legend, [s.name for s in solvers_scaling], "Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
             titlesize = 16, nbanks = 3, labelsize = 16,
-            tellheight = true, tellwidth = false)
+            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+
+        Legend(fig[2, 3], sparsity_legend, ["No Sparsity Detection", "Approx. Sparsity", "Exact Sparsity"],
+            "Sparsity Detection"; framevisible=true, framewidth = STROKEWIDTH,
+            orientation = :horizontal, titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig,
             "Brusselator 2D: Scaling of First-Order Nonlinear Solvers with Problem Size",
