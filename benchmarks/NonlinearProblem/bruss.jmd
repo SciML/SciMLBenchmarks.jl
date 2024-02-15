@@ -105,7 +105,11 @@ function __ad_backend(sparsity, psize, ck)
             return AutoForwardDiff(; chunksize = ck)
         end
     else
-        return AutoSparseForwardDiff(; chunksize = ck)
+        if psize ≥ 16
+            return AutoSparsePolyesterForwardDiff(; chunksize = ck)
+        else
+            return AutoSparseForwardDiff(; chunksize = ck)
+        end
     end
 end
 
@@ -163,7 +167,7 @@ begin
     for j in 1:size(J, 2)
         for i in nzrange(J, j)
             row = rows[i]
-            J_[row, j] = colors[j]
+            J_[j, row] = colors[j]  # spy does a ordering I can't figure out. so transposing it here
         end
     end
 end
@@ -179,7 +183,7 @@ end
 
 Ns = [2^i for i in 1:7]
 sd = [SymbolicsSparsityDetection(), ApproximateJacobianSparsity(; ntrials = 3)]
-adtypes = [AutoSparseFiniteDiff(), AutoSparseForwardDiff(; chunksize = 8)]
+adtypes = [AutoSparseFiniteDiff(), AutoSparsePolyesterForwardDiff(; chunksize = 8)]
 algs = Iterators.product(sd, adtypes)
 times = Matrix{Float64}(undef, length(Ns), length(algs) + 1)
 
@@ -286,11 +290,11 @@ fig = begin
         axislegend(ax,
             [group_symbolics, group_approx, legend_polyester],
             [
-                ["AutoSparseFiniteDiff", "AutoSparseForwardDiff"],
-                ["AutoSparseFiniteDiff", "AutoSparseForwardDiff"],
-                ["AutoPolyesterForwardDiff"]
+                ["FiniteDiff", "ForwardDiff"],
+                ["FiniteDiff", "PolyesterForwardDiff"],
+                ["PolyesterForwardDiff"]
             ],
-            ["SymbolicsSparsityDetection", "ApproximateSparsityDetection", "NoSparsityDetection"];
+            ["Symbolic Sparsity", "Approx. Sparsity", "No Sparsity"];
             position = :rb, framevisible = true, framewidth = 2.5, titlesize = 16,
             labelsize = 16)
 
