@@ -321,21 +321,15 @@ solvers_scaling = [
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (Dense)",                     alg = NewtonRaphson(; linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Sparse)",            alg = NewtonRaphson(; linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparse)",              alg = NewtonRaphson(; linsolve = nothing)),
-    # (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleNR (Dense)",               alg = SimpleNewtonRaphson()),
     (; pkg = :wrapper,              sparsity = :none,   name = "NR (NLsolve.jl)",                alg = NLsolveJL(; method = :newton, autodiff = :forward)),
     (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR (Sundials)",             alg = KINSOL()),
 
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (Dense)",                     alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Sparse)",            alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparse)",              alg = TrustRegion(; radius_update_scheme = RUS.NLsolve, linsolve = nothing)),
-    # (; pkg = :simplenonlinearsolve, sparsity = :none,   name = "SimpleTR (Dense)",               alg = SimpleTrustRegion()),
     (; pkg = :wrapper,              sparsity = :none,   name = "TR (NLsolve.jl)",                alg = NLsolveJL(; autodiff = :forward)),
 
     (; pkg = :wrapper,              sparsity = :none,   name = "MINPACK",                       alg = CMINPACK()),
-
-    # (; pkg = :nonlinearsolve,       sparsity = :none,   name = "Mod. Broyden (Dense)",          alg = Broyden(; init_jacobian = Val(:true_jacobian))),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "Mod. Broyden (Approx. Sparse)", alg = Broyden(; init_jacobian = Val(:true_jacobian))),
-    # (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "Mod. Broyden (Exact Sparse)",   alg = Broyden(; init_jacobian = Val(:true_jacobian))),
 ]
 
 runtimes_scaling = zeros(length(solvers_scaling), length(Ns)) .- 1
@@ -362,7 +356,10 @@ for (i, N) in enumerate(Ns)
             prob = prob_exact_sparse
         end
 
-        if (j > 1 && runtimes_scaling[j - 1, i] == -1) || (alg isa CMINPACK && N > 32)
+        if (j > 1 && runtimes_scaling[j - 1, i] == -1) || (alg isa CMINPACK && N > 32) ||
+            (alg isa KINSOL && N > 64) ||
+            (alg isa NLsolveJL && N > 64 && alg.method == :trust_region) ||
+            (alg isa GeneralizedFirstOrderAlgorithm{nothing, :TrustRegion} && N > 64)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
