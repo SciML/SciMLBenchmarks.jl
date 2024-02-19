@@ -466,4 +466,171 @@ end
 save("brusselator_scaling.svg", fig)
 ```
 
-# Krylov Methods
+# Jacobian-Free Newton / TR Krylov Methods
+
+In this section, we will benchmark jacobian-free nonlinear solvers with Krylov methods. We
+will use preconditioning from `AlgebraicMultigrid.jl` and `IncompleteLU.jl`. Unfortunately,
+our ability to use 3rd party softwares is limited here, since only `Sundials.jl` supports
+jacobian-free methods via `:GMRES`.
+
+```julia
+using AlgebraicMultigrid, IncompleteLU
+
+function incompletelu(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        Pl = ilu(W, τ = 50.0)
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+function algebraicmultigrid_jacobi(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        A = convert(AbstractMatrix, W)
+        Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(
+            A, presmoother = AlgebraicMultigrid.Jacobi(rand(size(A, 1))),
+            postsmoother = AlgebraicMultigrid.Jacobi(rand(size(A, 1)))))
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+Ns = 2 .^ (2:7)
+
+solvers_scaling_jacobian_free = [
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                    alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(), precs = incompletelu, concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(), precs = algebraicmultigrid, concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",       alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(), precs = algebraicmultigrid_jacobi, concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Trust Region Krylov",              alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "Trust Region Krylov (ILU)",        alg = TrustRegion(; linsolve = KrylovJL_GMRES(), precs = incompletelu, concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Trust Region Krylov (AMG)",        alg = TrustRegion(; linsolve = KrylovJL_GMRES(), precs = algebraicmultigrid, concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Trust Region Krylov (AMG Jacobi)", alg = TrustRegion(; linsolve = KrylovJL_GMRES(), precs = algebraicmultigrid_jacobi, concrete_jac = true)),
+    (; pkg = :wrapper,         name = "Newton Krylov (Sundials)",         alg = KINSOL(; linear_solver = :GMRES)),
+]
+
+runtimes_scaling = zeros(length(solvers_scaling_jacobian_free), length(Ns)) .- 1
+
+for (i, N) in enumerate(Ns)
+    prob = generate_brusselator_problem(N;
+        sparsity = ifelse(N ≥ 6, SymbolicsSparsityDetection(), ApproximateJacobianSparsity()))
+
+    @info "Benchmarking N = $N"
+
+    for (j, solver) in enumerate(solvers_scaling_jacobian_free)
+        alg = solver.alg
+        name = solver.name
+
+        if (j > 1 && runtimes_scaling[j - 1, i] == -1)
+            # The last benchmark failed so skip this too
+            runtimes_scaling[j, i] = NaN
+            @warn "$(name): Would Have Timed out"
+        else
+            alg_concrete = __set_ad_chunksize(alg, NonlinearSolve.pickchunksize(prob.u0),
+                prob.f.sparsity, length(prob.u0))
+
+            function __benchmark_function()
+                sol = solve(prob, alg_concrete; abstol=1e-6, reltol=1e-6,
+                    linsolve_kwargs = (; abstol = 1e-9, reltol = 1e-9),
+                    termination_condition=AbsNormTerminationMode())
+                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-5
+                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg_concrete; abstol=1e-6,
+                        reltol=1e-6, termination_condition=$AbsNormTerminationMode())
+                else
+                    runtimes_scaling[j, i] = NaN
+                end
+                @info "$(name): $(runtimes_scaling[j, i]) | $(norm(sol.resid, Inf)) | $(sol.retcode)"
+            end
+            timeout(__benchmark_function, 600)
+            if runtimes_scaling[j, i] == -1
+                @warn "$(name): Timed out"
+                runtimes_scaling[j, i] = NaN
+            end
+        end
+    end
+
+    println()
+end
+```
+
+Plot the results.
+
+```julia
+fig = begin
+    ASPECT_RATIO = 0.7
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
+    cycle = Cycle([:marker], covary = true)
+    colors = cgrad(:berlin, length(solvers_scaling_jacobian_free); categorical = true)
+    theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
+    LINESTYLES = Dict(
+        (:nonlinearsolve, :none) => :solid,
+        (:nonlinearsolve, :amg) => :dot,
+        (:nonlinearsolve, :amg_jacobi) => :dash,
+        (:nonlinearsolve, :ilu) => :dashdot,
+    )
+
+    Ns_ = Ns .^ 2 .* 2
+
+    with_theme(theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+
+        ax = Axis(fig[1, 1:3], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
+            xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
+            xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
+            ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
+
+        ls, scs, labels = [], [], []
+        for (i, solver) in enumerate(solvers_scaling_jacobian_free)
+            all(isnan, runtimes_scaling[i, :]) && continue
+            precon = occursin("AMG Jacobi", solver.name) ? :amg_jacobi : occursin("AMG", solver.name) ? :amg : occursin("ILU", solver.name) ? :ilu : :none
+            linestyle = LINESTYLES[(solver.pkg, precon)]
+            l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
+                linestyle)
+            sc = scatter!(Ns_, runtimes_scaling[i, :]; markersize = 24, strokewidth = 2,
+                color = colors[i])
+            push!(ls, l)
+            push!(scs, sc)
+            push!(labels, solver.name)
+        end
+
+        Legend(fig[2, 1:2], [[l, sc] for (l, sc) in zip(ls, scs)], labels, "Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+
+        Legend(fig[2, 3], [
+                LineElement(; linestyle = :solid, linewidth = 5),
+                LineElement(; linestyle = :dot, linewidth = 5),
+                LineElement(; linestyle = :dash, linewidth = 5),
+                LineElement(; linestyle = :dashdot, linewidth = 5),
+            ], ["No Preconditioning", "AMG", "AMG Jacobi", "ILU"],
+            "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
+            orientation = :horizontal, titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+
+        fig[0, :] = Label(fig,
+            "Brusselator 2D: Scaling of Jacobian-Free Nonlinear Solvers with Problem Size",
+            fontsize = 24, tellwidth = false, font = :bold)
+
+        return fig
+    end
+end
+```
+
+```julia
+save("brusselator_krylov_methods_scaling.svg", fig)
+```
