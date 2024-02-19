@@ -470,7 +470,7 @@ save("brusselator_scaling.svg", fig)
 
 In this section, we will benchmark jacobian-free nonlinear solvers with Krylov methods. We
 will use preconditioning from `AlgebraicMultigrid.jl` and `IncompleteLU.jl`. Unfortunately,
-our ability to use 3rd party softwares is limited here, since only `Sundials.jl` supports
+our ability to use 3rd party software is limited here, since only `Sundials.jl` supports
 jacobian-free methods via `:GMRES`.
 
 ```julia
@@ -600,7 +600,7 @@ fig = begin
             linestyle = LINESTYLES[(solver.pkg, precon)]
             l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
                 linestyle)
-            sc = scatter!(Ns_, runtimes_scaling[i, :]; markersize = 24, strokewidth = 2,
+            sc = scatter!(Ns_, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2,
                 color = colors[i])
             push!(ls, l)
             push!(scs, sc)
@@ -617,9 +617,9 @@ fig = begin
                 LineElement(; linestyle = :dot, linewidth = 5),
                 LineElement(; linestyle = :dash, linewidth = 5),
                 LineElement(; linestyle = :dashdot, linewidth = 5),
-            ], ["No Preconditioning", "AMG", "AMG Jacobi", "ILU"],
+            ], ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
             "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
-            orientation = :horizontal, titlesize = 16, nbanks = 3, labelsize = 16,
+            orientation = :horizontal, titlesize = 16, nbanks = 2, labelsize = 16,
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig,
@@ -633,4 +633,144 @@ end
 
 ```julia
 save("brusselator_krylov_methods_scaling.svg", fig)
+```
+
+# Work-Precision Diagram
+
+In this section, we will generate the work-precision of the solvers. All solvers that can
+exploit sparsity will automatically do so.
+
+```julia
+DEFAULT_FORWARD_AD = AutoSparsePolyesterForwardDiff(; chunksize = 12)
+
+solvers_all = [
+    (; pkg = :nonlinearsolve,       name = "Default PolyAlg",                                        solver = Dict(:alg => FastShortcutNonlinearPolyalg(; autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "RobustMultiNewton (with GMRES)",                         solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES(), autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson(; linsolve = nothing, autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Newton Krylov",                                          solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Newton Krylov (ILU)",                                    solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = incompletelu, autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Newton Krylov (AMG)",                                    solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = algebraicmultigrid, autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Newton Krylov (AMG Jacobi)",                             solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = algebraicmultigrid_jacobi, autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region",                                           solver = Dict(:alg => TrustRegion(; autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region Krylov",                                    solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES(), autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Trust Region Krylov (ILU)",                              solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = incompletelu, autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Trust Region Krylov (AMG)",                              solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = algebraicmultigrid, autodiff = DEFAULT_FORWARD_AD))),
+    # (; pkg = :nonlinearsolve,       name = "Trust Region Krylov (AMG Jacobi)",                       solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES(), concrete_jac = true, precs = algebraicmultigrid_jacobi, autodiff = DEFAULT_FORWARD_AD))),
+    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                              solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              name = "Newton Krylov (Sundials)",                               solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+
+    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                              solver = Dict(:alg => CMINPACK())),
+];
+```
+
+```julia
+prob_wpd = generate_brusselator_problem(32; sparsity = ApproximateJacobianSparsity())
+
+abstols = 1.0 ./ 10 .^ (2:10)
+reltols = 1.0 ./ 10 .^ (2:10)
+
+function check_solver(prob, solver)
+    try
+        sol = solve(prob, solver.solver[:alg]; abstol = 1e-4, reltol = 1e-4,
+            maxiters = 10000)
+        err = norm(sol.resid, Inf)
+        if !SciMLBase.successful_retcode(sol.retcode)
+            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
+                color = :red)
+            return false
+        elseif err > 1e3
+            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
+                color = :red)
+            return false
+        elseif isinf(err) || isnan(err)
+            Base.printstyled("[Warn] Solver $(solver.name) had a residual of $(err).\n";
+                color = :red)
+            return false
+        end
+        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
+            color = :green)
+    catch e
+        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
+        return false
+    end
+    return true
+end
+
+function generate_wpset(prob, solvers)
+    # Finds the solvers that can solve the problem
+    successful_solvers = filter(solver -> check_solver(prob, solver), solvers)
+
+    return WorkPrecisionSet(prob, abstols, reltols,
+        getfield.(successful_solvers, :solver);
+        names = getfield.(successful_solvers, :name), numruns = 10, error_estimate = :l∞,
+        maxiters = 1000, verbose = true), successful_solvers
+end
+```
+
+```julia
+wp_set, successful_solvers = generate_wpset(prob_wpd, solvers_all);
+```
+
+Plotting the Work-Precision Diagram.
+
+```julia
+fig = begin
+    LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
+        :wrapper => :dot)
+    ASPECT_RATIO = 0.7
+    WIDTH = 1400
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
+    colors = cgrad(:berlin, length(successful_solvers); categorical = true)
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+    with_theme(plot_theme) do 
+        fig = Figure(; size = (WIDTH, HEIGHT))
+        # `textbf` doesn't work
+        ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
+            xlabelsize = 22, ylabelsize = 22,
+            xlabel = L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+            xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+            ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
+            xticklabelsize = 20, yticklabelsize = 20)
+
+        ls, scs = [], []
+
+        for (i, (wp, solver)) in enumerate(zip(wp_set.wps, successful_solvers))
+            (; name, times, errors) = wp
+            errors = [err.l∞ for err in errors]
+            l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
+                linewidth = 5, color = colors[i])
+            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+                color = colors[i])
+            push!(ls, l)
+            push!(scs, sc)
+        end
+
+        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
+            [solver.name for solver in successful_solvers], "Successful Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 16, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+
+        fig[0, :] = Label(fig, "Brusselator Steady State PDE: Work Precision Diagram",
+            fontsize = 24, tellwidth = false, font = :bold)
+
+        fig
+    end
+end
+```
+
+```julia
+save("brusselator_wpd.svg", fig)
+```
+
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
