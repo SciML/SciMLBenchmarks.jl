@@ -44,6 +44,7 @@ Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
 solvers_all = [
+    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => nothing)),
     (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",           solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang(), linsolve = nothing))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",          solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente(), linsolve = nothing))),
@@ -107,8 +108,7 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     # Finds the solvers that can solve the problem
     solvers_concrete = set_ad_chunksize(solvers_all, prob.prob.u0);
     successful_solvers = filter(solver -> check_solver(prob, solver), solvers_concrete);
-    solver_tracker_2 = []
-    push!(solver_tracker_2, prob_name => successful_solvers);
+    push!(solver_tracker, prob_name => successful_solvers);
 
     # Handles the non-general cases.
     solvers_NR = filter(s -> s.type==:NR, successful_solvers)
