@@ -35,8 +35,9 @@ For each benchmarked problem, the second, third, and fourth plots compares the p
 Fetch required packages.
 
 ```julia
-using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials, Setfield,
+using NonlinearSolve, LinearSolve, StaticArrays, Sundials, Setfield,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, CairoMakie
+import PolyesterForwardDiff, MINPACK, NLsolve
 RUS = RadiusUpdateSchemes;
 ```
 
@@ -44,7 +45,7 @@ Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
 solvers_all = [
-    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => nothing)),
+    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",           solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang(), linsolve = nothing))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",          solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente(), linsolve = nothing))),
@@ -62,7 +63,7 @@ solvers_all = [
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5) Chol.", solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic=0.5))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.)",            solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), disable_geodesic = Val(true)))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.) Chol.",      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
-    (; pkg = :wrapper,        type = :general, name = "Pseudo Transient",          solver = Dict(:alg => PseudoTransient(; linsolve = nothing, alpha_initial=10.0))),
+    (; pkg = :nonlinearsolve, type = :general, name = "Pseudo Transient",          solver = Dict(:alg => PseudoTransient(; linsolve = nothing, alpha_initial=10.0))),
     (; pkg = :wrapper,        type = :general, name = "Powell (MINPACK)",          solver = Dict(:alg => CMINPACK(; method=:hybr))),
     (; pkg = :wrapper,        type = :general, name = "LM (MINPACK)",              solver = Dict(:alg => CMINPACK(; method=:lm))),
     (; pkg = :wrapper,        type = :general, name = "NR (NLsolve.jl)",           solver = Dict(:alg => NLsolveJL(; method=:newton))),
@@ -98,6 +99,10 @@ function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm{CJ, N}, ck) w
         solver.trustregion, jacobian_ad = ad, solver.max_shrink_times, solver.forward_ad,
         solver.reverse_ad)
 end
+function __set_ad_chunksize(solver::NonlinearSolvePolyAlgorithm{pType}, ck) where {pType}
+    algs = [__set_ad_chunksize(alg, ck) for alg in solver.algs]
+    return NonlinearSolvePolyAlgorithm(algs, Val(pType); solver.start_index)
+end
 __set_ad_chunksize(solver, ck) = solver
 
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
@@ -116,13 +121,13 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     solvers_LM = filter(s -> s.type==:LM, successful_solvers)
     wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver);
         names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l∞,
-        maxiters=10000, termination_condition = AbsNormTerminationMode())
+        maxiters=1000, termination_condition = AbsNormTerminationMode())
     wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver);
         names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l∞,
-        maxiters=10000, termination_condition = AbsNormTerminationMode())
+        maxiters=1000, termination_condition = AbsNormTerminationMode())
     wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver);
         names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l∞,
-        maxiters=10000, termination_condition = AbsNormTerminationMode())
+        maxiters=1000, termination_condition = AbsNormTerminationMode())
 
     # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
@@ -132,7 +137,7 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
 
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
-        numruns=100, error_estimate=:l∞, maxiters=10000)
+        numruns=100, error_estimate=:l∞, maxiters=1000)
 
     push!(wp_general_tracker, prob_name => wp_general)
 
@@ -147,7 +152,7 @@ end
 function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8,
-            maxiters=10000000, termination_condition=AbsNormTerminationMode())
+            maxiters=1000000, termination_condition=AbsNormTerminationMode())
         if norm(sol.resid, Inf) < 1e-6
             Base.printstyled("[Info] Solver $(solver.name) returned retcode $(sol.retcode) \
                 with an residual norm = $(norm(sol.resid, Inf)).\n"; color=:green)
@@ -451,7 +456,7 @@ benchmark_problem!("Chandrasekhar function")
 Finally, we print a summary of which solvers successfully solved which problems.
 
 ```julia
-solver_successes = [(solver in prob[2]) ? "O" : "X" for prob in solver_tracker, solver in solvers_all];
+solver_successes = [(solver.name in getfield.(prob[2], :name)) ? "O" : "X" for prob in solver_tracker, solver in solvers_all]
 total_successes = [sum(solver_successes[:,i] .== "O") for i in 1:length(solvers_all)]
 solver_outcomes = vcat(total_successes', solver_successes);
 ```

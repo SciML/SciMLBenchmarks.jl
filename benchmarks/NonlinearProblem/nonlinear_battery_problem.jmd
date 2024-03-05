@@ -20,8 +20,9 @@ These benchmarks compares the runtime and error for a range of nonlinear solvers
 Fetch required packages.
 
 ```julia
-using NonlinearSolve, MINPACK, NLsolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
+using NonlinearSolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie
+import MINPACK, NLsolve
 RUS = RadiusUpdateSchemes;
 ```
 
@@ -31,7 +32,7 @@ Declare the benchmarked solvers (and their names and plotting options).
 DEFAULT_FORWARD_AD = AutoForwardDiff(; chunksize = 12)
 
 solvers_all = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => nothing)),
+    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => FastShortcutNonlinearPolyalg(; autodiff = DEFAULT_FORWARD_AD)),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson(; linsolve = nothing, autodiff = DEFAULT_FORWARD_AD))),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",                 solver = Dict(:alg => NewtonRaphson(; linsolve = nothing, linesearch = HagerZhang()))),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",                solver = Dict(:alg => NewtonRaphson(; linsolve = nothing, linesearch = MoreThuente()))),
