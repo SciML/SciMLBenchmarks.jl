@@ -181,11 +181,12 @@ function cache_and_compute_10_jacobians(adtype, sd, f!::F, y, x) where {F}
     return J
 end
 
-Ns = [2^i for i in 1:7]
+Ns = [2^i for i in 1:8]
 sd = [SymbolicsSparsityDetection(), ApproximateJacobianSparsity(; ntrials = 3)]
 adtypes = [AutoSparseFiniteDiff(), AutoSparsePolyesterForwardDiff(; chunksize = 8)]
-algs = Iterators.product(sd, adtypes)
-times = Matrix{Float64}(undef, length(Ns), length(algs) + 1)
+algs = vcat(vec(collect(Iterators.product(sd, adtypes))),
+    [(NoSparsityDetection(), AutoPolyesterForwardDiff(; chunksize = 8))])
+times = Matrix{Float64}(undef, length(Ns), length(algs))
 
 for (i, N) in enumerate(Ns)
     @info N
@@ -196,9 +197,6 @@ for (i, N) in enumerate(Ns)
         times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
         @info times[i, j]
     end
-    sd, adtype = NoSparsityDetection(), AutoPolyesterForwardDiff(; chunksize = 8)
-    times[i, end] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
-    @info times[i, end]
 end
 ```
 
