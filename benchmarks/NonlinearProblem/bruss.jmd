@@ -194,8 +194,13 @@ for (i, N) in enumerate(Ns)
     bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
     y = similar(u0)
     for (j, (sd, adtype)) in enumerate(algs)
-        times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
-        @info times[i, j]
+        if N < 2^8 || (N ≥ 2^8 && sd isa SymbolicsSparsityDetection)
+            times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
+            @info times[i, j]
+        else
+            @info "Skipping would have timed out"
+            times[i, j] = NaN
+        end
     end
 end
 ```
