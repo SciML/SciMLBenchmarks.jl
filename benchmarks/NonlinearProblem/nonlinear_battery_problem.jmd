@@ -1,5 +1,5 @@
 ---
-title: Battery Problem
+title: Doyle-Fuller-Newman (DFN) Battery Model Initialization
 author: Marc D. Berliner & Avik Pal
 ---
 
@@ -254,11 +254,11 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:tab20, length(successful_solvers); categorical = true)
+    colors = cgrad(:seaborn_bright, length(successful_solvers); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
-    idxs = sortperm(last.(getfield.(wp_set.wps, :times)))
+    idxs = sortperm(median.(getfield.(wp_set.wps, :times)))
 
     with_theme(plot_theme) do 
         fig = Figure(; size = (WIDTH, HEIGHT))
@@ -286,11 +286,13 @@ fig = begin
         Legend(fig[2, :], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in successful_solvers[idxs]], "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 20, nbanks = 3, labelsize = 16, halign = :right,
+            titlesize = 20, nbanks = 3, labelsize = 16, margin = (0.0, 80.0, 0.0, 0.0),
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig, "Doyle-Fuller-Newman (DFN) Battery Model Initialization: Work Precision Diagram",
             fontsize = 24, tellwidth = false, font = :bold)
+
+        resize_to_layout!(fig)
 
         fig
     end

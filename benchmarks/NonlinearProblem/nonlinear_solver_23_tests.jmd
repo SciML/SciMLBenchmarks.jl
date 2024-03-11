@@ -228,7 +228,7 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:tab20, length(solvers_all); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_all); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
@@ -481,7 +481,7 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:tab20, length(solvers_all); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_all); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
@@ -493,6 +493,7 @@ fig = begin
         ls = []
         scs = []
         labels = []
+        solver_times = []
 
         for i in 1:5, j in 1:5
             idx = 5 * (i - 1) + j
@@ -533,6 +534,13 @@ fig = begin
                     push!(scs, sc)
                     push!(labels, wpᵢ.name)
                 end
+
+                if wpᵢ.name ∈ first.(solver_times)
+                    idxi = findfirst(x -> first(x) == wpᵢ.name, solver_times)
+                    push!(solver_times[idxi][2], median(times) / length(wp.prob.u0))
+                else
+                    push!(solver_times, wpᵢ.name => [median(times) / length(wp.prob.u0)])
+                end
             end
 
             xmin = max(xmin, 10^-100)
@@ -546,19 +554,21 @@ fig = begin
             ax.yticks = yticks
         end
 
+        ordering = sortperm(median.(last.(solver_times)))
+
         fig[0, :] = Label(fig, "Work-Precision Diagram for 23 Test Problems",
             fontsize = 24, tellwidth = false, font = :bold)
 
         fig[:, 0] = Label(fig, "Time (s)", fontsize = 20, tellheight = false, font = :bold,
             rotation = π / 2)
         fig[end + 1, :] = Label(fig,
-            L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+            L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
             fontsize = 20, tellwidth = false, font = :bold)
 
-        Legend(fig[5, 4:5], [[l, sc] for (l, sc) in zip(ls, scs)],
-            labels, "Successful Solvers";
+        Legend(fig[5, 4:5], [[l, sc] for (l, sc) in zip(ls[ordering], scs[ordering])],
+            labels[ordering], "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 16, nbanks = 6, labelsize = 16,
+            titlesize = 20, nbanks = 9, labelsize = 20, halign = :center,
             tellheight = false, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         return fig

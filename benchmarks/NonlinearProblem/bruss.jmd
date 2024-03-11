@@ -12,7 +12,7 @@ using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevToo
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials
 import NLsolve, MINPACK
 RUS = RadiusUpdateSchemes;
-BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5;
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.2;
 ```
 
 Define a utility to timeout the benchmark after a certain time.
@@ -221,7 +221,7 @@ fig = begin
             xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5, yreversed = true)
 
         spy!(ax, J_; markersize = 16, marker = :circle, framecolor = :lightgray,
-            colormap = :tab10, strokewidth = 3)
+            colormap = :seaborn_bright, strokewidth = 3)
 
         ax = Axis(fig[1, 2]; title = "Scaling of Sparse Jacobian Computation Algorithms",
             titlesize = 22, titlegap = 10, xscale = log2, yscale = log2,
@@ -230,7 +230,7 @@ fig = begin
             xlabel = L"Input Dimension ($\mathbf{N}$)", ylabel = L"Time $\mathbf{(s)}$", xlabelsize = 22,
             ylabelsize = 22, yaxisposition = :right)
 
-        colors = cgrad(:tab10, length(algs); categorical = true)
+        colors = cgrad(:seaborn_bright, length(algs); categorical = true)
 
         line_list = []
         scatter_list = []
@@ -399,7 +399,7 @@ fig = begin
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:tab20, length(solvers_scaling); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_scaling); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
@@ -419,7 +419,7 @@ fig = begin
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
 
-        idxs = sortperm(vec(mean(runtimes_scaling ./ reshape(Ns_, 1, :); dims=2)))
+        idxs = sortperm(vec(median(runtimes_scaling ./ reshape(Ns_, 1, :); dims=2)))
 
         ls, scs = [], []
         for (i, solver) in zip(idxs, solvers_scaling[idxs])
@@ -450,13 +450,15 @@ fig = begin
 
         Legend(fig[2, 1:2], main_legend, [s.name for s in solvers_scaling[idxs]], "Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 20, nbanks = 3, labelsize = 16, halign = :right,
-            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0))
+            titlesize = 20, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
+            margin = (50, 0, 0, 0))
 
         Legend(fig[2, 3], sparsity_legend, ["No Sparsity Detection", "Approx. Sparsity", "Exact Sparsity"],
-            "Sparsity Detection"; framevisible=true, framewidth = STROKEWIDTH, halign = :right,
+            "Sparsity Detection"; framevisible=true, framewidth = STROKEWIDTH,
             orientation = :horizontal, titlesize = 20, nbanks = 3, labelsize = 16,
-            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0))
+            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
+            halign = :right, margin = (0, 10, 0, 0))
 
         fig[0, :] = Label(fig,
             "Brusselator 2D: Scaling of First-Order Nonlinear Solvers with Problem Size",
@@ -579,7 +581,7 @@ fig = begin
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:tab10, length(solvers_scaling_jacobian_free); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_scaling_jacobian_free); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
@@ -617,6 +619,7 @@ fig = begin
         Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)], labels, "Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
             titlesize = 20, nbanks = 3, labelsize = 16, halign = :left,
+            margin = (0, 0, 0, 0),
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         Legend(fig[2, 2], [
@@ -625,9 +628,10 @@ fig = begin
                 LineElement(; linestyle = :dash, linewidth = 5),
                 LineElement(; linestyle = :dashdot, linewidth = 5),
             ], ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
-            "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH, halign = :right,
+            "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
             orientation = :horizontal, titlesize = 20, nbanks = 4, labelsize = 16,
-            tellheight = true, tellwidth = true, patchsize = (40.0f0, 20.0f0))
+            tellheight = true, tellwidth = true, patchsize = (40.0f0, 20.0f0),
+            halign = :right, margin = (0, 20, 0, 0))
 
         fig[0, :] = Label(fig,
             "Brusselator 2D: Scaling of Jacobian-Free Nonlinear Solvers with Problem Size",
@@ -731,7 +735,7 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:tab20, length(successful_solvers); categorical = true)
+    colors = cgrad(:seaborn_bright, length(successful_solvers); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
@@ -745,7 +749,7 @@ fig = begin
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
 
-        idxs = sortperm(last.(getfield.(wp_set.wps, :times)))
+        idxs = sortperm(median.(getfield.(wp_set.wps, :times)))
 
         ls, scs = [], []
 
@@ -763,7 +767,7 @@ fig = begin
         Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in successful_solvers[idxs]], "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 20, nbanks = 3, labelsize = 16, halign = :right,
+            titlesize = 20, nbanks = 3, labelsize = 16, margin = (0.0, 70.0, 0.0, 0.0),
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig, "Brusselator Steady State PDE: Work Precision Diagram",
