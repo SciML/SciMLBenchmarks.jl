@@ -12,7 +12,7 @@ using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevToo
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials
 import NLsolve, MINPACK
 RUS = RadiusUpdateSchemes;
-BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5;
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.2;
 ```
 
 Define a utility to timeout the benchmark after a certain time.
@@ -181,11 +181,12 @@ function cache_and_compute_10_jacobians(adtype, sd, f!::F, y, x) where {F}
     return J
 end
 
-Ns = [2^i for i in 1:7]
+Ns = [2^i for i in 1:8]
 sd = [SymbolicsSparsityDetection(), ApproximateJacobianSparsity(; ntrials = 3)]
 adtypes = [AutoSparseFiniteDiff(), AutoSparsePolyesterForwardDiff(; chunksize = 8)]
-algs = Iterators.product(sd, adtypes)
-times = Matrix{Float64}(undef, length(Ns), length(algs) + 1)
+algs = vcat(vec(collect(Iterators.product(sd, adtypes))),
+    [(NoSparsityDetection(), AutoPolyesterForwardDiff(; chunksize = 8))])
+times = Matrix{Float64}(undef, length(Ns), length(algs))
 
 for (i, N) in enumerate(Ns)
     @info N
@@ -193,12 +194,14 @@ for (i, N) in enumerate(Ns)
     bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
     y = similar(u0)
     for (j, (sd, adtype)) in enumerate(algs)
-        times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
-        @info times[i, j]
+        if N < 2^8 || (N ≥ 2^8 && sd isa SymbolicsSparsityDetection)
+            times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
+            @info times[i, j]
+        else
+            @info "Skipping would have timed out"
+            times[i, j] = NaN
+        end
     end
-    sd, adtype = NoSparsityDetection(), AutoPolyesterForwardDiff(; chunksize = 8)
-    times[i, end] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
-    @info times[i, end]
 end
 ```
 
@@ -217,8 +220,8 @@ fig = begin
             xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
             xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5, yreversed = true)
 
-        spy!(ax, J_; markersize = 12, marker = :circle, framecolor = :lightgray,
-            colormap = :berlin)
+        spy!(ax, J_; markersize = 16, marker = :circle, framecolor = :lightgray,
+            colormap = :seaborn_bright, strokewidth = 3)
 
         ax = Axis(fig[1, 2]; title = "Scaling of Sparse Jacobian Computation Algorithms",
             titlesize = 22, titlegap = 10, xscale = log2, yscale = log2,
@@ -227,7 +230,7 @@ fig = begin
             xlabel = L"Input Dimension ($\mathbf{N}$)", ylabel = L"Time $\mathbf{(s)}$", xlabelsize = 22,
             ylabelsize = 22, yaxisposition = :right)
 
-        colors = cgrad(:berlin, length(algs) + 1; categorical = true)
+        colors = cgrad(:seaborn_bright, length(algs); categorical = true)
 
         line_list = []
         scatter_list = []
@@ -236,25 +239,25 @@ fig = begin
 
         push!(line_list,
             lines!(
-                ax, Ns_, times[:, 1], color = colors[1], linewidth = 3, linestyle = :dash))
+                ax, Ns_, times[:, 1], color = colors[1], linewidth = 5, linestyle = :dash))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 1], color = colors[1], strokewidth = 2, markersize = 16))
-        push!(line_list, lines!(ax, Ns_, times[:, 2], color = colors[2], linewidth = 3))
+            scatter_list, scatter!(ax, Ns_, times[:, 1], color = colors[1], strokewidth = 3, markersize = 16))
+        push!(line_list, lines!(ax, Ns_, times[:, 2], color = colors[2], linewidth = 5))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 2], color = colors[2], strokewidth = 2, markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 2], color = colors[2], strokewidth = 3, markersize = 16))
         push!(line_list,
             lines!(
-                ax, Ns_, times[:, 3], color = colors[3], linewidth = 3, linestyle = :dash))
+                ax, Ns_, times[:, 3], color = colors[3], linewidth = 5, linestyle = :dash))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 3], color = colors[3], strokewidth = 2, markersize = 16))
-        push!(line_list, lines!(ax, Ns_, times[:, 4], color = colors[4], linewidth = 3))
+            scatter_list, scatter!(ax, Ns_, times[:, 3], color = colors[3], strokewidth = 3, markersize = 16))
+        push!(line_list, lines!(ax, Ns_, times[:, 4], color = colors[4], linewidth = 5))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 4], color = colors[4], strokewidth = 2, markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 4], color = colors[4], strokewidth = 3, markersize = 16))
         push!(line_list,
             lines!(
-                ax, Ns_, times[:, 5], color = colors[5], linewidth = 3, linestyle = :dot))
+                ax, Ns_, times[:, 5], color = colors[5], linewidth = 5, linestyle = :dot))
         push!(
-            scatter_list, scatter!(ax, Ns_, times[:, 5], color = colors[5], strokewidth = 2, markersize = 16))
+            scatter_list, scatter!(ax, Ns_, times[:, 5], color = colors[5], strokewidth = 3, markersize = 16))
 
         group_symbolics = [
             [
@@ -293,12 +296,12 @@ fig = begin
         axislegend(ax,
             [group_symbolics, group_approx, legend_polyester],
             [
-                ["FiniteDiff", "ForwardDiff"],
-                ["FiniteDiff", "PolyesterForwardDiff"],
-                ["PolyesterForwardDiff"]
+                ["Finite Diff", "Forward Diff"],
+                ["Finite Diff", "Threaded Forward Diff"],
+                ["Threaded Forward Diff"]
             ],
             ["Symbolic Sparsity", "Approx. Sparsity", "No Sparsity"];
-            position = :rb, framevisible = true, framewidth = 2.5, titlesize = 16,
+            position = :rb, framevisible = true, framewidth = 2.5, titlesize = 18,
             labelsize = 16, patchsize = (40.0f0, 20.0f0))
 
         fig
@@ -391,18 +394,18 @@ Plot the results.
 ```julia
 fig = begin
     ASPECT_RATIO = 0.7
-    WIDTH = 1400
+    WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:berlin, length(solvers_scaling); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_scaling); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
-        (:nonlinearsolve, :approx) => Linestyle([0.5, 1.0, 1.5, 2.5]),
+        (:nonlinearsolve, :approx) => :dash,
         (:nonlinearsolve, :exact) => :dashdot,
-        (:simplenonlinearsolve, :none) => :dash,
+        # (:simplenonlinearsolve, :none) => :solid,
         (:wrapper, :none) => :dot,
     )
 
@@ -416,8 +419,10 @@ fig = begin
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
 
+        idxs = sortperm(vec(median(runtimes_scaling ./ reshape(Ns_, 1, :); dims=2)))
+
         ls, scs = [], []
-        for (i, solver) in enumerate(solvers_scaling)
+        for (i, solver) in zip(idxs, solvers_scaling[idxs])
             linestyle = LINESTYLES[(solver.pkg, solver.sparsity)]
             l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
                 linestyle)
@@ -439,19 +444,21 @@ fig = begin
 
         sparsity_legend = [
             LineElement(; linestyle = :solid, linewidth = 5),
-            LineElement(; linestyle = Linestyle([0.5, 1.0, 1.5, 2.5]), linewidth = 5),
+            LineElement(; linestyle = :dash, linewidth = 5),
             LineElement(; linestyle = :dashdot, linewidth = 5),
         ]
 
-        Legend(fig[2, 1:2], main_legend, [s.name for s in solvers_scaling], "Solvers";
+        Legend(fig[2, 1:2], main_legend, [s.name for s in solvers_scaling[idxs]], "Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 16, nbanks = 3, labelsize = 16,
-            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+            titlesize = 20, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
+            margin = (50, 0, 0, 0))
 
         Legend(fig[2, 3], sparsity_legend, ["No Sparsity Detection", "Approx. Sparsity", "Exact Sparsity"],
             "Sparsity Detection"; framevisible=true, framewidth = STROKEWIDTH,
-            orientation = :horizontal, titlesize = 16, nbanks = 3, labelsize = 16,
-            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+            orientation = :horizontal, titlesize = 20, nbanks = 3, labelsize = 16,
+            tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
+            halign = :right, margin = (0, 10, 0, 0))
 
         fig[0, :] = Label(fig,
             "Brusselator 2D: Scaling of First-Order Nonlinear Solvers with Problem Size",
@@ -569,12 +576,12 @@ Plot the results.
 ```julia
 fig = begin
     ASPECT_RATIO = 0.7
-    WIDTH = 1400
+    WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:berlin, length(solvers_scaling_jacobian_free); categorical = true)
+    colors = cgrad(:seaborn_bright, length(solvers_scaling_jacobian_free); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
@@ -588,13 +595,15 @@ fig = begin
     with_theme(theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
 
-        ax = Axis(fig[1, 1:3], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
+        ax = Axis(fig[1, 1:2], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
             xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
 
+        idxs = sortperm(vec(mean(runtimes_scaling ./ reshape(Ns_, 1, :); dims=2)))
+
         ls, scs, labels = [], [], []
-        for (i, solver) in enumerate(solvers_scaling_jacobian_free)
+        for (i, solver) in zip(idxs, solvers_scaling_jacobian_free[idxs])
             all(isnan, runtimes_scaling[i, :]) && continue
             precon = occursin("AMG Jacobi", solver.name) ? :amg_jacobi : occursin("AMG", solver.name) ? :amg : occursin("ILU", solver.name) ? :ilu : :none
             linestyle = LINESTYLES[(solver.pkg, precon)]
@@ -607,20 +616,22 @@ fig = begin
             push!(labels, solver.name)
         end
 
-        Legend(fig[2, 1:2], [[l, sc] for (l, sc) in zip(ls, scs)], labels, "Solvers";
+        Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)], labels, "Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 16, nbanks = 3, labelsize = 16,
+            titlesize = 20, nbanks = 3, labelsize = 16, halign = :left,
+            margin = (0, 0, 0, 0),
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
-        Legend(fig[2, 3], [
+        Legend(fig[2, 2], [
                 LineElement(; linestyle = :solid, linewidth = 5),
                 LineElement(; linestyle = :dot, linewidth = 5),
                 LineElement(; linestyle = :dash, linewidth = 5),
                 LineElement(; linestyle = :dashdot, linewidth = 5),
             ], ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
             "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
-            orientation = :horizontal, titlesize = 16, nbanks = 2, labelsize = 16,
-            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+            orientation = :horizontal, titlesize = 20, nbanks = 4, labelsize = 16,
+            tellheight = true, tellwidth = true, patchsize = (40.0f0, 20.0f0),
+            halign = :right, margin = (0, 20, 0, 0))
 
         fig[0, :] = Label(fig,
             "Brusselator 2D: Scaling of Jacobian-Free Nonlinear Solvers with Problem Size",
@@ -720,11 +731,11 @@ fig = begin
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
         :wrapper => :dot)
     ASPECT_RATIO = 0.7
-    WIDTH = 1400
+    WIDTH = 1200
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:berlin, length(successful_solvers); categorical = true)
+    colors = cgrad(:seaborn_bright, length(successful_solvers); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
@@ -733,14 +744,16 @@ fig = begin
         # `textbf` doesn't work
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
-            xlabel = L"Error: $\mathbf{f(u^\ast)}$ $\mathbf{L_{\infty}}-\mathrm{\mathbf{norm}}$",
+            xlabel = L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
             xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
 
+        idxs = sortperm(median.(getfield.(wp_set.wps, :times)))
+
         ls, scs = [], []
 
-        for (i, (wp, solver)) in enumerate(zip(wp_set.wps, successful_solvers))
+        for (i, (wp, solver)) in enumerate(zip(wp_set.wps[idxs], successful_solvers[idxs]))
             (; name, times, errors) = wp
             errors = [err.l∞ for err in errors]
             l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
@@ -752,9 +765,9 @@ fig = begin
         end
 
         Legend(fig[2, 1], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in successful_solvers], "Successful Solvers";
+            [solver.name for solver in successful_solvers[idxs]], "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 16, nbanks = 3, labelsize = 16,
+            titlesize = 20, nbanks = 3, labelsize = 16, margin = (0.0, 70.0, 0.0, 0.0),
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig, "Brusselator Steady State PDE: Work Precision Diagram",
