@@ -50,14 +50,14 @@ solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; autodiff = DEFAULT_FORWARD_AD, linsolve = CholeskyFactorization()))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; linsolve = nothing, disable_geodesic = Val(true), autodiff = DEFAULT_FORWARD_AD))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = DEFAULT_FORWARD_AD, linsolve = CholeskyFactorization()))),
-    (; pkg = :wrapper,              name = "Modified Powell (MINPACK)",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
-    (; pkg = :wrapper,              name = "Levenberg-Marquardt (MINPACK)",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
-    (; pkg = :wrapper,              name = "Newton Raphson (NLsolve.jl)",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Trust Region (NLsolve.jl)",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Newton Raphson (Sundials)",                              solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              name = "Newton Krylov [GMRES] (Sundials)",                       solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
-    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch (Sundials)",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
-    (; pkg = :wrapper,              name = "Speed Mapping (SpeedMapping.jl)",                        solver = Dict(:alg => SpeedMappingJL()))
+    (; pkg = :wrapper,              name = "Modified Powell [MINPACK]",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper,              name = "Levenberg-Marquardt [MINPACK]",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
+    (; pkg = :wrapper,              name = "Newton Raphson [NLsolve.jl]",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region [NLsolve.jl]",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Mod. Newton Raphson [Sundials]",                         solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",                               solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch [Sundials]",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
+    (; pkg = :wrapper,              name = "Speed Mapping [SpeedMapping.jl]",                        solver = Dict(:alg => SpeedMappingJL()))
 ];
 ```
 
@@ -283,16 +283,15 @@ fig = begin
             push!(scs, sc)
         end
 
-        Legend(fig[2, :], [[l, sc] for (l, sc) in zip(ls, scs)],
-            [solver.name for solver in successful_solvers[idxs]], "Successful Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
-            titlesize = 20, nbanks = 3, labelsize = 16, margin = (0.0, 80.0, 0.0, 0.0),
-            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+        axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)],
+            [solver.name for solver in successful_solvers[idxs]], "Successful Solvers\n(Fastest to Slowest)";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :vertical,
+            titlesize = 20, nbanks = 1, labelsize = 16,#  margin = (0.0, 80.0, 0.0, 0.0),
+            tellheight = false, tellwidth = true, patchsize = (40.0f0, 20.0f0),
+            position = :rb)
 
         fig[0, :] = Label(fig, "Doyle-Fuller-Newman (DFN) Battery Model Initialization: Work Precision Diagram",
             fontsize = 24, tellwidth = false, font = :bold)
-
-        resize_to_layout!(fig)
 
         fig
     end
