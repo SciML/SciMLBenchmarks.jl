@@ -213,7 +213,7 @@ for (i, N) in enumerate(Ns)
     bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
     y = similar(u0)
     for (j, (sd, adtype)) in enumerate(algs)
-        if N < 2^8 || (N ≥ 2^8 && sd isa SymbolicsSparsityDetection)
+        if N < 2^9 || (N ≥ 2^9 && sd isa SymbolicsSparsityDetection)
             times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
             @info times[i, j]
         else
@@ -337,7 +337,7 @@ save("brusselator_sparse_jacobian_scaling.svg", fig)
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-Ns = 2 .^ (2:7)
+Ns = 2 .^ (2:8)
 
 solvers_scaling = [
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (Dense)",                     alg = NewtonRaphson(; linsolve = nothing)),
