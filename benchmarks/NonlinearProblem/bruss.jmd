@@ -145,14 +145,15 @@ function get_ordering(x::AbstractMatrix)
     idxs = Vector{Int}(undef, size(x, 1))
     placed = zeros(Bool, size(x, 1))
     idx = 1
-    for i in size(x, 2):-1:1
-        col = view(x, :, i)
-        idxs_col = sortperm(col; by = x -> isnan(x) ? Inf : (x == -1 ? Inf : x))
-        for j in idxs_col
-            if !placed[j] && !isnan(col[j]) && col[j] ≠ -1
-                idxs[j] = idx
+    for j in size(x, 2):-1:1
+        row = view(x, :, j)
+        idxs_row = sortperm(row; by = x -> isnan(x) ? Inf : (x == -1 ? Inf : x))
+        for i in idxs_row
+            if !placed[i] && !isnan(row[i]) && row[i] ≠ -1
+                idxs[idx] = i
+                placed[i] = true
                 idx += 1
-                placed[j] = true
+                idx > length(idxs) && break
             end
         end
         idx > length(idxs) && break
@@ -213,7 +214,7 @@ for (i, N) in enumerate(Ns)
     bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
     y = similar(u0)
     for (j, (sd, adtype)) in enumerate(algs)
-        if N < 2^8 || (N ≥ 2^8 && sd isa SymbolicsSparsityDetection)
+        if N < 2^9 || (N ≥ 2^9 && sd isa SymbolicsSparsityDetection)
             times[i, j] = @belapsed $cache_and_compute_10_jacobians($adtype, $sd, $bruss_f!, $y, $u0)
             @info times[i, j]
         else
@@ -243,7 +244,7 @@ fig = begin
             colormap = :seaborn_bright, strokewidth = 3)
 
         ax = Axis(fig[1, 2]; title = "Scaling of Sparse Jacobian Computation Algorithms",
-            titlesize = 22, titlegap = 10, xscale = log2, yscale = log2,
+            titlesize = 22, titlegap = 10, xscale = log10, yscale = log10,
             xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
             xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5,
             xlabel = L"Input Dimension ($\mathbf{N}$)", ylabel = L"Time $\mathbf{(s)}$", xlabelsize = 22,
@@ -337,7 +338,7 @@ save("brusselator_sparse_jacobian_scaling.svg", fig)
 First, let us experiment the scaling of each algorithm with the problem size.
 
 ```julia
-Ns = 2 .^ (2:7)
+Ns = vcat(collect(2 .^ (2:7)), [150, 175, 200]) 
 
 solvers_scaling = [
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (Dense)",                     alg = NewtonRaphson(; linsolve = nothing)),
@@ -381,7 +382,10 @@ for (i, N) in enumerate(Ns)
         if (j > 1 && runtimes_scaling[j - 1, i] == -1) || (alg isa CMINPACK && N > 32) ||
             (alg isa KINSOL && N > 64) ||
             (alg isa NLsolveJL && N > 64 && alg.method == :trust_region) ||
-            (alg isa GeneralizedFirstOrderAlgorithm{nothing, :TrustRegion} && N > 64)
+            (alg isa GeneralizedFirstOrderAlgorithm{nothing, :TrustRegion} && N > 64) ||
+            (alg isa NLsolveJL && N > 128 && alg.method == :newton) ||
+            (alg isa GeneralizedFirstOrderAlgorithm{nothing, :NewtonRaphson} && N > 128 && ptype == :none) ||
+            (alg isa GeneralizedFirstOrderAlgorithm{nothing, :NewtonRaphson} && N > 150 && ptype == :approx)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
