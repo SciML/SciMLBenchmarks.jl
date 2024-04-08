@@ -43,7 +43,7 @@ function lvcom_df(du, u, p, t)
     nothing
 end
 
-lvdf_with_jacobian = ODEFunction(lvdf, jac=(J,u,p,t)->begin
+lvdf_with_jacobian = ODEFunction{true, SciMLBase.FullSpecialize}(lvdf, jac=(J,u,p,t)->begin
                                    a,b,c = p
                                    x, y = u
                                    J[1] = a-b*y
@@ -429,7 +429,7 @@ forward_bruss = let
   @test sol1 ≈ sol2 atol=1e-2
   sol3 = @time diffeq_sen(bfun, b_u0, (0.,10.), b_p, Rodas5(autodiff=false), abstol=1e-5,reltol=1e-7);
   @test sol1 ≈ hcat(sol3...) atol=1e-3
-  sol4 = @time diffeq_sen(ODEFunction(bfun, jac=brusselator_jac), b_u0, (0.,10.), b_p, Rodas5(autodiff=false), abstol=1e-5,reltol=1e-7, sensalg=ForwardSensitivity(autodiff=false, autojacvec=false));
+  sol4 = @time diffeq_sen(ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac), b_u0, (0.,10.), b_p, Rodas5(autodiff=false), abstol=1e-5,reltol=1e-7, sensalg=ForwardSensitivity(autodiff=false, autojacvec=false));
   @test sol1 ≈ hcat(sol4...) atol=1e-2
   sol5 = @time solve(brusselator_comp, Rodas5(autodiff=false), abstol=1e-5,reltol=1e-7,);
   @test sol1 ≈ reshape(sol5[end][2n*n+1:end], 2n*n, 4n*n) atol=1e-3
@@ -440,7 +440,7 @@ forward_bruss = let
   @info "  Running DSA"
   t2 = @belapsed auto_sen($bfun, $b_u0, $((0.,10.)), $b_p, $(Rodas5()); $tols...);
   @info "  Running CSA user-Jacobian"
-  t3 = @belapsed diffeq_sen($(ODEFunction(bfun, jac=brusselator_jac)), $b_u0, $((0.,10.)), $b_p, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
+  t3 = @belapsed diffeq_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac)), $b_u0, $((0.,10.)), $b_p, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
   @info "  Running AD-Jacobian"
   t4 = @belapsed diffeq_sen($bfun, $b_u0, $((0.,10.)), $b_p, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autojacvec=false), $tols...);
   @info "  Running AD-Jv seeding"
@@ -460,15 +460,15 @@ forward_pollution = let
   @info "  Running compile-time CSA"
   t1 = 0#@belapsed solve($(ODEProblem(pcomp, pcompu0, ptspan, pp)), $(Rodas5(autodiff=false)),);
   @info "  Running DSA"
-  t2 = @belapsed auto_sen($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5()); $tols...);
+  t2 = @belapsed auto_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5()); $tols...);
   @info "  Running CSA user-Jacobian"
-  t3 = @belapsed diffeq_sen($(ODEFunction(pollution.f, jac=pollution.jac)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
+  t3 = @belapsed diffeq_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac=pollution.jac)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
   @info "  Running AD-Jacobian"
-  t4 = @belapsed diffeq_sen($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autojacvec=false), $tols...);
+  t4 = @belapsed diffeq_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autojacvec=false), $tols...);
   @info "  Running AD-Jv seeding"
-  t5 = @belapsed diffeq_sen($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autojacvec=true), $tols...);
+  t5 = @belapsed diffeq_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5(autodiff=false)); sensalg=ForwardSensitivity(autojacvec=true), $tols...);
   @info "  Running numerical differentiation"
-  t6 = @belapsed numerical_sen($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5()); $tols...);
+  t6 = @belapsed numerical_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $(Rodas5()); $tols...);
   print('\n')
   [t1, t2, t3, t4, t5, t6]
 end
@@ -487,7 +487,7 @@ forward_pkpd = let
   @info "  Running DSA"
   t2 = @belapsed auto_sen($(pkpdf.f), $pkpdu0, $pkpdtspan, $pkpdp, $(Tsit5()); callback=$pkpdcb,tstops=0:24:240, $tols...);
   @info "  Running CSA user-Jacobian"
-  t3 = @belapsed diffeq_sen($(ODEFunction(pkpdf.f, jac=pkpdf.jac)), $pkpdu0, $pkpdtspan, $pkpdp, $(Tsit5());callback=$pkpdcb,tstops=0:24:240, sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
+  t3 = @belapsed diffeq_sen($(ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f, jac=pkpdf.jac)), $pkpdu0, $pkpdtspan, $pkpdp, $(Tsit5());callback=$pkpdcb,tstops=0:24:240, sensalg=ForwardSensitivity(autodiff=false, autojacvec=false), $tols...);
   @info "  Running AD-Jacobian"
   t4 = @belapsed diffeq_sen($(pkpdf.f), $pkpdu0, $pkpdtspan, $pkpdp, $(Tsit5()); callback=$pkpdcb,tstops=0:24:240,
                     sensalg=ForwardSensitivity(autojacvec=false), $tols...);
@@ -549,7 +549,7 @@ adjoint_bruss = let
   @time bsol2 = auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
   @time bsol3 = map(ADJOINT_METHODS) do alg
     @info "Runing $alg"
-    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver, reltol=1e-7; sensalg=alg, tols...)
   end
@@ -563,7 +563,7 @@ adjoint_bruss = let
   t2 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
   t3 = map(ADJOINT_METHODS[1:2end÷3]) do alg
     @info "Runing $alg"
-    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     @elapsed diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...);
   end
@@ -579,30 +579,30 @@ adjoint_pollution = let
   pcomp, pu0, pp, pcompu0 = make_pollution();
   ptspan = (0.0, 60.0)
   pts = 0:0.5:60
-  @time psol1 = auto_sen_l2((ODEFunction(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ForwardDiff.gradient), tols...);
-  @time psol2 = auto_sen_l2((ODEFunction(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
+  @time psol1 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ForwardDiff.gradient), tols...);
+  @time psol2 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
   @time psol3 = map(ADJOINT_METHODS) do alg
     @info "Runing $alg"
-    f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction(pollution.f, jac=pollution.jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac=pollution.jac)
     solver = Rodas5(autodiff=false)
     diffeq_sen_l2(f, pu0, ptspan, pp, pts, solver; sensalg=alg, tols...);
   end
-  @time psol4 = numerical_sen_l2((ODEFunction(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); tols...);
+  @time psol4 = numerical_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); tols...);
   @test maximum(abs, psol1 .- psol2)/maximum(abs,  psol1) < 1e-2
   # NOTE: backsolve gives unstable results!!!
   @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) < 1e-2, eachindex(ADJOINT_METHODS)[1:2end÷3])
   @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) >= 1e-2, eachindex(ADJOINT_METHODS)[2end÷3+1:end])
   @test maximum(abs, psol1 .- psol4)/maximum(abs, psol1) < 1e-2
-  t1 = @belapsed auto_sen_l2($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ForwardDiff.gradient), $tols...);
-  t2 = @belapsed auto_sen_l2($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
+  t1 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ForwardDiff.gradient), $tols...);
+  t2 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
   t3 = map(ADJOINT_METHODS[1:2end÷3]) do alg
     @info "Runing $alg"
-    f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction(pollution.f, jac=pollution.jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac=pollution.jac)
     solver = Rodas5(autodiff=false)
     @elapsed diffeq_sen_l2(f, pu0, ptspan, pp, pts, solver; sensalg=alg, tols...);
   end
   t3 = [t3; fill(NaN, length(ADJOINT_METHODS)÷3)]
-  t4 = @belapsed numerical_sen_l2($(ODEFunction(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); $tols...);
+  t4 = @belapsed numerical_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); $tols...);
   [t1; t2; t3; t4]
 end
 ```
@@ -617,11 +617,11 @@ adjoint_pkpd = let
   pkpdsol2 = @time auto_sen_l2((pkpdf.f), pkpdu0, pkpdtspan, pkpdp, pts, (Tsit5()); callback=pkpdcb, tstops=0:24:240,
                                 diffalg=(ReverseDiff.gradient), tols...);
   pkpdsol3 = @time map(ADJOINT_METHODS[1:2end÷3]) do alg
-    f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f : ODEFunction(pkpdf.f, jac=pkpdf.jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f : ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f, jac=pkpdf.jac)
     diffeq_sen_l2(f, pkpdu0, pkpdtspan, pkpdp, pts, (Tsit5()); sensalg=alg,
                                   callback=pkpdcb, tstops=0:24:240, tols...);
   end
-  pkpdsol4 = @time numerical_sen_l2((ODEFunction(pkpdf.f)), pkpdu0, pkpdtspan, pkpdp, pts, (Tsit5());
+  pkpdsol4 = @time numerical_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f)), pkpdu0, pkpdtspan, pkpdp, pts, (Tsit5());
                                      callback=pkpdcb, tstops=0:24:240, tols...);
   @test maximum(abs, pkpdsol1 .- pkpdsol2)/maximum(abs,  pkpdsol1) < 0.2
   @test all(i->maximum(abs, pkpdsol1 .- pkpdsol3[i]')/maximum(abs,  pkpdsol1) < 0.2, eachindex(ADJOINT_METHODS)[1:2end÷3])
@@ -631,12 +631,12 @@ adjoint_pkpd = let
   t2 = @belapsed auto_sen_l2($(pkpdf.f), $pkpdu0, $pkpdtspan, $pkpdp, $pts, $(Tsit5()); callback=pkpdcb, tstops=0:24:240,
                                 diffalg=$(ReverseDiff.gradient), $tols...);
   t3 = map(ADJOINT_METHODS[1:2end÷3]) do alg
-    f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f : ODEFunction(pkpdf.f, jac=pkpdf.jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f : ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f, jac=pkpdf.jac)
     @belapsed diffeq_sen_l2($f, $pkpdu0, $pkpdtspan, $pkpdp, $pts, $(Tsit5()); tstops=0:24:240,
                                   callback=pkpdcb, sensalg=$alg, tols...);
   end
   t3 = [t3; fill(NaN, length(ADJOINT_METHODS)÷3)]
-  t4 = @belapsed numerical_sen_l2($(ODEFunction(pkpdf.f)), $pkpdu0, $pkpdtspan, $pkpdp, $pts, $(Tsit5()); tstops=0:24:240,
+  t4 = @belapsed numerical_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f)), $pkpdu0, $pkpdtspan, $pkpdp, $pts, $(Tsit5()); tstops=0:24:240,
                                      callback=$pkpdcb, $tols...);
   [t1; t2; t3; t4]
 end
