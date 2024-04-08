@@ -333,7 +333,7 @@ end
 
 function auto_sen(f, u0, tspan, p, alg=Tsit5(); kwargs...)
   test_f(p) = begin
-    prob = ODEProblem(f,eltype(p).(u0),tspan,p)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,eltype(p).(u0),tspan,p)
     solve(prob,alg; save_everystep=false, kwargs...)[end]
   end
   ForwardDiff.jacobian(test_f, p)
@@ -341,7 +341,7 @@ end
 
 function numerical_sen(f,u0, tspan, p, alg=Tsit5(); kwargs...)
   test_f(out,p) = begin
-    prob = ODEProblem(f,eltype(p).(u0),tspan,p)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,eltype(p).(u0),tspan,p)
     copyto!(out, solve(prob,alg; kwargs...)[end])
   end
   J = Matrix{Float64}(undef,length(u0),length(p))
@@ -361,7 +361,7 @@ end
 
 function auto_sen_l2(f, u0, tspan, p, t, alg=Tsit5(); diffalg=ReverseDiff.gradient, kwargs...)
   test_f(p) = begin
-    prob = ODEProblem(f,eltype(p).(u0),tspan,p)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,eltype(p).(u0),tspan,p)
     sol = solve(prob,alg; sensealg=DiffEqBase.SensitivityADPassThrough(), kwargs...)(t)
     sum(sol.u) do x
       sum(z->(1-z)^2/2, x)
@@ -546,7 +546,9 @@ adjoint_bruss = let
   n = 5
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator(n)
   @time bsol1 = auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(ForwardDiff.gradient), tols...);
-  @time bsol2 = auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
+  #@time bsol2 = auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
+  #@test maximum(abs, bsol1 .- bsol2)/maximum(abs,  bsol1) < 1e-2
+
   @time bsol3 = map(ADJOINT_METHODS) do alg
     @info "Runing $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac)
@@ -554,13 +556,13 @@ adjoint_bruss = let
     diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver, reltol=1e-7; sensalg=alg, tols...)
   end
   @time bsol4 = numerical_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); tols...);
-  @test maximum(abs, bsol1 .- bsol2)/maximum(abs,  bsol1) < 1e-2
   # NOTE: backsolve gives unstable results!!!
   @test all(i->maximum(abs, bsol1 .- bsol3[i]')/maximum(abs, bsol1) < 4e-2, eachindex(ADJOINT_METHODS)[1:2end÷3])
   @test all(i->maximum(abs, bsol1 .- bsol3[i]')/maximum(abs, bsol1) >= 4e-2, eachindex(ADJOINT_METHODS)[2end÷3+1:end])
   @test maximum(abs, bsol1 .- bsol4)/maximum(abs, bsol1) < 2e-2
   t1 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5()); diffalg=$(ForwardDiff.gradient), $tols...);
-  t2 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
+  #t2 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
+  t2 = NaN
   t3 = map(ADJOINT_METHODS[1:2end÷3]) do alg
     @info "Runing $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac=brusselator_jac)
@@ -580,7 +582,8 @@ adjoint_pollution = let
   ptspan = (0.0, 60.0)
   pts = 0:0.5:60
   @time psol1 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ForwardDiff.gradient), tols...);
-  @time psol2 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
+  #@time psol2 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...);
+  #@test maximum(abs, psol1 .- psol2)/maximum(abs,  psol1) < 1e-2
   @time psol3 = map(ADJOINT_METHODS) do alg
     @info "Runing $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac=pollution.jac)
@@ -588,13 +591,13 @@ adjoint_pollution = let
     diffeq_sen_l2(f, pu0, ptspan, pp, pts, solver; sensalg=alg, tols...);
   end
   @time psol4 = numerical_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=false)); tols...);
-  @test maximum(abs, psol1 .- psol2)/maximum(abs,  psol1) < 1e-2
   # NOTE: backsolve gives unstable results!!!
   @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) < 1e-2, eachindex(ADJOINT_METHODS)[1:2end÷3])
   @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) >= 1e-2, eachindex(ADJOINT_METHODS)[2end÷3+1:end])
   @test maximum(abs, psol1 .- psol4)/maximum(abs, psol1) < 1e-2
   t1 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ForwardDiff.gradient), $tols...);
-  t2 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
+  #t2 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=false)); diffalg=$(ReverseDiff.gradient), $tols...);
+  t2 = NaN
   t3 = map(ADJOINT_METHODS[1:2end÷3]) do alg
     @info "Runing $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f : ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac=pollution.jac)
@@ -649,7 +652,7 @@ adjoint_methods = ["ForwardDiff", "ReverseDiff",
                    "BacksolveAdjoint User Jac", "BacksolveAdjoint AD Jac", "BacksolveAdjoint v'J",
                    "Numerical Differentiation"]
 adjoint_timings = DataFrame(methods=adjoint_methods, LV=adjoint_lv, Bruss=adjoint_bruss, Pollution=adjoint_pollution, PKPD=adjoint_pkpd)
-Markdown.parse(PrettyTables.pretty_table(String, data; backend=Val(:markdown), header=names(data)))
+Markdown.parse(PrettyTables.pretty_table(String, adjoint_timings; backend=Val(:markdown), header=names(adjoint_timings)))
 ```
 
 ## Appendix

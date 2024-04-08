@@ -195,7 +195,7 @@ end |> NamedTuple{(:interp, :quad, :backsol)}
 
 function auto_sen_l2(f, u0, tspan, p, t, alg=Tsit5(); diffalg=ReverseDiff.gradient, kwargs...)
   test_f(p) = begin
-    prob = ODEProblem(f,convert.(eltype(p),u0),tspan,p)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,convert.(eltype(p),u0),tspan,p)
     sol = solve(prob,alg,saveat=t; kwargs...)
     sum(sol.u) do x
       sum(z->(1-z)^2/2, x)
@@ -206,7 +206,7 @@ end
 @inline function diffeq_sen_l2(df, u0, tspan, p, t, alg=Tsit5();
                        abstol=1e-5, reltol=1e-7, iabstol=abstol, ireltol=reltol,
                        sensalg=SensitivityAlg(), kwargs...)
-    prob = ODEProblem(df,u0,tspan,p)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(df,u0,tspan,p)
     saveat = tspan[1] != t[1] && tspan[end] != t[end] ? vcat(tspan[1],t,tspan[end]) : t
     sol = solve(prob, alg, abstol=abstol, reltol=reltol, saveat=saveat; kwargs...)
     dg(out,u,p,t,i) = (out.=1.0.-u)
@@ -228,6 +228,7 @@ end
 ```
 
 ```julia
+#=
 reversediff = map(reversediffn) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
   @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...)
@@ -235,6 +236,7 @@ reversediff = map(reversediffn) do n
   @show n,t
   t
 end
+=#
 ```
 
 ```julia
@@ -270,7 +272,7 @@ lw = 2
 ms = 0.5
 plt1 = plot(title="Sensitivity Scaling on Brusselator");
 plot!(plt1, n_to_param.(forwarddiffn), forwarddiff, lab="Forward-Mode DSAAD", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
-plot!(plt1, n_to_param.(reversediffn), reversediff, lab="Reverse-Mode DSAAD", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+#plot!(plt1, n_to_param.(reversediffn), reversediff, lab="Reverse-Mode DSAAD", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
 csadata = [[csa[j][i] for j in eachindex(csa)] for i in eachindex(csa[1])]
 plot!(plt1, n_to_param.(csan), csadata[1], lab="Interpolating CASA user-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
 plot!(plt1, n_to_param.(csan), csadata[2], lab="Interpolating CASA AD-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
