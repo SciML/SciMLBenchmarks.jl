@@ -54,7 +54,7 @@ lvdf_with_jacobian = ODEFunction{true, SciMLBase.FullSpecialize}(lvdf, jac=(J,u,
                                end)
 
 u0 = [1.,1.]; tspan = (0., 10.); p = [1.5,1.0,3.0]; lvcom_u0 = [u0...;zeros(6)]
-lvprob = ODEProblem(lvcom_df, lvcom_u0, tspan, p)
+lvprob = ODEProblem{true, SciMLBase.FullSpecialize}(lvcom_df, lvcom_u0, tspan, p)
 ```
 
 ```julia
@@ -93,7 +93,7 @@ pkpdaffect! = function (integrator)
 end
 pkpdcb = DiscreteCallback(pkpdcondition, pkpdaffect!, save_positions=(false, true))
 pkpdtspan = (0.,240.)
-pkpdprob = ODEProblem(pkpdf.f, pkpdu0, pkpdtspan, pkpdp)
+pkpdprob = ODEProblem{true, SciMLBase.FullSpecialize}(pkpdf.f, pkpdu0, pkpdtspan, pkpdp)
 
 pkpdfcomp = let pkpdf=pkpdf, J=zeros(5,5), JP=zeros(5,14), tmpdu=zeros(5,14)
   function (du, u, p, t)
@@ -105,7 +105,7 @@ pkpdfcomp = let pkpdf=pkpdf, J=zeros(5,5), JP=zeros(5,14), tmpdu=zeros(5,14)
     nothing
   end
 end
-pkpdcompprob = ODEProblem(pkpdfcomp, hcat(pkpdprob.u0,zeros(5,14)), pkpdprob.tspan, pkpdprob.p)
+pkpdcompprob = ODEProblem{true, SciMLBase.FullSpecialize}(pkpdfcomp, hcat(pkpdprob.u0,zeros(5,14)), pkpdprob.tspan, pkpdprob.p)
 ```
 
 ```julia
@@ -311,7 +311,7 @@ function makebrusselator(N=8)
     end
     u0 = init_brusselator_2d(xyd_brusselator)
     p = [fill(3.4,N^2); fill(1.,N^2); fill(10.,2*N^2)]
-    brusselator_2d_loop, u0, p, brusselator_jac, ODEProblem(brusselator_comp, copy([u0;zeros((N^2*2)*(N^2*4))]), (0.,10.), p)
+    brusselator_2d_loop, u0, p, brusselator_jac, ODEProblem{true, SciMLBase.FullSpecialize}(brusselator_comp, copy([u0;zeros((N^2*2)*(N^2*4))]), (0.,10.), p)
 end
 ```
 
