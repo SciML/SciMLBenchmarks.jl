@@ -6,7 +6,7 @@ author: Chris Rackauckas and Yingbo Ma
 From the paper [A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions](https://ieeexplore.ieee.org/abstract/document/9622796)
 
 ```julia
-using OrdinaryDiffEq, ReverseDiff, ForwardDiff, SciMLSensitivity
+using OrdinaryDiffEq, ReverseDiff, ForwardDiff, FiniteDiff, SciMLSensitivity
 using LinearAlgebra, Tracker, Plots
 ```
 
@@ -242,8 +242,8 @@ end
 ```julia
 numdiff = map(numdiffn) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
-  @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(DiffEqDiffTools.finite_difference_gradient), tols...)
-  t = @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(DiffEqDiffTools.finite_difference_gradient), tols...)
+  @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(FiniteDiff.finite_difference_gradient), tols...)
+  t = @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(FiniteDiff.finite_difference_gradient), tols...)
   @show n,t
   t
 end
@@ -254,7 +254,7 @@ csa = map(csan) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
   @time ts = map(ADJOINT_METHODS[1:2end÷3]) do alg
     @info "Runing $alg"
-    f = alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
     t = @elapsed diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
@@ -308,7 +308,7 @@ csavjp = map(csan) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
   @time ts = map(adjoint_methods) do alg
     @info "Runing $alg"
-    f = alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
     t = @elapsed diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
