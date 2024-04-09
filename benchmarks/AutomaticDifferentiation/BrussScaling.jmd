@@ -209,9 +209,9 @@ end
     prob = ODEProblem{true, SciMLBase.FullSpecialize}(df,u0,tspan,p)
     saveat = tspan[1] != t[1] && tspan[end] != t[end] ? vcat(tspan[1],t,tspan[end]) : t
     sol = solve(prob, alg, abstol=abstol, reltol=reltol, saveat=saveat; kwargs...)
-    dg(out,u,p,t,i) = (out.=1.0.-u)
-    adjoint_sensitivities(sol,alg,dg,t,abstol=abstol,
-                          reltol=reltol,iabstol=abstol,ireltol=reltol,sensealg=sensalg)
+    dg(out,u,p,t,i) = (out.=u.-1.0)
+    adjoint_sensitivities(sol,alg;t,abstol=abstol,dgdu_discrete = dg,
+                            reltol=reltol,sensealg=sensalg)
 end
 ```
 
