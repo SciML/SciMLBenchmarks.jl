@@ -56,62 +56,57 @@ colorlist = [
 cc(k) = colorlist[mod1(k, length(colorlist))]
 
 # Plot the solution of a Hamiltonian problem
-function plotsol(sol::ODESolution)
-    t, q, p = sol2tqp(sol)
-    d = size(q)[2]
-    for j in 1:d
-        j_str = d > 1 ? "[$j]" : ""
-        plot(t, q[:,j], color=cc(2j-1), label="q$(j_str)", lw=1)
-        plot!(t, p[:,j], color=cc(2j), label="p$(j_str)", lw=1, ls="--")
-    end
-    plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
-    xlabel!("t")  # Update x-axis label
-    ylabel!("q, p")  # Update y-axis label
-    plot!(legend=:bottomleft)
+# Plot the solution of a Hamiltonian problem
+t, q, p = sol2tqp(sol)
+d = size(q)[2]
+for j in 1:d
+    j_str = d > 1 ? "[$j]" : ""
+    plot(t, q[:,j], color=cc(2j-1), label="q$(j_str)", lw=1)
+    plot!(t, p[:,j], color=cc(2j), label="p$(j_str)", lw=1, ls=:dash, alpha=0.8)
 end
+plot!(grid=true)  # Add grid with appropriate linestyle
+xlabel!("t")  # Update x-axis label
+ylabel!("q, p")  # Update y-axis label
+plot!(legend=:bottomleft)
 
 # Plot the solution of a Hamiltonian problem on the 2D phase space
-function plotsol2(sol::ODESolution)
-    t, q, p = sol2tqp(sol)
-    d = size(q)[2]
-    for j in 1:d
-        j_str = d > 1 ? "[$j]" : ""
-        plot(q[:,j], p[:,j], color=cc(j), label="(q$(j_str),p$(j_str))", lw=1)
-    end
-    plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
-    xlabel!("q")  # Update x-axis label
-    ylabel!("p")  # Update y-axis label
-    plot!(legend=:bottomleft)
+t, q, p = sol2tqp(sol)
+println("t: ", t)
+println("q: ", q)
+println("p: ", p)
+d = size(q)[2]
+for j in 1:d
+    j_str = d > 1 ? "[$j]" : ""
+    plot(q[:,j], p[:,j], color=cc(j), label="(q$(j_str),p$(j_str))", lw=1)
 end
+plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
+xlabel!("q")  # Update x-axis label
+ylabel!("p")  # Update y-axis label
+plot!(legend=:bottomleft)
 
 # Plot the energy of a Hamiltonian problem
-function plotenergy(H, sol::ODESolution)
-    t, q, p = sol2tqp(sol)
-    energy = [H(q[i,:], p[i,:], nothing) for i in 1:size(q)[1]]
-    plot(t, energy, label="energy", color="red", lw=1)
-    plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
-    xlabel!("t")  # Update x-axis label
-    ylabel!("Energy")  # Update y-axis label
-    plot!(legend=:bottomleft)
-    stdenergy_str = @sprintf("%.3e", std(energy))
-    title!("std(energy) = $stdenergy_str", fontsize=10)  # Update title
-end
+t, q, p = sol2tqp(sol)
+energy = [H(q[i,:], p[i,:], nothing) for i in 1:size(q)[1]]
+plot(t, energy, label="energy", color="red", lw=1)
+plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
+xlabel!("t")  # Update x-axis label
+ylabel!("Energy")  # Update y-axis label
+plot!(legend=:bottomleft)
+stdenergy_str = @sprintf("%.3e", std(energy))
+title!("std(energy) = $stdenergy_str", fontsize=10)  # Update title
 
 # Plot the numerical and exact solutions of a single pendulum
-function plotcomparison(k, sol::ODESolution)
-    t, q, p = sol2tqp(sol)
-    y = sin.(q/2)
-    y_exact = k*sn.(t, k) # the exact solution
-
-    plot(t, y, label="numerical", lw=1)
-    plot!(t, y_exact, label="exact", lw=1, ls="--")
-    plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
-    xlabel!("t")  # Update x-axis label
-    ylabel!("y = sin(q(t)/2)")  # Update y-axis label
-    plot!(legend=:bottomleft)
-    error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
-    title!("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
-end
+t, q, p = sol2tqp(sol)
+y = sin.(q/2)
+y_exact = k*sn.(t, k) # the exact solution
+plot(t, y, label="numerical", lw=1)
+plot!(t, y_exact, label="exact", lw=1, ls=:dash, alpha=0.8, color="red")
+plot!(grid=true)  # Add grid with appropriate linestyle
+xlabel!("t")  # Update x-axis label
+ylabel!("y = sin(q(t)/2)")  # Update y-axis label
+plot!(legend=:bottomleft)
+error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
+title!("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
 
 # Plot solution and energy
 function plotsolenergy(H, integrator, Δt, sol::ODESolution)
@@ -142,79 +137,6 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
 
     plotsolenergy(H, integrator, Δt, sol)
 end
-```
-
-## Tests
-
-```julia
-# Single pendulum
-
-k = rand()
-integrator = VelocityVerlet()
-Δt = 0.1
-singlependulum(k, integrator, Δt;  t0=-20.0, t1=20.0)
-```
-
-```julia
-# Two single pendulums
-
-H(q,p,param) = sum(p.^2/2 .- cos.(q) .+ 1)
-q0 = pi*rand(2)
-p0 = zeros(2)
-t0, t1 = -20.0, 20.0
-prob = HamiltonianProblem(H, q0, p0, (t0, t1))
-
-integrator = McAte4()
-Δt = 0.1
-sol = solve(prob, integrator, dt=Δt)
-@time sol = solve(prob, integrator, dt=Δt)
-
-sleep(0.1)
-plotsolenergy(H, integrator, Δt, sol)
-```
-
-## Comparison of symplectic Integrators
-
-```julia
-SymplecticIntegrators = [
-    SymplecticEuler(),
-    VelocityVerlet(),
-    VerletLeapfrog(),
-    PseudoVerletLeapfrog(),
-    McAte2(),
-    Ruth3(),
-    McAte3(),
-    CandyRoz4(),
-    McAte4(),
-    CalvoSanz4(),
-    McAte42(),
-    McAte5(),
-    Yoshida6(),
-    KahanLi6(),
-    McAte8(),
-    KahanLi8(),
-    SofSpa10(),
-]
-
-k = 0.999
-Δt = 0.1
-for integrator in SymplecticIntegrators
-    singlependulum(k, integrator, Δt)
-end
-```
-
-```julia
-k = 0.999
-Δt = 0.01
-for integrator in SymplecticIntegrators[1:4]
-    singlependulum(k, integrator, Δt)
-end
-```
-
-```julia
-k = 0.999
-Δt = 0.001
-singlependulum(k, SymplecticEuler(), Δt)
 ```
 
 ```julia, echo = false
