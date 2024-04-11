@@ -253,7 +253,7 @@ end
 csa = map(csan) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
   @time ts = map(ADJOINT_METHODS[1:2end÷3]) do alg
-    @info "Runing $alg"
+    @info "Running $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
@@ -307,7 +307,7 @@ adjoint_methods = mapreduce(collect, vcat, _adjoint_methods)
 csavjp = map(csan) do n
   bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
   @time ts = map(adjoint_methods) do alg
-    @info "Runing $alg"
+    @info "Running $alg"
     f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
     solver = Rodas5(autodiff=false)
     @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
