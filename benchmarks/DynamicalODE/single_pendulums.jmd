@@ -53,9 +53,10 @@ colorlist = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
 ]
-cc(k) = colorlist[mod1(k, length(colorlist))]
+cc(k) = colorlist[mod1(k, length(colorist))]
+```
 
-# Plot the solution of a Hamiltonian problem
+```julia
 # Plot the solution of a Hamiltonian problem
 t, q, p = sol2tqp(sol)
 d = size(q)[2]
@@ -68,7 +69,9 @@ plot!(grid=true)  # Add grid with appropriate linestyle
 xlabel!("t")  # Update x-axis label
 ylabel!("q, p")  # Update y-axis label
 plot!(legend=:bottomleft)
+```
 
+```julia
 # Plot the solution of a Hamiltonian problem on the 2D phase space
 t, q, p = sol2tqp(sol)
 println("t: ", t)
@@ -83,7 +86,9 @@ plot!(grid=true, linestyle=:dot)  # Add grid with appropriate linestyle
 xlabel!("q")  # Update x-axis label
 ylabel!("p")  # Update y-axis label
 plot!(legend=:bottomleft)
+```
 
+```julia
 # Plot the energy of a Hamiltonian problem
 t, q, p = sol2tqp(sol)
 energy = [H(q[i,:], p[i,:], nothing) for i in 1:size(q)[1]]
@@ -94,7 +99,9 @@ ylabel!("Energy")  # Update y-axis label
 plot!(legend=:bottomleft)
 stdenergy_str = @sprintf("%.3e", std(energy))
 title!("std(energy) = $stdenergy_str", fontsize=10)  # Update title
+```
 
+```julia
 # Plot the numerical and exact solutions of a single pendulum
 t, q, p = sol2tqp(sol)
 y = sin.(q/2)
@@ -107,36 +114,6 @@ ylabel!("y = sin(q(t)/2)")  # Update y-axis label
 plot!(legend=:bottomleft)
 error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
 title!("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
-
-# Plot solution and energy
-function plotsolenergy(H, integrator, Δt, sol::ODESolution)
-    integrator_str = replace("$integrator", r"^[^.]*\." => "")
-
-    p1 = plot()
-    plotsol(sol)
-    p2 = plot()
-    plotsol2(sol)
-    p3 = plot()
-    plotenergy(H, sol)
-
-    plot(p1, p2, p3, layout=(3,1))
-    title!("=====    $integrator_str,   Δt = $Δt    =====")
-end
-
-# Solve a single pendulum
-function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
-    H(p,q,params) = p[1]^2/2 - cos(q[1]) + 1
-    q0 = [0.0]
-    p0 = [2k]
-    prob = HamiltonianProblem(H, p0, q0, (t0, t1))
-
-    integrator_str = replace("$integrator", r"^[^.]*\." => "")
-    @printf("%-25s", "$integrator_str:")
-    sol = solve(prob, integrator, dt=Δt)
-    @time sol = solve(prob, integrator, dt=Δt)
-
-    plotsolenergy(H, integrator, Δt, sol)
-end
 ```
 
 ```julia, echo = false
