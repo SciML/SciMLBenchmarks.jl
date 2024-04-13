@@ -1,0 +1,160 @@
+---
+title: Cantilever Beam Function
+author: Mridul Jain, Chris Rackauckas
+---
+
+The Cantilever Beam function is defined as:
+``f(w,t) = \frac{4L^3}{Ewt}*\sqrt{ (\frac{Y}{t^2})^2 + (\frac{X}{w^2})^2 }``
+With parameters L,E,X and Y given.
+
+## Package Imports
+
+```julia
+using Surrogates
+using SurrogatesPolyChaos
+using Plots
+using Statistics
+using PrettyTables
+using BenchmarkTools
+```
+
+## Define the function
+
+```julia
+function canti_lever(x)
+    t = x[1]
+    w = x[2]
+    L = 100.0
+    E = 2.770674127819261e7
+    X = 530.8038576066307
+    Y = 997.8714938733949
+    return (4*L^3)/(E*w*t)*sqrt( (Y/t^2)^2 + (X/w^2)^2)
+end
+```
+
+## Define parameters for training and test data
+
+```julia
+lb = [1.0,1.0]
+ub = [8.0,8.0]
+n_train = 100
+n_test = 150
+```
+
+## Sample training and test data points
+
+```julia
+x_train = sample(n_train, lb, ub, SobolSample())  # Sample training data points
+y_train = canti_lever.(x_train)  # Calculate corresponding function values
+x_test = sample(n_test, lb, ub, RandomSample())  # Sample larger test data set
+y_test = canti_lever.(x_test)  # Calculate corresponding true function values
+```
+
+## Plotting the true function
+  
+```julia
+x, y = 0.0:8.0, 0.0:8.0
+p1 = surface(x, y, (x1,x2) -> canti_lever((x1,x2)))
+xs = [xy[1] for xy in x_train]
+ys = [xy[2] for xy in x_train]
+p2 = contour(x, y, (x1,x2) -> f((x1,x2)))
+scatter!(xs, ys)
+plot(p1, p2, title="True function")
+```
+
+## Fitting the surrogate models
+
+```julia
+mypoly_surrogate = PolynomialChaosSurrogate(xys, zs,  lb, ub)
+loba_surrogate = LobachevskySurrogate(xys, zs,  lb, ub)
+rad_surrogate = RadialBasis(xys,zs,lb,ub)
+```
+
+## Predictions on the training and testing data
+
+```julia
+# Training Data
+mypoly_pred = mypoly_surrogate.(x_train)
+loba_pred = loba_surrogate.(x_train)
+rad_pred = rad_surrogate.(x_train)
+
+# Testing Data
+mypoly_pred_test = mypoly_surrogate.(x_test)
+loba_pred_test = loba_surrogate.(x_test)
+rad_pred_test = rad_surrogate.(x_test)
+```
+
+## Define the MSE function
+
+```julia
+function calculate_mse(predictions, true_values)
+    return mean((predictions .- true_values).^2)  # Calculate mean of squared errors
+end
+```
+
+## Calculate MSE for the models
+
+```julia
+# Training MSE
+mypoly_mse_train = calculate_mse(mypoly_pred, y_train)
+loba_mse_train = calculate_mse(loba_pred, y_train)
+rad_mse_train = calculate_mse(rad_pred, y_train)
+
+# Testing MSE
+mypoly_mse_test = calculate_mse(mypoly_pred_test, y_test)
+loba_mse_test = calculate_mse(loba_pred_test, y_test)
+rad_mse_test = calculate_mse(rad_pred_test, y_test)
+```
+
+## Compare MSE
+
+```julia
+using PrettyTables
+models = ["surrogatesPolyChaos",  "Lobachevsky", "Radial Basis (SMT)"]
+train_mse = [mypoly_mse_train, loba_mse_train, rad_mse_train]
+test_mse = [mypoly_mse_test, loba_mse_test, rad_mse_test]
+mses = sort(collect(zip(test_mse, train_mse, models)))
+pretty_table(hcat(getindex.(mses, 3), getindex.(mses, 2), getindex.(mses, 1)), header=["Model", "Training MSE", "Test MSE"])
+```
+
+## Plots of different Surrogate Models
+
+```julia
+# Plot for Polynomial Surrogate
+p1 = surface(x, y, (x, y) -> mypoly_surrogate([x y]))
+scatter!(xs, ys, y_train,  marker_z=y_train)
+p2 = contour(x, y, (x, y) -> mypoly_surrogate([x y]))
+scatter!(xs, ys, marker_z=y_train)
+plot(p1, p2, title="Polynomial expansion")
+
+# Plot for Lobachevsky Surrogate
+p1 = surface(x, y, (x, y) -> loba_surrogate([x y]))
+scatter!(xs, ys, y_train, marker_z=y_train)
+p2 = contour(x, y, (x, y) -> loba_surrogate([x y]))
+scatter!(xs, ys, marker_z=y_train)
+plot(p1, p2, title="Lobachevsky")
+
+# Plot for RadialBasis Surrogate
+p1 = surface(x, y, (x, y) -> rad_surrogate([x y]))
+scatter!(xs, ys, zs, marker_z=y_train)
+p2 = contour(x, y, (x, y) -> rad_surrogate([x y]))
+scatter!(xs, ys, marker_z=y_train)
+plot(p1, p2, title="Inverse distance")
+```
+
+## Time Evaluation
+
+```julia
+time_original = @belapsed canti_lever.(x_test)
+time_loba = @belapsed loba_surrogate.(x_test)
+time_mypoly = @belapsed mypoly_surrogate.(x_test)
+time_rad = @belapsed rad_surrogate.(x_test)
+```
+
+# Compare Time Performance
+
+```julia
+times = ["Original Time" => time_original, "Lobachevsky" => time_loba, "PolychaosSurrogate" => time_mypoly, "Radial Basis" => time_rad]
+sorted_times = sort(times, by=x->x[2])
+pretty_table(hcat(first.(sorted_times), last.(sorted_times)), header=["Model", "Time(s)"])
+```
