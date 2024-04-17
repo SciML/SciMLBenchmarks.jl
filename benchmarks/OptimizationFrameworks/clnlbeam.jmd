@@ -145,19 +145,19 @@ function run_modelingtoolkit(N::Int, use_structural_simplify::Bool = true)
         [t[i+1] - t[i] - 0.5 * h * u[i+1] - 0.5 * h * u[i] ~ 0 for i in 1:N],
     )
     vars = vcat(t, x, u)
-    system = MTK.OptimizationSystem(
+    system = MTK.complete(MTK.OptimizationSystem(
         loss,
         vars,
         [];
         constraints = cons,
         name = :clnlbeam,
-    )
+    ))
     if use_structural_simplify
         system = MTK.structural_simplify(system)
     end
     prob = Optimization.OptimizationProblem(
         system,
-        Dict(k => 0.0 for k in system.states);
+        Dict(k => 0.0 for k in system.unknowns);
         grad = true,
         hess = true,
         cons_j = true,
