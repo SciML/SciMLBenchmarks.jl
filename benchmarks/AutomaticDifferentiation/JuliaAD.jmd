@@ -27,8 +27,8 @@ backends = [
 ];
 
 scenarios = [
-    GradientScenario(paritytrig, x=rand(100)),
-    GradientScenario(paritytrig, x=rand(10_000))
+    GradientScenario(paritytrig, x=rand(100); operator=:inplace),
+    GradientScenario(paritytrig, x=rand(10_000); operator=:inplace)
 ];
 
 result = benchmark_differentiation(backends, scenarios, logging=false);
@@ -36,8 +36,8 @@ result = benchmark_differentiation(backends, scenarios, logging=false);
 data = DataFrame(result);
 
 filtered_data = @chain data begin
-    @select(Not([:mode, :scenario, :mutating, :output_type, :output_size, :calls, :samples, :evals]))
-    @rsubset(string(:operator) in ["gradient!!"])
+    @select(:backend, :operator, :func, :input_type, :input_size, :time, :bytes, :allocs, :compile_fraction, :gc_fraction)
+    @rsubset(string(:operator) in ["gradient!"])
 end
 
 table = PrettyTables.pretty_table(
