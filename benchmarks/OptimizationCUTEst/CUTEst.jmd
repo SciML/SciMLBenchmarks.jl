@@ -3,10 +3,7 @@ title: Benchmarking with the problems in CUTEst
 author: Alonso M. Cisneros
 ---
 
-> This would likely turn into either contributions to CUTEst or wrappers to CUTEst (hosted
-> in SciML) which which transform the NLPModels form into Optimization.jl, and a
-> benchmarking script that loops over all optimization problems and applies a set of
-> optimizers to each of them, computing summary statistics at the bottom.
+# Introduction
 
 CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
 collection of around 1500 problems for general nonlinear optimization used to test
@@ -15,5 +12,78 @@ optimization routines. The wrapper
 to the problem collection, which we can leverage to test the optimizers made available by
 Optimization.jl.
 
+This benchmark uses the following packages:
+
 ```julia
+using Optimization
+using OptimizationNLPModels
+using CUTEst
+using OptimizationOptimJL
+using Ipopt
+using OptimizationMOI
+using DataFrames
+```
+
+# Benchmarks
+
+The CUTEst suite contains almost 1,500 problems that can be broadly divided into several
+categories:
+- Unconstrained problems,
+- Equality/inequality constrained with unbounded variables,
+- Equality/inequality constrained with bounded variables,
+- Quadratic programs with linear constraints
+
+We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes of
+problems.
+
+```julia
+optimizers = [Optimization.LBFGS(),
+    OptimizationMOI.MOI.OptimizerWithAtributes(Ipopt.Optimizer, "print_level" => 0)
+    ]
+
+function get_stats(sol, ::Optimization.LBFGS)
+    return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
+end
+
+function get_stats(sol, ::MathOptInterface.OptimizerWithAtributes)
+    return (length(sol.u), sol.original.solve_time, "Ipopt", Symbol(sol.retcode))
+end
+```
+
+## Unconstrained problems
+
+CUTEst contains 286 unconstrained problems. We will compare how the optimizers behave in
+terms of the time to solution with respect to the number of variables.
+
+```julia
+unc_problems = CUTEst.select(contype="unc")
+n = length(unc_problems)
+optz = length(optimizers)
+
+problem = String[]
+n_vars = Int64[]
+secs = Float64[]
+solver = String[]
+retcode = Symbol[]
+
+broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+
+for prob_name in unc_problems
+    nlp_prob = CUTEstModel(prob_name)
+    prob = OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+    for optimizer in optimizers
+        sol = solve(prob, optimizer; maxiters = 1e7)
+
+        vars, time, alg, code = get_stats(sol, optimizer)
+
+        push!(problem, prob_name)
+        push!(n_vars, vars)
+        push!(secs, time)
+        push!(solver, alg)
+        push!(retcode, code)
+    end
+
+    finalize(nlp_prob)
+end
+
 ```
