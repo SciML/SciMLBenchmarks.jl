@@ -1,0 +1,138 @@
+---
+title: LP Norm Function
+author: Mridul Jain, Sathvik Bhagavan, Chris Rackauckas
+---
+
+The lp norm function is defined as:
+
+``f(x) =  \left( \sum_{i=1}^{d} |x_i|^p \right)^{\frac{1}{p}}``
+
+where:
+  
+- \( p\): This is the parameter that determines the type of norm. It's a real number greater than or equal to 1. When \( p = 1 \), it's called the L1 norm; when \( p = 2 \), it's the Euclidean norm (L2 norm); and for \( p > 2 \), it's the general Lp norm.
+- \(d\): This represents the dimensionality of the vector \(x\), i.e., the number of elements in the vector.
+- \(x_i\): Represents the \(i\)-th component of the input vector.
+- \(|a|\): Represents the absolute value of the \(i\)-th element of the vector x
+
+## Package Imports
+
+```julia
+using SurrogatesPolyChaos
+using Surrogates
+using Plots
+using Statistics
+using PrettyTables
+using LinearAlgebra
+using BenchmarkTools
+```
+
+## Define the function
+
+```julia
+function f(x ,p)
+    return norm(x,p)
+end
+```
+
+## Definining simple 1D parameters
+
+```julia
+n_train = 150
+n_test = 100
+lb = -5.0
+ub = 5.0
+p = 1.3
+```
+
+## Sample Training and Testing points
+
+```julia
+x_train = sample(n_train,lb, ub, SobolSample())
+y_train = f.(x_train, p)
+x_test = sample(n_test,lb,ub,RandomSample())
+y_test = f.(x_test, p)
+xs = lb:0.001:ub
+```
+
+## Plot training points
+      
+```julia
+plot(x_train, y_train, seriestype=:scatter, label="Sampled points", xlims=(lb, ub), ylims=(0, 5), legend=:top)
+plot!(xs,f.(xs,p), label="True function", legend=:top)
+```
+
+## Plot testing points
+      
+```julia
+plot(x_test, y_test, seriestype=:scatter, label="Sampled points", xlims=(lb, ub), ylims=(0, 5), legend=:top)
+plot!(xs,f.(xs,p), label="True function", legend=:top)
+```
+
+## Fitting the Surrogate models
+
+```julia
+poly_surrogate = PolynomialChaosSurrogate(x, y, lb, ub)
+lob_surrogate = LobachevskySurrogate(x, y, lb, ub)
+kriging_surrogate = Kriging(x, y, lb, ub)
+```
+
+## Predictions on the training and testing data
+
+```julia
+# Training Data
+y_pred_poly_train = poly_surrogate.(x_train)
+y_pred_lob_train = lob_surrogate.(x_train)
+y_pred_kriging_train = kriging_surrogate.(x_train)      
+
+# Testing Data
+y_pred_poly_test = poly_surrogate.(x_test)
+y_pred_lob_test = lob_surrogate.(x_test)
+y_pred_kriging_test = kriging_surrogate.(x_test)
+```
+
+## Defining the MSE function
+
+```julia
+function calculate_mse(predictions, true_values)
+    return mean((predictions - true_values).^2)
+end
+```
+
+## Calculate the MSE of all the surrogate models
+
+```julia
+# For the training points
+mse_poly_train = calculate_mse(y_pred_poly_train, y_train)
+mse_lob_train = calculate_mse(y_pred_lob_train, y_train)
+mse_kriging_train = calculate_mse(y_pred_kriging_train, y_train)
+
+# For testing points
+mse_poly_test = calculate_mse(y_pred_poly_test, y_test)
+mse_lob_test = calculate_mse(y_pred_lob_test, y_test)
+mse_kriging_test = calculate_mse(y_pred_kriging_test, y_test)
+```
+
+## Compare MSE
+
+```julia      
+models = ["surrogatesPolyChaos",  "Lobachevsky", "Kriging"]
+train_mse = [mse_poly_train, mse_lob_train, mse_kriging_train]
+test_mse = [mse_poly_test, mse_lob_test, mse_kriging_test]
+mses = sort(collect(zip(test_mse, train_mse, models)))
+pretty_table(hcat(getindex.(mses, 3), getindex.(mses, 2), getindex.(mses, 1)), header=["Model", "Training MSE", "Test MSE"])
+```
+
+## Time Evaluation
+
+```julia
+time_original = @belapsed f.(x_test,p)
+time_loba = @belapsed lob_surrogate.(x_test)
+time_poly = @belapsed poly_surrogate.(x_test)
+time_kriging = @belapsed kriging_surrogate.(x_test)
+```
+
+## Compare Time Performance
+times = ["Original Time" => time_original, "Lobachevsky" => time_loba, "PolychaosSurrogate" => time_poly, "Kriging" => time_kriging]
+sorted_times = sort(times, by=x->x[2])
+pretty_table(hcat(first.(sorted_times), last.(sorted_times)), header=["Model", "Time(s)"])
+```
