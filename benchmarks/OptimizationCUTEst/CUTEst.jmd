@@ -21,6 +21,7 @@ using CUTEst
 using OptimizationOptimJL
 using Ipopt
 using OptimizationMOI
+using OptimizationMOI: MOI as MOI
 using DataFrames
 ```
 
@@ -37,16 +38,18 @@ We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes o
 problems.
 
 ```julia
-optimizers = [Optimization.LBFGS(),
-    OptimizationMOI.MOI.OptimizerWithAtributes(Ipopt.Optimizer, "print_level" => 0)
+optimizers = [
+        Optimization.LBFGS(),
+        MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)
     ]
 
 function get_stats(sol, ::Optimization.LBFGS)
     return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
 end
 
-function get_stats(sol, ::MathOptInterface.OptimizerWithAtributes)
-    return (length(sol.u), sol.original.solve_time, "Ipopt", Symbol(sol.retcode))
+function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
+    return (length(sol.u), MOI.get(sol.original.model, MOI.SolveTimeSec()),
+        "Ipopt", Symbol(sol.retcode))
 end
 ```
 
@@ -70,9 +73,10 @@ broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
 
 for prob_name in unc_problems
     nlp_prob = CUTEstModel(prob_name)
-    prob = OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+    prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
     for optimizer in optimizers
         sol = solve(prob, optimizer; maxiters = 1e7)
+        finalize(nlp_prob)
 
         vars, time, alg, code = get_stats(sol, optimizer)
 
@@ -83,7 +87,7 @@ for prob_name in unc_problems
         push!(retcode, code)
     end
 
-    finalize(nlp_prob)
+    break
 end
 
 ```
