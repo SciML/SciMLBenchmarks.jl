@@ -198,9 +198,9 @@ will add all of the packages required to run any benchmark in the `NonStiffODE` 
 
 ## Contributing
 
-All of the files are generated from the Weave.jl files in the `benchmarks` folder. The generation process runs automatically,
+All of the files are generated from the Weave.jl files in the `benchmarks` folder of the [SciMLBenchmarks.jl](https://github.com/SciML/SciMLBenchmarks.jl) repository. The generation process runs automatically,
 and thus one does not necessarily need to test the Weave process locally. Instead, simply open a PR that adds/updates a
-file in the "benchmarks" folder and the PR will generate the benchmark on demand. Its artifacts can then be inspected in the
+file in the `benchmarks` folder and the PR will generate the benchmark on demand. Its artifacts can then be inspected in the
 Buildkite as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
 any changes to dependencies requires that those are updated.
 
