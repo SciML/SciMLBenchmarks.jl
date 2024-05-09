@@ -5,14 +5,14 @@ author: Libor Kudela, Yingbo Ma, Chris Elrod
 
 This is a 1D advection-diffusion-source PDE that uses a second order upwind scheme. 
 ```julia
+using ModelingToolkit, JuliaSimCompiler, Symbolics, XSteam, Polynomials, GLMakie
+
 #          o  o  o  o  o  o  o < heat capacitors
 #          |  |  |  |  |  |  | < heat conductors
 #          o  o  o  o  o  o  o
 #          |  |  |  |  |  |  |
 #Source -> o--o--o--o--o--o--o -> Sink
 #       advection diff source PDE
-
-@time using ModelingToolkit, JuliaSimCompiler, Symbolics, XSteam, Polynomials, GLMakie
 
 @variables t
 D = Differential(t)
@@ -46,8 +46,7 @@ end
 end
 
 @register_symbolic Dxx_coeff(u, d, T)
-
-# Taylor-aris dispersion model
+#Taylor-aris dispersion model
 function Dxx_coeff(u, d, T)
   Re = abs(u) * d / kin_visc_T(T) + 0.1
   if Re < 1000
@@ -58,8 +57,7 @@ function Dxx_coeff(u, d, T)
 end
 
 @register_symbolic Nusselt(Re, Pr, f)
-
-# Nusselt number model
+#Nusselt number model
 function Nusselt(Re, Pr, f)
   if Re <= 2300
     3.66
@@ -71,8 +69,7 @@ function Nusselt(Re, Pr, f)
 end
 
 @register_symbolic Churchill_f(Re, epsilon, d)
-
-# Darcy weisbach friction factor
+#Darcy weisbach friction factor
 function Churchill_f(Re, epsilon, d)
   theta_1 = (-2.457 * log(((7 / Re)^0.9) + (0.27 * (epsilon / d))))^16
   theta_2 = (37530 / Re)^16
@@ -244,12 +241,18 @@ function TestBenchPreinsulated(; name, L=1.0, dn=0.05, t_layer=[0.0056, 0.013], 
 end
 
 
-function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
+
+function build_system(fsys, N)
   N >= 4 || throw("Problem sizes smaller than 4 not supported; received $N.")
-  tspan = (0.0, 19 * 3600)
-  @named testbench = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+  @named testbench = TestBenchPreinsulated(; L=470, N, dn=0.3127, t_layer=[0.0056, 0.058])
   t0 = time()
   sys = structural_simplify(fsys(testbench))
+  return time() - t0, sys
+end
+
+function compile_run_problem(sys; target=JuliaSimCompiler.JuliaTarget())
+  tspan = (0.0, 19 * 3600.0)
+  t0 = time()
   if target === JuliaSimCompiler.JuliaTarget()
     prob = ODEProblem(sys, [], tspan, sparse=true)
     (; f, u0, p) = prob
@@ -262,9 +265,15 @@ function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
   prob.u0 .= 12.0
   du = similar(u0)
   ff(du, u0, p, 0.0)
-  t_comp = time() - t0
+  t_fode = time() - t0
   t_run = @belapsed $ff($du, $u0, $p, 0.0)
-  t_comp, t_run
+  t_fode, t_run
+end
+
+function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
+  t_ss, sys = build_system(fsys, N)
+  t_fode, t_run = compile_run_problem(sys; target)
+  t_ss, t_fode, t_run
 end
 
 using JuliaSimCompiler: IRSystem
@@ -277,27 +286,35 @@ const LLVMBackend = JuliaSimCompiler.llvm.LLVMTarget();
 @time build_run_problem(IRSystem, 4; target=CBackend)
 @time build_run_problem(IRSystem, 4; target=LLVMBackend)
 
-N_x = [5, 10, 20, 40, 80, 160, 320, 640, 1280];
-N_states = 4 .* N_x;
+N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800];
+N_states = 4 .* N_x; # x-axis for plots
 
-times = Matrix{Tuple{Float64,Float64}}(undef, 4, length(N_x));
+ss_times = Matrix{Float64}(undef, length(N_x), 2);
+times = Matrix{NTuple{2,Float64}}(undef, length(N_x), 4);
 for (i, N_x_i) in enumerate(N_x)
-  times[1, i] = build_run_problem(MTKSystem, N_x_i)
-  times[2, i] = build_run_problem(IRSystem, N_x_i)
-  times[3, i] = build_run_problem(IRSystem, N_x_i, target=CBackend)
-  times[4, i] = build_run_problem(IRSystem, N_x_i, target=LLVMBackend)
-  @show N_x_i, times[:, i]
+  ss_times[i, 1], sys_mtk = build_system(MTKSystem, N_x_i)
+  ss_times[i, 2], sys_jsir = build_system(IRSystem, N_x_i)
+  times[i, 1] = compile_run_problem(sys_mtk)
+  times[i, 2] = compile_run_problem(sys_jsir)
+  times[i, 3] = compile_run_problem(sys_jsir, target=CBackend)
+  times[i, 4] = compile_run_problem(sys_jsir, target=LLVMBackend)
+  @show N_x_i, ss_times[i, :], times[i, :]
 end
 
-ctimes = first.(times);
-
 f = Figure();
-for i in 1:2
-  title = (i == 1 ? "Compile" : "Run") * " Time"
-  ax = Axis(f[i, 1]; title)
+let ax = Axis(f[1, 1]; title="Structural Simplify Time")
+  for (j, label) in enumerate(("MTK", "JSIR"))
+    ts = @view(ss_times[:, j])
+    lines!(N_states, ts; label)
+  end
+  axislegend(ax)
+end
+for (i, timecat) in enumerate(("ODEProblem + f!", "Run"))
+  title = timecat * " Time"
+  ax = Axis(f[i+1, 1]; title)
   for (j, label) in enumerate(("MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"))
-    ts = getindex.(@view(times[j, :]), i)
-    lines!(N_x, ts; label)
+    ts = getindex.(@view(times[:, j]), i)
+    lines!(N_states, ts; label)
   end
   axislegend(ax)
 end
