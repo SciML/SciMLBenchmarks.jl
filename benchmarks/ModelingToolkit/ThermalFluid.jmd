@@ -100,10 +100,9 @@ function FluidRegion(; name, L=1.0, dn=0.05, N=100, T0=0.0,
     f(t) = 1.0
   end
 
-  sts = [T..., Twall..., S..., C..., u, Re, Dxx, Pr, alpha, f]
+  sts = vcat(T, Twall, S, C, Num[u], Num[Re], Num[Dxx], Num[Pr], Num[alpha], Num[f])
 
-
-  eqs = [
+  eqs = Equation[
     Re ~ 0.1 + dn * abs(u) / kin_visc_T(lumped_T)
     Pr ~ Pr_T(lumped_T)
     f ~ Churchill_f(Re, e, dn) #Darcy-weisbach
@@ -166,14 +165,13 @@ function CircularWallFEM(; name, L=100, N=10, d=0.05, t_layer=[0.002],
     (Qe(t))[1:N, 1:Ne] = fill(T0, N, Ne)
   end
   sts = [vec(Tn); vec(Qe)]
-  eqs = [
-    [inner_heatport.T[i] ~ Tn[i, 1] for i in 1:N]
-    [outer_heatport.T[i] ~ Tn[i, Nn] for i in 1:N]
-    [Qe[i, j] ~ Ke[j] * (-Tn[i, j+1] + Tn[i, j]) for i in 1:N for j in 1:Ne]...
-    [D(Tn[i, 1]) * (Cn[1] + C_shift) ~ inner_heatport.Q[i] - Qe[i, 1] for i in 1:N]
-    [D(Tn[i, j]) * Cn[j] ~ Qe[i, j-1] - Qe[i, j] for i in 1:N for j in 2:Nn-1]...
-    [D(Tn[i, Nn]) * Cn[Nn] ~ Qe[i, Ne] + outer_heatport.Q[i] for i in 1:N]
-  ]
+  e0 = Equation[inner_heatport.T[i] ~ Tn[i, 1] for i in 1:N]
+  e1 = Equation[outer_heatport.T[i] ~ Tn[i, Nn] for i in 1:N]
+  e2 = Equation[Qe[i, j] ~ Ke[j] * (-Tn[i, j+1] + Tn[i, j]) for i in 1:N for j in 1:Ne]
+  e3 = Equation[D(Tn[i, 1]) * (Cn[1] + C_shift) ~ inner_heatport.Q[i] - Qe[i, 1] for i in 1:N]
+  e4 = Equation[D(Tn[i, j]) * Cn[j] ~ Qe[i, j-1] - Qe[i, j] for i in 1:N for j in 2:Nn-1]
+  e5 = Equation[D(Tn[i, Nn]) * Cn[Nn] ~ Qe[i, Ne] + outer_heatport.Q[i] for i in 1:N]
+  eqs = vcat(e0, e1, e2, e3, e4, e5)
   ODESystem(eqs, t, sts, p; systems=[inner_heatport, outer_heatport], name=name)
 end
 
