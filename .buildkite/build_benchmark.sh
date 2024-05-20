@@ -2,8 +2,19 @@
 
 set -euo pipefail
 
+JULIAHUBREGISTRY_BENCHMARK_TARGETS=()
+
+if [[ "${JULIAHUBREGISTRY_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
+	echo "--- :julia: Adding JuliaHubRegistry"
+
+	export JULIA_PKG_SERVER="juliahub.com"
+	mkdir -p "${JULIA_DEPOT_PATH}/servers/${JULIA_PKG_SERVER}"
+	cp .buildkite/secrets/token.toml "${JULIA_DEPOT_PATH}/servers/${JULIA_PKG_SERVER}/auth.toml"
+	julia -e 'using Pkg; Pkg.Registry.add(); Pkg.Registry.status()'
+fi
+
 # Instantiate, to install the overall project dependencies, and `build()` for conda
-echo "--- Instantiate"
+echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
 if [[ "${1}" == *BayesianInference* ]]; then
@@ -17,6 +28,6 @@ if [[ "${1}" == *BayesianInference* ]]; then
 fi
 
 # Run benchmark
-echo "+++ Run benchmark for ${1}"
+echo "+++ :julia: Run benchmark for ${1}"
 julia --threads=auto --project=. benchmark.jl "${1}"
 
