@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-JULIAHUBREGISTRY_BENCHMARK_TARGETS=()
+JULIAHUBREGISTRY_BENCHMARK_TARGETS=(benchmarks/ModelingToolkit/)
 
 if [[ "${JULIAHUBREGISTRY_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	echo "--- :julia: Adding JuliaHubRegistry"
