@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 14, 12, 10, 20, 3, 18, 28, 5, 7, 16, 26, 6, 8, 15, 19, 29, 17, 27, 11, 9, 22, 21, 25, 4, 13, 23, 24, 2, 30]
+    [1, 15, 12, 10, 21, 3, 19, 29, 5, 7, 17, 27, 6, 8, 16, 20, 30, 18, 28, 11, 9, 23, 22, 26, 4, 13, 24, 25, 2, 31]
 )
 
 names = [
@@ -55,6 +55,7 @@ names = [
     "Biological Differential Equations",
     "Differential-Algebraic Equations (DAEs)",
     "Boundary Value Problems (BVPs)",
+    "ModelingToolkit Acausal Modeling / Symbolic-Numeric Benchmarks",
     "Simple Handwritten Partial Differential Equations (PDEs) as ODEs",
     "Complicated Partial Differential Equations (PDEs)",
     "Dynamical ODEs (Hamiltonian and Second Order)",
