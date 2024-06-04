@@ -281,13 +281,28 @@ function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
   t_fode, t_run = compile_run_problem(sys; target)
   t_ss, t_fode, t_run
 end
+
+function test_speed(fsys, N; solver=FBDF(), target=JuliaSimCompiler.JuliaTarget())
+    tspan = (0.0, 19*3600)
+    t_total = @elapsed begin
+        @named testbench = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+        sys = structural_simplify(fsys(testbench))
+        if target === JuliaSimCompiler.JuliaTarget()
+            prob = ODEProblem(sys, [], tspan, sparse=true)
+        else
+            prob = ODEProblem(sys, target, [], tspan, sparse=true)
+        end
+        solve(prob, solver, reltol=1e-6, abstol=1e-6, saveat=100);
+    end
+end
 ```
 
 ```julia
 N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
 N_states = 4 .* N_x; # x-axis for plots
 ss_times = Matrix{Float64}(undef, length(N_x), 2);
-times = Matrix{NTuple{2,Float64}}(undef, length(N_x), 5);
+times = Matrix{NTuple{2,Float64}}(undef, length(N_x), 4);
+total_times = Matrix{Float64}(undef, length(N_x), 6);
 ```
 
 ## Time Julia
@@ -310,7 +325,13 @@ for (i, N_x_i) in enumerate(N_x)
   times[i, 2] = compile_run_problem(sys_jsir)
   times[i, 3] = compile_run_problem(sys_jsir, target=CBackend)
   times[i, 4] = compile_run_problem(sys_jsir, target=LLVMBackend)
-  @show N_x_i, ss_times[i, :], times[i, :]
+
+  total_times[i, 1] = test_speed(sys_mtk, N_x_i)
+  total_times[i, 2] = test_speed(sys_jsir, N_x_i)
+  total_times[i, 3] = test_speed(sys_jsir, N_x_i, target=CBackend)
+  total_times[i, 4] = test_speed(sys_jsir, N_x_i, target=LLVMBackend)
+
+  @show N_x_i, ss_times[i, :], times[i, :], total_times[i, :]
 end
 ```
 
@@ -321,22 +342,48 @@ using OMJulia, CSV, DataFrames, Plots
 mod = OMJulia.OMCSession();
 OMJulia.sendExpression(mod, "getVersion()")
 modelicafile = "../../benchmarks/ModelingToolkit/DhnControl.mo"
-stoptime = 19*3600
 resultfile = "modelica_res.csv"
 
 for N in N_x
-    res = sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$N)")
-    times[i, 5] = res["timeTotal"]
+    totaltime = @elapsed res = begin
+        ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$N")
+        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$N)")
+    end
+    #runtime = res["timeTotal"]
+    @assert res["messages"][1:11] == "LOG_SUCCESS"
+    total_times[i, 5] = totaltime
 end
 
 OMJulia.quit(mod)
+total_times[:, 5]
 ```
 
+## Time Dymola
+
+Dymola requires a license server and thus cannot be hosted. This was run locally for the
+following times:
+
+```julia
+translation_and_total_times = [1.802 1.921
+                               1.78 1.846
+                               1.84 1.877
+                               2.028 2.075
+                               2.221 2.283
+                               2.409 2.496
+                               3.189 3.427
+                               4.758 5.577
+                               6.39 8.128
+                               8.052 11.026
+                               9.707 14.393
+                               11.411 17.752
+                               15.094 27.268]
+total_times[:, 6] = translation_and_total_times[:,2]
+```
 
 ## Generate Final Plots
 
 ```julia
-f = Figure(size = (800, 600));
+f = Figure(size = (800, 1200));
 let ax = Axis(f[1, 1]; title="Structural Simplify Time")
   names = ["MTK", "JSIR"]
   _lines = map(enumerate(names)) do (j, label)
@@ -348,7 +395,7 @@ end
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; title)
-  names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM", "OpenModelica"]
+  names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"]
   _lines = map(enumerate(names)) do (j, label)
     ts = getindex.(@view(times[:, j]), i)
     lines!(N_states, ts)
@@ -356,6 +403,19 @@ for (i, timecat) in enumerate(("ODEProblem + f!", "Run"))
   Legend(f[i+1,2], _lines, names)
 end
 f
+```
+
+```julia
+f2 = Figure(size = (800, 400));
+title = "Total Time: Thermal Fluid Benchmark"
+ax = Axis(f2[1, 1]; title)
+names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM", "OpenModelica", "Dymola"]
+_lines = map(enumerate(names)) do (j, label)
+    ts = @view(total_times[:, j])
+    lines!(N_states, ts)
+end
+Legend(f2[1,2], _lines, names)
+f2
 ```
 
 ## Appendix
