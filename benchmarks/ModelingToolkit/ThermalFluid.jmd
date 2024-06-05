@@ -299,8 +299,7 @@ end
 ```
 
 ```julia
-# N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
-N_x = [5, 10, 20, 40, 60, 80, 160];
+N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
 N_states = 4 .* N_x; # x-axis for plots
 ss_times = Matrix{Float64}(undef, length(N_x), 2);
 times = Matrix{NTuple{2,Float64}}(undef, length(N_x), 4);
@@ -331,7 +330,11 @@ for (i, N_x_i) in enumerate(N_x)
   times[i, 3] = compile_run_problem(sys_jsir, target=CBackend)
   times[i, 4] = compile_run_problem(sys_jsir, target=LLVMBackend)
 
-  total_times[i, 1] = test_speed(MTKSystem, N_x_i)
+  if N_x >= 480
+    total_times[i, 1] = NaN
+  else
+    total_times[i, 1] = test_speed(MTKSystem, N_x_i)
+  end
   total_times[i, 2] = test_speed(IRSystem, N_x_i)
   total_times[i, 3] = test_speed(IRSystem, N_x_i, target=CBackend)
   total_times[i, 4] = test_speed(IRSystem, N_x_i, target=LLVMBackend)
