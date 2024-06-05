@@ -319,7 +319,10 @@ const LLVMBackend = JuliaSimCompiler.llvm.LLVMTarget();
 @time build_run_problem(IRSystem, 4; target=CBackend)
 @time build_run_problem(IRSystem, 4; target=LLVMBackend)
 
+@show "Start Julia Timings"
+
 for (i, N_x_i) in enumerate(N_x)
+  @show i
   ss_times[i, 1], sys_mtk = build_system(MTKSystem, N_x_i)
   ss_times[i, 2], sys_jsir = build_system(IRSystem, N_x_i)
   times[i, 1] = compile_run_problem(sys_mtk)
@@ -345,7 +348,10 @@ OMJulia.sendExpression(mod, "getVersion()")
 modelicafile = "../../benchmarks/ModelingToolkit/DhnControl.mo"
 resultfile = "modelica_res.csv"
 
+@show "Start OpenModelica Timings"
+
 for N in N_x
+    @show N
     totaltime = @elapsed res = begin
         ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$N")
         sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$N)")
