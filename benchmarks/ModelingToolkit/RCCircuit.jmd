@@ -55,9 +55,6 @@ end
 const C = JuliaSimCompiler.CTarget();
 const LLVM = JuliaSimCompiler.llvm.LLVMTarget();
 
-ss_times = Matrix{Float64}(undef, length(N), 3);
-times = Matrix{NTuple{2,Float64}}(undef, length(N), 7);
-
 function run_and_time!(ss_times, times, i, n)
   sys, u0, ps = build_system(n)
   ss_times[i, 1] = @elapsed sys_mtk = structural_simplify(sys)
@@ -74,9 +71,12 @@ function run_and_time!(ss_times, times, i, n)
   @show n, ss_times[i, :], times[i, :]
 end
 
+N = [5, 10, 20, 40, 60, 80, 160, 320, 480];
+ss_times = Matrix{Float64}(undef, length(N), 3);
+times = Matrix{NTuple{2,Float64}}(undef, length(N), 7);
+
 @time run_and_time!(ss_times, times, 1, 4); # precompile
 
-N = [5, 10, 20, 40, 60, 80, 160, 320, 480];
 
 for (i, n) in enumerate(N)
   run_and_time!(ss_times, times, i, n)
