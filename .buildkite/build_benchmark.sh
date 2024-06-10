@@ -27,6 +27,17 @@ if [[ "${OPENMODELICA_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	apt update
 	apt install --yes --no-install-recommends omc
 	apt install --yes libomccpp
+
+	useradd -m openmodelicauser
+	# echo $PATH
+	whoami
+	ls -al $(which julia)
+	ls -l /etc/passwd /etc/group
+	chmod 644 /etc/passwd
+	chmod 644 /etc/group
+	ls -l /etc/passwd /etc/group
+	chmod u+ws /bin/su
+	su openmodelicauser --session-command whoami
 fi
 
 # Instantiate, to install the overall project dependencies, and `build()` for conda
