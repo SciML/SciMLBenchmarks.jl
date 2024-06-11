@@ -292,4 +292,14 @@ for i in 1:N loop
     end test_preinsulated_470_1280;
 
   end Test;
+ package TimingFunctions
+    function tic
+      "Function to record the internal time in [s]"
+      output Real tic;
+    algorithm
+      (ms_tic, sec_tic, min_tic, hour_tic, day_tic, mon_tic, year_tic) := Modelica.Utilities.System.getTime();
+      tic := (ms_tic*0.001) + sec_tic + (min_tic*60) + (hour_tic*3600) + (day_tic*86400);
+    end tic;
+
+  end TimingFunctions;
 end DhnControl;
