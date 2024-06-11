@@ -86,25 +86,25 @@ times = fill((NaN,NaN,NaN), length(N), length(max_sizes));
 @time run_and_time!(ss_times, times, max_sizes, 1, 4); # precompile
 
 for (i, n) in enumerate(N)
-  run_and_time!(ss_times, times, max_sizes, i, n)
+  @time run_and_time!(ss_times, times, max_sizes, i, n)
 end
 
 f = Figure(size=(800,1200));
+ss_names = ["MTK", "JSIR-Scalar", "JSIR-Loop"];
 let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title="Structural Simplify Time")
   _lines = map(eachcol(ss_times)) do ts
     lines!(N, ts)
   end
-  names = ("MTK", "JSIR-Scalar", "JSIR-Loop")
-  Legend(f([1,2], _lines, names)
+  Legend(f[1,2], _lines, ss_names)
 end
+method_names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"];
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; yscale = log10, xscale = log10, title)
-  names = ("MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM")
   _lines = map(eachcol(times)) do ts
     lines!(N, getindex.(ts, i))
   end
-  Legend(f[i+1, 2], _lines, names)
+  Legend(f[i+1, 2], _lines, method_names)
 end
 f
 ```
