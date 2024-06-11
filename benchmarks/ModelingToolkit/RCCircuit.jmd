@@ -119,3 +119,52 @@ using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
 
+## Time OpenModelica
+
+```julia
+using OMJulia, CSV, DataFrames
+mod = OMJulia.OMCSession();
+
+OMJulia.sendExpression(mod, "getVersion()")
+
+modelicafile = joinpath(@__DIR__, "RC_Circuit.mo")
+
+resultfile = joinpath(@__DIR__, "RC_Circuit_modelica_res.csv")
+
+@show "Start OpenModelica Timings"
+
+# TODO: Sync these test cases with the N used in MTK: 
+N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 20000]
+
+for N in N_x
+    @show N
+    totaltime = @elapsed res = begin
+        ModelicaSystem(mod, modelicafile, "RC_Circuit.Test.RC_Circuit_MTK_test_$N")
+        sendExpression(mod, "simulate(RC_Circuit.Test.RC_Circuit_MTK_test_$N)")
+    end
+    #runtime = res["timeTotal"]
+    @assert res["messages"][1:11] == "LOG_SUCCESS"
+    @show totaltime
+    # total_times[i, 5] = totaltime TODO: Add to comparison table
+end
+
+OMJulia.quit(mod) 
+```
+
+Dymola requires a license server and thus cannot be hosted. This was run locally for the
+following times:
+
+```julia
+translation_and_total_times = [
+7.027, 7.237
+11.295, 11.798
+16.681, 17.646
+22.125, 23.839
+27.529, 29.82
+33.282, 36.622
+39.007, 43.088
+44.825, 51.601
+50.281, 56.676
+] # TODO: I will add other times once the Dymola license server is back up.
+#total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
+```
