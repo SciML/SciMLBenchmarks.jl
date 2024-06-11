@@ -9,6 +9,7 @@ using Pkg
 
 using ModelingToolkit
 using Multibody
+using Multibody: Robot6DOF
 using JuliaSimCompiler
 using OrdinaryDiffEq
 using CairoMakie
@@ -64,6 +65,54 @@ annotations!(f[1,1], anns, points)
 barplot(f[2,1], timings, axis=(; title="Log Timings", xticks = (xs, labels), yscale=log10))
 f
 ```
+
+## OpenModelica
+
+```julia
+cd(@__DIR__)
+using Pkg
+Pkg.activate(".")
+using OMJulia
+mod = OMJulia.OMCSession();
+OMJulia.sendExpression(mod, "getVersion()")
+
+@show "Start OpenModelica Timings"
+
+totaltime = @elapsed begin
+    om_build = @elapsed ModelicaSystem(mod, modelName="Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot", library="Modelica")
+    om_sim = @elapsed res = sendExpression(mod, "simulate(Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot)")
+end
+@assert res["messages"][1:11] == "LOG_SUCCESS"
+
+OMJulia.quit(mod)
+```
+
+## Comparison
+```julia
+colors = Makie.wong_colors()
+labels = ["Build", "Simulate"]
+julia_build = time_instantiate + time_simplify + time_prob + time_extract_data
+julia_sim = time_solve
+
+data = [
+    julia_build julia_sim
+    om_build om_sim
+]
+
+xs = repeat(1:length(labels), inner=2)
+group = repeat([1,2], outer=2)
+fig = Figure()
+barplot(fig[1,1], xs, vec(data), dodge=group, color=colors[group], axis=(; title="Timings", xticks = ([1,2], labels)))
+
+# Legend
+legendentries = ["Julia", "OpenModelica"]
+elements = [PolyElement(polycolor = colors[i]) for i in 1:length(legendentries)]
+title = "Contestants"
+
+Legend(fig[1,2], elements, legendentries, title)
+fig
+```
+
 
 ## Appendix
 
