@@ -62,9 +62,8 @@ function run_and_time!(ss_times, times, max_sizes, i, n)
     ss_times[i, 1] = @elapsed sys_mtk = structural_simplify(sys)
     times[i, 1], _ = compile_run_problem(sys_mtk, u0, ps)
   end
-  t_cce = @elapsed ir_state = JuliaSimCompiler.compressed_connection_expansion(sys)
-  ss_times[i, 2] = t_cce + @elapsed sys_jsir_scalar = structural_simplify(ir_state, loop=false)
-  ss_times[i, 3] = t_cce + @elapsed sys_jsir_loop = structural_simplify(ir_state)
+  ss_times[i, 2] = @elapsed sys_jsir_scalar = structural_simplify(IRSystem(sys), loop=false)
+  ss_times[i, 3] = @elapsed sys_jsir_loop = structural_simplify(JuliaSimCompiler.compressed_connection_expansion(sys))
   duref = nothing
   n <= max_sizes[2] && ((times[i, 2], duref) = compile_run_problem(sys_jsir_scalar, u0, ps))
   n <= max_sizes[3] && ((times[i, 3], duref) = compile_run_problem(sys_jsir_scalar, u0, ps; target=C, duref))
