@@ -16,17 +16,17 @@ fi
 
 if [[ "${OPENMODELICA_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	echo "--- :toolbox: Installing OpenModelica"
-	apt-get update
-	apt-get install --yes ca-certificates curl gnupg
-	curl -fsSL http://build.openmodelica.org/apt/openmodelica.asc | gpg --dearmor -o /usr/share/keyrings/openmodelica-keyring.gpg
+	sudo apt-get update
+	sudo apt-get install --yes ca-certificates curl gnupg
+	sudo curl -fsSL http://build.openmodelica.org/apt/openmodelica.asc | gpg --dearmor -o /usr/share/keyrings/openmodelica-keyring.gpg
 
 	echo "deb [arch=amd64 signed-by=/usr/share/keyrings/openmodelica-keyring.gpg] https://build.openmodelica.org/apt \
   		$(cat /etc/os-release | grep "\(UBUNTU\\|DEBIAN\\|VERSION\)_CODENAME" | sort | cut -d= -f 2 | head -1) stable" \
-		| tee /etc/apt/sources.list.d/openmodelica.list
+		| sudo tee /etc/apt/sources.list.d/openmodelica.list
 
-	apt update
-	apt install --yes --no-install-recommends omc
-	apt install --yes libomccpp
+	sudo apt update
+	sudo apt install --yes --no-install-recommends omc
+	sudo apt install --yes libomccpp
 
 	useradd -m openmodelicauser
 	# echo $PATH
