@@ -14,32 +14,6 @@ if [[ "${JULIAHUBREGISTRY_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	julia -e 'using Pkg; Pkg.Registry.add(); Pkg.Registry.status()'
 fi
 
-if [[ "${OPENMODELICA_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
-	echo "--- :toolbox: Installing OpenModelica"
-	sudo apt-get update
-	sudo apt-get install --yes ca-certificates curl gnupg
-	sudo curl -fsSL http://build.openmodelica.org/apt/openmodelica.asc | gpg --dearmor -o /usr/share/keyrings/openmodelica-keyring.gpg
-
-	echo "deb [arch=amd64 signed-by=/usr/share/keyrings/openmodelica-keyring.gpg] https://build.openmodelica.org/apt \
-  		$(cat /etc/os-release | grep "\(UBUNTU\\|DEBIAN\\|VERSION\)_CODENAME" | sort | cut -d= -f 2 | head -1) stable" \
-		| sudo tee /etc/apt/sources.list.d/openmodelica.list
-
-	sudo apt update
-	sudo apt install --yes --no-install-recommends omc
-	sudo apt install --yes libomccpp
-
-	useradd -m openmodelicauser
-	# echo $PATH
-	whoami
-	ls -al $(which julia)
-	ls -l /etc/passwd /etc/group
-	chmod 644 /etc/passwd
-	chmod 644 /etc/group
-	ls -l /etc/passwd /etc/group
-	chmod u+ws /bin/su
-	su openmodelicauser --session-command whoami
-fi
-
 # Instantiate, to install the overall project dependencies, and `build()` for conda
 echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
