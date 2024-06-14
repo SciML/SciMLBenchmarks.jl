@@ -369,8 +369,7 @@ for i in 1:length(N_x)
 end
 
 OMJulia.quit(mod)
-# Just to see if other parts are working
-total_times[:, 5] = total_times[:, 1]
+total_times[:, 5]
 ```
 
 ## Time Dymola
@@ -401,8 +400,7 @@ total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
 f = Figure(size = (800, 1200));
 let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title="Structural Simplify Time")
   names = ["MTK", "JSIR"]
-  _lines = map(enumerate(names)) do (j, label)
-    ts = @view(ss_times[:, j])
+  _lines = map(eachcol(ss_times)) do ts
     lines!(N_states, ts)
   end
   Legend(f[1,2], _lines, names)
@@ -411,9 +409,8 @@ for (i, timecat) in enumerate(("ODEProblem + f!", "Run"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; yscale = log10, xscale = log10, title)
   names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"]
-  _lines = map(enumerate(names)) do (j, label)
-    ts = getindex.(@view(times[:, j]), i)
-    lines!(N_states, ts)
+  _lines = map(eachcol(times)) do ts
+    lines!(N_states, getindex.(ts, i))
   end
   Legend(f[i+1,2], _lines, names)
 end
