@@ -1,20 +1,7 @@
----
-title: Burgers FDM Work-Precision Diagrams with Various MethodOfLines Methods
-author: Alex Jones
----
 
-This benchmark is for the MethodOfLines package, which is an automatic PDE discretization package.
-It is concerned with comparing the performance of various discretization methods for the Burgers equation.
-
-```julia
 using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools, LinearAlgebra,
       LinearSolve, Plots
-gr()
-```
 
-Here is the burgers equation with a Dirichlet and Neumann boundary conditions,
-
-```julia
 # pdesys1 has Dirichlet BCs, pdesys2 has Neumann BCs
 const N = 30
 
@@ -48,36 +35,19 @@ domains = [t ∈ Interval(t_min, t_max),
 
 @named pdesys1 = PDESystem(eq, bcs1, domains, [t, x], [u(t, x)], analytic=analytic)
 @named pdesys2 = PDESystem(eq, bcs2, domains, [t, x], [u(t, x)], analytic=analytic)
-```
 
-Here is a uniform discretization with the Upwind scheme:
-
-```julia
 discupwind1 = MOLFiniteDifference([x => N], t, advection_scheme=UpwindScheme())
 discupwind2 = MOLFiniteDifference([x => N-1], t, advection_scheme=UpwindScheme(), grid_align=edge_align)
-```
 
-Here is a uniform discretization with the WENO scheme:
-
-```julia
 discweno1 = MOLFiniteDifference([x => N], t, advection_scheme=WENOScheme())
 discweno2 = MOLFiniteDifference([x => N-1], t, advection_scheme=WENOScheme(), grid_align=edge_align)
-```
-
-Here is a non-uniform discretization with the Upwind scheme, using tanh (nonuniform WENO is not implemented yet):
-
-```julia
 
 gridnu1 = chebyspace(N, domains[2])
 gridnu2 = chebyspace(N - 1, domains[2])
 
 discnu1 = MOLFiniteDifference([gridnu1], t, advection_scheme=UpwindScheme())
 discnu2 = MOLFiniteDifference([gridnu2], t, advection_scheme=UpwindScheme(), grid_align=edge_align)
-```
 
-Here are the problems for pdesys1:
-
-```julia
 probupwind1 = discretize(pdesys1, discupwind1; analytic=pdesys1.analytic_func)
 probupwind2 = discretize(pdesys1, discupwind2; analytic=pdesys1.analytic_func)
 
@@ -88,11 +58,7 @@ probnu1 = discretize(pdesys1, discnu1; analytic=pdesys1.analytic_func)
 probnu2 = discretize(pdesys1, discnu2; analytic=pdesys1.analytic_func)
 
 probs1 = [probupwind1, probupwind2, probnu1, probnu2, probweno1, probweno2]
-```
 
-## Work-Precision Plot for Burgers Equation, Dirichlet BCs
-
-```julia
 dummy_appxsol = [nothing for i in 1:length(probs1)]
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
@@ -109,11 +75,7 @@ wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
     save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
     numruns=10, wrap=Val(false))
 plot(wp)
-```
 
-Here are the problems for pdesys2:
-
-```julia
 probupwind1 = discretize(pdesys2, discupwind1; analytic=pdesys2.analytic_func)
 probupwind2 = discretize(pdesys2, discupwind2; analytic=pdesys2.analytic_func)
 
@@ -124,11 +86,7 @@ probnu1 = discretize(pdesys2, discnu1; analytic=pdesys2.analytic_func)
 probnu2 = discretize(pdesys2, discnu2; analytic=pdesys2.analytic_func)
 
 probs2 = [probupwind1, probupwind2, probnu1, probnu2, probweno1, probweno2]
-```
 
-## Work-Precision Plot for Burgers Equation, Neumann BCs
-
-```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg => solver, :prob_choice => 1),
@@ -144,4 +102,3 @@ wp = WorkPrecisionSet(probs2, abstols, reltols, setups; names=names,
                       save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
                       numruns=10, wrap=Val(false))
 plot(wp)
-```
