@@ -1,0 +1,53 @@
+import Modelica.Utilities.Streams.print;
+import DhnControl.TimingFunctions.tic;
+dir = "ThermalFluid_Benchmark"
+// Load the test model file
+openModel(dir + "DhnControl.mo");
+testFolder = "DhnControl.Test.";
+testModels = {
+    "test_preinsulated_470_5",
+    "test_preinsulated_470_10",
+    "test_preinsulated_470_20",
+    "test_preinsulated_470_40",
+    "test_preinsulated_470_60",
+    "test_preinsulated_470_80",
+    "test_preinsulated_470_160",
+    "test_preinsulated_470_320",
+    "test_preinsulated_470_480",
+    "test_preinsulated_470_640",
+    "test_preinsulated_470_800",
+    "test_preinsulated_470_960",
+    "test_preinsulated_470_1280"
+};
+    
+outputFile = dir + "benchmark_results.txt"
+    
+// Clear the output file at the beginning
+print("", fileName=outputFile);
+// Loop over each test model
+for i in 1:size(testModels, 1) loop
+  testName = testFolder + testModels[i];
+  
+  // Start the timer
+  startTime := tic();
+  
+  // Translate the model
+  translateModel(testName);
+  
+  translateEndTime := tic();
+  // Simulate the model
+  simulateModel(testName);
+  
+  // Stop the timer
+  endTime := tic();
+  
+  // Calculate the elapsed time
+  translationTime := translateEndTime - startTime;
+  simulationTime := endTime - startTime;
+  
+  // Prepare the output string
+  outputString = "Test: " + testModels[i] + ", " + String(translationTime) + ", " + String(simulationTime);
+  
+  // Print the test name and simulation time to the output file
+  print(outputString, fileName=outputFile);
+end for;
