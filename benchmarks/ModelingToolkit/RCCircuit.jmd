@@ -155,9 +155,8 @@ translation_and_total_times = [
 33.282, 36.622
 39.007, 43.088
 44.825, 51.601
-50.281, 56.676
-] # TODO: I will add other times once the Dymola license server is back up.
-#total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
+50.281, 56.676] # TODO: I will add other times once the Dymola license server is back up.
+total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
 ```
 
 ## Results
@@ -187,6 +186,20 @@ let method_names_m = vcat(method_names, "OpenModelica");
 end
 f
 ```
+
+```julia
+f2 = Figure(size = (800, 400));
+title = "Total Time: RC Circuit Benchmark"
+ax = Axis(f2[1, 1]; yscale = log10, xscale = log10, title)
+names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"], "OpenModelica", "Dymola"]
+_lines = map(enumerate(names)) do (j, label)
+    ts = @view(total_times[:, j])
+    lines!(N_states, ts)
+end
+Legend(f2[1,2], _lines, names)
+f2
+```
+
 
 All three backends compiled more quickly with loops, but the C and LLVM backends are so much quicker to compile than the Julia backend that this made much less difference for them.
 The impact on runtime was more varied.
