@@ -94,9 +94,9 @@ over the set of tested equations and some specific examples may differ.
 - For smaller problems:
   - `Rosenbrock23`, `lsoda`, and `TRBDF2` tend to be the most efficient at high
     tolerances.
-  - `Rodas4` and `Rodas5` tend to be the most efficient at low tolerances.
+  - `Rodas4P` and `Rodas5P` tend to be the most efficient at low tolerances.
 - For larger problems (Filament PDE):
-  - `QNDF` and `FBDF` does the best at all normal tolerances.
+  - `FBDF` and `QNDF` do the best at all normal tolerances.
   - The ESDIRK methods like `TRBDF2` and `KenCarp4` can come close.
 - `radau` is always the most efficient when tolerances go to the low extreme
   (`1e-13`)
@@ -106,8 +106,7 @@ over the set of tested equations and some specific examples may differ.
   diverge on many of the tested problems. When it doesn't diverge, the similar
   algorithms in OrdinaryDiffEq.jl (`KenCarp4`) are much more efficient in most
   cases.
-- ODE.jl and GeometricIntegrators.jl fail to converge on any of the tested
-  problems.
+- GeometricIntegrators.jl fails to converge on any of the tested problems.
 
 ### Dynamical ODEs
 
@@ -145,7 +144,7 @@ over the set of tested equations and some specific examples may differ.
 
 ### Stiff DDEs
 
-- The Rosenbrock methods, specifically `Rodas5`, perform well.
+- The Rosenbrock methods, specifically `Rodas5P`, perform well.
 
 ### Parameter Estimation
 
