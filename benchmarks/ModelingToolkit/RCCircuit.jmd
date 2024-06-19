@@ -3,9 +3,9 @@ title: RC Circuit
 author: Avinash Subramanian, Yingbo Ma, Chris Elrod
 ---
 
-When a model is defined using repeated components, JuliaSimCompiler is able to take advantage of this 
-to scale efficiently by rerolling equations into loops. This option can be disabled by setting `loop=false`. 
-Here, we build an RC circuit model with variable numbers of components to show scaling of compile and 
+When a model is defined using repeated components, JuliaSimCompiler is able to take advantage of this
+to scale efficiently by rerolling equations into loops. This option can be disabled by setting `loop=false`.
+Here, we build an RC circuit model with variable numbers of components to show scaling of compile and
 runtimes of MTK vs JuliaSimCompiler's three backends with and without loop rerolling.
 
 ## Setup Model Code
@@ -58,7 +58,8 @@ function compile_run_problem(sys, u0, ps; target=JuliaSimCompiler.JuliaTarget(),
   t_fode = time() - t0
   duref === nothing || @assert duref ≈ du
   t_run = @belapsed $ff($du, $u0, $p, 0.0)
-  t_solve = @elapsed solve(prob, Rodas5(autodiff = false))
+  t_solve = @elapsed sol = solve(prob, Rodas5(autodiff = false))
+  @assert SciMLBase.successful_retcode(sol)
   (t_fode, t_run, t_solve), du
 end
 
@@ -128,7 +129,7 @@ function run_and_time_om!(ss_times, times, max_sizes, i, n)
   run_and_time_julia!(ss_times, times, max_sizes, i, n)
   if n <= max_sizes[8]
     total_times[i, 8] = time_open_modelica(n)
-  end 
+  end
   @views println("n = $(n)\nstructural_simplify_times = $(ss_times[i,:])\ncomponent times = $(times[i, :])\ntotal times = $(total_times[i, :])")
 end
 
@@ -154,9 +155,8 @@ translation_and_total_times = [
 33.282, 36.622
 39.007, 43.088
 44.825, 51.601
-50.281, 56.676
-] # TODO: I will add other times once the Dymola license server is back up.
-#total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
+50.281, 56.676] # TODO: I will add other times once the Dymola license server is back up.
+total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
 ```
 
 ## Results
@@ -186,6 +186,20 @@ let method_names_m = vcat(method_names, "OpenModelica");
 end
 f
 ```
+
+```julia
+f2 = Figure(size = (800, 400));
+title = "Total Time: RC Circuit Benchmark"
+ax = Axis(f2[1, 1]; yscale = log10, xscale = log10, title)
+names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM", "OpenModelica", "Dymola"]
+_lines = map(enumerate(names)) do (j, label)
+    ts = @view(total_times[:, j])
+    lines!(N_states, ts)
+end
+Legend(f2[1,2], _lines, names)
+f2
+```
+
 
 All three backends compiled more quickly with loops, but the C and LLVM backends are so much quicker to compile than the Julia backend that this made much less difference for them.
 The impact on runtime was more varied.
