@@ -282,7 +282,7 @@ function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
   t_ss, t_fode, t_run
 end
 
-function test_speed(fsys, N; solver=FBDF(), target=JuliaSimCompiler.JuliaTarget())
+function test_speed(fsys, N; target=JuliaSimCompiler.JuliaTarget(), solver=FBDF(;autodiff = target===JuliaSimCompiler.JuliaTarget()))
     tspan = (0.0, 19*3600)
     t_total = @elapsed begin
         @named testbench = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
@@ -293,7 +293,8 @@ function test_speed(fsys, N; solver=FBDF(), target=JuliaSimCompiler.JuliaTarget(
             prob = ODEProblem(sys, target, [], tspan, sparse=true)
         end
         prob.u0 .= 12.0
-        solve(prob, solver, reltol=1e-6, abstol=1e-6, saveat=100);
+        sol = solve(prob, solver, reltol=1e-6, abstol=1e-6, saveat=100);
+        @assert SciMLBase.successful_retcode(sol)
     end
 end
 ```
@@ -334,10 +335,17 @@ for (i, N_x_i) in enumerate(N_x)
   if N_x_i >= 480
     total_times[i, 1] = NaN
   else
+    println("Running MTK System")
     total_times[i, 1] = test_speed(MTKSystem, N_x_i)
   end
+
+  println("Running JSC")
   total_times[i, 2] = test_speed(IRSystem, N_x_i)
+
+  println("Running JSC C-backend")
   total_times[i, 3] = test_speed(IRSystem, N_x_i, target=CBackend)
+
+  println("Running JSC LLVM-backend")
   total_times[i, 4] = test_speed(IRSystem, N_x_i, target=LLVMBackend)
 
   @show N_x_i, ss_times[i, :], times[i, :], total_times[i, :]
