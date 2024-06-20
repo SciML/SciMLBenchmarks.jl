@@ -10,8 +10,8 @@ using Pkg
 # Rev fixes precompilation https://github.com/hzgzh/XSteam.jl/pull/2
 Pkg.add(Pkg.PackageSpec(;name="XSteam", rev="f2a1c589054cfd6bba307985a3a534b6f5a1863b"))
 
-using ModelingToolkit, JuliaSimCompiler, Symbolics, XSteam, Polynomials, BenchmarkTools, CairoMakie
-using OMJulia, OrdinaryDiffEq
+using ModelingToolkit, JuliaSimCompiler, Symbolics, XSteam, Polynomials, BenchmarkTools, CairoMakie, OrdinaryDiffEq
+using OMJulia
 ```
 
 ## Setup Julia Code
@@ -256,99 +256,66 @@ function build_system(fsys, N)
   return time() - t0, sys
 end
 
-function compile_run_problem(sys; target=JuliaSimCompiler.JuliaTarget())
+function compile_run_problem(sys; target=JuliaSimCompiler.JuliaTarget(), solver=FBDF(;autodiff = target===JuliaSimCompiler.JuliaTarget()), duref=nothing)
   tspan = (0.0, 19 * 3600.0)
   t0 = time()
-  if target === JuliaSimCompiler.JuliaTarget()
-    prob = ODEProblem(sys, [], tspan, sparse=true)
-    (; f, u0, p) = prob
-    ff = f.f
+  prob = if target === JuliaSimCompiler.JuliaTarget()
+    ODEProblem(sys, [], tspan; sparse = true)
   else
-    prob = ODEProblem(sys, target, [], tspan, sparse=true)
-    (; f, u0, p) = prob
-    ff = f
+    ODEProblem(sys, target, [], tspan; sparse = true)
   end
-  prob.u0 .= 12.0
+  (; f, u0, p) = prob
+  fill!(u0, 12.0)
+  ff = f.f
   du = similar(u0)
   ff(du, u0, p, 0.0)
   t_fode = time() - t0
+  duref === nothing || @assert duref ≈ du
   t_run = @belapsed $ff($du, $u0, $p, 0.0)
-  t_fode, t_run
+  t_solve = @elapsed sol = solve(prob, solver; reltol=1e-6, abstol=1e-6, saveat=100)
+  @assert SciMLBase.successful_retcode(sol)
+  (t_fode, t_run, t_solve), du
 end
 
-function build_run_problem(fsys, N; target=JuliaSimCompiler.JuliaTarget())
-  t_ss, sys = build_system(fsys, N)
-  t_fode, t_run = compile_run_problem(sys; target)
-  t_ss, t_fode, t_run
-end
+const C = JuliaSimCompiler.CTarget();
+const LLVM = JuliaSimCompiler.llvm.LLVMTarget();
 
-function test_speed(fsys, N; target=JuliaSimCompiler.JuliaTarget(), solver=FBDF(;autodiff = target===JuliaSimCompiler.JuliaTarget()))
-    tspan = (0.0, 19*3600)
-    t_total = @elapsed begin
-        @named testbench = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
-        sys = structural_simplify(fsys(testbench))
-        if target === JuliaSimCompiler.JuliaTarget()
-            prob = ODEProblem(sys, [], tspan, sparse=true)
-        else
-            prob = ODEProblem(sys, target, [], tspan, sparse=true)
-        end
-        prob.u0 .= 12.0
-        sol = solve(prob, solver, reltol=1e-6, abstol=1e-6, saveat=100);
-        @assert SciMLBase.successful_retcode(sol)
-    end
-end
-```
-
-```julia
-N_x = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
-N_states = 4 .* N_x; # x-axis for plots
-ss_times = Matrix{Float64}(undef, length(N_x), 2);
-times = Matrix{NTuple{2,Float64}}(undef, length(N_x), 4);
-total_times = Matrix{Float64}(undef, length(N_x), 6);
-```
-
-## Time Julia
-
-```julia
-using JuliaSimCompiler: IRSystem
-const MTKSystem = identity
-const CBackend = JuliaSimCompiler.CTarget();
-const LLVMBackend = JuliaSimCompiler.llvm.LLVMTarget();
-
-@time build_run_problem(MTKSystem, 4)
-@time build_run_problem(IRSystem, 4)
-@time build_run_problem(IRSystem, 4; target=CBackend)
-@time build_run_problem(IRSystem, 4; target=LLVMBackend)
-
-@show "Start Julia Timings"
-
-
-for (i, N_x_i) in enumerate(N_x)
-  @show i
-  ss_times[i, 1], sys_mtk = build_system(MTKSystem, N_x_i)
-  ss_times[i, 2], sys_jsir = build_system(IRSystem, N_x_i)
-  times[i, 1] = compile_run_problem(sys_mtk)
-  times[i, 2] = compile_run_problem(sys_jsir)
-  times[i, 3] = compile_run_problem(sys_jsir, target=CBackend)
-  times[i, 4] = compile_run_problem(sys_jsir, target=LLVMBackend)
-
-  if N_x_i >= 480
-    total_times[i, 1] = NaN
-  else
-    println("Running MTK System")
-    total_times[i, 1] = test_speed(MTKSystem, N_x_i)
+function run_and_time_julia!(ss_times, times, max_sizes, i, N)
+  @named testbench = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+  if N <= max_sizes[1]
+    ss_times[i, 1] = @elapsed sys_mtk = structural_simplify(testbench)
+    times[i, 1], _ = compile_run_problem(sys_mtk)
   end
+  ss_times[i, 2] = @elapsed sys_jsir_scalar = structural_simplify(IRSystem(testbench), loop=false)
+  oderef = daeref = nothing
+  N <= max_sizes[2] && ((times[i, 2], oderef) = compile_run_problem(sys_jsir_scalar; duref = oderef))
+  N <= max_sizes[3] && ((times[i, 3], oderef) = compile_run_problem(sys_jsir_scalar; target=C, duref = oderef))
+  N <= max_sizes[4] && ((times[i, 4], oderef) = compile_run_problem(sys_jsir_scalar; target=LLVM, duref = oderef))
+  for j = 1:4
+    ss_time = ss_times[i, 1 + (j>1)] 
+    t_fode, t_run, t_solve = times[i, j]
+    total_times[i, j] = ss_time + t_fode + t_solve
+  end
+end
+```
 
-  println("Running JSC")
-  total_times[i, 2] = test_speed(IRSystem, N_x_i)
+```julia
+N = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
+N_states = 4 .* N; # x-axis for plots
+# max size we test per method
+max_sizes = [480, last(N), last(N), last(N), last(N)];
+# NaN-initialize so Makie will ignore incomplete
+ss_times = fill(NaN, length(N), 2);
+times = fill((NaN,NaN,NaN), length(N), length(max_sizes) - 1);
+total_times = fill(NaN, length(N), length(max_sizes));
+```
 
-  println("Running JSC C-backend")
-  total_times[i, 3] = test_speed(IRSystem, N_x_i, target=CBackend)
+## Julia Timings
 
-  println("Running JSC LLVM-backend")
-  total_times[i, 4] = test_speed(IRSystem, N_x_i, target=LLVMBackend)
-
-  @show N_x_i, ss_times[i, :], times[i, :], total_times[i, :]
+```julia
+@time run_and_time_julia!(ss_times, times, max_sizes, 1, 4); # precompile
+for (i, n) in enumerate(N)
+  @time run_and_time_julia!(ss_times, times, max_sizes, i, n)
 end
 ```
 
@@ -364,8 +331,9 @@ resultfile = "modelica_res.csv"
 
 @show "Start OpenModelica Timings"
 
-for i in 1:length(N_x)
-    N = N_x[i]
+for i in 1:length(N)
+    N = N[i]
+    N > max_sizes[end] && break
     @show N
     totaltime = @elapsed res = begin
         @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$N")
@@ -399,31 +367,37 @@ translation_and_total_times = [1.802 1.921
                                9.707 14.393
                                11.411 17.752
                                15.094 27.268]
-total_times[:, 6] = translation_and_total_times[1:length(N_x),2]
+total_times[:, 6] = translation_and_total_times[1:length(N),2]
 ```
 
 ## Generate Final Plots
 
 ```julia
-f = Figure(size = (800, 1200));
+f = Figure(size=(800,1200));
+ss_names = ["MTK", "JSIR-Scalar", "JSIR-Loop"];
 let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title="Structural Simplify Time")
-  names = ["MTK", "JSIR"]
   _lines = map(eachcol(ss_times)) do ts
-    lines!(N_states, ts)
+    lines!(N, ts)
   end
-  Legend(f[1,2], _lines, names)
+  Legend(f[1,2], _lines, ss_names)
 end
-for (i, timecat) in enumerate(("ODEProblem + f!", "Run"))
+method_names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"];
+for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; yscale = log10, xscale = log10, title)
-  names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"]
   _lines = map(eachcol(times)) do ts
-    lines!(N_states, getindex.(ts, i))
+    lines!(N, getindex.(ts, i))
   end
-  Legend(f[i+1,2], _lines, names)
+  Legend(f[i+1, 2], _lines, method_names)
+end
+let method_names_m = vcat(method_names, "OpenModelica");
+  ax = Axis(f[5, 1]; yscale = log10, xscale = log10, title = "Total Time")
+  _lines = map(Base.Fix1(lines!, N), eachcol(total_times))
+  Legend(f[5, 2], _lines, method_names_m)
 end
 f
 ```
+
 
 ```julia
 f2 = Figure(size = (800, 400));
