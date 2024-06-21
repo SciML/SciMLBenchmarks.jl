@@ -303,7 +303,7 @@ end
 N = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
 N_states = 4 .* N; # x-axis for plots
 # max size we test per method
-max_sizes = [480, last(N), last(N), last(N), last(N)];
+max_sizes = [480, last(N), last(N), last(N), last(N), last(N)];
 # NaN-initialize so Makie will ignore incomplete
 ss_times = fill(NaN, length(N), 2);
 times = fill((NaN,NaN,NaN), length(N), length(max_sizes) - 1);
@@ -332,12 +332,12 @@ resultfile = "modelica_res.csv"
 @show "Start OpenModelica Timings"
 
 for i in 1:length(N)
-    N = N[i]
-    N > max_sizes[end] && break
-    @show N
+    _N = N[i]
+    _N > max_sizes[end] && break
+    @show _N
     totaltime = @elapsed res = begin
-        @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$N")
-        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$N)")
+        @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$(_N)")
+        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$(_N))")
     end
     #runtime = res["timeTotal"]
     @assert res["messages"][1:11] == "LOG_SUCCESS"
