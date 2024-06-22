@@ -307,7 +307,7 @@ max_sizes = [480, last(N), last(N), last(N), last(N)];
 # NaN-initialize so Makie will ignore incomplete
 ss_times = fill(NaN, length(N), 2);
 times = fill((NaN,NaN,NaN), length(N), length(max_sizes) - 1);
-total_times = fill(NaN, length(N), length(max_sizes));
+total_times = fill(NaN, length(N), length(max_sizes)+1); # +1 for Dymola
 ```
 
 ## Julia Timings
@@ -381,7 +381,7 @@ let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title="Structural Simplif
   end
   Legend(f[1,2], _lines, ss_names)
 end
-method_names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"];
+method_names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"];
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; yscale = log10, xscale = log10, title)
@@ -389,11 +389,6 @@ for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
     lines!(N, getindex.(ts, i))
   end
   Legend(f[i+1, 2], _lines, method_names)
-end
-let method_names_m = vcat(method_names, "OpenModelica");
-  ax = Axis(f[5, 1]; yscale = log10, xscale = log10, title = "Total Time")
-  _lines = map(Base.Fix1(lines!, N), eachcol(total_times))
-  Legend(f[5, 2], _lines, method_names_m)
 end
 f
 ```
