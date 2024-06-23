@@ -43,67 +43,60 @@ function run_and_plot(dim; kmax = 12)
 
     
     for z in 1:length(matrices)
-        for i in 1:length(ns)
-            rng = MersenneTwister(123)
-            A = mdopen(matrices[z]).A
-            A = convert(SparseMatrixCSC, A)
-            n = size(A, 1)
-            @info "dim=$(dim): $n × $n"
-            b = rand(rng, n)
-            u0 = rand(rng, n)
+        try
+            for i in 1:length(ns)
+                rng = MersenneTwister(123)
+                A = mdopen(matrices[z]).A
+                A = convert(SparseMatrixCSC, A)
+                n = size(A, 1)
+                @info "dim=$(dim): $n × $n"
+                b = rand(rng, n)
+                u0 = rand(rng, n)
 
-            for j in 1:length(algs)
-                bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
-                    copy($b);
-                    u0 = copy($u0),
-                    alias_A = true,
-                    alias_b = true))
-                push!(res[j], bt)
+                for j in 1:length(algs)
+                    bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
+                        copy($b);
+                        u0 = copy($u0),
+                        alias_A = true,
+                        alias_b = true))
+                    push!(res[j], bt)
+                end
             end
+
+            p = plot(;
+                ylabel = "Time/s",
+                xlabel = "N",
+                yscale = :log10,
+                xscale = :log10,
+                title = "Time for NxN  sparse LU Factorization $(dim)D",
+                label = string(Symbol(parameterless_type(algs[1]))),
+                legend = :outertopright)
+
+            for i in 1:length(algs)
+                plot!(p, ns, res[i];
+                    linecolor = cols[i],
+                    label = "$(string(Symbol(parameterless_type(algs[i]))))")
+            end
+            p
+        catch
+            print(matrices[z])
         end
-
-        p = plot(;
-            ylabel = "Time/s",
-            xlabel = "N",
-            yscale = :log10,
-            xscale = :log10,
-            title = "Time for NxN  sparse LU Factorization $(dim)D",
-            label = string(Symbol(parameterless_type(algs[1]))),
-            legend = :outertopright)
-
-        for i in 1:length(algs)
-            plot!(p, ns, res[i];
-                linecolor = cols[i],
-                label = "$(string(Symbol(parameterless_type(algs[i]))))")
         end
-        p
-    end
+       
 end
 ```
 
 
 ```julia
-try
-    run_and_plot(1)
-catch
-    print("Problem with factorization")
-end
+run_and_plot(1)
 ```
 
 ```julia
-try
-    run_and_plot(2)
-catch
-    print("Problem with factorization")
-end
+run_and_plot(2)
 ```
 
 ```julia
-try
-    run_and_plot(3)
-catch
-    print("Problem with factorization")
-end
+run_and_plot(3)
 ```
 
 ## Appendix
