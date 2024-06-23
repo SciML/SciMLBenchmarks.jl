@@ -42,54 +42,58 @@ function run_and_plot(dim, matrix; kmax = 12)
     res = [Float64[] for i in 1:length(algs)]
 
     
-# for z in 1:length(matrices)
-    for i in 1:length(ns)
-        rng = MersenneTwister(123)
-        A = mdopen(matrix).A
-        A = convert(SparseMatrixCSC, A)
-        n = size(A, 1)
-        @info "dim=$(dim): $n × $n"
-        b = rand(rng, n)
-        u0 = rand(rng, n)
+    for z in 1:length(matrices)
+        for i in 1:length(ns)
+            rng = MersenneTwister(123)
+            A = mdopen(matrices[z]).A
+            A = convert(SparseMatrixCSC, A)
+            n = size(A, 1)
+            @info "dim=$(dim): $n × $n"
+            b = rand(rng, n)
+            u0 = rand(rng, n)
 
-        for j in 1:length(algs)
-            bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
-                copy($b);
-                u0 = copy($u0),
-                alias_A = true,
-                alias_b = true))
-            push!(res[j], bt)
+            for j in 1:length(algs)
+                bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
+                    copy($b);
+                    u0 = copy($u0),
+                    alias_A = true,
+                    alias_b = true))
+                push!(res[j], bt)
+            end
         end
-    end
 
-    p = plot(;
-        ylabel = "Time/s",
-        xlabel = "N",
-        yscale = :log10,
-        xscale = :log10,
-        title = "Time for NxN  sparse LU Factorization $(dim)D",
-        label = string(Symbol(parameterless_type(algs[1]))),
-        legend = :outertopright)
+        p = plot(;
+            ylabel = "Time/s",
+            xlabel = "N",
+            yscale = :log10,
+            xscale = :log10,
+            title = "Time for NxN  sparse LU Factorization $(dim)D",
+            label = string(Symbol(parameterless_type(algs[1]))),
+            legend = :outertopright)
 
-    for i in 1:length(algs)
-        plot!(p, ns, res[i];
-            linecolor = cols[i],
-            label = "$(string(Symbol(parameterless_type(algs[i]))))")
+        for i in 1:length(algs)
+            plot!(p, ns, res[i];
+                linecolor = cols[i],
+                label = "$(string(Symbol(parameterless_type(algs[i]))))")
+        end
+        p
     end
-    p
 end
-# end
+```
+
+
+```julia
+run_and_plot(1, matrices[z])
 ```
 
 ```julia
-for z in 1:length(matrices)
-    run_and_plot(1, matrices[z])
-
-    run_and_plot(2, matrices[z])
-
-    run_and_plot(3, matrices[z])
-end
+run_and_plot(2, matrices[z])
 ```
+
+```julia
+run_and_plot(3, matrices[z])
+```
+
 ## Appendix
 
 ```julia, echo = false
