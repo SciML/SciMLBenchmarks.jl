@@ -4,7 +4,7 @@ author: Jürgen Fuhrmann, Anastasia Dunca
 ---
 
 ```julia
-using BenchmarkTools, Random, VectorizationBase
+using BenchmarkTools, Random, VectorizationBase, Statistics
 using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
 import Pardiso
 using Plots
@@ -21,82 +21,56 @@ algs = [
     MKLPardisoFactorize(),
     SparspakFactorization(),
 ]
+algnames = ["UMFPACK", "KLU", "Pardiso", "Sparspak"]
+
 cols = [:red, :blue, :green, :magenta, :turqoise] # one color per alg
 
 matrices = ["HB/1138_bus", "HB/494_bus", "HB/662_bus", "HB/685_bus", "HB/bcsstk01", "HB/bcsstk02", "HB/bcsstk03", "HB/bcsstk04", 
             "HB/bcsstk05", "HB/bcsstk06", "HB/bcsstk07", "HB/bcsstk08", "HB/bcsstk09", "HB/bcsstk10", "HB/bcsstk11", "HB/bcsstk12",
             "HB/bcsstk13", "HB/bcsstk14", "HB/bcsstk15", "HB/bcsstk16"]
-                
-__parameterless_type(T) = Base.typename(T).wrapper
-parameterless_type(x) = __parameterless_type(typeof(x))
-parameterless_type(::Type{T}) where {T} = __parameterless_type(T)
 
-#
-# kmax=12 gives ≈ 40_000 unknowns max, can be watched in real time
-# kmax=15 gives ≈ 328_000 unknows, you can go make a coffee.
-# Main culprit is KLU factorization in 3D.
-#
-function run_and_plot(dim; kmax = 12)
-    ns = [10 * 2^k for k in 0:kmax]
+times = fill(NaN, length(matrices), length(algs))
+```
 
-    res = [Float64[] for i in 1:length(algs)]
+```julia
+for z in 1:length(matrices)
+    try
+        rng = MersenneTwister(123)
+        A = mdopen(matrices[z]).A
+        A = convert(SparseMatrixCSC, A)
+        n = size(A, 1)
+        @info "$n × $n"
+        b = rand(rng, n)
+        u0 = rand(rng, n)
 
-    
-    for z in 1:length(matrices)
-        try
-            for i in 1:length(ns)
-                rng = MersenneTwister(123)
-                A = mdopen(matrices[z]).A
-                A = convert(SparseMatrixCSC, A)
-                n = size(A, 1)
-                @info "dim=$(dim): $n × $n"
-                b = rand(rng, n)
-                u0 = rand(rng, n)
-
-                for j in 1:length(algs)
-                    bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
-                        copy($b);
-                        u0 = copy($u0),
-                        alias_A = true,
-                        alias_b = true))
-                    push!(res[j], bt)
-                end
-            end
-
-            p = plot(;
-                ylabel = "Time/s",
-                xlabel = "N",
-                yscale = :log10,
-                xscale = :log10,
-                title = "Time for NxN  sparse LU Factorization $(dim)D",
-                label = string(Symbol(parameterless_type(algs[1]))),
-                legend = :outertopright)
-
-            for i in 1:length(algs)
-                plot!(p, ns, res[i];
-                    linecolor = cols[i],
-                    label = "$(string(Symbol(parameterless_type(algs[i]))))")
-            end
-            display(p)
-        catch
-            println(matrices[z])
+        for j in 1:length(algs)
+            bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
+                copy($b);
+                u0 = copy($u0),
+                alias_A = true,
+                alias_b = true))
+            times[z,j] = bt
         end
-        end
-       
+        p = bar(algnames, times[z, :];
+            ylabel = "Time/s",
+            yscale = :log10,
+            title = "Time on $(matrices[z])",
+            legend = :outertopright)
+        display(p)
+    catch e
+        println("$(matrices[z]) failed to factorize.")
+        println(e)
+    end
 end
 ```
 
-
 ```julia
-run_and_plot(1)
-```
-
-```julia
-run_and_plot(2)
-```
-
-```julia
-run_and_plot(3)
+meantimes = vec(mean(times, dims=1))
+p = bar(algnames, meantimes;
+    ylabel = "Time/s",
+    yscale = :log10,
+    title = "Mean factorization time",
+    legend = :outertopright)
 ```
 
 ## Appendix
