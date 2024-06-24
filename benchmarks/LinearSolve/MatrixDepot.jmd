@@ -55,21 +55,22 @@ for z in 1:length(matrices)
                 alias_b = true))
             push!(res[j], bt)
         end
-        p = bar(algnames, res;
+        p = bar(algnames, res[j];
             ylabel = "Time/s",
+            labels = algnames,
             yscale = :log10,
-            title = "Time for NxN  sparse LU Factorization of $(matrices[z])",
+            title = "Time on $(matrices[z])",
             legend = :outertopright)
         display(p)
-    catch
+    catch e
         println("$(matrices[z]) failed to factorize.")
+        println(e)
     end
 end
 ```
 
 ```julia
-algtimes = [[res[i][j] for i in 1:length(matrices)] for j in 1:length(algs)]
-meantimes = mean.(algtimes)
+meantimes = mean.(res)
 p = bar(algnames, meantimes;
     ylabel = "Time/s",
     yscale = :log10,
