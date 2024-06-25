@@ -307,7 +307,7 @@ max_sizes = [480, last(N), last(N), last(N), last(N), last(N)];
 # NaN-initialize so Makie will ignore incomplete
 ss_times = fill(NaN, length(N), 2);
 times = fill((NaN,NaN,NaN), length(N), length(max_sizes) - 1);
-total_times = fill(NaN, length(N), length(max_sizes));
+total_times = fill(NaN, length(N), length(max_sizes)+1); # +1 for Dymola
 ```
 
 ## Julia Timings
@@ -331,13 +331,13 @@ resultfile = "modelica_res.csv"
 
 @show "Start OpenModelica Timings"
 
-for i in 1:length(N)
-    _N = N[i]
-    _N > max_sizes[end] && break
-    @show _N
+for i in eachindex(N)
+    n = N[i]
+    n > max_sizes[end] && break
+    @show n
     totaltime = @elapsed res = begin
-        @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$(_N)")
-        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$(_N))")
+        @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$n")
+        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$n)")
     end
     #runtime = res["timeTotal"]
     @assert res["messages"][1:11] == "LOG_SUCCESS"
@@ -381,7 +381,7 @@ let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title="Structural Simplif
   end
   Legend(f[1,2], _lines, ss_names)
 end
-method_names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"];
+method_names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"];
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
   title = timecat * " Time"
   ax = Axis(f[i+1, 1]; yscale = log10, xscale = log10, title)
