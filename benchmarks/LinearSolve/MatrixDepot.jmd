@@ -26,20 +26,19 @@ algnames_transpose = reshape(algnames, 1, length(algnames))
 
 cols = [:red, :blue, :green, :magenta, :turqoise] # one color per alg
 
-matrices = ["HB/1138_bus", "HB/494_bus", "HB/662_bus", "HB/685_bus", "HB/bcsstk01", "HB/bcsstk02", "HB/bcsstk03", "HB/bcsstk04", 
-            "HB/bcsstk05", "HB/bcsstk06", "HB/bcsstk07", "HB/bcsstk08", "HB/bcsstk09", "HB/bcsstk10", "HB/bcsstk11", "HB/bcsstk12",
-            "HB/bcsstk13", "HB/bcsstk14", "HB/bcsstk15", "HB/bcsstk16"]
+# matrices = ["HB/1138_bus", "HB/494_bus", "HB/662_bus", "HB/685_bus", "HB/bcsstk01", "HB/bcsstk02", "HB/bcsstk03", "HB/bcsstk04",  "HB/bcsstk05", "HB/bcsstk06", "HB/bcsstk07", "HB/bcsstk08", "HB/bcsstk09", "HB/bcsstk10", "HB/bcsstk11", "HB/bcsstk12", "HB/bcsstk13", "HB/bcsstk14", "HB/bcsstk15", "HB/bcsstk16"]
+allmatrices = listnames("*/*")
 
-times = fill(NaN, length(matrices), length(algs))
-percentage_sparsity = fill(NaN, length(matrices))
-matrix_size = fill(NaN, length(matrices))
+times = fill(NaN, length(allmatrices), length(algs))
+percentage_sparsity = fill(NaN, length(allmatrices))
+matrix_size = fill(NaN, length(allmatrices))
 ```
 
 ```julia
-for z in 1:length(matrices)
+for z in 1:length(allmatrices)
     try
         rng = MersenneTwister(123)
-        A = mdopen(matrices[z]).A
+        A = mdopen(allmatrices[z]).A
         A = convert(SparseMatrixCSC, A)
         n = size(A, 1)
         matrix_size[z] = n
@@ -59,11 +58,11 @@ for z in 1:length(matrices)
         p = bar(algnames, times[z, :];
             ylabel = "Time/s",
             yscale = :log10,
-            title = "Time on $(matrices[z])",
+            title = "Time on $(allmatrices[z])",
             legend = :outertopright)
         display(p)
     catch e
-        println("$(matrices[z]) failed to factorize.")
+        println("$(allmatrices[z]) failed to factorize.")
         println(e)
     end
 end
