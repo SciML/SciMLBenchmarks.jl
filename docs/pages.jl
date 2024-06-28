@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 15, 12, 10, 21, 3, 19, 29, 5, 7, 17, 14, 27, 6, 8, 16, 20, 30, 18, 28, 11, 9, 23, 22, 26, 4, 13, 24, 25, 2, 31]
+    [1, 16, 13, 11, 22, 3, 4, 20, 30, 6, 8, 18, 15, 28, 7, 9, 17, 21, 31, 19, 29, 12, 10, 24, 23, 27, 5, 14, 25, 26, 2, 32]
 )
 
 names = [
@@ -50,6 +50,7 @@ names = [
     "Interval Rootfinding",
     "Nonlinear Solvers",
     "Automatic Differentiation",
+    "Sparse Automatic Differentiation",
     "Non-Stiff Ordinary Differential Equations (ODEs)",
     "Stiff Ordinary Differential Equations (ODEs)",
     "Biological Differential Equations",
