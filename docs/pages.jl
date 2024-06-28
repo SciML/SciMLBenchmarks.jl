@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 12, 9, 7, 18, 16, 24, 4, 5, 14, 10, 6, 13, 17, 25, 15, 23, 8, 19, 22, 3, 11, 20, 21, 2]
+    [1, 16, 13, 11, 22, 3, 4, 20, 30, 6, 8, 18, 15, 28, 7, 9, 17, 21, 31, 19, 29, 12, 10, 24, 23, 27, 5, 14, 25, 26, 2, 32]
 )
 
 names = [
@@ -49,12 +49,16 @@ names = [
     "Linear Solvers",
     "Interval Rootfinding",
     "Nonlinear Solvers",
+    "Automatic Differentiation",
+    "Sparse Automatic Differentiation",
     "Non-Stiff Ordinary Differential Equations (ODEs)",
     "Stiff Ordinary Differential Equations (ODEs)",
     "Biological Differential Equations",
     "Differential-Algebraic Equations (DAEs)",
     "Boundary Value Problems (BVPs)",
-    "Method of Lines Partial Differential Equations (PDEs)",
+    "ModelingToolkit Acausal Modeling / Symbolic-Numeric Benchmarks",
+    "Simple Handwritten Partial Differential Equations (PDEs) as ODEs",
+    "Complicated Partial Differential Equations (PDEs)",
     "Dynamical ODEs (Hamiltonian and Second Order)",
     "N-Body Problem Benchmarks",
     "Non-Stiff Stochastic Differential Equations (SDEs)",
@@ -62,13 +66,16 @@ names = [
     "Non-Stiff Delay Differential Equations (DDEs)",
     "Stiff Delay Differential equations (DDEs)",
     "Jump Process Equations (Gillespie Benchmarks)",
-    "Optimization Benchmarks",
+    "Hybrid (Time-Dependent) Jump Processes",
+    "Nonlinear Optimization Solver Benchmarks",
+    "Optimization Framework Benchmarks",
     "Parameter Estimation and Inverse Problem Benchmarks",
     "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
     "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
-    "SDE Adaptivity Benchmarks"]
+    "SDE Adaptivity Benchmarks",
+    "Surrogate Benchmarks"]
 
 for i in 1:length(pages)
     pages[i] = names[i] => pages[i][2]

@@ -63,7 +63,7 @@ Plots.scatter!(t, data[3,:],markersize=4,color=:black)
 plot!(sol)
 ```
 
-#### Uncertainity Quantification plot is used to decide the tolerance for the differential equation.
+#### Uncertainty Quantification plot is used to decide the tolerance for the differential equation.
 
 ```julia
 cb = AdaptiveProbIntsUncertainty(5)
@@ -92,7 +92,7 @@ priors = [truncated(Normal(10,2),1,15),truncated(Normal(30,5),1,45),truncated(No
 
 ## Using Stan.jl backend
 
-Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainity plots. Use of truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
+Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainty plots. Use of truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
 
 ```julia
 @time bayesian_result_stan = stan_inference(prob,t,data,priors; delta = 0.65, reltol=1e-8,abstol=1e-8, vars=(DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
@@ -123,11 +123,7 @@ end
 
 model = fitlv(data, sprob)
 
-@time chain = sample(model, NUTS(0.65), 10000; progress=false)
-```
-
-```julia
-@time chain = sample(model, NUTS(0.65), 10000; progress=false)
+@time chain = sample(model, Turing.NUTS(0.65), 10000; progress=false)
 ```
 
 ### Using Turing.jl backend
@@ -146,7 +142,7 @@ model = fitlv(data, sprob)
 ## Conclusion
 
 Due to the chaotic nature of Lorenz Equation, it is a very hard problem to estimate as it has the property of exponentially increasing errors.
-Its uncertainity plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainity small enough to be trusted in `(0,30)` time span.
+Its uncertainty plot points to its chaotic behaviour and goes awry for different values of tolerance, we use 1e-8 as the tolerance as it makes its uncertainty small enough to be trusted in `(0,30)` time span.
 
 
 ```julia, echo = false

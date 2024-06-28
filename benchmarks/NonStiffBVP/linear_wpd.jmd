@@ -1,0 +1,202 @@
+---
+title: Linear BVP Benchmarks
+author: Qingyu Qu
+---
+
+This benchmark compares the runtime and error of BVP solvers, including MIRK solvers, Shooting solvers and FORTRAN BVP solvers on some linear boundary value problems.
+The testing BVPs are a set of standard BVP test problems as described [here](https://archimede.uniba.it/~bvpsolvers/testsetbvpsolvers/?page_id=29)
+
+# Setup
+
+Fetch required packages.
+
+```julia
+using BoundaryValueDiffEq, OrdinaryDiffEq, ODEInterface, DiffEqDevTools, BenchmarkTools,
+      BVProblemLibrary, Plots
+```
+
+Set up the benchmarked solvers.
+
+```julia
+setups = [ Dict(:alg=>MIRK2(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>MIRK3(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>MIRK4(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>MIRK5(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>MIRK6(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>BVPM2(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>COLNEW(), :dts=>1.0 ./ 10.0 .^ (1:4)),
+            Dict(:alg=>Shooting(Tsit5())),
+            Dict(:alg=>Shooting(Vern7())),
+            Dict(:alg=>Shooting(DP5())),
+            Dict(:alg=>MultipleShooting(10, Tsit5())),
+            Dict(:alg=>MultipleShooting(10, Vern7())),
+            Dict(:alg=>MultipleShooting(10, DP5())),]
+labels = ["MIRK2";
+               "MIRK3";
+               "MIRK4";
+               "MIRK5";
+               "MIRK6";
+               "BVPM2";
+               "COLNEW";
+               "Shooting (Tsit5)";
+               "Shooting (Vern7)";
+               "Shooting (DP5)";
+               "MultipleShooting (Tsit5)";
+               "MultipleShooting (Vern7)";
+               "MultipleShooting (DP5)"];
+```
+
+Sets tolerances.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (1:3)
+reltols = 1.0 ./ 10.0 .^ (1:3);
+```
+
+# Benchmarks
+
+We here run the BVP benchmarks for all the MIRK methods, Shooting methods and FORTRAN BVP solvers.
+
+Prepares helper function for benchmarking a specific problem.
+
+```julia
+function benchmark!(prob)
+    sol = solve(prob, Shooting(Vern7()), abstol=1e-14, reltol=1e-14)
+    testsol = TestSolution(sol)
+    wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = labels, appxsol = testsol, maxiters=Int(1e4))
+    plot(wp, legend=:outertopright)
+end
+```
+
+## Linear boundary value problems
+
+### Linear BVP 1
+
+```julia
+prob_1 = BVProblemLibrary.prob_bvp_linear_1
+benchmark!(prob_1)
+```
+
+### Linear BVP 2
+
+```julia
+prob_2 = BVProblemLibrary.prob_bvp_linear_2
+benchmark!(prob_2)
+```
+
+### Linear BVP 3
+
+```julia
+prob_3 = BVProblemLibrary.prob_bvp_linear_3
+benchmark!(prob_3)
+```
+
+### Linear BVP 4
+
+```julia
+prob_4 = BVProblemLibrary.prob_bvp_linear_4
+benchmark!(prob_4)
+```
+
+### Linear BVP 5
+
+```julia
+prob_5 = BVProblemLibrary.prob_bvp_linear_5
+benchmark!(prob_5)
+```
+
+### Linear BVP 6
+
+```julia
+prob_6 = BVProblemLibrary.prob_bvp_linear_6
+benchmark!(prob_6)
+```
+
+### Linear BVP 7
+
+```julia
+prob_7 = BVProblemLibrary.prob_bvp_linear_7
+benchmark!(prob_7)
+```
+
+### Linear BVP 8
+
+```julia
+prob_8 = BVProblemLibrary.prob_bvp_linear_8
+benchmark!(prob_8)
+```
+
+### Linear BVP 9
+
+```julia
+prob_9 = BVProblemLibrary.prob_bvp_linear_9
+benchmark!(prob_9)
+```
+
+### Linear BVP 10
+
+```julia
+prob_10 = BVProblemLibrary.prob_bvp_linear_10
+benchmark!(prob_10)
+```
+
+### Linear BVP 11
+
+```julia
+prob_11 = BVProblemLibrary.prob_bvp_linear_11
+benchmark!(prob_11)
+```
+
+### Linear BVP 12
+
+```julia
+prob_12 = BVProblemLibrary.prob_bvp_linear_12
+benchmark!(prob_12)
+```
+
+### Linear BVP 13
+
+```julia
+prob_13 = BVProblemLibrary.prob_bvp_linear_13
+benchmark!(prob_13)
+```
+
+### Linear BVP 14
+
+```julia
+prob_14 = BVProblemLibrary.prob_bvp_linear_14
+benchmark!(prob_14)
+```
+
+### Linear BVP 15
+
+```julia
+prob_15 = BVProblemLibrary.prob_bvp_linear_15
+benchmark!(prob_15)
+```
+
+### Linear BVP 16
+
+```julia
+prob_16 = BVProblemLibrary.prob_bvp_linear_16
+benchmark!(prob_16)
+```
+
+### Linear BVP 17
+
+```julia
+prob_17 = BVProblemLibrary.prob_bvp_linear_17
+benchmark!(prob_17)
+```
+
+### Linear BVP 18
+
+```julia
+prob_18 = BVProblemLibrary.prob_bvp_linear_18
+benchmark!(prob_18)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

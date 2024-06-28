@@ -94,9 +94,9 @@ over the set of tested equations and some specific examples may differ.
 - For smaller problems:
   - `Rosenbrock23`, `lsoda`, and `TRBDF2` tend to be the most efficient at high
     tolerances.
-  - `Rodas4` and `Rodas5` tend to be the most efficient at low tolerances.
+  - `Rodas4P` and `Rodas5P` tend to be the most efficient at low tolerances.
 - For larger problems (Filament PDE):
-  - `QNDF` and `FBDF` does the best at all normal tolerances.
+  - `FBDF` and `QNDF` do the best at all normal tolerances.
   - The ESDIRK methods like `TRBDF2` and `KenCarp4` can come close.
 - `radau` is always the most efficient when tolerances go to the low extreme
   (`1e-13`)
@@ -106,8 +106,7 @@ over the set of tested equations and some specific examples may differ.
   diverge on many of the tested problems. When it doesn't diverge, the similar
   algorithms in OrdinaryDiffEq.jl (`KenCarp4`) are much more efficient in most
   cases.
-- ODE.jl and GeometricIntegrators.jl fail to converge on any of the tested
-  problems.
+- GeometricIntegrators.jl fails to converge on any of the tested problems.
 
 ### Dynamical ODEs
 
@@ -145,7 +144,7 @@ over the set of tested equations and some specific examples may differ.
 
 ### Stiff DDEs
 
-- The Rosenbrock methods, specifically `Rodas5`, perform well.
+- The Rosenbrock methods, specifically `Rodas5P`, perform well.
 
 ### Parameter Estimation
 
@@ -163,7 +162,7 @@ over the set of tested equations and some specific examples may differ.
 - The choice of global versus local optimization make a huge difference in the timings. BBO tends to find
   the correct solution for a global optimization setup. For local optimization, most methods in NLopt,
   like :LN_BOBYQA, solve the problem very fast but require a good initial condition.
-- The different backends options available for Bayesian method offer some tradeoffs beteween
+- The different backends options available for Bayesian method offer some tradeoffs between
   time, accuracy and control. It is observed that sufficiently high accuracy can be observed with
   any of the backends with the fine tuning of stepsize, constraints on the parameters, tightness of the
   priors and number of iterations being passed.
@@ -198,9 +197,9 @@ will add all of the packages required to run any benchmark in the `NonStiffODE` 
 
 ## Contributing
 
-All of the files are generated from the Weave.jl files in the `benchmarks` folder. The generation process runs automatically,
+All of the files are generated from the Weave.jl files in the `benchmarks` folder of the [SciMLBenchmarks.jl](https://github.com/SciML/SciMLBenchmarks.jl) repository. The generation process runs automatically,
 and thus one does not necessarily need to test the Weave process locally. Instead, simply open a PR that adds/updates a
-file in the "benchmarks" folder and the PR will generate the benchmark on demand. Its artifacts can then be inspected in the
+file in the `benchmarks` folder and the PR will generate the benchmark on demand. Its artifacts can then be inspected in the
 Buildkite as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
 any changes to dependencies requires that those are updated.
 

@@ -1,0 +1,339 @@
+---
+title: Bruss Scaling PDE Differentaition Benchmarks
+author: Chris Rackauckas and Yingbo Ma
+---
+
+From the paper [A Comparison of Automatic Differentiation and Continuous Sensitivity Analysis for Derivatives of Differential Equation Solutions](https://ieeexplore.ieee.org/abstract/document/9622796)
+
+```julia
+using OrdinaryDiffEq, ReverseDiff, ForwardDiff, FiniteDiff, SciMLSensitivity
+using LinearAlgebra, Tracker, Plots
+```
+
+```julia
+function makebrusselator(N=8)
+    xyd_brusselator = range(0,stop=1,length=N)
+    function limit(a, N)
+      if a == N+1
+        return 1
+      elseif a == 0
+        return N
+      else
+        return a
+      end
+    end
+    brusselator_f(x, y, t) = ifelse((((x-0.3)^2 + (y-0.6)^2) <= 0.1^2) &&
+                                    (t >= 1.1), 5., 0.)
+    brusselator_2d_loop = let N=N, xyd=xyd_brusselator, dx=step(xyd_brusselator)
+      function brusselator_2d_loop(du, u, p, t)
+          @inbounds begin
+              ii1 = N^2
+              ii2 = ii1+N^2
+              ii3 = ii2+2(N^2)
+              A = @view p[1:ii1]
+              B = @view p[ii1+1:ii2]
+              α = @view p[ii2+1:ii3]
+              II = LinearIndices((N, N, 2))
+              for I in CartesianIndices((N, N))
+                  x = xyd[I[1]]
+                  y = xyd[I[2]]
+                  i = I[1]
+                  j = I[2]
+                  ip1 = limit(i+1, N); im1 = limit(i-1, N)
+                  jp1 = limit(j+1, N); jm1 = limit(j-1, N)
+                  du[II[i,j,1]] = α[II[i,j,1]]*(u[II[im1,j,1]] + u[II[ip1,j,1]] + u[II[i,jp1,1]] + u[II[i,jm1,1]] - 4u[II[i,j,1]])/dx^2 +
+                      B[II[i,j,1]] + u[II[i,j,1]]^2*u[II[i,j,2]] - (A[II[i,j,1]] + 1)*u[II[i,j,1]] + brusselator_f(x, y, t)
+              end
+              for I in CartesianIndices((N, N))
+                i = I[1]
+                j = I[2]
+                ip1 = limit(i+1, N)
+                im1 = limit(i-1, N)
+                jp1 = limit(j+1, N)
+                jm1 = limit(j-1, N)
+                du[II[i,j,2]] = α[II[i,j,2]]*(u[II[im1,j,2]] + u[II[ip1,j,2]] + u[II[i,jp1,2]] + u[II[i,jm1,2]] - 4u[II[i,j,2]])/dx^2 +
+                    A[II[i,j,1]]*u[II[i,j,1]] - u[II[i,j,1]]^2*u[II[i,j,2]]
+              end
+              return nothing
+          end
+      end
+    end
+    function init_brusselator_2d(xyd)
+        N = length(xyd)
+        u = zeros(N, N, 2)
+        for I in CartesianIndices((N, N))
+            x = xyd[I[1]]
+            y = xyd[I[2]]
+            u[I,1] = 22*(y*(1-y))^(3/2)
+            u[I,2] = 27*(x*(1-x))^(3/2)
+        end
+        vec(u)
+    end
+    dx = step(xyd_brusselator)
+    e1 = ones(N-1)
+    off = N-1
+    e4 = ones(N-off)
+    T = diagm(0=>-2ones(N), -1=>e1, 1=>e1, off=>e4, -off=>e4) ./ dx^2
+    Ie = Matrix{Float64}(I, N, N)
+    # A + df/du
+    Op = kron(Ie, T) + kron(T, Ie)
+    brusselator_jac = let N=N
+      (J,a,p,t) -> begin
+        ii1 = N^2
+        ii2 = ii1+N^2
+        ii3 = ii2+2(N^2)
+        A = @view p[1:ii1]
+        B = @view p[ii1+1:ii2]
+        α = @view p[ii2+1:ii3]
+        u = @view a[1:end÷2]
+        v = @view a[end÷2+1:end]
+        N2 = length(a)÷2
+        α1 = @view α[1:end÷2]
+        α2 = @view α[end÷2+1:end]
+        fill!(J, 0)
+
+        J[1:N2, 1:N2] .= α1.*Op
+        J[N2+1:end, N2+1:end] .= α2.*Op
+
+        J1 = @view J[1:N2,     1:N2]
+        J2 = @view J[N2+1:end, 1:N2]
+        J3 = @view J[1:N2,     N2+1:end]
+        J4 = @view J[N2+1:end, N2+1:end]
+        J1[diagind(J1)] .+= @. 2u*v-(A+1)
+        J2[diagind(J2)] .= @. A-2u*v
+        J3[diagind(J3)] .= @. u^2
+        J4[diagind(J4)] .+= @. -u^2
+        nothing
+      end
+    end
+    Jmat = zeros(2N*N, 2N*N)
+    dp = zeros(2N*N, 4N*N)
+    brusselator_comp = let N=N, xyd=xyd_brusselator, dx=step(xyd_brusselator), Jmat=Jmat, dp=dp, brusselator_jac=brusselator_jac
+      function brusselator_comp(dus, us, p, t)
+          @inbounds begin
+              ii1 = N^2
+              ii2 = ii1+N^2
+              ii3 = ii2+2(N^2)
+              @views u, s = us[1:ii2], us[ii2+1:end]
+              du = @view dus[1:ii2]
+              ds = @view dus[ii2+1:end]
+              fill!(dp, 0)
+              A = @view p[1:ii1]
+              B = @view p[ii1+1:ii2]
+              α = @view p[ii2+1:ii3]
+              dfdα = @view dp[:, ii2+1:ii3]
+              diagind(dfdα)
+              for i in 1:ii1
+                dp[i, ii1+i] = 1
+              end
+              II = LinearIndices((N, N, 2))
+              uu = @view u[1:end÷2]
+              for i in eachindex(uu)
+                dp[i, i] = -uu[i]
+                dp[i+ii1, i] = uu[i]
+              end
+              for I in CartesianIndices((N, N))
+                  x = xyd[I[1]]
+                  y = xyd[I[2]]
+                  i = I[1]
+                  j = I[2]
+                  ip1 = limit(i+1, N); im1 = limit(i-1, N)
+                  jp1 = limit(j+1, N); jm1 = limit(j-1, N)
+                  au = dfdα[II[i,j,1],II[i,j,1]] = (u[II[im1,j,1]] + u[II[ip1,j,1]] + u[II[i,jp1,1]] + u[II[i,jm1,1]] - 4u[II[i,j,1]])/dx^2
+                  du[II[i,j,1]] = α[II[i,j,1]]*(au) + B[II[i,j,1]] + u[II[i,j,1]]^2*u[II[i,j,2]] - (A[II[i,j,1]] + 1)*u[II[i,j,1]] + brusselator_f(x, y, t)
+              end
+              for I in CartesianIndices((N, N))
+                  i = I[1]
+                  j = I[2]
+                  ip1 = limit(i+1, N)
+                  im1 = limit(i-1, N)
+                  jp1 = limit(j+1, N)
+                  jm1 = limit(j-1, N)
+                  av = dfdα[II[i,j,2],II[i,j,2]] = (u[II[im1,j,2]] + u[II[ip1,j,2]] + u[II[i,jp1,2]] + u[II[i,jm1,2]] - 4u[II[i,j,2]])/dx^2
+                  du[II[i,j,2]] = α[II[i,j,2]]*(av) + A[II[i,j,1]]*u[II[i,j,1]] - u[II[i,j,1]]^2*u[II[i,j,2]]
+              end
+              brusselator_jac(Jmat,u,p,t)
+              BLAS.gemm!('N', 'N', 1., Jmat, reshape(s, 2N*N, 4N*N), 1., dp)
+              copyto!(ds, vec(dp))
+              return nothing
+          end
+      end
+    end
+    u0 = init_brusselator_2d(xyd_brusselator)
+    p = [fill(3.4,N^2); fill(1.,N^2); fill(10.,2*N^2)]
+    brusselator_2d_loop, u0, p, brusselator_jac, ODEProblem(brusselator_comp, copy([u0;zeros((N^2*2)*(N^2*4))]), (0.,10.), p)
+end
+
+Base.eps(::Type{Tracker.TrackedReal{T}}) where T = eps(T)
+Base.vec(v::Adjoint{<:Real, <:AbstractVector}) = vec(v') # bad bad hack
+```
+
+## Setup AutoDiff
+
+```julia
+bt = 0:0.1:1
+tspan = (0.0, 1.0)
+forwarddiffn = vcat(2:10,12,15)
+reversediffn = 2:10
+numdiffn = vcat(2:10,12)
+csan = vcat(2:10,12,15,17)
+#csaseedn = 2:10
+tols = (abstol=1e-5, reltol=1e-7)
+
+@isdefined(PROBS) || (const PROBS = Dict{Int,Any}())
+makebrusselator!(dict, n) = get!(()->makebrusselator(n), dict, n)
+
+_adjoint_methods = ntuple(3) do ii
+  Alg = (InterpolatingAdjoint, QuadratureAdjoint, BacksolveAdjoint)[ii]
+  (
+    user = Alg(autodiff=false,autojacvec=false), # user Jacobian
+    adjc = Alg(autodiff=true,autojacvec=false), # AD Jacobian
+    advj = Alg(autodiff=true,autojacvec=EnzymeVJP()), # AD vJ
+  )
+end |> NamedTuple{(:interp, :quad, :backsol)}
+@isdefined(ADJOINT_METHODS) || (const ADJOINT_METHODS = mapreduce(collect, vcat, _adjoint_methods))
+
+function auto_sen_l2(f, u0, tspan, p, t, alg=Tsit5(); diffalg=ReverseDiff.gradient, kwargs...)
+  test_f(p) = begin
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,convert.(eltype(p),u0),tspan,p)
+    sol = solve(prob,alg,saveat=t; kwargs...)
+    sum(sol.u) do x
+      sum(z->(1-z)^2/2, x)
+    end
+  end
+  diffalg(test_f, p)
+end
+@inline function diffeq_sen_l2(df, u0, tspan, p, t, alg=Tsit5();
+                       abstol=1e-5, reltol=1e-7, iabstol=abstol, ireltol=reltol,
+                       sensalg=SensitivityAlg(), kwargs...)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(df,u0,tspan,p)
+    saveat = tspan[1] != t[1] && tspan[end] != t[end] ? vcat(tspan[1],t,tspan[end]) : t
+    sol = solve(prob, alg, abstol=abstol, reltol=reltol, saveat=saveat; kwargs...)
+    dg(out,u,p,t,i) = (out.=u.-1.0)
+    adjoint_sensitivities(sol,alg;t,abstol=abstol,dgdu_discrete = dg,
+                            reltol=reltol,sensealg=sensalg)
+end
+```
+
+## AD Choice Benchmarks
+
+```julia
+forwarddiff = map(forwarddiffn) do n
+  bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+  @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(ForwardDiff.gradient), tols...)
+  t = @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(ForwardDiff.gradient), tols...)
+  @show n,t
+  t
+end
+```
+
+```julia
+#=
+reversediff = map(reversediffn) do n
+  bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+  @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...)
+  t = @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=false)); diffalg=(ReverseDiff.gradient), tols...)
+  @show n,t
+  t
+end
+=#
+```
+
+```julia
+numdiff = map(numdiffn) do n
+  bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+  @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(FiniteDiff.finite_difference_gradient), tols...)
+  t = @elapsed auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg=(FiniteDiff.finite_difference_gradient), tols...)
+  @show n,t
+  t
+end
+```
+
+```julia
+csa = map(csan) do n
+  bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+  @time ts = map(ADJOINT_METHODS[1:2end÷3]) do alg
+    @info "Running $alg"
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    solver = Rodas5(autodiff=false)
+    @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
+    t = @elapsed diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
+    return t
+  end
+  @show n,ts
+  ts
+end
+```
+
+```julia
+n_to_param(n) = 4n^2
+
+lw = 2
+ms = 0.5
+plt1 = plot(title="Sensitivity Scaling on Brusselator");
+plot!(plt1, n_to_param.(forwarddiffn), forwarddiff, lab="Forward-Mode DSAAD", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+#plot!(plt1, n_to_param.(reversediffn), reversediff, lab="Reverse-Mode DSAAD", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+csadata = [[csa[j][i] for j in eachindex(csa)] for i in eachindex(csa[1])]
+plot!(plt1, n_to_param.(csan), csadata[1], lab="Interpolating CASA user-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(csan), csadata[2], lab="Interpolating CASA AD-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(csan), csadata[3], lab=raw"Interpolating CASA AD-$v^{T}J$ seeding", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(csan), csadata[1+3], lab="Quadrature CASA user-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(csan), csadata[2+3], lab="Quadrature CASA AD-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(csan), csadata[3+3], lab=raw"Quadrature CASA AD-$v^{T}J$ seeding", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt1, n_to_param.(numdiffn), numdiff, lab="Numerical Differentiation", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+xaxis!(plt1, "Number of Parameters", :log10);
+yaxis!(plt1, "Runtime (s)", :log10);
+plot!(plt1, legend=:outertopleft, size=(1200, 600))
+```
+
+## VJP Choice Benchmarks
+
+```julia
+bt = 0:0.1:1
+tspan = (0.0, 1.0)
+csan = vcat(2:10,12,15,17)
+tols = (abstol=1e-5, reltol=1e-7)
+
+_adjoint_methods = ntuple(2) do ii
+  Alg = (InterpolatingAdjoint, QuadratureAdjoint)[ii]
+  (
+    advj1 = Alg(autodiff=true,autojacvec=EnzymeVJP()), # AD vJ
+    advj2 = Alg(autodiff=true,autojacvec=ReverseDiffVJP(false)), # AD vJ
+    advj3 = Alg(autodiff=true,autojacvec=ReverseDiffVJP(true)), # AD vJ
+  )
+end |> NamedTuple{(:interp, :quad)}
+adjoint_methods = mapreduce(collect, vcat, _adjoint_methods)
+
+csavjp = map(csan) do n
+  bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+  @time ts = map(adjoint_methods) do alg
+    @info "Running $alg"
+    f = SciMLSensitivity.alg_autodiff(alg) ? bfun : ODEFunction(bfun, jac=brusselator_jac)
+    solver = Rodas5(autodiff=false)
+    @time diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
+    t = @elapsed diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg=alg, tols...)
+    return t
+  end
+  @show n,ts
+  ts
+end
+```
+
+```julia
+plt2 = plot(title="Brusselator quadrature adjoint scaling");
+csacompare = [[csavjp[j][i] for j in eachindex(csavjp)] for i in eachindex(csavjp[1])]
+plot!(plt2, n_to_param.(csan), csadata[2+3], lab="AD-Jacobian", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt2, n_to_param.(csan), csacompare[1+3], lab=raw"EnzymeVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt2, n_to_param.(csan), csacompare[2+3], lab=raw"ReverseDiffVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+plot!(plt2, n_to_param.(csan), csacompare[3+3], lab=raw"Compiled ReverseDiffVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
+xaxis!(plt2, "Number of Parameters", :log10);
+yaxis!(plt2, "Runtime (s)", :log10);
+plot!(plt2, legend=:outertopleft, size=(1200, 600))
+```
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
