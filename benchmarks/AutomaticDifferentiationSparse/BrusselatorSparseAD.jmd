@@ -1,5 +1,5 @@
 ---
-title: Sparse AD benchmarks
+title: Brusselator sparse AD benchmarks
 author: Guillaume Dalle
 ---
 
@@ -8,6 +8,7 @@ using ADTypes
 using LinearAlgebra, SparseArrays
 using BenchmarkTools, DataFrames
 import DifferentiationInterface as DI
+using Plots
 import SparseDiffTools as SDT
 using SparseConnectivityTracer: TracerSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
@@ -18,11 +19,8 @@ using Test
 ## Definitions
 
 ```julia
-const N = 32
-const xyd_brusselator = range(0; stop=1, length=N)
-const p = (3.4, 1.0, 10.0, step(xyd_brusselator))
-
 brusselator_f(x, y, t) = (((x - 0.3)^2 + (y - 0.6)^2) <= 0.1^2) * (t >= 1.1) * 5.0
+
 limit(a, N) =
     if a == N + 1
         1
@@ -31,15 +29,18 @@ limit(a, N) =
     else
         a
     end;
-```
 
-```julia
-function brusselator_2d_loop(du, u, p, t)
+function brusselator_2d!(du, u)
+    t = 0.0
+    N = size(u, 1)
+    xyd = range(0; stop=1, length=N)
+    p = (3.4, 1.0, 10.0, step(xyd))
     A, B, alpha, dx = p
     alpha = alpha / dx^2
+
     @inbounds for I in CartesianIndices((N, N))
         i, j = Tuple(I)
-        x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
+        x, y = xyd[I[1]], xyd[I[2]]
         ip1, im1, jp1, jm1 = limit(i + 1, N),
         limit(i - 1, N), limit(j + 1, N),
         limit(j - 1, N)
@@ -54,10 +55,9 @@ function brusselator_2d_loop(du, u, p, t)
             A * u[i, j, 1] - u[i, j, 1]^2 * u[i, j, 2]
     end
 end;
-```
 
-```julia
-function init_brusselator_2d(xyd)
+function init_brusselator_2d(N::Integer)
+    xyd = range(0; stop=1, length=N)
     N = length(xyd)
     u = zeros(N, N, 2)
     for I in CartesianIndices((N, N))
@@ -70,59 +70,33 @@ function init_brusselator_2d(xyd)
 end;
 ```
 
-```julia
-x0 = init_brusselator_2d(xyd_brusselator);
-y0 = similar(x0);
+## Correctness
 
-f!(y, x) = brusselator_2d_loop(y, x, p, 0.0);
+```julia
+x0_32 = init_brusselator_2d(32);
 ```
 
-## Sparsity detection
+### Sparsity detection
 
 ```julia
-S1 = ADTypes.jacobian_sparsity(f!, y0, x0, TracerSparsityDetector())
-S2 = ADTypes.jacobian_sparsity(f!, y0, x0, SymbolicsSparsityDetector())
+S1 = ADTypes.jacobian_sparsity(
+    brusselator_2d!, similar(x0_32), x0_32, TracerSparsityDetector()
+)
+S2 = ADTypes.jacobian_sparsity(
+    brusselator_2d!, similar(x0_32), x0_32, SymbolicsSparsityDetector()
+)
 @test S1 == S2
 ```
 
-```julia
-td1 = @belapsed ADTypes.jacobian_sparsity($f!, $y0, $x0, TracerSparsityDetector())
-println("Sparsity detection with SparseConnectivityTracer: $td1 s")
-```
+### Coloring
 
 ```julia
-td2 = @belapsed ADTypes.jacobian_sparsity($f!, $y0, $x0, SymbolicsSparsityDetector())
-println("Sparsity detection with Symbolics: $td2 s")
-```
-
-```julia
-println("Speedup from new sparsity detection method (>1 is better): $(td2 / td1)")
-```
-
-## Coloring
-
-```julia
-S = S1
-c1 = ADTypes.column_coloring(S, GreedyColoringAlgorithm())
-c2 = SDT.matrix_colors(S)
+c1 = ADTypes.column_coloring(S1, GreedyColoringAlgorithm())
+c2 = SDT.matrix_colors(S1)
 @test c1 == c2
 ```
 
-```julia
-tc1 = @belapsed ADTypes.column_coloring($S, GreedyColoringAlgorithm())
-println("Coloring with SparseMatrixColorings: $tc1 s")
-```
-
-```julia
-tc2 = @belapsed SDT.matrix_colors($S)
-println("Coloring with SDT: $tc2 s")
-```
-
-```julia
-println("Speedup from new coloring method (>1 is better): $(tc2 / tc1)")
-```
-
-## Compressed differentiation
+### Differentiation
 
 ```julia
 backend = AutoSparse(
@@ -130,40 +104,181 @@ backend = AutoSparse(
     sparsity_detector=TracerSparsityDetector(),
     coloring_algorithm=GreedyColoringAlgorithm(),
 );
-```
 
-```julia
-extras = DI.prepare_jacobian(f!, similar(y0), backend, x0);
-J1 = DI.jacobian!(f!, similar(y0), similar(S, eltype(x0)), backend, x0, extras)
+extras = DI.prepare_jacobian(brusselator_2d!, similar(x0_32), backend, x0_32);
+J1 = DI.jacobian!(
+    brusselator_2d!, similar(x0_32), similar(S1, eltype(x0_32)), backend, x0_32, extras
+)
 
 cache = SDT.sparse_jacobian_cache(
-    backend, SDT.JacPrototypeSparsityDetection(; jac_prototype=S), f!, similar(y0), x0
+    backend,
+    SDT.JacPrototypeSparsityDetection(; jac_prototype=S1),
+    brusselator_2d!,
+    similar(x0_32),
+    x0_32,
 );
-J2 = SDT.sparse_jacobian!(similar(S, eltype(x0)), backend, cache, f!, similar(y0), x0)
+J2 = SDT.sparse_jacobian!(
+    similar(S1, eltype(x0_32)), backend, cache, brusselator_2d!, similar(x0_32), x0_32
+)
 
 @test J1 == J2
 ```
 
-```julia
-tj1 = @belapsed DI.jacobian!($f!, _y, _J, $backend, $x0, _extras) evals = 1 samples = 100 setup = (
-    _y = similar(y0);
-    _J = similar(S, eltype(x0));
-    _extras = DI.prepare_jacobian(f!, similar(y0), backend, x0)
-)
-println("Jacobian with DifferentiationInterface: $tj1 s")
-```
+## Benchmarks
 
 ```julia
-tj2 = @belapsed SDT.sparse_jacobian!(_J, $backend, _cache, $f!, _y, x0) evals = 1 samples = 100 setup = (
-    _y = similar(y0);
-    _J = similar(S, eltype(x0));
-    _cache = SDT.sparse_jacobian_cache(
-        backend, SDT.JacPrototypeSparsityDetection(; jac_prototype=S), f!, similar(y0), x0
+N_values = 2 .^ (2:8)
+```
+
+### Sparsity detection
+
+```julia
+td1, td2 = zeros(length(N_values)), zeros(length(N_values))
+for (i, N) in enumerate(N_values)
+    @info "Benchmarking sparsity detection: N=$N"
+    x0 = init_brusselator_2d(N)
+    td1[i] = @belapsed ADTypes.jacobian_sparsity(
+        $brusselator_2d!, $(similar(x0)), $x0, TracerSparsityDetector()
     )
+    td2[i] = @belapsed ADTypes.jacobian_sparsity(
+        $brusselator_2d!, $(similar(x0)), $x0, SymbolicsSparsityDetector()
+    )
+end
+
+pld = plot(;
+    title="Sparsity detection on the Brusselator",
+    xlabel="Input size N",
+    ylabel="Runtime [s]",
 )
-println("Jacobian with SparseDiffTools: $tj2 s")
+plot!(
+    pld,
+    N_values,
+    td1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="SparseConnectivityTracer",
+)
+plot!(pld, N_values, td2; lw=2, linestyle=:auto, markershape=:auto, label="Symbolics")
+plot!(pld; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+pld
 ```
 
+### Coloring
+
 ```julia
-println("Speedup from new differentiation method (>1 is better): $(tj2 / tj1)")
+tc1, tc2 = zeros(length(N_values)), zeros(length(N_values))
+for (i, N) in enumerate(N_values)
+    @info "Benchmarking coloring: N=$N"
+    x0 = init_brusselator_2d(N)
+    S = ADTypes.jacobian_sparsity(
+        brusselator_2d!, similar(x0), x0, TracerSparsityDetector()
+    )
+    tc1[i] = @belapsed ADTypes.column_coloring($S, GreedyColoringAlgorithm())
+    tc2[i] = @belapsed SDT.matrix_colors($S)
+end
+
+plc = plot(;
+    title="Coloring on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
+)
+plot!(
+    plc,
+    N_values,
+    tc1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="SparseMatrixColorings",
+)
+plot!(plc, N_values, tc2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
+plot!(plc; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+plc
+```
+
+### Differentiation
+
+```julia
+tj1, tj2 = zeros(length(N_values)), zeros(length(N_values))
+for (i, N) in enumerate(N_values)
+    @info "Benchmarking differentiation: N=$N"
+    x0 = init_brusselator_2d(N)
+    S = ADTypes.jacobian_sparsity(
+        brusselator_2d!, similar(x0), x0, TracerSparsityDetector()
+    )
+    J = similar(S, eltype(x0))
+
+    tj1[i] = @belapsed DI.jacobian!($brusselator_2d!, _y, _J, $backend, $x0, _extras) setup = (
+        _y = similar($x0);
+        _J = similar($J);
+        _extras = DI.prepare_jacobian($brusselator_2d!, similar($x0), $backend, $x0)
+    ) evals = 1
+
+    tj2[i] = @belapsed SDT.sparse_jacobian!(_J, $backend, _cache, $brusselator_2d!, _y, $x0) setup = (
+        _y = similar($x0);
+        _J = similar($J);
+        _cache = SDT.sparse_jacobian_cache(
+            $backend,
+            SDT.JacPrototypeSparsityDetection(; jac_prototype=$S),
+            $brusselator_2d!,
+            similar($x0),
+            $x0,
+        )
+    ) evals = 1
+end
+
+plj = plot(;
+    title="Sparse Jacobian on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
+)
+plot!(
+    plj,
+    N_values,
+    tj1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="DifferentiationInterface",
+)
+plot!(plj, N_values, tj2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
+plot!(plj; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+plj
+```
+
+### Summary
+
+```julia
+pl = plot(;
+    title="Is the new pipeline worth it?\nTest case: Brusselator",
+    xlabel="Input size N",
+    ylabel="Runtime ratio DI / SparseDiffTools",
+)
+plot!(
+    pl,
+    N_values,
+    td2 ./ td1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="sparsity detection speedup",
+)
+plot!(
+    pl,
+    N_values,
+    tc2 ./ tc1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="coloring speedup",
+)
+plot!(
+    pl,
+    N_values,
+    tj2 ./ tj1;
+    lw=2,
+    linestyle=:auto,
+    markershape=:auto,
+    label="differentiation speedup",
+)
+plot!(pl, N_values, ones(length(N_values)); lw=3, color=:black, label="same speed")
+plot!(pl; xscale=:log10, yscale=:log10, minorgrid=true, legend=:right)
+pl
 ```
