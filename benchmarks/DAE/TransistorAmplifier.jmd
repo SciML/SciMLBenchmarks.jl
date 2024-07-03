@@ -1,0 +1,266 @@
+---
+title: Transistor Amplifier, DAE format
+author: Aayush Sabharwal, Polic Marko
+---
+
+```julia
+using DiffEqDevTools, Sundials, ODEInterfaceDiffEq,
+      Plots, DASSL, DASKR
+using ModelingToolkit, OrdinaryDiffEq, SciMLBase, ForwardDiff
+using ModelingToolkit: t_nounits as t, D_nounits as D
+using LinearAlgebra
+
+@parameters begin
+      Ub=6.0
+      UF=0.026
+      α=0.99
+      β=1e-6
+      R₀=1e3
+      R₁=9e3
+      R₂=9e3
+      R₃=9e3
+      R₄=9e3
+      R₅=9e3
+      R₆=9e3
+      R₇=9e3
+      R₈=9e3
+      R₉=9e3
+      C₁=1e-6
+      C₂=2e-6
+      C₃=3e-6
+      C₄=4e-6
+      C₅=5e-6
+end
+
+@variables begin
+      y₁(t)  = 0.0
+      y₂(t)  = 3.0 # Ub/(R₂/R₁ + 1)
+      y₃(t)  = 3.0
+      y₄(t)  = 6.0
+      y₅(t)  = 3.0 # Ub/(R₆/R₅ + 1)
+      y₆(t)  = 3.0
+      y₇(t)  = 6.0
+      y₈(t)  = 0.0
+      tmp1(t) = 0.0
+      tmp2(t) = 0.0
+      tmp3(t) = 0.0
+      tmp4(t) = 0.0
+      tmp5(t) = 0.0
+      tmp6(t) = 0.0
+end
+
+Uₑ = 0.1sin(200π * t)
+g(x) = β * (exp(x / UF) - 1)
+
+eqs = [     
+     tmp1 ~ (-Uₑ / R₀ + y₁ / R₀) / C₁
+     tmp2 ~ (-Ub / R₂ + y₂ * (1 / R₁ + 1 / R₂) - (α - 1) * g(y₂ - y₃))/C₁
+     D(y₂) - D(y₁) ~ tmp1
+     D(y₁) - D(y₂) ~ tmp2
+     -C₂ * D(y₃)                ~ -g(y₂ - y₃) + y₃/R₃
+     tmp5 ~ (-Ub / R₄ + y₄ / R₄ + α * g(y₂ - y₃))/C₃
+     tmp6 ~ (-Ub / R₆ + y₅ * (1 / R₅ + 1 / R₆) - (α - 1) * g(y₅ - y₆))/C₃
+     D(y₅) - D(y₄)   ~ tmp5
+     -D(y₅) + D(y₄)   ~ tmp6
+     -C₄ * D(y₆)                ~ -g(y₅ - y₆) + y₆ / R₇
+     tmp3 ~ (-Ub / R₈ + y₇ / R₈ + α * g(y₅ - y₆) )/C₅
+     tmp4 ~ (y₈ / R₉) / C₅
+     -D(y₇) + D(y₈)   ~ tmp3
+     D(y₇) - D(y₈)   ~ tmp4
+]
+
+u0 = [y₁  => 0.0
+      y₂  => 3.0
+      y₃  => 3.0
+      y₄  => 6.0
+      y₅  => 3.0
+      y₆  => 3.0
+      y₇  => 6.0
+      y₈  => 0.0
+      tmp1 => 0.0
+      tmp2 => 0.0
+      tmp3 => 0.0
+      tmp4 => 0.0
+      tmp5 => 0.0
+      tmp6 => 0.0
+]
+
+@named sys = ODESystem(eqs, t)
+sys = complete(sys)
+ss = structural_simplify(sys)
+
+tspan = (0.0, 0.2)
+#prob = ODEProblem(sys, u0, tspan)# -> asks to run structural symplify
+mmprob   = ODEProblem(ss, u0, tspan)
+sol = solve(mmprob, Rodas4())
+#, abstol = 1/10^14, reltol = 1/10^14) -> retcode unstable
+
+
+
+
+odaeprob = ODAEProblem(ss, u0, tspan)
+ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
+# CVODE_BDF -> unable to use mass matrices
+
+
+du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
+du0 = D.(unknowns(ss)) .=> du
+daeprob = DAEProblem(ss, du0, [], tspan)
+ref_sol = solve(daeprob, IDA())
+#, abstol = 1/10^14, reltol = 1/10^14) -> retcode: Initial failure
+
+probs = [mmprob,daeprob,odaeprob]
+refs = [ref_sol,ref_sol,ode_ref_sol];
+```
+
+```julia
+plot(ode_ref_sol, vars = [y₁,y₂,y₃,y₄,y₅,y₆,y₇,y₈])
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()),
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+]
+
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (3:5);
+setups = [Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 2, :alg=>DASSL.dassl()),
+          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()), # too slow
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()),
+          Dict(:prob_choice => 1, :alg=>QNDF()),
+          Dict(:prob_choice => 1, :alg=>rodas()),
+          Dict(:prob_choice => 1, :alg=>radau()),
+          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          ]
+
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+DASKR fails at too low of tolerances, so pull back for a comparison.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:9)
+reltols = 1.0 ./ 10.0 .^ (4:6)
+
+setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 2, :alg=>DFBDF()),
+          Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+gr()
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
