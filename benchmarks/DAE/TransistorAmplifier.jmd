@@ -6,7 +6,7 @@ author: Aayush Sabharwal, Polic Marko
 ```julia
 using DiffEqDevTools, Sundials, ODEInterfaceDiffEq,
       Plots, DASSL, DASKR
-using ModelingToolkit, OrdinaryDiffEq, SciMLBase, ForwardDiff
+using ModelingToolkit, OrdinaryDiffEq
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using LinearAlgebra
 
@@ -96,25 +96,31 @@ sol = solve(mmprob, Rodas4())
 #, abstol = 1/10^14, reltol = 1/10^14) -> retcode unstable
 
 
+dirMassMatrix = [0  0  0  0  0  0  0  0  1  0  0  0  0  0
+                 0  0  0  0  0  0  0  0  0  1  0  0  0  0
+                -1  1  0  0  0  0  0  0  0  0  0  0  0  0
+                 1 -1  0  0  0  0  0  0  0  0  0  0  0  0
+                 0  0 -C₂ 0  0  0  0  0  0  0  0  0  0  0
+                 0  0  0  0  0  0  0  0  0  0  0  0  1  0
+                 0  0  0  0  0  0  0  0  0  0  0  0  0  1
+                 0  0  0 -1  1  0  0  0  0  0  0  0  0  0
+                 0  0  0  1 -1  0  0  0  0  0  0  0  0  0
+                 0  0  0  0  0 -C₄ 0  0  0  0  0  0  0  0
+                 0  0  0  0  0  0  0  0  0  0  1  0  0  0
+                 0  0  0  0  0  0  0  0  0  0  0  1  0  0
+                 0  0  0  0  0  0 -1  1  0  0  0  0  0  0
+                 0  0  0  0  0  0  1 -1  0  0  0  0  0  0]
 
-
-odaeprob = ODAEProblem(ss, u0, tspan)
-ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
-# CVODE_BDF -> unable to use mass matrices
-
+# dirMassMatrix * u = f | with u having 6 added variables(tmp1,...,tmp6)
 
 du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
 du0 = D.(unknowns(ss)) .=> du
 daeprob = DAEProblem(ss, du0, [], tspan)
-ref_sol = solve(daeprob, IDA())
+ref_sol = solve(daeprob, IDA(), abstol = 1/10^8, reltol = 1/10^8)
 #, abstol = 1/10^14, reltol = 1/10^14) -> retcode: Initial failure
 
-probs = [mmprob,daeprob,odaeprob]
-refs = [ref_sol,ref_sol,ode_ref_sol];
-```
-
-```julia
-plot(ode_ref_sol, vars = [y₁,y₂,y₃,y₄,y₅,y₆,y₇,y₈])
+probs = [mmprob,daeprob]
+refs = [sol,ref_sol];
 ```
 
 ## High Tolerances
