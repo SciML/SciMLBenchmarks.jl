@@ -242,3 +242,38 @@ compute clusters, the official benchmarks use a workstation with an
 AMD EPYC 7502 32-Core Processor @ 2.50GHz to match the performance characteristics of
 a standard node in a high performance computing (HPC) cluster or cloud computing
 setup.
+
+### Choosing a Reference Solution
+
+For almost all equations, there is no analytical solution. A low tolerance
+reference solution is required in order to compute the error. However, there
+are many questions as to the potential of biasing the results via a reference
+computed from a given program. If we use a reference solution from Julia, does
+that make our errors lower?
+
+The answer is no because all of the equation solvers should be convergent to
+the same solution. Because of this, it does not matter which solver is used
+to generate the reference solution. However, caution is required to ensure
+that the reference solution is sufficiently accurate.
+
+Thankfully, there's a very clear indicator of when a reference solution is
+not sufficiently correct. Because all other methods will be converging to a
+different solution, there will be a digit of accuracy at which all other
+solutions stop converging to the reference. If this occurs, all solutions will
+give a straight line, you can see there here:
+
+![](https://private-user-images.githubusercontent.com/1814174/348980835-69251f8e-6ea2-4ab2-b76f-56d5b75dbdb1.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MjExMTQ2NTQsIm5iZiI6MTcyMTExNDM1NCwicGF0aCI6Ii8xODE0MTc0LzM0ODk4MDgzNS02OTI1MWY4ZS02ZWEyLTRhYjItYjc2Zi01NmQ1Yjc1ZGJkYjEucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDcxNiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA3MTZUMDcxOTE0WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9YTc1YjI4YTNmNThkNmQzZDc3MGEzY2YxODQ3MzYwYTU1N2Q5NTAwOGY0OTk4ZjRkYmViYzNhM2Q0ZDliNTViZSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.B6QCTRINqOI9p_FBD97GBQo-NJdwGS79zaKsjjscMk8)
+
+In this image (taken from the TransistorAmplifierDAE benchmark),
+the second Rodas5P and Rodas4 are from a different problem implementation, and
+you can see they hit lower errors. But all of the others use the same
+reference solution and seem to "hit a wall" at around 1e-5. This is because
+the chosen reference solution was only 1e-5 accurate. Changing to a
+different reference solution makes them all converge:
+
+![](https://private-user-images.githubusercontent.com/1814174/348980837-ebadf9f9-b6fe-4092-b980-654d3168e8b8.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MjExMTQ2NTQsIm5iZiI6MTcyMTExNDM1NCwicGF0aCI6Ii8xODE0MTc0LzM0ODk4MDgzNy1lYmFkZjlmOS1iNmZlLTQwOTItYjk4MC02NTRkMzE2OGU4YjgucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDcxNiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA3MTZUMDcxOTE0WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZWJjYjcwMTFjZWMwMGEzNzc2ZWEyZDVlODE5NjhiZDFiZWJiNzFhMjg1YWRjMzU5YmI5NTEyZjAyYWRlMDlmOSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.XdhD7IWrgUl7rIb2mWvK3xizg0rUUtX4JcOvwGN1_iY)
+
+This shows that all that truly matters is that the chosen reference is
+sufficiently accurate, and any walling behavior is an indicator that some
+method in the benchmark set is more accurate than the reference (in which
+case the benchmark should be updated to use the more accurate reference).
