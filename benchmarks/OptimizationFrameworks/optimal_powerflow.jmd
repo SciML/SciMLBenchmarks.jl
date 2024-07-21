@@ -603,7 +603,7 @@ because of structural simplification.
 import PowerModels
 import Ipopt
 using ModelingToolkit, Optimization, OptimizationMOI
-import ModelingToolkit: ≲
+import ModelingToolkit: ≲, unknowns
 
 function build_opf_mtk_prob(dataset)
     (;data, ref) = dataset
@@ -717,7 +717,7 @@ function build_opf_mtk_prob(dataset)
 
     optsys = ModelingToolkit.OptimizationSystem(loss, vars, [], constraints=cons, name=:rosetta)
     optsys = ModelingToolkit.structural_simplify(optsys)
-    u0map = Dict([k => 0.0 for k in collect(optsys.states)])
+    u0map = Dict([k => 0.0 for k in collect(unknowns(optsys))])
     for key in keys(ref[:bus])
         if vm[key] in keys(u0map)
             # println(vm[key])
@@ -726,7 +726,7 @@ function build_opf_mtk_prob(dataset)
     end
 
     inds = Int[]
-    for k in collect(optsys.states)
+    for k in collect(unknowns(optsys))
         push!(inds, findall(x -> isequal(x, k), vars)[1])
     end
     prob = Optimization.OptimizationProblem(optsys, u0map, lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
