@@ -26,6 +26,7 @@ SIZE_LIMIT = 1000
 import PowerModels
 import ConcreteStructs
 using BenchmarkTools
+using DataFrames
 
 ConcreteStructs.@concrete struct DataRepresentation
     data
@@ -717,11 +718,12 @@ function build_opf_mtk_prob(dataset)
 
     optsys = ModelingToolkit.OptimizationSystem(loss, vars, [], constraints=cons, name=:rosetta)
     optsys = ModelingToolkit.structural_simplify(optsys)
-    u0map = Dict([k => 0.0 for k in collect(unknowns(optsys))])
+    u0map = [Num(k) => 0.0 for k in collect(optsys.unknowns)]
+    ks = collect(Num.(optsys.unknowns))
     for key in keys(ref[:bus])
-        if vm[key] in keys(u0map)
-            # println(vm[key])
-            u0map[vm[key]] = 1.0
+        ind = findfirst(x -> isequal(x, vm[key]), ks)
+        if ind !== nothing
+            u0map[ind] = vm[key] => 1.0
         end
     end
 
@@ -729,7 +731,7 @@ function build_opf_mtk_prob(dataset)
     for k in collect(unknowns(optsys))
         push!(inds, findall(x -> isequal(x, k), vars)[1])
     end
-    prob = Optimization.OptimizationProblem(optsys, u0map, lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
+    prob = Optimization.OptimizationProblem(optsys, Dict(u0map), lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
 end
 
 function solve_opf_mtk(dataset)
