@@ -21,30 +21,23 @@ function paritytrig(x::AbstractVector{T}) where {T}
 end
 
 backends = [
-    AutoEnzyme(Enzyme.Reverse),
-    AutoTapir(),
+    AutoEnzyme(mode=Enzyme.Reverse),
+    AutoTapir(safe_mode=false),
     AutoZygote(),
 ];
 
 scenarios = [
-    GradientScenario(paritytrig, x=rand(100); operator=:inplace),
-    GradientScenario(paritytrig, x=rand(10_000); operator=:inplace)
+    GradientScenario(paritytrig; x=rand(100), y=0.0, nb_args=1, place=:inplace),
+    GradientScenario(paritytrig; x=rand(10_000), y=0.0, nb_args=1, place=:inplace)
 ];
 
-result = benchmark_differentiation(backends, scenarios, logging=false);
-
-data = DataFrame(result);
-
-filtered_data = @chain data begin
-    @select(:backend, :operator, :func, :input_type, :input_size, :time, :bytes, :allocs, :compile_fraction, :gc_fraction)
-    @rsubset(string(:operator) in ["gradient!"])
-end
+data = benchmark_differentiation(backends, scenarios, logging=true);
 
 table = PrettyTables.pretty_table(
     String,
-    filtered_data;
+    data;
     backend=Val(:markdown),
-    header=names(filtered_data),
+    header=names(data),
     formatters=PrettyTables.ft_printf("%.1e"),
 )
 
