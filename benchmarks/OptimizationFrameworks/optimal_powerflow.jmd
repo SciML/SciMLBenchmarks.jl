@@ -26,6 +26,7 @@ SIZE_LIMIT = 1000
 import PowerModels
 import ConcreteStructs
 using BenchmarkTools
+using DataFrames
 
 ConcreteStructs.@concrete struct DataRepresentation
     data
@@ -297,6 +298,7 @@ import OptimizationMOI
 import ModelingToolkit
 import Ipopt
 import Enzyme
+import ReverseDiff
 
 function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme())
     (;data,
@@ -539,12 +541,7 @@ function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme
     model_constraints = length(con_lbs)
 
     optf = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints)
-    optprob = Optimization.instantiate_function(optf, var_init, adchoice, nothing, length(con_lbs))
-    optprob = Optimization.OptimizationFunction(opf_objective, adchoice; cons=opf_constraints, 
-    grad = optprob.grad, hess = optprob.hess, cons_j = optprob.cons_j, cons_h = optprob.cons_h, 
-    hess_prototype = optprob.hess_prototype, cons_jac_prototype = optprob.cons_jac_prototype, cons_hess_prototype = optprob.cons_hess_prototype,
-    hess_colorvec = optprob.hess_colorvec, cons_jac_colorvec = optprob.cons_jac_colorvec, cons_hess_colorvec = optprob.cons_hess_colorvec)
-    prob = Optimization.OptimizationProblem(optprob, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
+    prob = Optimization.OptimizationProblem(optf, var_init; lb=var_lb, ub=var_ub, lcons=con_lbs, ucons=con_ubs)
 end
 
 function solve_opf_optimization(dataset; adchoice = Optimization.AutoSparseReverseDiff(true))
@@ -607,7 +604,7 @@ because of structural simplification.
 import PowerModels
 import Ipopt
 using ModelingToolkit, Optimization, OptimizationMOI
-import ModelingToolkit: ≲
+import ModelingToolkit: ≲, unknowns
 
 function build_opf_mtk_prob(dataset)
     (;data, ref) = dataset
@@ -721,19 +718,20 @@ function build_opf_mtk_prob(dataset)
 
     optsys = ModelingToolkit.OptimizationSystem(loss, vars, [], constraints=cons, name=:rosetta)
     optsys = ModelingToolkit.structural_simplify(optsys)
-    u0map = Dict([k => 0.0 for k in collect(optsys.states)])
+    u0map = [Num(k) => 0.0 for k in collect(unknowns(optsys))]
+    ks = collect(Num.(unknowns(optsys)))
     for key in keys(ref[:bus])
-        if vm[key] in keys(u0map)
-            # println(vm[key])
-            u0map[vm[key]] = 1.0
+        ind = findfirst(x -> isequal(x, vm[key]), ks)
+        if ind !== nothing
+            u0map[ind] = vm[key] => 1.0
         end
     end
 
     inds = Int[]
-    for k in collect(optsys.states)
+    for k in collect(unknowns(optsys))
         push!(inds, findall(x -> isequal(x, k), vars)[1])
     end
-    prob = Optimization.OptimizationProblem(optsys, u0map, lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
+    prob = Optimization.OptimizationProblem(optsys, Dict(u0map), lb = lb[inds], ub = ub[inds], grad=true, hess=true, cons_j=true, cons_h=true, cons_sparse=true, sparse=true)
 end
 
 function solve_opf_mtk(dataset)

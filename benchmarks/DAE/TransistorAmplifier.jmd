@@ -41,12 +41,12 @@ end
       y₆(t)  = 3.0
       y₇(t)  = 6.0
       y₈(t)  = 0.0
-      tmp1(t) = 0.0
-      tmp2(t) = 0.0
-      tmp3(t) = 0.0
-      tmp4(t) = 0.0
-      tmp5(t) = 0.0
-      tmp6(t) = 0.0
+      tmp1(t)
+      tmp2(t)
+      tmp3(t)
+      tmp4(t)
+      tmp5(t)
+      tmp6(t)
 end
 
 Uₑ = 0.1sin(200π * t)
@@ -82,12 +82,12 @@ u0 = [y₁  => 0.0
 @mtkbuild sys = ODESystem(eqs, t)
 tspan = (0.0, 0.2)
 mtkprob   = ODEProblem(sys, u0, tspan)
-ref_sol = solve(mtkprob, Rodas5P(), abstol = 1e-10, reltol = 1e-14)
+ref_sol = solve(mtkprob, Rodas5P(), abstol = 1e-10, reltol = 1e-10)
 
 du = mtkprob.f(mtkprob.u0, mtkprob.p, 0.0)
 du0 = D.(unknowns(sys)) .=> du
 daeprob = DAEProblem(sys, du0, [], tspan)
-dae_ref_sol = solve(daeprob, IDA(), abstol = 1/10^8, reltol = 1/10^8)
+dae_ref_sol = solve(daeprob, IDA(), abstol = 1/10^7, reltol = 1/10^7)
 
 function transamp(du, u, p, t)
     y₁, y₂, y₃, y₄, y₅, y₆, y₇, y₈ = u
@@ -165,7 +165,6 @@ reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:prob_choice => 1, :alg=>Rodas4()),
           Dict(:prob_choice => 1, :alg=>FBDF()),
           Dict(:prob_choice => 1, :alg=>QNDF()),
-          Dict(:prob_choice => 1, :alg=>rodas()),
           Dict(:prob_choice => 1, :alg=>radau()),
           Dict(:prob_choice => 1, :alg=>RadauIIA5()),
           Dict(:prob_choice => 2, :alg=>DFBDF()),
@@ -185,6 +184,7 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 3, :alg=>Rodas5P()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>rodas()),
           Dict(:prob_choice => 3, :alg=>FBDF()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
@@ -203,7 +203,6 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 1, :alg=>Rodas4()),
           Dict(:prob_choice => 1, :alg=>FBDF()),
           Dict(:prob_choice => 1, :alg=>QNDF()),
-          Dict(:prob_choice => 1, :alg=>rodas()),
           Dict(:prob_choice => 1, :alg=>radau()),
           Dict(:prob_choice => 1, :alg=>RadauIIA5()),
           Dict(:prob_choice => 2, :alg=>DFBDF()),
@@ -222,6 +221,7 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 3, :alg=>Rodas5P()),
           Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>rodas()),
           Dict(:prob_choice => 3, :alg=>FBDF()),
           Dict(:prob_choice => 2, :alg=>IDA()),
           Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
