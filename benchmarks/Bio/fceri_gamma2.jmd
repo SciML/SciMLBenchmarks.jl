@@ -29,7 +29,7 @@ show(to)
 rn    = complete(prnbng.rn)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = convert(ODESystem, rn)
+@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
 show(to)
 
 tspan = (0.,tf)
@@ -51,9 +51,9 @@ As compiling the ODE derivative functions has in the past taken longer than
 running a simulation, we first force compilation by evaluating these functions
 one time.
 ```julia
-u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
+u  = oprob.u0
 du = copy(u)
-p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
+p  = oprob.p
 @timeit to "ODE rhs Eval1" sparsejacprob.f(du,u,p,0.)
 sparsejacprob.f(du,u,p,0.)
 ```
