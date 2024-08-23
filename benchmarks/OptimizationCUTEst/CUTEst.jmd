@@ -22,7 +22,10 @@ using OptimizationOptimJL
 using Ipopt
 using OptimizationMOI
 using OptimizationMOI: MOI as MOI
+# Analysis and plotting
 using DataFrames
+using Plots
+using StatsPlots
 ```
 
 # Benchmarks
@@ -72,12 +75,13 @@ retcode = Symbol[]
 broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
 
 for prob_name in unc_problems
+    @show prob_name
     nlp_prob = CUTEstModel(prob_name)
     prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
     for optimizer in optimizers
         sol = solve(prob, optimizer; maxiters = 1e7)
-        finalize(nlp_prob)
 
+        @info "Solved $(prob_name) with $(optimizer)"
         vars, time, alg, code = get_stats(sol, optimizer)
 
         push!(problem, prob_name)
@@ -85,9 +89,22 @@ for prob_name in unc_problems
         push!(secs, time)
         push!(solver, alg)
         push!(retcode, code)
+
     end
+    finalize(nlp_prob)
 
     break
 end
 
+# Analysis
+unc_results = DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver,
+    retcode = retcode)
+
+@df unc_results scatter(:nvars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
 ```
+
