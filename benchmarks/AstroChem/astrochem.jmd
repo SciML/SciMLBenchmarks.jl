@@ -12,6 +12,8 @@ using DiffEqDevTools
 using Sundials, ODEInterface, ODEInterfaceDiffEq, LSODA
 ```
 
+## Without Temperature Dynamics
+
 ```julia
 # Some basic astrochemistry constants:
 # u_vec = [H2 O C O⁺ OH⁺ H H2O⁺ H3O⁺ E H2O OH C⁺ CO CO⁺ H⁺ HCO⁺ T]
@@ -321,5 +323,94 @@ setups = [
           ]
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;verbose=false,
                       save_everystep=false,appxsol=refsol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## With Temperature Dynamics
+
+```julia
+reaction_equations = [
+	(@reaction 1.6e-9, $O⁺ + $H2 --> $OH⁺ + $H),
+	(@reaction 1e-9, $OH⁺ + $H2 --> $H2O⁺ + $H),
+	(@reaction 6.1e-10, $H2O⁺ + $H2 --> $H3O⁺ + $H),
+	(@reaction ka_reaction(T, 1.1e-7, -1/2), $H3O⁺ + $E --> $H2O + $H),
+	(@reaction ka_reaction(T, 8.6e-8, -1/2), $H2O⁺ + $E --> $OH + $H),
+	(@reaction ka_reaction(T, 3.9e-8, -1/2), $H2O⁺ + $E --> $O + $H2),
+	(@reaction ka_reaction(T, 6.3e-9, -0.48), $OH⁺ + $E --> $O + $H),
+	(@reaction ka_reaction(T, 3.4e-12, -0.63), $O⁺ + $E --> $O),
+	(@reaction 2.8 * cosmic_ionisation_rate, $O --> $O⁺ + $E),
+	(@reaction 2.62 * cosmic_ionisation_rate, $C --> $C⁺ + $E),
+	(@reaction 5.0 * cosmic_ionisation_rate, $CO --> $C + $O),
+	(@reaction ka_reaction(T, 4.4e-12, -0.61), $C⁺ + $E --> $C),
+	(@reaction ka_reaction(T, 1.15e-10, -0.339), $C⁺ + $OH --> CO + $H),
+	(@reaction 9.15e-10 * (0.62 + 0.4767 * 5.5 * sqrt(300 / T)), $C⁺ + $OH --> $CO⁺ + $H),
+	(@reaction 4e-10, $CO⁺ + $H --> $CO + $H⁺),
+	(@reaction 7.28e-10, $CO⁺ + $H2 --> $HCO⁺ + $H),
+	(@reaction ka_reaction(T, 2.8e-7, -0.69), $HCO⁺ + $E --> $CO + $H),
+	(@reaction ka_reaction(T, 3.5e-12, -0.7), $H⁺ + $E --> $H),
+	(@reaction 2.121e-17 * dust2gas / 1e-2, $H + $H --> $H2),
+    (@reaction 1e-1 * cosmic_ionisation_rate, $H2 --> $H + $H),
+	(@reaction 3.39e-10 * radiation_field, $C --> $C⁺ + $E),
+	(@reaction 2.43e-10 * radiation_field, $CO --> $C + $O),
+	(@reaction 7.72e-10 * radiation_field, $H2O --> $OH + $H),
+    (D(T) ~ get_heating_cooling(T, H2, O, C, O⁺, OH⁺, H, H2O⁺, H3O⁺, E, H2O, OH, C⁺, CO, CO⁺, H⁺, HCO⁺, dust2gas)) 
+]
+
+@named system = ReactionSystem(reaction_equations, t)
+
+u0 = [:H2 => number_density, :O => number_density*2e-4, :C => number_density*1e-4, :O⁺=>minimum_fractional_density, :OH⁺=>minimum_fractional_density, :H=> minimum_fractional_density, :H2O⁺=> minimum_fractional_density, :H3O⁺=>minimum_fractional_density, :E=>minimum_fractional_density, :H2O=>minimum_fractional_density, :OH=>minimum_fractional_density, :C⁺=>minimum_fractional_density, :CO=>minimum_fractional_density, :CO⁺=>minimum_fractional_density, :H⁺=>minimum_fractional_density, :HCO⁺=> minimum_fractional_density, :T=> 100.0]
+
+odesys = convert(ODESystem, complete(system))
+
+setdefaults!(system, u0)
+
+tspan = (0.0, 1e6*seconds_per_year)
+
+params = [dust2gas => 0.01, radiation_field => 1e-1, cosmic_ionisation_rate => 1e-17]
+
+println("Lets try to solve the ODE:")
+
+sys = convert(ODESystem, complete(system))
+# oprob = ODEProblemExpr(sys, [], tspan, params)
+
+ssys = structural_simplify(sys)
+
+oprob = ODEProblem(ssys, [], tspan, params)
+println("Created the ODEproblem.")
+refsol = solve(oprob, Rodas5P(), abstol=1e-14, reltol=1e-14)
+```
+
+```julia
+refsol = solve(oprob, Rodas5P(), abstol=1e-13, reltol=1e-13)
+
+solve(oprob, RadauIIA9(), abstol=1e-9, reltol=1e-9)
+
+# Run Benchmark
+
+abstols = 1.0 ./ 10.0 .^ (9:10)
+reltols = 1.0 ./ 10.0 .^ (9:10)
+
+setups = [
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          #Dict(:alg=>Rodas4P()),
+          Dict(:alg=>CVODE_BDF()),
+          #Dict(:alg=>ddebdf()),
+          #Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp47()),
+          Dict(:alg=>RadauIIA9()),
+          #Dict(:alg=>rodas()),
+          #Dict(:alg=>radau()),
+          #Dict(:alg=>lsoda()),
+          #Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
+          #Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
+          #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
+          #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
+          ]
+wp = WorkPrecisionSet(oprob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=refsol,maxiters=Int(1e5),numruns=10,
+                      print_names = true)
 plot(wp)
 ```
