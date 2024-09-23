@@ -48,8 +48,33 @@ for z in 1:length(allmatrices_md.content[1].rows)
         A = convert(SparseMatrixCSC, A)
         n = size(A, 1)
         matrix_size[z] = n
+
+        mtx_copy = A
+       
+
+       
+
+        while size(condensed, 1) > 32 || size(condensed, 2) > 32
+            rows, cols = size(mtx_copy)
+            new_rows = div(rows, 2)
+            new_cols = div(cols, 2)
+            condensed = zeros(Int, new_rows, new_cols) 
+
+            for r in 1:2:rows-1
+                for c in 1:2:cols-1
+                    block = matrix[r:r+1, c:c+1]
+                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 3) ? 1 : 0
+                end
+            end 
+
+            mtx_copy = condensed
+        end
+        
+
         percentage_sparsity[z] = length(nonzeros(A)) / n^2
         @info "$n × $n"
+
+        spaced_out_sparsity = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
 
         n > 500 && error("Skipping too large matrices")
 
@@ -64,16 +89,6 @@ for z in 1:length(allmatrices_md.content[1].rows)
                 alias_b = true))
             times[z,j] = bt
         end
-
-        #=
-        p = bar(algnames, times[z, :];
-            ylabel = "Time/s",
-            yscale = :log10,
-            title = "Time on $(currMTX)",
-            fmt = :png,
-            legend = :outertopright)
-        display(p)
-        =#
 
         println("successfully factorized $(currMTX)")
     catch e
