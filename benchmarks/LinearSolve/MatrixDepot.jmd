@@ -32,6 +32,7 @@ allmatrices_md = listnames("*/*")
 @info "Total number of matrices: $(allmatrices_md.content[1].rows)"
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
+spaced_out_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
 matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
 ```
 
@@ -50,10 +51,7 @@ for z in 1:length(allmatrices_md.content[1].rows)
         matrix_size[z] = n
 
         mtx_copy = A
-       
-
-       
-
+    
         while size(condensed, 1) > 32 || size(condensed, 2) > 32
             rows, cols = size(mtx_copy)
             new_rows = div(rows, 2)
@@ -74,7 +72,7 @@ for z in 1:length(allmatrices_md.content[1].rows)
         percentage_sparsity[z] = length(nonzeros(A)) / n^2
         @info "$n × $n"
 
-        spaced_out_sparsity = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
+        spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
 
         n > 500 && error("Skipping too large matrices")
 
@@ -133,6 +131,18 @@ p = scatter(matrix_size, times;
     xscale = :log10,
     label = algnames_transpose,
     title = "Factorization Time vs Matrix Size",
+    fmt = :png,
+    legend = :outertopright)
+```
+
+```julia
+p = scatter(spaced_out_sparsity, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Spaced Out Sparsity",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Spaced Out Sparsity",
     fmt = :png,
     legend = :outertopright)
 ```
