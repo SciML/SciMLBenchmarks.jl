@@ -18,6 +18,7 @@ fi
 echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
+echo "--- Installing gfortran"
 if [[ "${1}" == *OptimizationCUTEst* ]]; then
 	echo "Installing gfortran..."
 	apt update && apt install -y gfortran
