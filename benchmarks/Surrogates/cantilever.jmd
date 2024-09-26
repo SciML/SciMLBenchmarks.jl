@@ -1,0 +1,203 @@
+---
+title: Cantilever Beam Function
+author: Mridul Jain, Chris Rackauckas
+---
+
+The Cantilever Beam function is defined as:
+``f(w,t) = \frac{4L^3}{Ewt}*\sqrt{ (\frac{Y}{t^2})^2 + (\frac{X}{w^2})^2 }``
+With parameters L,E,X and Y given.
+
+## Package Imports
+
+```julia
+using Surrogates
+using SurrogatesPolyChaos
+using Plots
+using Statistics
+using PrettyTables
+using BenchmarkTools
+```
+
+## Define the function
+
+```julia
+function canti_lever(x)
+    t = x[1]
+    w = x[2]
+    L = 100.0
+    E = 2.770674127819261e7
+    X = 530.8038576066307
+    Y = 997.8714938733949
+    return (4*L^3)/(E*w*t)*sqrt( (Y/t^2)^2 + (X/w^2)^2)
+end
+```
+
+## Define parameters for training and test data
+
+```julia
+lb = [1.0,1.0]
+ub = [12.0,12.0]
+n_train = 150
+n_test = 100
+```
+
+## Sample training and test data points
+
+```julia
+x_train = sample(n_train, lb, ub, SobolSample())  # Sample training data points
+y_train = canti_lever.(x_train)  # Calculate corresponding function values
+x_test = sample(n_test, lb, ub, RandomSample())  # Sample larger test data set
+y_test = canti_lever.(x_test)  # Calculate corresponding true function values
+```
+
+## Plotting the true function
+  
+```julia
+x, y = 0.0:8.0, 0.0:8.0
+p1 = surface(x, y, (x1,x2) -> canti_lever((x1,x2)))
+xs = [xy[1] for xy in x_train]
+ys = [xy[2] for xy in x_train]
+p2 = contour(x, y, (x1,x2) -> f((x1,x2)))
+scatter!(xs, ys)
+plot(p1, p2, title="True function")
+```
+
+## Fitting the surrogate models
+
+```julia
+mypoly_surrogate = PolynomialChaosSurrogate(x_train, y_train,  lb, ub)
+loba_surrogate = LobachevskySurrogate(x_train, y_train,  lb, ub)
+rad_surrogate = RadialBasis(x_train,y_train,lb,ub)
+```
+
+## Predictions on the training and testing data
+
+```julia
+# Training Data
+mypoly_pred = mypoly_surrogate.(x_train)
+loba_pred = loba_surrogate.(x_train)
+rad_pred = rad_surrogate.(x_train)
+
+# Testing Data
+mypoly_pred_test = mypoly_surrogate.(x_test)
+loba_pred_test = loba_surrogate.(x_test)
+rad_pred_test = rad_surrogate.(x_test)
+```
+
+## Define the MSE function
+
+```julia
+function calculate_mse(predictions, true_values)
+    return mean((predictions .- true_values).^2)  # Calculate mean of squared errors
+end
+```
+
+## Calculate MSE for the models
+
+```julia
+# Training MSE
+mypoly_mse_train = calculate_mse(mypoly_pred, y_train)
+loba_mse_train = calculate_mse(loba_pred, y_train)
+rad_mse_train = calculate_mse(rad_pred, y_train)
+
+# Testing MSE
+mypoly_mse_test = calculate_mse(mypoly_pred_test, y_test)
+loba_mse_test = calculate_mse(loba_pred_test, y_test)
+rad_mse_test = calculate_mse(rad_pred_test, y_test)
+```
+
+## Compare MSE
+
+```julia
+using PrettyTables
+models = ["surrogatesPolyChaos",  "Lobachevsky", "Radial Basis"]
+train_mse = [mypoly_mse_train, loba_mse_train, rad_mse_train]
+test_mse = [mypoly_mse_test, loba_mse_test, rad_mse_test]
+mses = sort(collect(zip(test_mse, train_mse, models)))
+pretty_table(hcat(getindex.(mses, 3), getindex.(mses, 2), getindex.(mses, 1)), header=["Model", "Training MSE", "Test MSE"])bn
+```
+
+# Plots of different Surrogate Models
+
+```julia
+# Defining the range of x and y values
+
+x_values = 0:0.2:8
+y_values = 0:0.2:8
+xs = [point[1] for point in x_train]
+ys = [point[2] for point in x_train]
+
+# Calculating z value for Canti Lever Function
+z_canti_lever = [canti_lever([x, y]) for y in y_values, x in x_values]
+```
+
+## Calculating z values for the surrogate models
+
+```julia
+z_loba = [loba_surrogate(point) for point in x_train]
+z_rad = [rad_surrogate(point) for point in x_train]
+z_poly = [mypoly_surrogate(point) for point in x_train]
+```
+## Plot the Lobachevsky surrogate model
+
+```julia
+# Plot the surface plot of the original function
+surface!(x_values, y_values, z_canti_lever, alpha=0.5, color=:blue, label="Canti Lever Points")
+
+# Plot the scatter plot of the surrogate model
+scatter!(xs, ys, z_loba, markersize=3, marker=:circle, color=:red, label="Surrogate Points")
+
+# Customize the plot
+title!("Canti Lever & Lobachevsky")
+xlabel!("x")
+ylabel!("y")
+zlabel!("z")
+```
+
+## Plot the Radial surrogate model
+
+```julia
+# Plot the surface plot of the original function
+surface!(x_values, y_values, z_canti_lever, alpha=0.5, color=:blue, label="Canti Lever Points")
+
+# Plot the scatter plot of the surrogate model
+scatter!(xs, ys, z_rad, markersize=3, marker=:circle, color=:red, label="Surrogate Points")
+
+# Customize the plot
+title!("Canti Lever & Radial Surrogate")
+xlabel!("x")
+ylabel!("y")
+zlabel!("z")
+```
+## Plot the Radial surrogate model
+
+```julia
+# Plot the surface plot of the original function
+surface!(x_values, y_values, z_canti_lever, alpha=0.5, color=:blue, label="Canti Lever Points")
+
+# Plot the scatter plot of the surrogate model
+scatter!(xs, ys, z_poly, markersize=3, marker=:circle, color=:red, label="Surrogate Points")
+
+# Customize the plot
+title!("Canti Lever & SurrogatePolyChaos")
+xlabel!("x")
+ylabel!("y")
+zlabel!("z")
+```
+
+## Time Evaluation
+
+```julia
+time_original = @belapsed canti_lever.(x_test)
+time_loba = @belapsed loba_surrogate.(x_test)
+time_mypoly = @belapsed mypoly_surrogate.(x_test)
+time_rad = @belapsed rad_surrogate.(x_test)
+```
+
+# Compare Time Performance
+
+```julia
+times = ["Original Time" => time_original, "Lobachevsky" => time_loba, "PolychaosSurrogate" => time_mypoly, "Radial Basis" => time_rad]
+sorted_times = sort(times, by=x->x[2])
+pretty_table(hcat(first.(sorted_times), last.(sorted_times)), header=["Model", "Time(s)"])
+```
