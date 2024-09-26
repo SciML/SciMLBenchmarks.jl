@@ -18,10 +18,6 @@ fi
 echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
-if [[ "${1}" == *OptimizationCUTEst* ]]; then
-	apt update && apt install -y gfortran
-fi
-
 if [[ "${1}" == *BayesianInference* ]]; then
 	export CMDSTAN_HOME="$(pwd)/cmdstan-2.29.2/"
 	curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
