@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 16, 13, 11, 22, 3, 4, 20, 30, 6, 8, 18, 15, 28, 7, 9, 17, 21, 31, 19, 29, 12, 10, 24, 23, 27, 5, 14, 25, 26, 2, 32]
+    [1, 17, 14, 12, 23, 4, 5, 21, 31, 7, 3, 9, 19, 16, 29, 8, 10, 18, 22, 32, 20, 30, 13, 11, 25, 24, 28, 6, 15, 26, 27, 2, 33]
 )
 
 names = [
@@ -54,6 +54,7 @@ names = [
     "Non-Stiff Ordinary Differential Equations (ODEs)",
     "Stiff Ordinary Differential Equations (ODEs)",
     "Biological Differential Equations",
+    "Astrochemistry Differential Equations",
     "Differential-Algebraic Equations (DAEs)",
     "Boundary Value Problems (BVPs)",
     "ModelingToolkit Acausal Modeling / Symbolic-Numeric Benchmarks",
