@@ -1,5 +1,5 @@
 ---
-title: Benchmarking with the problems in CUTEst
+title: CUTEst Bounded Constrained Nonlinear Optimization Benchmarks
 author: Alonso M. Cisneros
 ---
 
@@ -29,13 +29,6 @@ using StatsPlots
 ```
 
 # Benchmarks
-
-The CUTEst suite contains almost 1,500 problems that can be broadly divided into several
-categories:
-- Unconstrained problems,
-- Equality/inequality constrained with unbounded variables,
-- Equality/inequality constrained with bounded variables,
-- Quadratic programs with linear constraints
 
 We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes of
 problems.
@@ -91,65 +84,6 @@ function run_benchmarks(problems, optimizers)
 end
 ```
 
-## Unconstrained problems
-
-CUTEst contains 286 unconstrained problems. We will compare how the optimizers behave in
-terms of the time to solution with respect to the number of variables.
-
-```julia
-unc_problems = CUTEst.select(contype="unc")
-
-# Analysis
-unc_results =  run_benchmarks(unc_problems, optimizers)
-
-@df unc_results scatter(:n_vars, :secs,
-        group = :solver,
-        xlabel = "n. variables",
-        ylabel = "secs.",
-        title = "Time to solution by optimizer and number of vars",
-    )
-```
-
-## Equality/Inequality constrained problems with unbounded variables
-
-These problems have a constraint function that's subject to either equality or inequality
-constraints, but the variables themselves are free. CUTEst contains 285 problems with
-equality constraints and 114 with inequality constraints for a total of 299.
-
-We start by analyzing the equality-constrained problems, of which there are 285. The
-following figure shows the time to solution as a function of number of variables by
-optimizer.
-
-```julia
-eq_unb_problems = CUTEst.select(min_con=1, only_equ_con=true, only_free_var=true)
-
-# Analysis
-eq_unb_results =  run_benchmarks(eq_unb_problems, optimizers)
-
-@df eq_unb_results scatter(:n_vars, :secs,
-        group = :solver,
-        xlabel = "n. variables",
-        ylabel = "secs.",
-        title = "Time to solution by optimizer and number of vars",
-    )
-```
-
-Next, we examine the same relationship for problems with inequality-constrained problems.
-
-```julia
-neq_unb_problems = CUTEst.select(min_con=1, only_ineq_con=true, only_free_var=true)
-
-# Analysis
-neq_unb_results =  run_benchmarks(neq_unb_problems, optimizers)
-
-@df neq_unb_results scatter(:n_vars, :secs,
-        group = :solver,
-        xlabel = "n. variables",
-        ylabel = "secs.",
-        title = "Time to solution by optimizer and number of vars",
-    )
-```
-
 ## Equality/Inequality constrained problems with bounded variables
 
 Now we analyze the subset of problems with equality/inequality constraints and whose
@@ -180,25 +114,6 @@ neq_bou_problems = CUTEst.select(min_con=1, only_ineq_con=true, only_free_var=fa
 
 # Analysis
 neq_bou_results =  run_benchmarks(neq_bou_problems, optimizers)
-
-@df neq_bou_results scatter(:n_vars, :secs,
-        group = :solver,
-        xlabel = "n. variables",
-        ylabel = "secs.",
-        title = "Time to solution by optimizer and number of vars",
-    )
-```
-
-# Quadratic programs with linear constraints
-
-Lastly, we examine the problems with a quadratic objective function and only linear
-constraints. There are 252 such problems in the suite.
-
-```julia
-quad_problems = CUTEst.select(objtype="quadratic", contype="linear")
-
-# Analysis
-quad_results =  run_benchmarks(quad_problems, optimizers)
 
 @df neq_bou_results scatter(:n_vars, :secs,
         group = :solver,
