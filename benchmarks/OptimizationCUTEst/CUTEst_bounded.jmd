@@ -58,9 +58,14 @@ function run_benchmarks(problems, optimizers)
     optz = length(optimizers)
     n = length(problems)
 
+    @info "here 1"
+
     broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
 
+    @info "here 2"
+
     for prob_name in problems
+        @info prob_name
         nlp_prob = CUTEstModel(prob_name)
         prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
         for optimizer in optimizers
@@ -93,10 +98,13 @@ The following figure shows the results of the same benchmarks previously describ
 problems on this section.
 
 ```julia
+@info "before"
 eq_bou_problems = CUTEst.select(min_con=1, only_equ_con=true, only_free_var=false)
+@info "after1"
 
 # Analysis
 eq_bou_results =  run_benchmarks(eq_bou_problems, optimizers)
+@info "after2"
 
 @df eq_bou_results scatter(:n_vars, :secs,
         group = :solver,
@@ -104,16 +112,20 @@ eq_bou_results =  run_benchmarks(eq_bou_problems, optimizers)
         ylabel = "secs.",
         title = "Time to solution by optimizer and number of vars",
     )
+@info "after3"
 ```
 
 Next, we examine the same relationship for problems with inequality-constrained problems,
 of which there are 244.
 
 ```julia
+@info "after4"
 neq_bou_problems = CUTEst.select(min_con=1, only_ineq_con=true, only_free_var=false)
+@info "after5"
 
 # Analysis
 neq_bou_results =  run_benchmarks(neq_bou_problems, optimizers)
+@info "after6"
 
 @df neq_bou_results scatter(:n_vars, :secs,
         group = :solver,
