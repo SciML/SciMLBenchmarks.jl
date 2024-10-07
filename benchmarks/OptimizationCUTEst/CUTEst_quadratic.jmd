@@ -1,0 +1,109 @@
+---
+title: CUTEst Quadratic Programming with Linear Constraints Benchmarks 
+author: Alonso M. Cisneros
+---
+
+# Introduction
+
+CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
+collection of around 1500 problems for general nonlinear optimization used to test
+optimization routines. The wrapper
+[CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access
+to the problem collection, which we can leverage to test the optimizers made available by
+Optimization.jl.
+
+This benchmark uses the following packages:
+
+```julia
+using Optimization
+using OptimizationNLPModels
+using CUTEst
+using OptimizationOptimJL
+using Ipopt
+using OptimizationMOI
+using OptimizationMOI: MOI as MOI
+# Analysis and plotting
+using DataFrames
+using Plots
+using StatsPlots
+```
+
+# Benchmarks
+
+We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes of
+problems.
+
+```julia
+optimizers = [
+        Optimization.LBFGS(),
+        MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)
+    ]
+
+function get_stats(sol, ::Optimization.LBFGS)
+    return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
+end
+
+function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
+    return (length(sol.u), MOI.get(sol.original.model, MOI.SolveTimeSec()),
+        "Ipopt", Symbol(sol.retcode))
+end
+
+function run_benchmarks(problems, optimizers)
+    problem = String[]
+    n_vars = Int64[]
+    secs = Float64[]
+    solver = String[]
+    retcode = Symbol[]
+
+    optz = length(optimizers)
+    n = length(problems)
+
+    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+
+    for prob_name in problems
+        nlp_prob = CUTEstModel(prob_name)
+        prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+        for optimizer in optimizers
+            sol = solve(prob, optimizer; maxiters = 1e7)
+
+            @info "Solved $(prob_name) with $(optimizer)"
+            vars, time, alg, code = get_stats(sol, optimizer)
+
+            push!(problem, prob_name)
+            push!(n_vars, vars)
+            push!(secs, time)
+            push!(solver, alg)
+            push!(retcode, code)
+
+        end
+        finalize(nlp_prob)
+    end
+
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver,
+        retcode = retcode)
+end
+```
+
+# Quadratic programs with linear constraints
+
+Lastly, we examine the problems with a quadratic objective function and only linear
+constraints. There are 252 such problems in the suite.
+
+```julia
+quad_problems = CUTEst.select(objtype="quadratic", contype="linear")
+
+# Analysis
+quad_results =  run_benchmarks(quad_problems, optimizers)
+
+@df neq_bou_results scatter(:n_vars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
