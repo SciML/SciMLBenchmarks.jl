@@ -1,0 +1,250 @@
+---
+title: Testing the scaling of non-spatial methods in JumpProcesses
+author: Vincent Du
+---
+```julia
+using JumpProcesses, Plots, StableRNGs, Random, BenchmarkTools, Catalyst, ReactionNetworkImporters, StatsPlots
+```
+# Model Description and Setup
+Here we will implement the method from [1], the constant-complexity next-reaction method. We will benchmark the method for different numbers of reaction channels (ranging from 1000 to 1,000,000) and compare it to the performance of JumpProcesses.jl's other non-spatial aggregators (DirectCR(), NRM(), RSSA()). We will exclude `Direct()` in this benchmark since its complexity grows much too quickly with the number of reactions. 
+
+
+# Model Solution
+Let's first look at a few reaction networks to make sure we get consistent results for all the methods. We will use the EGFR network from the 2023 Catalyst paper. Let's plot the dimer concentration for different methods.
+
+```julia
+tf = 10.
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+egfr_net= loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")); 
+dprob = DiscreteProblem(complete(egfr_net.rn), egfr_net.u0, (0., tf), egfr_net.p)
+dprob = remake(dprob,u0=Int64.(dprob.u0))
+
+plt = plot(title="Dimer concentrations")
+for alg in algs
+    jprob = JumpProblem(complete(egfr_net.rn), dprob, alg)
+    sol = solve(jprob, SSAStepper(), saveat = tf/200)
+    plot!(plt, sol, idxs = :Dimers, label="$alg")
+end    
+plot!(plt)
+```
+These results seem pretty reasonable - it seems like we're getting the same dimer
+concentration curve for each method. 
+
+Let's also go ahead and benchmark the performance of JumpProcess solvers on some other large 
+biochemical reaction network models. We first define a function to plot the results. 
+
+```julia
+function benchmark_and_bar_plot(models, model_names, end_times, algs)
+    timedict = Dict(["$modelname" => Float64[] for modelname in model_names])
+    alg_names = ["$s"[1:end-2] for s in algs]
+
+    for (end_time, model, model_name) in zip(end_times, models, model_names)
+        # benchmarking and saving
+        benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+
+        # callback for terminating simulations
+        for (i, alg) in enumerate(algs)
+            alg_name = alg_names[i]
+            println("benchmarking $alg_name, $model_name")
+            dprob = DiscreteProblem(complete(model.rn), model.u0, (0., end_time), model.p)
+            dprob = remake(dprob,u0=Int64.(dprob.u0))
+            jprob = JumpProblem(complete(model.rn), dprob, alg; rng)
+
+            b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 3 seconds = 3600
+            bm = run(b)
+            push!(timedict["$model_name"], median(bm).time/1e9)
+        end
+    end
+    times = vcat([timedict["$model_name"] for model_name in model_names]...)
+    println(times)
+    n = length(model_names); m = length(alg_names)
+    println(n, m)
+    groupedbar(repeat(model_names, inner = m), times, group = repeat(alg_names, n), xlabel = "Reaction Network", ylabel = "Average Time", title = "SSA Runtime for standard reaction networks")
+end
+```
+
+Below we create the other models to benchmark and plot the results. 
+```julia
+BCR_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/BCR.net")); 
+fceri_gamma2 = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/fceri_gamma2.net"));
+multistate = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/multistate.net"));
+multisite2 = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/multisite2.net"));
+models = [egfr_net 
+          #,multistate
+          #,multisite2 
+          ,BCR_net
+          ,fceri_gamma2
+          ];
+
+model_names = ["egfr"
+               #,"multistate" 
+               #,"multisite2"
+               ,"BCR_net"
+               ,"fceri_gamma2"
+               ]
+end_times = [10., .1, 10.]#, 100.]
+
+benchmark_and_bar_plot(models, model_names, end_times, algs)
+```
+
+# Performance Benchmark (Sanft 2015)
+For our performance benchmark test, we will look at a very simple reaction network. 
+```julia
+rn = @reaction_network begin
+    @parameters kA kB
+    kA, 0 --> A
+    kB, 0 --> B
+end
+```
+
+Below we define the function that we will use to generate the jump problem from this network. Fundamentally we want to test how quickly each SSA updates dependent reaction times in response to a reaction event. To standardize this, we will make each reaction force 10 updates, and force updates to the times by rescaling the rate of those reactions by randexp() at each timestep.  
+```julia
+    # z   A  B
+u0 = [1., 1, 1]
+p = (kA = 1.0, kB = 2.0) 
+rateA(u, p, t) = p.kA * u[1]
+rateB(u, p, t) = p.kB * u[1]
+
+# Our affect resamples u[1] to effectively resample the next time-to-reaction. This is the 
+# simplest way to get random updates on the times, since we don't resample times
+# when the propensities are updated. 
+affectA!(integrator) = (integrator.u[1] = randexp(rng); integrator.u[2] += 1)
+affectB!(integrator) = (integrator.u[1] = randexp(rng); integrator.u[3] += 1)
+
+function generateJumpProblem(method, N::Int64, end_time) 
+    depgraph = Vector{Vector{Int64}}()
+    jumpvec = Vector{ConstantRateJump}()
+
+    for i in 1:N
+        # We make each reaction affect the rates of 10 others, so there are 10 updates per jump. 
+        push!(depgraph, rand(rng, 1:N, 10))
+        iseven(i) ? push!(jumpvec, ConstantRateJump(rateA, affectA!)) : 
+            push!(jumpvec, ConstantRateJump(rateB, affectB!))
+    end
+
+    jset = JumpSet((), jumpvec, nothing, nothing)
+    dprob = DiscreteProblem(u0, (0., end_time), p)
+    varstojumps = [collect(1:N), Int64[], Int64[]]
+    jumptovars = [i%2 == 1 ? [2] : [3] for i in 1:N]
+    jump_prob = JumpProblem(dprob, method, jset; dep_graph = depgraph, save_positions = (false, false), rng, jumptovars_map = jumptovars, vartojumps_map = varstojumps)
+    jump_prob
+end
+```
+
+# Sanity Check
+Let's look at a few reaction networks to make sure we get consistent results for all the networks. 
+Let's look at one example to make sure that our model seems reasonable. Since 
+half of the reactions correspond to 0 --> A and half correspond to 0 --> B, 
+and the 0 --> B rate constant is twice the 0 --> A rate constant, we'd expect 
+that the A/B ratio would approach 1/2 as the simulation goes on. 
+
+```julia
+end_time = 10.0; N = 1000
+algs = [DirectCR(), CCNRM(), NRM(), RSSACR()]
+plt = plot()
+
+for alg in algs
+    jprob = generateJumpProblem(alg, N, end_time)
+    sol = solve(jprob, SSAStepper(); saveat = end_time/200)
+    ABratio = [u[2]/u[3] for u in sol.u]
+    plot!(plt, sol.t, ABratio, label="$alg", ylims = (0., 1.))
+end
+plot!(plt)
+```
+
+# Benchmarking performance of the methods
+We can now run the solvers and record the performance with `BenchmarkTools`.
+Let's first create a `DiscreteCallback` to terminate simulations once we reach
+`10^7` events:
+```julia
+@kwdef mutable struct EventCallback
+    n::Int = 0
+end
+
+function (ecb::EventCallback)(u, t, integ)
+    ecb.n += 1
+    ecb.n == 10^7
+end
+
+function (ecb::EventCallback)(integ) 
+    terminate!(integ)
+    nothing
+end
+```
+
+Next we create a function to run and save the benchmarking results. 
+```julia
+function benchmark_and_save!(bench_dict, end_times, Nv, algs)
+    @assert length(end_times) == length(Nv)
+
+    # callback for terminating simulations
+    ecb = EventCallback()
+    cb = DiscreteCallback(ecb, ecb)
+
+    for (end_time, N) in zip(end_times, Nv)
+        names = ["$s"[1:end-2] for s in algs]
+        # benchmarking and saving
+        benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+
+        # callback for terminating simulations
+        for (i, alg) in enumerate(algs)
+            name = names[i]
+            println("benchmarking $name")
+            jp = generateJumpProblem(alg, N, end_time)
+            b = @benchmarkable solve($jp, SSAStepper(); saveat = end_time, callback) setup = (callback = deepcopy($cb)) samples = 3 seconds = 3600
+            bench_dict[name, N] = run(b)
+        end
+    end
+end
+```
+
+Finally we create a function to plot the benchmarking results. 
+```julia
+function fetch_and_plot(bench_dict)
+    names = unique([key[1] for key in keys(bench_dict)])
+    Nv = sort(unique([key[2] for key in keys(bench_dict)]))
+
+    plt1 = plot()
+
+    medtimes = [Float64[] for i in 1:length(names)]
+    for (i,name) in enumerate(names)
+        for N in Nv
+            try
+                push!(medtimes[i], median(bench_dict[name, N]).time/1e9)
+            catch
+                break
+            end
+        end
+        len = length(medtimes[i])
+        plot!(plt1, Nv[1:len], medtimes[i], marker = :hex, label = name, lw = 2)
+    end
+
+    plot!(plt1, xlabel = "Number of reaction channels", ylabel = "Median time in seconds",
+                legend = :topleft)
+end
+```
+
+We now run the benchmarks and plot the results. The number of reaction channels will range from 1000 to 1,000,000. We see that we observe a similar scaling as [^1]
+with the CCNRM() method being more efficient for systems with very many reaction 
+channels. 
+
+```julia
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+N = [1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]
+bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
+end_times = 20000. * ones(length(N))
+benchmark_and_save!(bench_dict, end_times, N, algs)
+plt = fetch_and_plot(bench_dict)
+```
+
+### References
+[^1]: Sanft, Kevin R and Othmer, Hans G. *Constant-complexity stochastic simulation algorithm with optimal binning*. J. Chem. Phys., 143(7), 11 pp. (2015).
+[^2]: Loman, T. E.; Ma, Y.; Ilin, V.; Gowda, S.; Korsbo, N.; Yewale, N.; Rackauckas, C.; Isaacson, S. A. Catalyst: Fast and Flexible Modeling of Reaction Networks.
+
+
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
