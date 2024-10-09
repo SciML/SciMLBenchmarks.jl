@@ -31,62 +31,6 @@ plot!(plt)
 These results seem pretty reasonable - it seems like we're getting the same dimer
 concentration curve for each method. 
 
-Let's also go ahead and benchmark the performance of JumpProcess solvers on some other large 
-biochemical reaction network models. We first define a function to plot the results. 
-
-```julia
-function benchmark_and_bar_plot(models, model_names, end_times, algs)
-    timedict = Dict(["$modelname" => Float64[] for modelname in model_names])
-    alg_names = ["$s"[1:end-2] for s in algs]
-
-    for (end_time, model, model_name) in zip(end_times, models, model_names)
-        # benchmarking and saving
-        benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
-
-        # callback for terminating simulations
-        for (i, alg) in enumerate(algs)
-            alg_name = alg_names[i]
-            println("benchmarking $alg_name, $model_name")
-            dprob = DiscreteProblem(complete(model.rn), model.u0, (0., end_time), model.p)
-            dprob = remake(dprob,u0=Int64.(dprob.u0))
-            jprob = JumpProblem(complete(model.rn), dprob, alg; rng)
-
-            b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 3 seconds = 3600
-            bm = run(b)
-            push!(timedict["$model_name"], median(bm).time/1e9)
-        end
-    end
-    times = vcat([timedict["$model_name"] for model_name in model_names]...)
-    println(times)
-    n = length(model_names); m = length(alg_names)
-    println(n, m)
-    groupedbar(repeat(model_names, inner = m), times, group = repeat(alg_names, n), xlabel = "Reaction Network", ylabel = "Average Time", title = "SSA Runtime for standard reaction networks")
-end
-```
-
-Below we create the other models to benchmark and plot the results. 
-```julia
-BCR_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/BCR.net")); 
-fceri_gamma2 = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/fceri_gamma2.net"));
-multistate = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/multistate.net"));
-multisite2 = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/multisite2.net"));
-models = [egfr_net 
-          #,multistate
-          #,multisite2 
-          ,BCR_net
-          ,fceri_gamma2
-          ];
-
-model_names = ["egfr"
-               #,"multistate" 
-               #,"multisite2"
-               ,"BCR_net"
-               ,"fceri_gamma2"
-               ]
-end_times = [10., .1, 10.]#, 100.]
-
-benchmark_and_bar_plot(models, model_names, end_times, algs)
-```
 
 # Performance Benchmark (Sanft 2015)
 For our performance benchmark test, we will look at a very simple reaction network. 

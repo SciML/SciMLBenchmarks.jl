@@ -1,0 +1,44 @@
+---
+title: EGFR Network Benchmark
+author: 
+---
+
+```julia
+using JumpProcesses, Plots, StableRNGs, Random, BenchmarkTools, ReactionNetworkImporters, StatsPlots, Catalyst
+```
+
+# Model Benchmark
+
+We define a function to benchmark the model and then plot the results in a benchmark. 
+```julia
+function benchmark_and_bar_plot(model, end_time, algs)
+    times = Vector{Float64}()
+    alg_names = ["$s"[1:end-2] for s in algs]
+
+    benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+    for (i, alg) in enumerate(algs)
+        alg_name = alg_names[i]
+        println("benchmarking $alg_name")
+        dprob = DiscreteProblem(complete(model.rn), model.u0, (0., end_time), model.p)
+        dprob = remake(dprob,u0 = Int64.(dprob.u0))
+        jprob = JumpProblem(complete(model.rn), dprob, alg; rng, save_positions = (false, false))
+
+        b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 3 seconds = 3600
+        bm = run(b)
+        push!(times, median(bm).time/2e9)
+    end
+
+    bar(alg_names, times, xlabel = "Algorithm", ylabel = "Average Time", title = "SSA Runtime for EGFR network", legend = false)
+end
+```
+
+Now we benchmark the EGFR network on the four algorithms. 
+```julia
+tf = 10. 
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+EGFR_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")); 
+
+benchmark_and_bar_plot(EGFR_net, tf, algs)
+```
+
