@@ -32,6 +32,7 @@ allmatrices_md = listnames("*/*")
 @info "Total number of matrices: $(allmatrices_md.content[1].rows)"
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
+spaced_out_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
 matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
 ```
 
@@ -48,10 +49,39 @@ for z in 1:length(allmatrices_md.content[1].rows)
         A = convert(SparseMatrixCSC, A)
         n = size(A, 1)
         matrix_size[z] = n
-        percentage_sparsity[z] = length(nonzeros(A)) / n^2
-        @info "$n × $n"
 
+        mtx_copy = copy(A)
+
+        @info "$n × $n"
         n > 500 && error("Skipping too large matrices")
+
+        rows, cols = size(mtx_copy)
+        new_rows = div(rows, 2)
+        new_cols = div(cols, 2)
+        condensed = zeros(Int, new_rows, new_cols) 
+
+        while size(condensed, 1) > 32 || size(condensed, 2) > 32
+            rows, cols = size(mtx_copy)
+            new_rows = div(rows, 2)
+            new_cols = div(cols, 2)
+            condensed = sparse(zeros(Int, new_rows, new_cols))
+
+            for r in 1:2:rows-1
+                for c in 1:2:cols-1
+                    block = sparse(mtx_copy[r:r+1, c:c+1])
+                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 3) ? 1 : 0
+                end
+            end 
+
+            mtx_copy = condensed
+        end
+        
+
+        percentage_sparsity[z] = length(nonzeros(A)) / n^2
+        
+        spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
+
+        
 
         b = rand(rng, n)
         u0 = rand(rng, n)
@@ -65,16 +95,6 @@ for z in 1:length(allmatrices_md.content[1].rows)
             times[z,j] = bt
         end
 
-        #=
-        p = bar(algnames, times[z, :];
-            ylabel = "Time/s",
-            yscale = :log10,
-            title = "Time on $(currMTX)",
-            fmt = :png,
-            legend = :outertopright)
-        display(p)
-        =#
-
         println("successfully factorized $(currMTX)")
     catch e
         matrix = allmatrices_md.content[1].rows[z]
@@ -86,6 +106,8 @@ for z in 1:length(allmatrices_md.content[1].rows)
         println(e)
     end
 end
+
+print(percentage_sparsity)
 ```
 
 ```julia
@@ -118,6 +140,18 @@ p = scatter(matrix_size, times;
     xscale = :log10,
     label = algnames_transpose,
     title = "Factorization Time vs Matrix Size",
+    fmt = :png,
+    legend = :outertopright)
+```
+
+```julia
+p = scatter(spaced_out_sparsity, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Spaced Out Sparsity",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Spaced Out Sparsity",
     fmt = :png,
     legend = :outertopright)
 ```
