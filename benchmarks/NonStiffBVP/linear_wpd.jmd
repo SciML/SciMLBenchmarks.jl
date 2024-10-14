@@ -3,47 +3,53 @@ title: Linear BVP Benchmarks
 author: Qingyu Qu
 ---
 
-This benchmark compares the runtime and error of BVP solvers, including MIRK solvers, Shooting solvers and FORTRAN BVP solvers on some linear boundary value problems.
-The testing BVPs are a set of standard BVP test problems as described [here](https://archimede.uniba.it/~bvpsolvers/testsetbvpsolvers/?page_id=29)
+This benchmark compares the runtime and error of BVP solvers, including MIRK solvers, FIRK solvers, Shooting solvers and FORTRAN BVP solvers on linear boundary value problems.
+The testing BVPs are a set of standard BVP test problems as described [here](https://archimede.uniba.it/~bvpsolvers/testsetbvpsolvers/?page_id=29).
+The problems are implemented in [BVProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/BVProblemLibrary/src/BVProblemLibrary.jl), where you can find the problem function declarations.
+For each problem, we test the following solvers:
+
+- BoundaryValueDiffEq.jl's MIRK methods(including `MIRK3`, `MIRK4`, `MIRK5`, `MIRK6`).
+- BoundaryValueDiffEq.jl's FIRK methods(including `RadauIIa3`, `RadauIIa5`, `RadauIIa7`, `LobattoIIIa4`, `LobattoIIIa5`, `LobattoIIIb4`, `LobattoIIIb5`, `LobattoIIIc4`, `LobattoIIIc5`).
+- SimpleBoundaryValueDiffEq.jl's MIRK methods(including `SimpleMIRK4`, `SimpleMIRK5`, `SimpleMIRK6`).
+- FORTRAN BVP solvers from ODEInterface.jl(including `BVPM2` and `COLNEW`).
 
 # Setup
 
 Fetch required packages.
 
 ```julia
-using BoundaryValueDiffEq, OrdinaryDiffEq, ODEInterface, DiffEqDevTools, BenchmarkTools,
-      BVProblemLibrary, Plots
+using BoundaryValueDiffEq, SimpleBoundaryValueDiffEq, OrdinaryDiffEq, ODEInterface, DiffEqDevTools, BenchmarkTools,
+      BVProblemLibrary, CairoMakie
 ```
 
 Set up the benchmarked solvers.
 
 ```julia
-setups = [ Dict(:alg=>MIRK2(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>MIRK3(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>MIRK4(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>MIRK5(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>MIRK6(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>BVPM2(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>COLNEW(), :dts=>1.0 ./ 10.0 .^ (1:4)),
-            Dict(:alg=>Shooting(Tsit5())),
-            Dict(:alg=>Shooting(Vern7())),
-            Dict(:alg=>Shooting(DP5())),
-            Dict(:alg=>MultipleShooting(10, Tsit5())),
-            Dict(:alg=>MultipleShooting(10, Vern7())),
-            Dict(:alg=>MultipleShooting(10, DP5())),]
-labels = ["MIRK2";
-               "MIRK3";
-               "MIRK4";
-               "MIRK5";
-               "MIRK6";
-               "BVPM2";
-               "COLNEW";
-               "Shooting (Tsit5)";
-               "Shooting (Vern7)";
-               "Shooting (DP5)";
-               "MultipleShooting (Tsit5)";
-               "MultipleShooting (Vern7)";
-               "MultipleShooting (DP5)"];
+solvers_all = [
+    (; pkg = :boundaryvaluediffeq,          type = :mirk,         name = "MIRK3",                solver = Dict(:alg => MIRK3(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :mirk,         name = "MIRK4",                solver = Dict(:alg => MIRK4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :mirk,         name = "MIRK5",                solver = Dict(:alg => MIRK5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :mirk,         name = "MIRK6",                solver = Dict(:alg => MIRK6(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "RadauIIa3",            solver = Dict(:alg => RadauIIa3(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "RadauIIa5",            solver = Dict(:alg => RadauIIa5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "RadauIIa7",            solver = Dict(:alg => RadauIIa7(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIa4",         solver = Dict(:alg => LobattoIIIa4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIa5",         solver = Dict(:alg => LobattoIIIa5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIb4",         solver = Dict(:alg => LobattoIIIb4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIb5",         solver = Dict(:alg => LobattoIIIb5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIc4",         solver = Dict(:alg => LobattoIIIc4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :firk,         name = "LobattoIIIc5",         solver = Dict(:alg => LobattoIIIc5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :shooting,     name = "Single Shooting",      solver = Dict(:alg => Shooting(Tsit5(), NewtonRaphson()), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :boundaryvaluediffeq,          type = :shooting,     name = "Multiple Shooting",    solver = Dict(:alg => MultipleShooting(10, Tsit5()), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,   name = "SimpleMIRK4",          solver = Dict(:alg => SimpleMIRK4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,   name = "SimpleMIRK5",          solver = Dict(:alg => SimpleMIRK5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,   name = "SimpleMIRK6",          solver = Dict(:alg => SimpleMIRK6(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :wrapper,                      type = :general,      name = "BVPM2",                solver = Dict(:alg => BVPM2(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    (; pkg = :wrapper,                      type = :general,      name = "COLNEW",               solver = Dict(:alg => COLNEW(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+];
+
+solver_tracker = [];
+wp_general_tracker = [];
 ```
 
 Sets tolerances.
@@ -53,147 +59,293 @@ abstols = 1.0 ./ 10.0 .^ (1:3)
 reltols = 1.0 ./ 10.0 .^ (1:3);
 ```
 
-# Benchmarks
-
-We here run the BVP benchmarks for all the MIRK methods, Shooting methods and FORTRAN BVP solvers.
-
 Prepares helper function for benchmarking a specific problem.
 
 ```julia
-function benchmark!(prob)
+function benchmark(prob)
     sol = solve(prob, Shooting(Vern7()), abstol=1e-14, reltol=1e-14)
     testsol = TestSolution(sol)
-    wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = labels, appxsol = testsol, maxiters=Int(1e4))
-    plot(wp, legend=:outertopright)
+    wps = WorkPrecisionSet(prob, abstols, reltols, getfield.(solvers_all, :solver); names = getfield.(solvers_all, :name), appxsol = testsol, maxiters=Int(1e4))
+    push!(wp_general_tracker, wps)
+    return wps
+end
+
+function plot_wpd(wp_set)
+    fig = begin
+        LINESTYLES = Dict(:boundaryvaluediffeq => :solid, :simpleboundaryvaluediffeq => :dash, :wrapper => :dot)
+        ASPECT_RATIO = 0.7
+        WIDTH = 1200
+        HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+        STROKEWIDTH = 2.5
+
+    colors = cgrad(:seaborn_bright, length(solvers_all); categorical = true)
+    cycle = Cycle([:marker], covary = true)
+        plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+        with_theme(plot_theme) do 
+            fig = Figure(; size = (WIDTH, HEIGHT))
+            ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
+                xlabelsize = 22, ylabelsize = 22,
+                xlabel = L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
+                xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+                ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
+                xticklabelsize = 20, yticklabelsize = 20)
+
+            idxs = sortperm(median.(getfield.(wp_set.wps, :times)))
+
+            ls, scs = [], []
+
+            for (i, (wp, solver)) in enumerate(zip(wp_set.wps[idxs], solvers_all[idxs]))
+                (; name, times, errors) = wp
+                errors = [err.l∞ for err in errors]
+                l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
+                    linewidth = 5, color = colors[i])
+                sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+                    color = colors[i])
+                push!(ls, l)
+                push!(scs, sc)
+            end
+
+            xlims!(ax; high=1)
+            ylims!(ax; low=5e-6)
+
+            axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)],
+                [solver.name for solver in solvers_all[idxs]], "BVP Solvers";
+                framevisible=true, framewidth = STROKEWIDTH, position = :rb,
+                titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
+
+            fig[0, :] = Label(fig, "Linear BVP Benchmark",
+                fontsize = 24, tellwidth = false, font = :bold)
+            fig
+        end
+    end
 end
 ```
 
-## Linear boundary value problems
+# Benchmarks
+
+We here run benchmarks for each of the 18 test problems.
 
 ### Linear BVP 1
 
 ```julia
 prob_1 = BVProblemLibrary.prob_bvp_linear_1
-benchmark!(prob_1)
+wps = benchmark(prob_1)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 2
 
 ```julia
 prob_2 = BVProblemLibrary.prob_bvp_linear_2
-benchmark!(prob_2)
+wps = benchmark(prob_2)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 3
 
 ```julia
 prob_3 = BVProblemLibrary.prob_bvp_linear_3
-benchmark!(prob_3)
+wps = benchmark(prob_3)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 4
 
 ```julia
 prob_4 = BVProblemLibrary.prob_bvp_linear_4
-benchmark!(prob_4)
+wps = benchmark(prob_4)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 5
 
 ```julia
 prob_5 = BVProblemLibrary.prob_bvp_linear_5
-benchmark!(prob_5)
+wps = benchmark(prob_5)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 6
 
 ```julia
 prob_6 = BVProblemLibrary.prob_bvp_linear_6
-benchmark!(prob_6)
+wps = benchmark(prob_6)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 7
 
 ```julia
 prob_7 = BVProblemLibrary.prob_bvp_linear_7
-benchmark!(prob_7)
+wps = benchmark(prob_7)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 8
 
 ```julia
 prob_8 = BVProblemLibrary.prob_bvp_linear_8
-benchmark!(prob_8)
+wps = benchmark(prob_8)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 9
 
 ```julia
 prob_9 = BVProblemLibrary.prob_bvp_linear_9
-benchmark!(prob_9)
+wps = benchmark(prob_9)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 10
 
 ```julia
 prob_10 = BVProblemLibrary.prob_bvp_linear_10
-benchmark!(prob_10)
+wps = benchmark(prob_10)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 11
 
 ```julia
 prob_11 = BVProblemLibrary.prob_bvp_linear_11
-benchmark!(prob_11)
+wps = benchmark(prob_11)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 12
 
 ```julia
 prob_12 = BVProblemLibrary.prob_bvp_linear_12
-benchmark!(prob_12)
+wps = benchmark(prob_12)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 13
 
 ```julia
 prob_13 = BVProblemLibrary.prob_bvp_linear_13
-benchmark!(prob_13)
+wps = benchmark(prob_13)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 14
 
 ```julia
 prob_14 = BVProblemLibrary.prob_bvp_linear_14
-benchmark!(prob_14)
+wps = benchmark(prob_14)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 15
 
 ```julia
 prob_15 = BVProblemLibrary.prob_bvp_linear_15
-benchmark!(prob_15)
+wps = benchmark(prob_15)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 16
 
 ```julia
 prob_16 = BVProblemLibrary.prob_bvp_linear_16
-benchmark!(prob_16)
+wps = benchmark(prob_16)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 17
 
 ```julia
 prob_17 = BVProblemLibrary.prob_bvp_linear_17
-benchmark!(prob_17)
+wps = benchmark(prob_17)
+plot_wpd(wps)
 ```
 
 ### Linear BVP 18
 
 ```julia
 prob_18 = BVProblemLibrary.prob_bvp_linear_18
-benchmark!(prob_18)
+
+wps = benchmark(prob_18)
+plot_wpd(wps)
+```
+
+# Summary of General Solvers Performance on All Problems
+
+```julia
+fig = begin
+    LINESTYLES = Dict(:boundaryvaluediffeq => :solid, :simpleboundaryvaluediffeq => :dash, :wrapper => :dot)
+    ASPECT_RATIO = 0.7
+    WIDTH = 1800
+    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+    STROKEWIDTH = 2.5
+
+    colors = cgrad(:seaborn_bright, length(solvers_all); categorical = true)
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
+
+    with_theme(plot_theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+
+        axs = Matrix{Any}(undef, 5, 5)
+
+        ls = []
+        scs = []
+        labels = []
+        solver_times = []
+
+        for i in 1:4, j in 1:5
+            idx = 5 * (i - 1) + j
+
+            idx > length(wp_general_tracker) && break
+
+            wp = wp_general_tracker[idx]
+
+            ax = Axis(fig[i, j],
+                xscale = log10, yscale = log10,
+                xtickwidth = STROKEWIDTH,
+                ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
+                title = "No. $(idx) Linear BVP benchmarking", titlegap = 10,
+                xticklabelsize = 16, yticklabelsize = 16)
+
+            for wpᵢ in wp.wps
+                idx = findfirst(s -> s.name == wpᵢ.name, solvers_all)
+                errs = getindex.(wpᵢ.errors, :l∞)
+                times = wpᵢ.times
+
+                l = lines!(ax, errs, times; color = colors[idx], linewidth = 5,
+                    linestyle = LINESTYLES[solvers_all[idx].pkg], alpha = 0.8,
+                    label = wpᵢ.name)
+                sc = scatter!(ax, errs, times; color = colors[idx], markersize = 16,
+                    strokewidth = 2, marker = Cycled(idx), alpha = 0.8, label = wpᵢ.name)
+
+                if wpᵢ.name ∉ labels
+                    push!(ls, l)
+                    push!(scs, sc)
+                    push!(labels, wpᵢ.name)
+                end
+            end
+        end
+
+        fig[0, :] = Label(fig, "Work-Precision Diagram for 18 Test Problems",
+            fontsize = 24, tellwidth = false, font = :bold)
+
+        fig[:, 0] = Label(fig, "Time (s)", fontsize = 20, tellheight = false, font = :bold,
+            rotation = π / 2)
+        fig[end + 1, :] = Label(fig,
+            L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
+            fontsize = 20, tellwidth = false, font = :bold)
+
+        Legend(fig[4, 4:5], [[l, sc] for (l, sc) in zip(ls, scs)],
+            labels, "BVP Solvers";
+            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            titlesize = 20, nbanks = 9, labelsize = 20, halign = :center,
+            tellheight = false, tellwidth = false, patchsize = (40.0f0, 20.0f0))
+
+        return fig
+    end
+end
 ```
 
 ```julia, echo = false

@@ -107,7 +107,7 @@ backend = AutoSparse(
 
 extras = DI.prepare_jacobian(brusselator_2d!, similar(x0_32), backend, x0_32);
 J1 = DI.jacobian!(
-    brusselator_2d!, similar(x0_32), similar(S1, eltype(x0_32)), backend, x0_32, extras
+    brusselator_2d!, similar(x0_32), similar(S1, eltype(x0_32)), extras, backend, x0_32
 )
 
 cache = SDT.sparse_jacobian_cache(
@@ -145,23 +145,25 @@ for (i, N) in enumerate(N_values)
     )
 end
 
-pld = plot(;
-    title="Sparsity detection on the Brusselator",
-    xlabel="Input size N",
-    ylabel="Runtime [s]",
-)
-plot!(
-    pld,
-    N_values,
-    td1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="SparseConnectivityTracer",
-)
-plot!(pld, N_values, td2; lw=2, linestyle=:auto, markershape=:auto, label="Symbolics")
-plot!(pld; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
-pld
+let
+    pld = plot(;
+        title="Sparsity detection on the Brusselator",
+        xlabel="Input size N",
+        ylabel="Runtime [s]",
+    )
+    plot!(
+        pld,
+        N_values,
+        td1;
+        lw=2,
+        linestyle=:auto,
+        markershape=:auto,
+        label="SparseConnectivityTracer",
+    )
+    plot!(pld, N_values, td2; lw=2, linestyle=:auto, markershape=:auto, label="Symbolics")
+    plot!(pld; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+    pld
+end
 ```
 
 ### Coloring
@@ -178,21 +180,23 @@ for (i, N) in enumerate(N_values)
     tc2[i] = @belapsed SDT.matrix_colors($S)
 end
 
-plc = plot(;
-    title="Coloring on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
-)
-plot!(
-    plc,
-    N_values,
-    tc1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="SparseMatrixColorings",
-)
-plot!(plc, N_values, tc2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
-plot!(plc; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
-plc
+let
+    plc = plot(;
+        title="Coloring on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
+    )
+    plot!(
+        plc,
+        N_values,
+        tc1;
+        lw=2,
+        linestyle=:auto,
+        markershape=:auto,
+        label="SparseMatrixColorings",
+    )
+    plot!(plc, N_values, tc2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
+    plot!(plc; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+    plc
+end
 ```
 
 ### Differentiation
@@ -207,10 +211,10 @@ for (i, N) in enumerate(N_values)
     )
     J = similar(S, eltype(x0))
 
-    tj1[i] = @belapsed DI.jacobian!($brusselator_2d!, _y, _J, $backend, $x0, _extras) setup = (
+    tj1[i] = @belapsed DI.jacobian!($brusselator_2d!, _y, _J, _prep, $backend, $x0) setup = (
         _y = similar($x0);
         _J = similar($J);
-        _extras = DI.prepare_jacobian($brusselator_2d!, similar($x0), $backend, $x0)
+        _prep = DI.prepare_jacobian($brusselator_2d!, similar($x0), $backend, $x0)
     ) evals = 1
 
     tj2[i] = @belapsed SDT.sparse_jacobian!(_J, $backend, _cache, $brusselator_2d!, _y, $x0) setup = (
@@ -226,59 +230,63 @@ for (i, N) in enumerate(N_values)
     ) evals = 1
 end
 
-plj = plot(;
-    title="Sparse Jacobian on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
-)
-plot!(
-    plj,
-    N_values,
-    tj1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="DifferentiationInterface",
-)
-plot!(plj, N_values, tj2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
-plot!(plj; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
-plj
+let
+    plj = plot(;
+        title="Sparse Jacobian on the Brusselator", xlabel="Input size N", ylabel="Runtime [s]"
+    )
+    plot!(
+        plj,
+        N_values,
+        tj1;
+        lw=2,
+        linestyle=:auto,
+        markershape=:auto,
+        label="DifferentiationInterface",
+    )
+    plot!(plj, N_values, tj2; lw=2, linestyle=:auto, markershape=:auto, label="SparseDiffTools")
+    plot!(plj; xscale=:log10, yscale=:log10, legend=:topleft, minorgrid=true)
+    plj
+end
 ```
 
 ### Summary
 
 ```julia
-pl = plot(;
-    title="Is the new pipeline worth it?\nTest case: Brusselator",
-    xlabel="Input size N",
-    ylabel="Runtime ratio DI / SparseDiffTools",
-)
-plot!(
-    pl,
-    N_values,
-    td2 ./ td1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="sparsity detection speedup",
-)
-plot!(
-    pl,
-    N_values,
-    tc2 ./ tc1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="coloring speedup",
-)
-plot!(
-    pl,
-    N_values,
-    tj2 ./ tj1;
-    lw=2,
-    linestyle=:auto,
-    markershape=:auto,
-    label="differentiation speedup",
-)
-plot!(pl, N_values, ones(length(N_values)); lw=3, color=:black, label="same speed")
-plot!(pl; xscale=:log10, yscale=:log10, minorgrid=true, legend=:right)
-pl
+let
+    pl = plot(;
+        title="Is the new pipeline worth it?\nTest case: Brusselator",
+        xlabel="Input size N",
+        ylabel="Runtime ratio DI / SparseDiffTools",
+    )
+    plot!(
+        pl,
+        N_values,
+        td2 ./ td1;
+        lw=2,
+        linestyle=:dot,
+        markershape=:utriangle,
+        label="sparsity detection speedup",
+    )
+    plot!(
+        pl,
+        N_values,
+        tc2 ./ tc1;
+        lw=2,
+        linestyle=:dashdot,
+        markershape=:diamond,
+        label="coloring speedup",
+    )
+    plot!(
+        pl,
+        N_values,
+        tj2 ./ tj1;
+        lw=2,
+        linestyle=:dash,
+        markershape=:pentagon,
+        label="differentiation speedup",
+    )
+    plot!(pl, N_values, ones(length(N_values)); lw=3, color=:black, label="same speed")
+    plot!(pl; xscale=:log10, yscale=:log10, minorgrid=true, legend=:right)
+    pl
+end
 ```
