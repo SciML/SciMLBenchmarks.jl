@@ -44,8 +44,8 @@ solvers_all = [
     (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,        name = "SimpleMIRK4",          solver = Dict(:alg => SimpleMIRK4(), :dts=>1.0 ./ 10.0 .^ (1:4))),
     (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,        name = "SimpleMIRK5",          solver = Dict(:alg => SimpleMIRK5(), :dts=>1.0 ./ 10.0 .^ (1:4))),
     (; pkg = :simpleboundaryvaluediffeq,    type = :simplemirk,        name = "SimpleMIRK6",          solver = Dict(:alg => SimpleMIRK6(), :dts=>1.0 ./ 10.0 .^ (1:4))),
-    (; pkg = :wrapper,                      type = :general,           name = "BVPM2",                solver = Dict(:alg => BVPM2(), :dts=>1.0 ./ 10.0 .^ (1:4))),
-    (; pkg = :wrapper,                      type = :general,           name = "COLNEW",               solver = Dict(:alg => COLNEW(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    #(; pkg = :wrapper,                      type = :general,           name = "BVPM2",                solver = Dict(:alg => BVPM2(), :dts=>1.0 ./ 10.0 .^ (1:4))),
+    #(; pkg = :wrapper,                      type = :general,           name = "COLNEW",               solver = Dict(:alg => COLNEW(), :dts=>1.0 ./ 10.0 .^ (1:4))),
 ];
 
 solver_tracker = [];
@@ -65,22 +65,9 @@ Prepares helper function for benchmarking a specific problem.
 function benchmark(prob)
     sol = solve(prob, Shooting(Vern7()), abstol=1e-14, reltol=1e-14)
     testsol = TestSolution(sol)
-    successful_solvers = filter(solver -> check_solver(prob, solver), solvers_all)
-    wps = WorkPrecisionSet(prob, abstols, reltols, getfield.(successful_solvers, :solver); names = getfield.(successful_solvers, :name), appxsol = testsol, maxiters=Int(1e4))
+    wps = WorkPrecisionSet(prob, abstols, reltols, getfield.(solvers_all, :solver); names = getfield.(solvers_all, :name), appxsol = testsol, maxiters=Int(1e4))
     push!(wp_general_tracker, wps)
     return wps
-end
-
-# Checks if a solver can successfully solve a given problem.
-function check_solver(prob, solver)
-    dt = solver.solver[:alg] isa Union{BoundaryValueDiffEq.BoundaryValueDiffEqShooting.AbstractShooting, SimpleBoundaryValueDiffEq.SimpleShooting} ? nothing : 1e-3
-    sol = solve(prob, solver.solver[:alg], dt = dt; abstol=1e-6, reltol=1e-6)
-    if !SciMLBase.successful_retcode(sol)
-        Base.printstyled("[Info] Solver $(solver.name) failed on this problem \
-            with an returned retcode $(sol.retcode).\n"; color=:green)
-        return false
-    end
-    return true
 end
 
 function plot_wpd(wp_set)
