@@ -179,6 +179,34 @@ end
 
 ```julia
 # Single pendulum
+function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
+    local H(p,q,params) = p[1]^2/2 - cos(q[1]) + 1
+    local q0 = [0.0]
+    local p0 = [2k]
+    local prob = HamiltonianProblem(H, p0, q0, (t0, t1))
+
+    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
+    @printf("%-25s", "$integrator_str:")
+    sol = solve(prob, integrator, dt=Δt)
+    @time local sol = solve(prob, integrator, dt=Δt)
+
+    sleep(0.1)
+    figure(figsize=(10,8))
+
+    subplot2grid((21,20), ( 1, 0), rowspan=10, colspan=10)
+    plotsol(sol)
+
+    subplot2grid((21,20), ( 1,10), rowspan=10, colspan=10)
+    plotsol2(sol)
+
+    subplot2grid((21,20), (11, 0), rowspan=10, colspan=10)
+    plotenergy(H, sol)
+
+    subplot2grid((21,20), (11,10), rowspan=10, colspan=10)
+    plotcomparison(k, sol)
+
+    suptitle("=====    $integrator_str,   Δt = $Δt    =====")
+end
 
 k = rand()
 integrator = VelocityVerlet()
@@ -188,6 +216,23 @@ singlependulum(k, integrator, Δt, t0=-20.0, t1=20.0)
 
 ```julia
 # Two single pendulums
+
+function plotsolenergy(H, integrator, Δt, sol::ODESolution)
+    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
+
+    figure(figsize=(10,8))
+
+    subplot2grid((21,20), ( 1, 0), rowspan=10, colspan=10)
+    plotsol(sol)
+
+    subplot2grid((21,20), ( 1,10), rowspan=10, colspan=10)
+    plotsol2(sol)
+
+    subplot2grid((21,20), (11, 0), rowspan=10, colspan=10)
+    plotenergy(H, sol)
+
+    suptitle("=====    $integrator_str,   Δt = $Δt    =====")
+end
 
 H(q,p,param) = sum(p.^2/2 .- cos.(q) .+ 1)
 q0 = pi*rand(2)
