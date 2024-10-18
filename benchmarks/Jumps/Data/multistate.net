@@ -1,0 +1,49 @@
+# Created by BioNetGen 2.7.0
+begin parameters
+    1 R0           5360  # Constant
+    2 L0           1160  # Constant
+    3 A0           5360  # Constant
+    4 kon          0.01  # Constant
+    5 koff         0.1  # Constant
+    6 kAon         0.01  # Constant
+    7 kAoff        0.1  # Constant
+    8 kAp          0.01  # Constant
+    9 kAdp         0.1  # Constant
+end parameters
+begin species
+    1 R(a,l) R0
+    2 L(r) L0
+    3 A(Y~U,r) A0
+    4 L(r!1).R(a,l!1) 0
+    5 A(Y~U,r!1).R(a!1,l) 0
+    6 A(Y~U,r!1).L(r!2).R(a!1,l!2) 0
+    7 A(Y~P,r!1).L(r!2).R(a!1,l!2) 0
+    8 A(Y~P,r!1).R(a!1,l) 0
+    9 A(Y~P,r) 0
+end species
+begin reactions
+    1 1,2 4 kon #_R1
+    2 1,3 5 kAon #_R2
+    3 2,5 6 kon #_R1
+    4 4 1,2 koff #_reverse__R1
+    5 3,4 6 kAon #_R2
+    6 5 1,3 kAoff #_reverse__R2
+    7 6 2,5 koff #_reverse__R1
+    8 6 3,4 kAoff #_reverse__R2
+    9 6 7 kAp #_R3
+   10 7 2,8 koff #_reverse__R1
+   11 7 4,9 kAoff #_reverse__R2
+   12 7 6 kAdp #_R4
+   13 2,8 7 kon #_R1
+   14 1,9 8 kAon #_R2
+   15 4,9 7 kAon #_R2
+   16 8 1,9 kAoff #_reverse__R2
+   17 8 5 kAdp #_R4
+   18 9 3 kAdp #_R4
+end reactions
+begin groups
+    1 A_P                  7,8,9
+    2 A_unbound_P          9
+    3 A_bound_P            7,8
+    4 RLA_P                7
+end groups
