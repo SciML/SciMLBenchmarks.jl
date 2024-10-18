@@ -33,68 +33,55 @@ concentration curve for each method.
 
 
 # Performance Benchmark (Sanft 2015)
-For our performance benchmark test, we will look at a very simple reaction network. 
+For our performance benchmark test, we will look at a very simple reaction network consisting of conversion reactions of the form A <--> B. 
+
+Below we define the function that we will use to generate the jump problem from this network. Fundamentally 
+we want to test how quickly each SSA updates dependent reaction times in response to a reaction event. To 
+standardize this, we will make each reaction force 10 updates. In a network of conversion reactions Ai <--> Aj, 
+each reaction event will force updates on any reaction that has Ai or Aj as their reactant. The way we will 
+implement 10 updates per event is to make each species the reactant (and product) of 5 different reactions. 
+
+
 ```julia
-rn = @reaction_network begin
-    @parameters kA kB
-    kA, 0 --> A
-    kB, 0 --> B
-end
-```
-
-Below we define the function that we will use to generate the jump problem from this network. Fundamentally we want to test how quickly each SSA updates dependent reaction times in response to a reaction event. To standardize this, we will make each reaction force 10 updates, and force updates to the times by rescaling the rate of those reactions by randexp() at each timestep.  
-```julia
-    # z   A  B
-u0 = [1., 1, 1]
-p = (kA = 1.0, kB = 2.0) 
-rateA(u, p, t) = p.kA * u[1]
-rateB(u, p, t) = p.kB * u[1]
-
-# Our affect resamples u[1] to effectively resample the next time-to-reaction. This is the 
-# simplest way to get random updates on the times, since we don't resample times
-# when the propensities are updated. 
-affectA!(integrator) = (integrator.u[1] = randexp(rng); integrator.u[2] += 1)
-affectB!(integrator) = (integrator.u[1] = randexp(rng); integrator.u[3] += 1)
-
 function generateJumpProblem(method, N::Int64, end_time) 
     depgraph = Vector{Vector{Int64}}()
     jumpvec = Vector{ConstantRateJump}()
+    numspecies = div(N, 5)
+    u0 = 10 * ones(Int64, numspecies)
 
-    for i in 1:N
-        # We make each reaction affect the rates of 10 others, so there are 10 updates per jump. 
-        push!(depgraph, rand(rng, 1:N, 10))
-        iseven(i) ? push!(jumpvec, ConstantRateJump(rateA, affectA!)) : 
-            push!(jumpvec, ConstantRateJump(rateB, affectB!))
+    jumptovars = Vector{Vector{Int64}}()
+    vartojumps = Vector{Vector{Int64}}()
+
+    # This matrix will store the products of each reaction. Reactions 1-5 will have u[1] as the reactant,
+    # reactions 6-10 will have u[2] as the reactant, etc., and their products will be randomly sampled.
+    prods = zeros(Int64, 5, numspecies)
+    for i in 1:numspecies
+        (@view prods[:, i]) .= rand(1:numspecies, 5)
+        push!(vartojumps, vcat(5*(i-1)+1:5*(i-1)+5, @view prods[:, i]))
+    end
+
+    # For each reaction, it will update the rates of reac
+    for sub in 1:numspecies, i in 1:5
+        prod = prods[i, sub]
+
+        push!(depgraph, vcat(5*(sub-1)+1:5*(sub-1)+5, 5*(prod-1)+1:5*(prod-1)+5))
+        push!(jumptovars, [sub, prod])
+        
+        rate(u, p, t) = u[i]
+        affect!(integrator) = begin
+            integrator.u[sub] -= 1
+            integrator.u[prod] += 1
+        end
+
+        push!(jumpvec, ConstantRateJump(rate, affect!))
     end
 
     jset = JumpSet((), jumpvec, nothing, nothing)
     dprob = DiscreteProblem(u0, (0., end_time), p)
-    varstojumps = [collect(1:N), Int64[], Int64[]]
-    jumptovars = [i%2 == 1 ? [2] : [3] for i in 1:N]
-    jump_prob = JumpProblem(dprob, method, jset; dep_graph = depgraph, save_positions = (false, false), rng, jumptovars_map = jumptovars, vartojumps_map = varstojumps)
+    jump_prob = JumpProblem(dprob, method, jset; dep_graph = depgraph, save_positions = (false, false), 
+        rng, jumptovars_map = jumptovars, vartojumps_map = vartojumps)
     jump_prob
 end
-```
-
-# Sanity Check
-Let's look at a few reaction networks to make sure we get consistent results for all the networks. 
-Let's look at one example to make sure that our model seems reasonable. Since 
-half of the reactions correspond to 0 --> A and half correspond to 0 --> B, 
-and the 0 --> B rate constant is twice the 0 --> A rate constant, we'd expect 
-that the A/B ratio would approach 1/2 as the simulation goes on. 
-
-```julia
-end_time = 10.0; N = 1000
-algs = [DirectCR(), CCNRM(), NRM(), RSSACR()]
-plt = plot()
-
-for alg in algs
-    jprob = generateJumpProblem(alg, N, end_time)
-    sol = solve(jprob, SSAStepper(); saveat = end_time/200)
-    ABratio = [u[2]/u[3] for u in sol.u]
-    plot!(plt, sol.t, ABratio, label="$alg", ylims = (0., 1.))
-end
-plot!(plt)
 ```
 
 # Benchmarking performance of the methods
