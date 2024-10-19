@@ -155,9 +155,9 @@ using Plots
 using OrdinaryDiffEq
 
 function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
-    local H(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1
-    local q0 = [0.0]
-    local p0 = [2k]
+    local H(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1  # Hamiltonian for single pendulum
+    local q0 = [0.0]  # Initial position
+    local p0 = [2k]   # Initial momentum
     local prob = HamiltonianProblem(H, p0, q0, (t0, t1))
 
     local integrator_str = replace("$integrator", r"^[^.]*\." => "")
@@ -168,10 +168,10 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
     sleep(0.1)
 
     # Create plots using Plots.jl
-    p1 = plot(sol, label="Position", title="Position vs Time")
-    p2 = plot(sol, label="Momentum", title="Momentum vs Time")
-    p3 = plot(sol.t, map(p -> H(p[2], p[3], nothing), sol.u), label="Energy", title="Energy vs Time")
-    p4 = plot(sol.t, sol.u[1] .- k, label="Comparison", title="Comparison Plot")
+    p1 = plot(sol.t, map(x -> x[1], sol.u), label="Position", title="Position vs Time")
+    p2 = plot(sol.t, map(x -> x[2], sol.u), label="Momentum", title="Momentum vs Time")
+    p3 = plot(sol.t, map(p -> H(p[1], p[2], nothing), sol.u), label="Energy", title="Energy vs Time")
+    p4 = plot(sol.t, map(x -> x[1] - k, sol.u), label="Comparison", title="Comparison Plot")
 
     # Combine all plots in a layout
     layout = @layout [a b; c d]
