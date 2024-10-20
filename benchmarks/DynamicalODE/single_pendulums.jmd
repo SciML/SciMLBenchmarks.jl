@@ -48,107 +48,116 @@ sol2tqp(sol) = (sol.t, sol2q(sol), sol2p(sol))
 #
 sn(u, k) = Jacobi.sn(u, k^2) # the Jacobian sn function
 
-# Use PyPlot.
+# Use Plot.
 #
-using PyPlot
+using Plots
 
+# Define the color list
 colorlist = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
 ]
 cc(k) = colorlist[mod1(k, length(colorlist))]
 
-# plot the sulution of a Hamiltonian problem
-#
+# Function to plot the solution of a Hamiltonian problem
 function plotsol(sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local d = size(q)[2]
+    p1 = plot(title="Solution", xlabel="t", grid=:on)
     for j in 1:d
         j_str = d > 1 ? "[$j]" : ""
-        plot(t, q[:,j], color=cc(2j-1), label="q$(j_str)", lw=1)
-        plot(t, p[:,j], color=cc(2j),   label="p$(j_str)", lw=1, ls="--")
+        plot!(p1, t, q[:, j], color=cc(2j-1), label="q$(j_str)", linewidth=1)
+        plot!(p1, t, p[:, j], color=cc(2j), label="p$(j_str)", linewidth=1, linestyle=:dash)
     end
-    grid(ls=":")
-    xlabel("t")
-    legend()
+    return p1
 end
 
-# plot the solution of a Hamiltonian problem on the 2D phase space
-#
+# Function to plot the solution on the 2D phase space
 function plotsol2(sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local d = size(q)[2]
+    p2 = plot(title="Phase Space", xlabel="q", ylabel="p", grid=:on)
     for j in 1:d
         j_str = d > 1 ? "[$j]" : ""
-        plot(q[:,j], p[:,j], color=cc(j), label="(q$(j_str),p$(j_str))", lw=1)
+        plot!(p2, q[:, j], p[:, j], color=cc(j), label="(q$(j_str), p$(j_str))", linewidth=1)
     end
-    grid(ls=":")
-    xlabel("q")
-    ylabel("p")
-    legend()
+    return p2
 end
 
-# plot the energy of a Hamiltonian problem
-#
+# Function to plot the energy of a Hamiltonian problem
 function plotenergy(H, sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local energy = [H(q[i,:], p[i,:], nothing) for i in 1:size(q)[1]]
-    plot(t, energy, label="energy", color="red", lw=1)
-    grid(ls=":")
-    xlabel("t")
-    legend()
-    local stdenergy_str = @sprintf("%.3e", std(energy))
-    title("                    std(energy) = $stdenergy_str", fontsize=10)
+    p3 = plot(t, energy, label="energy", color="red", linewidth=1, xlabel="t", title="Energy", grid=:on)
+    stdenergy_str = @sprintf("%.3e", std(energy))
+    title!("std(energy) = $stdenergy_str", fontsize=10)
+    return p3
 end
 
-# plot the numerical and exact solutions of a single pendulum
-#
-# Warning: Assume q(0) = 0, p(0) = 2k.   (for the sake of laziness)
-#
+# Function to compare the numerical and exact solutions of a single pendulum
 function plotcomparison(k, sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
-    local y = sin.(q/2)
-    local y_exact = k*sn.(t, k) # the exact solution
+    local y = sin.(q / 2)
+    local y_exact = k * sn.(t, k) # the exact solution
 
-    plot(t, y,       label="numerical", lw=1)
-    plot(t, y_exact, label="exact",     lw=1, ls="--")
-    grid(ls=":")
-    xlabel("t")
-    ylabel("y = sin(q(t)/2)")
-    legend()
-    local error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
-    title("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
+    p4 = plot(t, y, label="numerical", linewidth=1, grid=:on, xlabel="t", ylabel="y = sin(q(t)/2)", title="Comparison")
+    plot!(p4, t, y_exact, label="exact", linewidth=1, linestyle=:dash)
+    error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
+    title!("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
+    return p4
 end
 
-# plot solution and energy
-#
+# Plot solution and energy
 function plotsolenergy(H, integrator, Δt, sol::ODESolution)
-    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
+    integrator_str = replace("$integrator", r"^[^.]*\\." => "")
 
-    figure(figsize=(10,8))
+    p1 = plotsol(sol)
+    p2 = plotsol2(sol)
+    p3 = plotenergy(H, sol)
 
-    subplot2grid((21,20), ( 1, 0), rowspan=10, colspan=10)
-    plotsol(sol)
-
-    subplot2grid((21,20), ( 1,10), rowspan=10, colspan=10)
-    plotsol2(sol)
-
-    subplot2grid((21,20), (11, 0), rowspan=10, colspan=10)
-    plotenergy(H, sol)
-
-    suptitle("=====    $integrator_str,   Δt = $Δt    =====")
+    suptitle = "===== $integrator_str, Δt = $Δt ====="
+    plot(p1, p2, p3, layout=(3, 1), title=suptitle)
 end
 
 # Solve a single pendulum
-#
 function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
-    local H(p,q,params) = p[1]^2/2 - cos(q[1]) + 1
-    local q0 = [0.0]
-    local p0 = [2k]
+    H(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1
+    q0 = [0.0]
+    p0 = [2k]
+    prob = HamiltonianProblem(H, p0, q0, (t0, t1))
+
+    integrator_str = replace("$integrator", r"^[^.]*\\." => "")
+    @printf("%-25s", "$integrator_str:")
+    sol = solve(prob, integrator, dt=Δt)
+    @time sol = solve(prob, integrator, dt=Δt)
+
+    sleep(0.1)
+    
+    p1 = plotsol(sol)
+    p2 = plotsol2(sol)
+    p3 = plotenergy(H, sol)
+    p4 = plotcomparison(k, sol)
+
+    suptitle = "===== $integrator_str, Δt = $Δt ====="
+    plot(p1, p2, p3, p4, layout=(2, 2), title=suptitle)
+end
+```
+
+## Tests
+
+```julia
+# Single pendulum
+using Plots
+using OrdinaryDiffEq
+
+function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
+    local H(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1  # Hamiltonian for single pendulum
+    local q0 = [0.0]  # Initial position
+    local p0 = [2k]   # Initial momentum
     local prob = HamiltonianProblem(H, p0, q0, (t0, t1))
 
     local integrator_str = replace("$integrator", r"^[^.]*\." => "")
@@ -157,28 +166,17 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
     @time local sol = solve(prob, integrator, dt=Δt)
 
     sleep(0.1)
-    figure(figsize=(10,8))
 
-    subplot2grid((21,20), ( 1, 0), rowspan=10, colspan=10)
-    plotsol(sol)
+    # Create plots using Plots.jl
+    p1 = plot(sol.t, map(x -> x[1], sol.u), label="Position", title="Position vs Time")
+    p2 = plot(sol.t, map(x -> x[2], sol.u), label="Momentum", title="Momentum vs Time")
+    p3 = plot(sol.t, map(p -> H(p[1], p[2], nothing), sol.u), label="Energy", title="Energy vs Time")
+    p4 = plot(sol.t, map(x -> x[1] - k, sol.u), label="Comparison", title="Comparison Plot")
 
-    subplot2grid((21,20), ( 1,10), rowspan=10, colspan=10)
-    plotsol2(sol)
-
-    subplot2grid((21,20), (11, 0), rowspan=10, colspan=10)
-    plotenergy(H, sol)
-
-    subplot2grid((21,20), (11,10), rowspan=10, colspan=10)
-    plotcomparison(k, sol)
-
-    suptitle("=====    $integrator_str,   Δt = $Δt    =====")
+    # Combine all plots in a layout
+    layout = @layout [a b; c d]
+    plot(p1, p2, p3, p4, layout=layout, size=(1000, 800), title="===== $integrator_str, Δt = $Δt =====")
 end
-```
-
-## Tests
-
-```julia
-# Single pendulum
 
 k = rand()
 integrator = VelocityVerlet()
@@ -189,8 +187,24 @@ singlependulum(k, integrator, Δt, t0=-20.0, t1=20.0)
 ```julia
 # Two single pendulums
 
-H(q,p,param) = sum(p.^2/2 .- cos.(q) .+ 1)
-q0 = pi*rand(2)
+using Plots
+using OrdinaryDiffEq
+
+function plotsolenergy(H, integrator, Δt, sol::ODESolution)
+    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
+
+    # Create plots using Plots.jl
+    p1 = plot(sol, label="Position", title="Position vs Time")
+    p2 = plot(sol, label="Momentum", title="Momentum vs Time")
+    p3 = plot(sol.t, map(p -> H(p[2], p[3], nothing), sol.u), label="Energy", title="Energy vs Time")
+
+    # Combine all plots in a layout
+    layout = @layout [a b; c]
+    plot(p1, p2, p3, layout=layout, size=(1000, 800), title="===== $integrator_str, Δt = $Δt =====")
+end
+
+H(q, p, param) = sum(p.^2 / 2 .- cos.(q) .+ 1)
+q0 = pi * rand(2)
 p0 = zeros(2)
 t0, t1 = -20.0, 20.0
 prob = HamiltonianProblem(H, q0, p0, (t0, t1))
