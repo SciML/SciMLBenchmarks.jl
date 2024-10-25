@@ -10,8 +10,6 @@ using Sundials, LSODA
 using ODEInterface, ODEInterfaceDiffEq
 ```
 
-```julia
-#=
 The ODE function defined below models the reduced carbon-oxygen 
 chemistry network of Nelson & Langer (1999, ApJ, 524, 923).
 
@@ -31,8 +29,8 @@ and M represents the low ionization potential metals Mg, Fe, Ca, and Na.
     G₀ = 1.7   --> Go; "a factor that determines the flux of FUV radiation relative to the standard interstellar value (G₀ = 1) as reported by Habing (1968)."
     n_H = 611  --> Hydrogen Number Density
     shield = 1 --> "CO self-shielding factor of van Dishoeck & Black (1988), taken from Bergin et al. (1995)"
-=#
 
+```julia
 function Nelson!(du,u,p,t)
     T, Av, Go, n_H, shield = p
 
@@ -164,7 +162,6 @@ u0 = [0.5,      # 1:  H2
       2.0e-7,   # 13: M+
       2.0e-7]   # 14: M
 
-
 prob = ODEProblem(Nelson!, u0, tspan, params)
 refsol = solve(prob, Vern9(), abstol=1e-14, reltol=1e-14)
 sol1 = solve(prob, Rodas5P())
@@ -172,7 +169,9 @@ sol2 = solve(prob, FBDF())
 sol3 = solve(prob, lsoda())
 sol4 = solve(prob, lsoda(), saveat = 1e10)
 
+## Validation Plot
 
+```julia
 using Plots
 colors = palette(:acton, 5)
 p1 = plot(sol1, vars = (0,11), lc=colors[1], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using Rodas5 (correct solution)")
