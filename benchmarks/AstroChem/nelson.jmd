@@ -15,7 +15,7 @@ using ODEInterface, ODEInterfaceDiffEq
 The ODE function defined below models the reduced carbon-oxygen 
 chemistry network of Nelson & Langer (1999, ApJ, 524, 923).
 
-This Julia ODE function was written by Nina De La Torre advised by Stella Offner.
+This Julia ODE function was written by Nina De La Torre advised by Dr. Stella Offner.
 The solution was compared with results derived by DESPOTIC, (Mark Krumholz, 2013) 
 a code to Derive the Energetics and Spectra of Optically Thick Insterstellar Clouds. 
 DESPOTIC has pre-defined networks, one of them coming from the Nelson & Langer paper, 
@@ -167,18 +167,18 @@ u0 = [0.5,      # 1:  H2
 
 prob = ODEProblem(Nelson!, u0, tspan, params)
 refsol = solve(prob, Vern9(), abstol=1e-14, reltol=1e-14)
-
 sol1 = solve(prob, Rodas5P())
 sol2 = solve(prob, FBDF())
-sol3 = solve(prob, QNDF())
-sol4 = solve(prob, CVODE_BDF())
+sol3 = solve(prob, lsoda())
+sol4 = solve(prob, lsoda(), saveat = 1e10)
+
 
 using Plots
 colors = palette(:acton, 5)
 p1 = plot(sol1, vars = (0,11), lc=colors[1], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using Rodas5 (correct solution)")
 p2 = plot(sol2, vars = (0,11), lc=colors[2], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using FBDF")
-p3 = plot(sol3, vars = (0,11), lc=colors[3], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using QNDF")
-p4 = plot(sol4, vars = (0,11), lc=colors[4], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using CVODE FBDF")
+p3 = plot(sol3, vars = (0,11), lc=colors[3], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using lsoda")
+p4 = plot(sol4, vars = (0,11), lc=colors[4], legend = false, titlefontsize = 12, lw = 3, xlabel = "", title = "HCO+ solved using lsoda with saveat")
 combined_plot = plot(p1, p2, p3, p4, layout=(4, 1), dpi = 600, pallete=:acton)
 display(combined_plot)
 ```
