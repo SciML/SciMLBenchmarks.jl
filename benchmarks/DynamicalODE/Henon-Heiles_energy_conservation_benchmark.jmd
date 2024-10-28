@@ -63,12 +63,27 @@ function hamilton(du, u, p, t)
     return nothing
 end
 
+function custom_manifold_jacobian(u, params)
+    p1, p2, q1, q2 = u
+
+    J = zeros(4, 4)
+
+    J[1, 1] = 1.0
+    J[2, 2] = 1.0 
+    J[3, 3] = 1 + 2 * q_2
+    J[3, 4] = 2 * q1    
+    J[4, 3] = 2 * q1      
+    J[4, 4] = 1 - 4 * q2
+
+    return J
+end
+
 function g(resid, u, p)
     resid[1] = H([u[1], u[2]], [u[3], u[4]], nothing) - E
     resid[2:4] .= 0
 end
 
-const cb = ManifoldProjection(g, nlopts=Dict(:ftol => 1e-13))
+const cb = ManifoldProjection(g, nlopts=Dict(:ftol => 1e-13), manifold_jacobian = custom_manifold_jacobian)
 const E = H(iip_p0, iip_q0, nothing)
 ```
 
