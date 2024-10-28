@@ -29,23 +29,6 @@ function iip_dq(dq, p, q, params, t)
     dq[2] = A * p[2]
 end
 
-function manifold_jacobian!(J, u)
-    p₁, p₂ = u[1], u[2]
-    q₁, q₂ = u[3], u[4]
-    
-    q₁_sq = q₁^2
-    q₂_sq = q₂^2
-    q_sum_sq = q₁_sq + q₂_sq
-    
-    J[1,1] = A * p₁
-    J[1,2] = A * p₂
-    J[1,3] = A * q₁ + (B/√2) * (3q₂_sq - 3q₁_sq) + D * q₁ * q_sum_sq
-    J[1,4] = A * q₂ + (B/√2) * 6q₁q₂ + D * q₂ * q_sum_sq
-    J[2:4,:] .= 0
-    
-    nothing
-end
-
 function iip_dp(dp, p, q, params, t)
     dp[1] = -A * q[1] - 3 * B / sqrt(2) * (q[2]^2 - q[1]^2) - D * q[1] * (q[1]^2 + q[2]^2)
     dp[2] = -q[2] * (A + 3 * sqrt(2) * B * q[1] + D * (q[1]^2 + q[2]^2))
@@ -84,7 +67,7 @@ function g(resid, u, p)
 end
 
 const E = H(iip_p0, iip_q0, nothing)
-const cb = ManifoldProjection(g;  nlsolve = (f,u0) -> (res = nlsolve(f, u0; ftol=1e-13); res.zero),  manifold_jacobian=manifold_jacobian!)
+const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13));
 ```
 
 For the comparison we will use the following function
