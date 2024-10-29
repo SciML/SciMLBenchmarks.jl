@@ -92,11 +92,11 @@ abs_energy_err(sol) = [abs.(H([sol[1,j], sol[2,j]], [sol[3,j], sol[4,j]],nothing
 
 function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     if mode == :inplace
-        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax))
+        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax), nothing)
     else
-        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax))
+        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax), nothing)
     end
-    prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax))
+    prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax), nothing)
 
     GC.gc()
     (mode == :inplace  && all) && @time sol1 = solve(prob, Vern9(), callback=cb, abstol=1e-14, reltol=1e-14)

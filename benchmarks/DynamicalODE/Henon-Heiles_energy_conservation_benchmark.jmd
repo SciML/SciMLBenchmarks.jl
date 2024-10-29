@@ -64,7 +64,7 @@ function hamilton(du, u, p, t)
 end
 
 function custom_manifold_jacobian(u, params)
-    p1, p2, q1, q2 = u
+    p1, p2, q1, q2 = u[1], u[2], u[3], u[4]
 
     J = zeros(4, 4)
 
@@ -95,9 +95,9 @@ abs_energy_err(sol) = [abs.(H([sol[1, j], sol[2, j]], [sol[3, j], sol[4, j]], no
 
 function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     if mode == :inplace
-        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax))
+        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax), nothing)
     else
-        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax))
+        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax), nothing)
     end
     prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax))
 
