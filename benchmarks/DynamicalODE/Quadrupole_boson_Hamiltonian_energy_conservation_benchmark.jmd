@@ -62,15 +62,15 @@ function hamilton(z, params, t)
 end
 
 function custom_manifold_jacobian(u, params)
-    p0, p2, q0, q2 = u
+    p1, p2 = u[1], u[2]
+    q1, q2 = u[3], u[4]
 
+    # Define Jacobian matrix based on the current state vector components
     J = zeros(4, 4)
-
-    J[1, 1] = A * p0 
-    J[2, 2] = A * p2
-
-    J[3, 3] = A * q0 - sqrt(2) * B * (3 * q2^2 - q0^2) + D * q0 * (q0^2 + q2^2)  # ∂H/∂q0
-    J[4, 4] = A * q2 + 6 * B * q0 * q2 + D * q2 * (q0^2 + q2^2)                   # ∂H/∂q2
+    J[1, 1] = A
+    J[2, 2] = A
+    J[3, 3] = -A - 3 * sqrt(2) * B * q2^2 + D * q1 * (q1^2 + q2^2)
+    J[4, 4] = -A - 3 * sqrt(2) * B * q1^2 + D * q2 * (q1^2 + q2^2)
 
     return J
 end
