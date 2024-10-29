@@ -14,7 +14,7 @@ The aim of this benchmark is to see what happens with the energy error when high
 using OrdinaryDiffEq, Plots, DiffEqCallbacks, LinearAlgebra
 using TaylorIntegration
 using ParameterizedFunctions
-using StaticArrays
+using StaticArrays, ADTypes
 gr()
 default(fmt=:png)
 
@@ -61,27 +61,13 @@ function hamilton(z, params, t)
     )
 end
 
-function custom_manifold_jacobian(u, params)
-    p1, p2 = u[1], u[2]
-    q1, q2 = u[3], u[4]
-
-    # Define Jacobian matrix based on the current state vector components
-    J = zeros(4, 4)
-    J[1, 1] = A
-    J[2, 2] = A
-    J[3, 3] = -A - 3 * sqrt(2) * B * q2^2 + D * q1 * (q1^2 + q2^2)
-    J[4, 4] = -A - 3 * sqrt(2) * B * q1^2 + D * q2 * (q1^2 + q2^2)
-
-    return J
-end
-
 function g(resid, u, p)
     resid[1] = H([u[1],u[2]],[u[3],u[4]],nothing) - E
     resid[2:4] .= 0
 end
 
 const E = H(iip_p0, iip_q0, nothing)
-const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13), manifold_jacobian = custom_manifold_jacobian);
+const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13), autodiff = AutoFiniteDiff());
 ```
 
 For the comparison we will use the following function

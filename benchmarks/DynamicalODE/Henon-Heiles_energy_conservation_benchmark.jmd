@@ -19,6 +19,7 @@ In order to separate these two, we will use `iip` for the in-place names and `oo
 using OrdinaryDiffEq, Plots, DiffEqCallbacks
 using SciMLBenchmarks
 using TaylorIntegration, LinearAlgebra, StaticArrays
+using ADTypes
 gr(fmt=:png)
 default(fmt=:png)
 
@@ -63,27 +64,12 @@ function hamilton(du, u, p, t)
     return nothing
 end
 
-function custom_manifold_jacobian(u, params)
-    p1, p2, q1, q2 = u[1], u[2], u[3], u[4]
-
-    J = zeros(4, 4)
-
-    J[1, 1] = 1.0
-    J[2, 2] = 1.0 
-    J[3, 3] = 1 + 2 * q2
-    J[3, 4] = 2 * q1    
-    J[4, 3] = 2 * q1      
-    J[4, 4] = 1 - 4 * q2
-
-    return J
-end
-
 function g(resid, u, p)
     resid[1] = H([u[1], u[2]], [u[3], u[4]], nothing) - E
     resid[2:4] .= 0
 end
 
-const cb = ManifoldProjection(g, nlopts=Dict(:ftol => 1e-13), manifold_jacobian=custom_manifold_jacobian)
+const cb = ManifoldProjection(g, nlopts=Dict(:ftol => 1e-13), autodiff = AutoFiniteDiff())
 const E = H(iip_p0, iip_q0, nothing)
 ```
 
@@ -95,9 +81,9 @@ abs_energy_err(sol) = [abs.(H([sol[1, j], sol[2, j]], [sol[3, j], sol[4, j]], no
 
 function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     if mode == :inplace
-        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax), nothing)
+        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax))
     else
-        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax), nothing)
+        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax))
     end
     prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax))
 
