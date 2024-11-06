@@ -14,7 +14,7 @@ The aim of this benchmark is to see what happens with the energy error when high
 using OrdinaryDiffEq, Plots, DiffEqCallbacks, LinearAlgebra
 using TaylorIntegration
 using ParameterizedFunctions
-using StaticArrays, ADTypes
+using StaticArrays
 gr()
 default(fmt=:png)
 
@@ -67,7 +67,7 @@ function g(resid, u, p)
 end
 
 const E = H(iip_p0, iip_q0, nothing)
-const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13), autodiff = AutoFiniteDiff());
+const cb = ManifoldProjection(g, nlopts=Dict(:ftol=>1e-13));
 ```
 
 For the comparison we will use the following function
@@ -78,11 +78,11 @@ abs_energy_err(sol) = [abs.(H([sol[1,j], sol[2,j]], [sol[3,j], sol[4,j]],nothing
 
 function compare(mode=:inplace, all=true, plt=nothing; tmax=1e2)
     if mode == :inplace
-        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax), nothing)
+        prob = DynamicalODEProblem(iip_dp, iip_dq, iip_p0, iip_q0, (0., tmax))
     else
-        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax), nothing)
+        prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0., tmax))
     end
-    prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax), nothing)
+    prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0., tmax))
 
     GC.gc()
     (mode == :inplace  && all) && @time sol1 = solve(prob, Vern9(), callback=cb, abstol=1e-14, reltol=1e-14)
