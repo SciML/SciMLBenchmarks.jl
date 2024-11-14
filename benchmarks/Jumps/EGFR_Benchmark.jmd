@@ -9,8 +9,31 @@ using JumpProcesses, Plots, StableRNGs, Random, BenchmarkTools, ReactionNetworkI
 
 We will benchmark the aggregators of JumpProcesses on a epidermal growth factor receptor signaling network (356 species, 3749 reactions).[^1]
 
+Let's first look at how the model equilibriates to make sure we get consistent results for all the methods. Let's plot the dimer concentration as a function of time using each of the different stochastic simulation algorithms.
+
+```julia
+tf = 10.
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+egfr_net= loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net"));
+dprob = DiscreteProblem(complete(egfr_net.rn), egfr_net.u0, (0., tf), egfr_net.p)
+dprob = remake(dprob,u0=Int64.(dprob.u0))
+
+plt = plot(title="Dimer concentrations")
+for alg in algs
+    jprob = JumpProblem(complete(egfr_net.rn), dprob, alg)
+    sol = solve(jprob, SSAStepper(), saveat = tf/200)
+    plot!(plt, sol, idxs = :Dimers, label="$alg")
+end
+plot!(plt)
+```
+These results seem pretty reasonable - it seems like we're getting the same dimer
+concentration curve for each method.
+
+
 # Model Benchmark
-We define a function to benchmark the model and then plot the results in a benchmark. 
+We define a function to benchmark the model and then plot the results in a benchmark. The goal is to see how the SSAs perform relative to each other. 
+
 ```julia
 function benchmark_and_bar_plot(model, end_time, algs)
     times = Vector{Float64}()
@@ -24,23 +47,24 @@ function benchmark_and_bar_plot(model, end_time, algs)
         dprob = remake(dprob,u0 = Int64.(dprob.u0))
         jprob = JumpProblem(complete(model.rn), dprob, alg; rng, save_positions = (false, false))
 
-        b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 3 seconds = 3600
+        b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 5 seconds = 7200
         bm = run(b)
-        push!(times, median(bm).time/2e9)
+        push!(times, median(bm).time/1e9)
     end
 
-    bar(alg_names, times, xlabel = "Algorithm", ylabel = "Average Time", title = "SSA Runtime for EGFR network", legend = false)
+    bar(alg_names, times, xlabel = "Algorithm", ylabel = "Average Time (s)", title = "SSA Runtime for EGFR network", legend = false)
 end
 ```
 
-Now we benchmark the EGFR network on the four algorithms. 
+Now we benchmark the EGFR network on the four algorithms and plot the results. 
 ```julia
 tf = 10. 
 rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
 EGFR_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")); 
 
-benchmark_and_bar_plot(EGFR_net, tf, algs)
+plt = benchmark_and_bar_plot(EGFR_net, tf, algs)
+plt
 ```
 
 ### References
