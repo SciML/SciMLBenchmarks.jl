@@ -12,10 +12,10 @@ We will benchmark the aggregators of JumpProcesses on a epidermal growth factor 
 Let's first look at how the model equilibriates to make sure we get consistent results for all the methods. Let's plot the dimer concentration as a function of time using each of the different stochastic simulation algorithms.
 
 ```julia
-tf = 10.
+tf = 12.
 rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
-egfr_net= loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net"));
+egfr_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net"));
 dprob = DiscreteProblem(complete(egfr_net.rn), egfr_net.u0, (0., tf), egfr_net.p)
 dprob = remake(dprob,u0=Int64.(dprob.u0))
 
@@ -37,7 +37,7 @@ We define a function to benchmark the model and then plot the results in a bench
 ```julia
 function benchmark_and_bar_plot(model, end_time, algs)
     times = Vector{Float64}()
-    alg_names = ["$s"[1:end-2] for s in algs]
+    alg_names = ["$s"[15:end-2] for s in algs]
 
     benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
     for (i, alg) in enumerate(algs)
@@ -58,12 +58,11 @@ end
 
 Now we benchmark the EGFR network on the four algorithms and plot the results. 
 ```julia
-tf = 10. 
+tf = 12. 
 rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
-EGFR_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")); 
 
-plt = benchmark_and_bar_plot(EGFR_net, tf, algs)
+plt = benchmark_and_bar_plot(egfr_net, tf, algs)
 plt
 ```
 
