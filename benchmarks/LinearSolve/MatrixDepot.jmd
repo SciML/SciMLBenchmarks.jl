@@ -33,6 +33,7 @@ allmatrices_md = listnames("*/*")
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
 matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
+bandedness = fill(NaN, length(allmatrices_md.content[1].rows))
 ```
 
 ```julia
@@ -65,6 +66,22 @@ for z in 1:length(allmatrices_md.content[1].rows)
             times[z,j] = bt
         end
 
+        total_band_positions = 0
+        non_zero_in_band = 0
+        bandwidth = 5
+        for r in 1:n
+            for c in 1:n
+                if abs(r - c) <= bandwidth
+                    total_band_positions += 1  # This position belongs to the band
+                    if A[r, c] != 0
+                        non_zero_in_band += 1  # This element is non-zero in the band
+                    end
+                end
+            end
+        end
+
+        percentage_filled = non_zero_in_band / total_band_positions * 100
+        bandedness[z] = percentage_filled
         #=
         p = bar(algnames, times[z, :];
             ylabel = "Time/s",
@@ -106,6 +123,18 @@ p = scatter(percentage_sparsity, times;
     xscale = :log10,
     label = algnames_transpose,
     title = "Factorization Time vs Percentage Sparsity",
+    fmt = :png,
+    legend = :outertopright)
+```
+
+```julia
+p = scatter(bandedness, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Bandedness",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Bandedness",
     fmt = :png,
     legend = :outertopright)
 ```
