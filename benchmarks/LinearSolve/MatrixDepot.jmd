@@ -53,14 +53,15 @@ for z in 1:length(allmatrices_md.content[1].rows)
         mtx_copy = copy(A)
 
         @info "$n × $n"
-        n > 500 && error("Skipping too large matrices")
+        n > 100 && error("Skipping too large matrices")
 
         rows, cols = size(mtx_copy)
         new_rows = div(rows, 2)
         new_cols = div(cols, 2)
         condensed = zeros(Int, new_rows, new_cols) 
 
-        while size(condensed, 1) > 32 || size(condensed, 2) > 32
+        while size(mtx_copy, 1) > 32 || size(mtx_copy, 2) > 32
+           
             rows, cols = size(mtx_copy)
             new_rows = div(rows, 2)
             new_cols = div(cols, 2)
@@ -68,20 +69,20 @@ for z in 1:length(allmatrices_md.content[1].rows)
 
             for r in 1:2:rows-1
                 for c in 1:2:cols-1
-                    block = sparse(mtx_copy[r:r+1, c:c+1])
-                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 3) ? 1 : 0
+                    block = mtx_copy[r:min(r+1, rows), c:min(c+1, cols)]
+                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 2) ? 1 : 0
                 end
             end 
-
+            
             mtx_copy = condensed
+           
         end
-        
+       
 
         percentage_sparsity[z] = length(nonzeros(A)) / n^2
         
         spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
 
-        
 
         b = rand(rng, n)
         u0 = rand(rng, n)
@@ -107,7 +108,17 @@ for z in 1:length(allmatrices_md.content[1].rows)
     end
 end
 
-print(percentage_sparsity)
+percentage_sparsity = percentage_sparsity[.!isnan.(percentage_sparsity)]
+spaced_out_sparsity = spaced_out_sparsity[.!isnan.(spaced_out_sparsity)]
+spaced_out_sparsity = replace(spaced_out_sparsity, 0 => 1e-10)
+matrix_size = matrix_size[.!isnan.(matrix_size)]
+new_times = []
+for row in eachrow(times)
+    if !any(isnan, row)  # Check if the row does not contain NaN values
+        push!(new_times, row)  # Append the row to the list
+    end
+end
+times = new_times
 ```
 
 ```julia
