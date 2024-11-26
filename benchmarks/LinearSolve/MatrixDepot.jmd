@@ -37,7 +37,8 @@ matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
 ```
 
 ```julia
-for z in 1:length(allmatrices_md.content[1].rows)
+# for z in 1:length(allmatrices_md.content[1].rows)
+for z in 1:200
     try
         matrix = allmatrices_md.content[1].rows[z]
         matrix = string(matrix[1])
@@ -54,7 +55,7 @@ for z in 1:length(allmatrices_md.content[1].rows)
 
         @info "$n × $n"
         n > 100 && error("Skipping too large matrices")
-        matrix_size[z] = n
+        
 
         rows, cols = size(mtx_copy)
         new_rows = div(rows, 2)
@@ -79,12 +80,6 @@ for z in 1:length(allmatrices_md.content[1].rows)
            
         end
        
-
-        percentage_sparsity[z] = length(nonzeros(A)) / n^2
-        
-        spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
-
-
         b = rand(rng, n)
         u0 = rand(rng, n)
 
@@ -96,7 +91,9 @@ for z in 1:length(allmatrices_md.content[1].rows)
                 alias_b = true))
             times[z,j] = bt
         end
-
+        matrix_size[z] = n
+        percentage_sparsity[z] = length(nonzeros(A)) / n^2
+        spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
         println("successfully factorized $(currMTX)")
     catch e
         matrix = allmatrices_md.content[1].rows[z]
