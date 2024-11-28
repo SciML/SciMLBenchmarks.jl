@@ -32,6 +32,7 @@ allmatrices_md = listnames("*/*")
 @info "Total number of matrices: $(allmatrices_md.content[1].rows)"
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
+spaced_out_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
 matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
 bandedness = fill(NaN, length(allmatrices_md.content[1].rows))
 ```
@@ -48,12 +49,37 @@ for z in 1:length(allmatrices_md.content[1].rows)
         A = mdopen(currMTX).A
         A = convert(SparseMatrixCSC, A)
         n = size(A, 1)
-        matrix_size[z] = n
-        percentage_sparsity[z] = length(nonzeros(A)) / n^2
+        
+
+        mtx_copy = copy(A)
+
         @info "$n × $n"
+        n > 100 && error("Skipping too large matrices")
+        
 
-        n > 500 && error("Skipping too large matrices")
+        rows, cols = size(mtx_copy)
+        new_rows = div(rows, 2)
+        new_cols = div(cols, 2)
+        condensed = zeros(Int, new_rows, new_cols) 
 
+        while size(mtx_copy, 1) > 32 || size(mtx_copy, 2) > 32
+           
+            rows, cols = size(mtx_copy)
+            new_rows = div(rows, 2)
+            new_cols = div(cols, 2)
+            condensed = sparse(zeros(Int, new_rows, new_cols))
+
+            for r in 1:2:rows-1
+                for c in 1:2:cols-1
+                    block = mtx_copy[r:min(r+1, rows), c:min(c+1, cols)]
+                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 2) ? 1 : 0
+                end
+            end 
+            
+            mtx_copy = condensed
+           
+        end
+       
         b = rand(rng, n)
         u0 = rand(rng, n)
 
@@ -103,6 +129,13 @@ for z in 1:length(allmatrices_md.content[1].rows)
         println(e)
     end
 end
+
+percentage_sparsity = percentage_sparsity[.!isnan.(percentage_sparsity)]
+spaced_out_sparsity = spaced_out_sparsity[.!isnan.(spaced_out_sparsity)]
+spaced_out_sparsity = replace(spaced_out_sparsity, 0 => 1e-10)
+matrix_size = matrix_size[.!isnan.(matrix_size)]
+nanrows = any(isnan, times; dims=2)
+times = times[.!vec(nanrows), :]
 ```
 
 ```julia
@@ -147,6 +180,18 @@ p = scatter(matrix_size, times;
     xscale = :log10,
     label = algnames_transpose,
     title = "Factorization Time vs Matrix Size",
+    fmt = :png,
+    legend = :outertopright)
+```
+
+```julia
+p = scatter(spaced_out_sparsity, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Spaced Out Sparsity",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Spaced Out Sparsity",
     fmt = :png,
     legend = :outertopright)
 ```
