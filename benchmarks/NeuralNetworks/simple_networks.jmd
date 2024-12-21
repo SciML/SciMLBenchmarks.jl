@@ -1,0 +1,364 @@
+---
+title: Simple Neural Networks
+author: Avik Pal
+---
+
+This benchmark compares Julia deep learning frameworks on some common workloads. Currently
+we only test our models on CPU. We compare inference using:
+
+1. [Flux.jl](https://github.com/FluxML/Flux.jl)
+2. [Lux.jl](https://github.com/LuxDL/Lux.jl)
+3. [SimpleChains.jl](https://github.com/PumasAI/SimpleChains.jl) (via Lux.jl wrapper)
+4. Lux model compiled using [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl)
+
+!!! note
+
+    Not all benchmarks include all the 4 mentioned above. For example, SimpleChains.jl
+    lacks support for batch normalization layers. Additionally, Reactant.jl is being
+    actively developed and integration of more Lux models with Reactant is ongoing.
+
+Additionally training is compared among:
+
+1. [Zygote.jl](https://github.com/FluxML/Zygote.jl) + Flux.jl
+2. Zygote.jl + Lux.jl
+3. [Enzyme.jl](https://github.com/EnzymeAD/Enzyme.jl) + Lux.jl
+
+# Setup
+
+Fetch required packages.
+
+```julia
+import DispatchDoctor: allow_unstable
+
+using BenchmarkTools, Random
+import Flux, SimpleChains, Reactant
+using Lux
+using Zygote, Enzyme
+using Statistics
+using CairoMakie
+
+BenchmarkTools.DEFAULT_PARAMETERS.gcsample = true
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 30
+```
+
+## Shared Benchmarking Functions
+
+```julia
+function compile_reactant_inference(model, x, ps, st)
+    # FIXME: This is currently broken
+    cmodel = Reactant.make_tracer(IdDict(), model, (), Reactant.ArrayToConcrete)
+    cps = Reactant.make_tracer(IdDict(), ps, (), Reactant.ArrayToConcrete)
+    cst = Reactant.make_tracer(IdDict(), st, (), Reactant.ArrayToConcrete)
+    cx = Reactant.ConcreteRArray(x)
+
+    lux_apply_compiled = allow_unstable() do
+        Reactant.compile((a, b, c, d) -> first(a(b, c, d)), (cmodel, cx, cps, cst))
+    end
+
+    return lux_apply_compiled, cmodel, cps, cst, cx
+end
+
+function benchmark_inference(xsize::Dims, flux_model, lux_model, ps_lux, st_lux,
+        batch_sizes; name=nothing, use_simple_chains::Bool=false, use_reactant::Bool=false)
+    name !== nothing && @info "Benchmarking $name Inference"
+
+    @assert !use_reactant "Reactant inference is currently broken"
+
+    st_lux_test = Lux.testmode(st_lux)
+    Flux.testmode!(flux_model)
+
+    lux_timings = zeros(length(batch_sizes))
+    lux_allocs = zeros(length(batch_sizes))
+
+    flux_timings = zeros(length(batch_sizes))
+    flux_allocs = zeros(length(batch_sizes))
+
+    simple_chains_timings = zeros(length(batch_sizes))
+    simple_chains_allocs = zeros(length(batch_sizes))
+
+    for (i, batch_size) in enumerate(batch_sizes)
+        x = randn(Float32, xsize..., batch_size)
+
+        # Lux
+        lux_trial = @benchmark $(lux_model)($x, $ps_lux, $st_lux_test)
+        lux_trial = median(lux_trial)
+
+        lux_timings[i] = lux_trial.time / 1e9
+        lux_allocs[i] = lux_trial.memory / (1024 * 1024)
+
+        # Flux
+        flux_trial = @benchmark $(flux_model)($x)
+        flux_trial = median(flux_trial)
+
+        flux_timings[i] = flux_trial.time / 1e9
+        flux_allocs[i] = flux_trial.memory / (1024 * 1024)
+
+        if use_simple_chains
+            # SimpleChains
+            simple_chains_model = ToSimpleChainsAdaptor(xsize)(lux_model)
+            ps_sc, st_sc = Lux.setup(Random.default_rng(), simple_chains_model)
+            simple_chains_trial = @benchmark $(simple_chains_model)($x, $ps_sc, $st_sc)
+            simple_chains_trial = median(simple_chains_trial)
+
+            simple_chains_timings[i] = simple_chains_trial.time / 1e9
+            simple_chains_allocs[i] = simple_chains_trial.memory / (1024 * 1024)
+        end
+
+        @info "Batch Size: $batch_size, Lux: $(lux_timings[i])s [$(lux_allocs[i])MB], \
+               Flux: $(flux_timings[i])s [$(flux_allocs[i])MB], \
+               SimpleChains: $(simple_chains_timings[i])s [$(simple_chains_allocs[i])MB]"
+    end
+
+    data = Dict{String, NamedTuple}(
+        "Lux" => (; timings=lux_timings, allocs=lux_allocs),
+        "Flux" => (; timings=flux_timings, allocs=flux_allocs)
+    )
+    if use_simple_chains
+        data["SimpleChains"] = (; timings=simple_chains_timings,
+            allocs=simple_chains_allocs)
+    end
+    return data
+end
+```
+
+## Shared Plotting Functions
+
+```julia
+const ASPECT_RATIO = 0.7
+const WIDTH = 1000
+const HEIGHT = WIDTH * ASPECT_RATIO
+const STROKEWIDTH = 2.5
+
+function plot_inference_results(results, batch_sizes, name)
+    cycle = Cycle([:marker, :linestyle], covary=true)
+    colors = cgrad(:seaborn_bright6, 6; categorical=true)[1:4]
+    theme = Theme(Lines=(cycle=cycle,), Scatter=(cycle=cycle,))
+
+    key_to_color = Dict("Lux" => colors[1], "Flux" => colors[2],
+        "SimpleChains" => colors[3], "Reactant" => colors[4])
+    key_to_linestyle = Dict("Lux" => :solid, "Flux" => :dash, "SimpleChains" => :dot,
+        "Reactant" => :dashdot)
+
+    return with_theme(theme) do
+        fig = Figure(; size = (WIDTH, HEIGHT))
+
+        ax = Axis(fig[1, 1], xlabel="Batch Size (log2 scale)",
+                  ylabel="Inference Time (s) (log2 scale)",
+                  xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
+                  xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
+                  ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
+
+        handles, labels = [], String[]
+        for key in keys(results)
+            hasproperty(results[key], :timings) || continue
+            timings = results[key].timings
+            l = lines!(ax, batch_sizes, timings, color=key_to_color[key], linewidth=3,
+                linestyle=key_to_linestyle[key])
+            sc = scatter!(ax, batch_sizes, timings, color=key_to_color[key], markersize=20)
+            push!(handles, [l, sc])
+            push!(labels, key)
+        end
+
+        axislegend(ax, handles, labels; framevisible=true, framewidth=STROKEWIDTH,
+            labelsize=16, position=:lt, patchsize = (60.0f0, 20.0f0))
+
+        ax = Axis(fig[1, 2], xlabel="Batch Size (log2 scale)",
+                  ylabel="Allocated Memory (MB) (log2 scale)",
+                  xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
+                  xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
+                  ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
+
+        handles, labels = [], String[]
+        for key in keys(results)
+            hasproperty(results[key], :allocs) || continue
+            allocs = results[key].allocs
+            l = lines!(ax, batch_sizes, allocs, color=key_to_color[key], linewidth=3,
+                linestyle=key_to_linestyle[key])
+            sc = scatter!(ax, batch_sizes, allocs, color=key_to_color[key], markersize=20)
+            push!(handles, [l, sc])
+            push!(labels, key)
+        end
+
+        axislegend(ax, handles, labels; framevisible=true, framewidth=STROKEWIDTH,
+            labelsize=16, position=:lt, patchsize = (60.0f0, 20.0f0))
+
+        fig[0, :] = Label(fig, "Inference $(name)", fontsize=24, tellwidth=false,
+            font=:bold)
+
+        return fig
+    end
+end
+```
+
+# 7 Layer MLP (relu) Benchmark
+
+## Setup
+
+```julia
+flux_model = Flux.Chain(
+    Flux.Dense(32, 256, relu),
+    [Flux.Dense(256, 256, relu) for _ in 1:5]...,
+    Flux.Dense(256, 10),
+)
+
+## Make sure parameters and states are exactly the same
+lux_model = FromFluxAdaptor(; preserve_ps_st=true)(flux_model)
+ps_lux, st_lux = Lux.setup(Random.default_rng(), lux_model)
+
+batch_sizes = [1, 2, 8, 32, 128, 512, 2048]
+nothing
+```
+
+## Inference
+
+```julia
+results = benchmark_inference((32,), flux_model, lux_model, ps_lux, st_lux, batch_sizes;
+    name="7 Layer MLP (relu)", use_simple_chains=true)
+
+plot_inference_results(results, batch_sizes, "7 Layer MLP (relu)")
+```
+
+## Training
+
+# 7 Layer MLP (gelu) Benchmark
+
+## Setup
+
+```julia
+flux_model = Flux.Chain(
+    Flux.Dense(32, 256, gelu),
+    [Flux.Dense(256, 256, gelu) for _ in 1:5]...,
+    Flux.Dense(256, 10),
+)
+
+## Make sure parameters and states are exactly the same
+lux_model = FromFluxAdaptor(; preserve_ps_st=true)(flux_model)
+ps_lux, st_lux = Lux.setup(Random.default_rng(), lux_model)
+
+batch_sizes = [1, 2, 8, 32, 128, 512, 2048]
+nothing
+```
+
+## Inference
+
+```julia
+results = benchmark_inference((32,), flux_model, lux_model, ps_lux, st_lux, batch_sizes;
+    name="7 Layer MLP (gelu)", use_simple_chains=true)
+
+plot_inference_results(results, batch_sizes, "7 Layer MLP (gelu)")
+```
+
+## Training
+
+
+# 7 Layer MLP (relu) with Batch Normalization Benchmark
+
+## Setup
+
+```julia
+flux_model = Flux.Chain(
+    Flux.Dense(32, 256),
+    Flux.BatchNorm(256, relu),
+    [
+        Flux.Chain(Flux.Dense(256, 256), Flux.BatchNorm(256, relu))
+        for _ in 1:5
+    ]...,
+    Flux.Dense(256, 10),
+)
+
+## Make sure parameters and states are exactly the same
+lux_model = FromFluxAdaptor(; preserve_ps_st=true)(flux_model)
+ps_lux, st_lux = Lux.setup(Random.default_rng(), lux_model)
+
+batch_sizes = [1, 2, 8, 32, 128, 512, 2048]
+nothing
+```
+
+## Inference
+
+```julia
+results = benchmark_inference((32,), flux_model, lux_model, ps_lux, st_lux, batch_sizes,
+    name="7 Layer MLP + BN (relu)")
+
+plot_inference_results(results, batch_sizes, "7 Layer MLP + BN (relu)")
+```
+
+## Training
+
+# 7 Layer MLP (gelu) with Batch Normalization Benchmark
+
+## Setup
+
+```julia
+flux_model = Flux.Chain(
+    Flux.Dense(32, 256),
+    Flux.BatchNorm(256, gelu),
+    [
+        Flux.Chain(Flux.Dense(256, 256), Flux.BatchNorm(256, gelu))
+        for _ in 1:5
+    ]...,
+    Flux.Dense(256, 10),
+)
+
+## Make sure parameters and states are exactly the same
+lux_model = FromFluxAdaptor(; preserve_ps_st=true)(flux_model)
+ps_lux, st_lux = Lux.setup(Random.default_rng(), lux_model)
+
+batch_sizes = [1, 2, 8, 32, 128, 512, 2048]
+nothing
+```
+
+## Inference
+
+```julia
+results = benchmark_inference((32,), flux_model, lux_model, ps_lux, st_lux, batch_sizes,
+    name="7 Layer MLP + BN (gelu)")
+
+plot_inference_results(results, batch_sizes, "7 Layer MLP + BN (gelu)")
+```
+
+## Training
+
+# LeNet 5 Benchmark
+
+## Setup
+
+```julia
+flux_model = Flux.Chain(
+    Flux.Conv((5, 5), 1=>6, relu),
+    Flux.MaxPool((2, 2)),
+    Flux.Conv((5, 5), 6=>16, relu),
+    Flux.MaxPool((2, 2)),
+    Flux.flatten,
+    Flux.Dense(256 => 120, relu),
+    Flux.Dense(120 => 84, relu),
+    Flux.Dense(84 => 10),
+)
+
+## Make sure parameters and states are exactly the same
+lux_model = FromFluxAdaptor(; preserve_ps_st=true)(flux_model)
+ps_lux, st_lux = Lux.setup(Random.default_rng(), lux_model)
+
+batch_sizes = [1, 2, 8, 32, 128]
+nothing
+```
+
+## Inference
+
+```julia
+# TODO: Simple Chains model will need a little massaging to work with this
+results = benchmark_inference((28, 28, 1), flux_model, lux_model, ps_lux, st_lux,
+    batch_sizes, name="LeNet 5")
+
+plot_inference_results(results, batch_sizes, "LeNet 5")
+```
+
+## Training
+
+# ResNet (Small) Benchmark
+
+## Setup
+
+## Inference
+
+## Training
