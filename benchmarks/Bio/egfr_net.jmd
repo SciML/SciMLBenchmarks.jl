@@ -26,12 +26,12 @@ tf       = 10.0
 
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/egfr_net.net"))
-show(to) 
-rn    = prnbng.rn
+show(to)
+rn    = complete(prnbng.rn)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = convert(ODESystem, rn)
-show(to) 
+@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
+show(to)
 
 tspan = (0.,tf)
 @timeit to "ODEProb No Jac" oprob = ODEProblem{true, SciMLBase.FullSpecialize}(osys, Float64[], tspan, Float64[])
@@ -55,9 +55,9 @@ As compiling the ODE derivative functions has in the past taken longer than
 running a simulation, we first force compilation by evaluating these functions
 one time.
 ```julia
-u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
+u  = oprob.u0
 du = copy(u)
-p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
+p  = oprob.p
 @timeit to "ODE rhs Eval1" oprob.f(du,u,p,0.)
 @timeit to "ODE rhs Eval2" oprob.f(du,u,p,0.)
 sparsejacprob.f(du,u,p,0.)
@@ -93,18 +93,6 @@ test_sol  = TestSolution(sol);
 default(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
 ```
 
-#### Declares a plotting helper function
-
-```julia
-function plot_settings(wp)
-    times = vcat(map(wp -> wp.times, wp.wps)...)
-    errors = vcat(map(wp -> wp.errors, wp.wps)...)
-    xlimit = 10 .^ (floor(log10(minimum(errors))), ceil(log10(maximum(errors))))
-    ylimit = 10 .^ (floor(log10(minimum(times))), ceil(log10(maximum(times))))
-    return xlimit,ylimit
-end
-```
-
 #### Sets tolerances
 
 ```julia
@@ -124,7 +112,7 @@ setups = [
           Dict(:alg=>lsoda()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>CVODE_BDF(linear_solver=:LapackDense)),
-          Dict(:alg=>CVODE_Adams()),  
+          Dict(:alg=>CVODE_Adams()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>QNDF()),
           Dict(:alg=>FBDF()),
@@ -144,8 +132,7 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=100)
 
 names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Declare solvers (using GMRES linear solver)
@@ -174,8 +161,7 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=100)
 
 names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Declare solvers (using sparse jacobian)
@@ -203,8 +189,7 @@ wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=100)
 
 names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 ## Explicit Work-Precision Diagram
@@ -216,14 +201,14 @@ Benchmarks for explicit solvers.
 We designate the solvers we wish to use, this also includes lsoda and CVODE.
 ```julia
 setups = [
-          Dict(:alg=>lsoda()), 
-          Dict(:alg=>CVODE_Adams()), 
-          Dict(:alg=>Tsit5()), 
-          Dict(:alg=>BS5()), 
-          Dict(:alg=>VCABM()),          
-          Dict(:alg=>Vern6()), 
-          Dict(:alg=>Vern7()), 
-          Dict(:alg=>Vern8()), 
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>CVODE_Adams()),
+          Dict(:alg=>Tsit5()),
+          Dict(:alg=>BS5()),
+          Dict(:alg=>VCABM()),
+          Dict(:alg=>Vern6()),
+          Dict(:alg=>Vern7()),
+          Dict(:alg=>Vern8()),
           Dict(:alg=>Vern9()),
           Dict(:alg=>ROCK4())
           ];
@@ -236,8 +221,7 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
 
 names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK4"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Additional explicit solvers
@@ -247,8 +231,7 @@ setups = [Dict(:alg=>ROCK2())];
 wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                       saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e9),numruns=200)
 names = ["ROCK2"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 ## Summary of results
@@ -262,8 +245,8 @@ setups = [
           Dict(:alg=>CVODE_BDF(linear_solver=:GMRES), :prob_choice => 1),
           Dict(:alg=>QNDF(linsolve=KrylovJL_GMRES()), :prob_choice => 2),
           Dict(:alg=>QNDF(linsolve=KLUFactorization()), :prob_choice => 2),
-          Dict(:alg=>BS5(), :prob_choice => 1),     
-          Dict(:alg=>Vern6(), :prob_choice => 1), 
+          Dict(:alg=>BS5(), :prob_choice => 1),
+          Dict(:alg=>Vern6(), :prob_choice => 1),
           Dict(:alg=>ROCK4(), :prob_choice => 1)
           ];
 ```
@@ -278,9 +261,7 @@ wp = WorkPrecisionSet([oprob,sparsejacprob],abstols,reltols,setups;error_estimat
 names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "QNDF (KLU)" "BS5" "Vern6" "ROCK4"]
 colors = [:seagreen1 :darkgreen :deepskyblue1 :deepskyblue4 :thistle2 :lightslateblue :purple4]
 markershapes = [:star4 :rect :hexagon :octagon :star8 :rtriangle :square]
-xlimit,ylimit = plot_settings(wp)
-xlimit = xlimit .* [0.95,1/0.95]; ylimit = ylimit .* [0.95,1/0.95]; 
-plot(wp;label=names,left_margin=10Plots.mm,right_margin=10Plots.mm,xlimit=xlimit,ylimit=ylimit,xticks=[1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2],yticks=[1e-2,1e-1],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
+plot(wp;label=names,left_margin=10Plots.mm,right_margin=10Plots.mm,xticks=[1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2],yticks=[1e-2,1e-1],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
 ```
 
 

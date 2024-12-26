@@ -9,7 +9,8 @@ This is a test of a simple small nonlinear rootfinding problem.
 using NonlinearSolve, StaticArrays, DiffEqDevTools, Sundials, CairoMakie, LinearSolve,
     LinearAlgebra, StableRNGs, BenchmarkTools, Setfield
 import PolyesterForwardDiff, MINPACK, NLsolve, SpeedMapping
-RUS = RadiusUpdateSchemes;
+
+const RUS = RadiusUpdateSchemes;
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5;
 
 f_oop(u, p) = u .* u .- p
@@ -18,7 +19,8 @@ f_iip(du, u, p) = @. du = u * u - p
 function generate_prob(::Val{N}, ::Val{static}) where {N, static}
     u0_ = ones(N) .+ randn(StableRNG(0), N) * 0.01
     u0 = static ? SVector{N, Float64}(u0_) : u0_
-    prob = static ? NonlinearProblem{false}(f_oop, u0, 2.0) :
+    prob = static ?
+           NonlinearProblem{false}(f_oop, u0, 2.0) :
            NonlinearProblem{true}(f_iip, u0, 2.0)
     return prob
 end
@@ -207,46 +209,28 @@ save("regular_arrays_quadratic.svg", fig)
 ## Comparison against SimpleNonlinearSolve
 
 ```julia
-function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm{CJ, N}, ck) where {CJ, N}
-    ad = AutoForwardDiff(; chunksize = ck)
-    return GeneralizedFirstOrderAlgorithm{CJ, N}(; solver.descent, solver.linesearch,
-        solver.trustregion, jacobian_ad = ad, solver.max_shrink_times, solver.forward_ad,
-        solver.reverse_ad)
-end
-function __set_ad_chunksize(solver::SimpleNewtonRaphson, ck)
-    solver.autodiff === nothing || return solver
-    autodiff = AutoForwardDiff(; chunksize = ck)
-    return SimpleNewtonRaphson(; autodiff)
-end
-function __set_ad_chunksize(solver::SimpleTrustRegion, ck)
-    solver.autodiff === nothing || return solver
-    autodiff = AutoForwardDiff(; chunksize = ck)
-    return SimpleTrustRegion(; autodiff)
-end
-__set_ad_chunksize(solver, _) = solver
-
 function benchmark_combinations(solvers, probs)
     return map(Iterators.product(solvers, probs)) do (solver, prob)
         try
-            solver_concrete = prob.u0 isa SArray ? solver.solver[:alg] :
-                __set_ad_chunksize(solver.solver[:alg],
-                    min(NonlinearSolve.pickchunksize(prob.u0), 6))
-
+            solver_concrete = solver.solver[:alg]
+            termination_condition = NonlinearSolveBase.AbsNormTerminationMode(
+                Base.Fix1(maximum, abs))
             sol = solve(prob, solver_concrete; abstol = 1e-10, reltol = 1e-10,
-                maxiters = 1000, termination_condition = AbsNormTerminationMode())
+                maxiters = 1000, termination_condition)
             @info "Solver $(solver.name) successfully solved the problem with norm = \
                 $(norm(sol.resid, Inf))."
             
             if norm(sol.resid, Inf) ≤ 1e-10
                 tt = @belapsed solve($prob, $solver_concrete; abstol = 1e-10,
-                    reltol = 1e-10, maxiters = 1000)
+                    reltol = 1e-10, maxiters = 1000,
+                    termination_condition = $termination_condition)
                 @info "Solver $(solver.name) took $(tt) seconds."
                 return tt
             else
                 return NaN
             end
         catch e
-            @error "Solver $(solver.name) threw an error."
+            @error "Solver $(solver.name) threw an error $(e)."
             return NaN
         end
     end
@@ -299,15 +283,14 @@ fig = begin
 
         ax = Axis(fig[1, i];
             ylabel = "",
-            title = L"N = %$(length(probs_sa[i].u0))$",
+            title = L"$N = %$(length(probs_sa[i].u0))$",
             titlegap = 10, xticksvisible = false, yticksvisible = true,
             xticklabelsvisible = false, yticklabelsvisible = true, titlesize = 22,
             spinewidth = STROKEWIDTH, xlabelsize = 22, ylabelsize = 22,
             xticklabelrotation = π / 4, xticklabelsize = 20, yticklabelsize = 20)
         axs[1, i] = ax
 
-        barplot!(ax, xs, ys; dogde = dodge, color = dodge, colormap = :seaborn_bright,
-            strokewidth = 2)
+        barplot!(ax, xs, ys; color = dodge, colormap = :seaborn_bright, strokewidth = 2)
 
         hlines!(ax, [1.0], color = :black, linestyle = :dash, linewidth = 2)
     end
@@ -324,7 +307,7 @@ fig = begin
 
         ax = Axis(fig[2, i];
             ylabel = "",
-            title = L"N = %$(length(probs_reg[i].u0))$",
+            title = L"$N = %$(length(probs_reg[i].u0))$",
             titlegap = 10, xticksvisible = true, yticksvisible = true,
             xticklabelsvisible = true, yticklabelsvisible = true, titlesize = 22,
             spinewidth = STROKEWIDTH, xlabelsize = 22, ylabelsize = 22,

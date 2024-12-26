@@ -30,9 +30,35 @@ cols = [:red, :blue, :green, :magenta, :turqoise] # one color per alg
 allmatrices_md = listnames("*/*")
 
 @info "Total number of matrices: $(allmatrices_md.content[1].rows)"
+
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
+spaced_out_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
 matrix_size = fill(NaN, length(allmatrices_md.content[1].rows))
+bandedness_five = fill(NaN, length(allmatrices_md.content[1].rows))
+bandedness_ten = fill(NaN, length(allmatrices_md.content[1].rows))
+bandedness_twenty = fill(NaN, length(allmatrices_md.content[1].rows))
+
+function compute_bandedness(A, bandwidth)
+    n = size(A, 1)
+    total_band_positions = 0
+    non_zero_in_band = 0
+    bandwidth = bandwidth
+    for r in 1:n
+        for c in 1:n
+            if abs(r - c) <= bandwidth
+                total_band_positions += 1  # This position belongs to the band
+                if A[r, c] != 0
+                    non_zero_in_band += 1  # This element is non-zero in the band
+                end
+            end
+        end
+    end
+
+    percentage_filled = non_zero_in_band / total_band_positions * 100
+    return percentage_filled
+end
+
 ```
 
 ```julia
@@ -47,12 +73,34 @@ for z in 1:length(allmatrices_md.content[1].rows)
         A = mdopen(currMTX).A
         A = convert(SparseMatrixCSC, A)
         n = size(A, 1)
-        matrix_size[z] = n
-        percentage_sparsity[z] = length(nonzeros(A)) / n^2
+        
+        mtx_copy = copy(A)
+
         @info "$n × $n"
+        n > 100 && error("Skipping too large matrices")
+        
+        ## COMPUTING SPACED OUT SPARSITY
+        rows, cols = size(mtx_copy)
+        new_rows = div(rows, 2)
+        new_cols = div(cols, 2)
+        condensed = zeros(Int, new_rows, new_cols) 
+        while size(mtx_copy, 1) > 32 || size(mtx_copy, 2) > 32
+           
+            rows, cols = size(mtx_copy)
+            new_rows = div(rows, 2)
+            new_cols = div(cols, 2)
+            condensed = sparse(zeros(Int, new_rows, new_cols))
 
-        n > 500 && error("Skipping too large matrices")
-
+            for r in 1:2:rows-1
+                for c in 1:2:cols-1
+                    block = mtx_copy[r:min(r+1, rows), c:min(c+1, cols)]
+                    condensed[div(r-1, 2) + 1, div(c-1, 2) + 1] = (length(nonzeros(block)) >= 2) ? 1 : 0
+                end
+            end        
+            mtx_copy = condensed 
+        end
+       
+        ## COMPUTING FACTORIZATION TIME
         b = rand(rng, n)
         u0 = rand(rng, n)
 
@@ -64,6 +112,13 @@ for z in 1:length(allmatrices_md.content[1].rows)
                 alias_b = true))
             times[z,j] = bt
         end
+
+        bandedness_five[z] = compute_bandedness(A, 5)
+        bandedness_ten[z] = compute_bandedness(A, 10)
+        bandedness_twenty[z] = compute_bandedness(A, 20)
+        percentage_sparsity[z] = length(nonzeros(A)) / n^2
+        spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
+        matrix_size[z] = n
 
         #=
         p = bar(algnames, times[z, :];
@@ -86,6 +141,19 @@ for z in 1:length(allmatrices_md.content[1].rows)
         println(e)
     end
 end
+
+percentage_sparsity = percentage_sparsity[.!isnan.(percentage_sparsity)]
+spaced_out_sparsity = spaced_out_sparsity[.!isnan.(spaced_out_sparsity)]
+spaced_out_sparsity = replace(spaced_out_sparsity, 0 => 1e-10)
+bandedness_five = bandedness_five[.!isnan.(bandedness_five)]
+bandedness_five = replace(bandedness_five, 0 => 1e-10)
+bandedness_ten = bandedness_ten[.!isnan.(bandedness_ten)]
+bandedness_ten = replace(bandedness_ten, 0 => 1e-10)
+bandedness_twenty = bandedness_twenty[.!isnan.(bandedness_twenty)]
+bandedness_twenty = replace(bandedness_twenty, 0 => 1e-10)
+matrix_size = matrix_size[.!isnan.(matrix_size)]
+nanrows = any(isnan, times; dims=2)
+times = times[.!vec(nanrows), :]
 ```
 
 ```julia
@@ -122,6 +190,51 @@ p = scatter(matrix_size, times;
     legend = :outertopright)
 ```
 
+```julia
+p = scatter(spaced_out_sparsity, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Spaced Out Sparsity",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Spaced Out Sparsity",
+    fmt = :png,
+    legend = :outertopright)
+```
+
+```julia
+p = scatter(bandedness_five, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Bandedness",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Bandedness, Bandwidth=5",
+    fmt = :png,
+    legend = :outertopright)
+```
+```julia
+p = scatter(bandedness_ten, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Bandedness",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Bandedness, Bandwidth=10",
+    fmt = :png,
+    legend = :outertopright)
+```
+```julia
+p = scatter(bandedness_twenty, times;
+    ylabel = "Time/s",
+    yscale = :log10,
+    xlabel = "Bandedness",
+    xscale = :log10,
+    label = algnames_transpose,
+    title = "Factorization Time vs Bandedness, Bandwidth=20",
+    fmt = :png,
+    legend = :outertopright)
+```
 
 ## Appendix
 

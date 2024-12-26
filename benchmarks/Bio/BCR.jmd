@@ -27,10 +27,10 @@ tf       = 100000.0
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
 show(to)
-rn    = prnbng.rn
+rn    = complete(prnbng.rn)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = convert(ODESystem, rn)
+@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
 show(to)
 
 tspan = (0.,tf)
@@ -56,12 +56,12 @@ As compiling the ODE derivative functions has in the past taken longer than
 running a simulation, we first force compilation by evaluating these functions
 one time.
 ```julia
-u  = ModelingToolkit.varmap_to_vars(nothing, species(rn); defaults=ModelingToolkit.defaults(rn))
+u = oprob.u0
 du = copy(u)
-p  = ModelingToolkit.varmap_to_vars(nothing, parameters(rn); defaults=ModelingToolkit.defaults(rn))
+p = oprob.p
 @timeit to "ODE rhs Eval1" oprob.f(du,u,p,0.)
-@timeit to "ODE rhs Eval2" oprob.f(du,u,p,0.)
-sparsejacprob.f(du,u,p,0.)
+@timeit to "ODE rhs spjac Eval1" sparsejacprob.f(du,u,p,0.)
+show(to)
 ```
 
 We also time the ODE rhs function with BenchmarkTools as it is more accurate
@@ -97,18 +97,6 @@ test_sol  = TestSolution(sol);
 
 ```julia
 default(legendfontsize=7,framestyle=:box,gridalpha=0.3,gridlinewidth=2.5)
-```
-
-#### Declares a plotting helper function
-
-```julia
-function plot_settings(wp)
-    times = vcat(map(wp -> wp.times, wp.wps)...)
-    errors = vcat(map(wp -> wp.errors, wp.wps)...)
-    xlimit = 10 .^ (floor(log10(minimum(errors))), ceil(log10(maximum(errors))))
-    ylimit = 10 .^ (floor(log10(minimum(times))), ceil(log10(maximum(times))))
-    return xlimit,ylimit
-end
 ```
 
 #### Declare pre-conditioners
@@ -189,8 +177,7 @@ wp = WorkPrecisionSet([oprob,oprob_sparse,sparsejacprob],abstols,reltols,setups;
                     saveat=tf/10000.,appxsol=[test_sol,test_sol,test_sol],maxiters=Int(1e6),numruns=1)
 
 names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "CVODE_BDF (GMRES, iLU)" "CVODE_BDF (KLU, sparse jac)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 ## Work-Precision Diagrams (various Julia solvers)
@@ -213,8 +200,7 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                     saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),numruns=1)
 
 names = ["TRBDF2" "QNDF" "FBDF" "KenCarp4"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Declare solvers (using GMRES linear solver).
@@ -235,8 +221,7 @@ wp = WorkPrecisionSet(oprob,abstols,reltols,setups;error_estimate=:l2,
                     saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),numruns=1)
 
 names = ["TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Declare solvers (using GMRES linear solver, with pre-conditioner).
@@ -257,8 +242,7 @@ wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                     saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),numruns=1)
 
 names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 #### Declare solvers (using sparse jacobian)
@@ -282,8 +266,7 @@ wp = WorkPrecisionSet(sparsejacprob,abstols,reltols,setups;error_estimate=:l2,
                     saveat=tf/10000.,appxsol=test_sol,maxiters=Int(1e6),numruns=1)
 
 names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
-xlimit,ylimit = plot_settings(wp)
-plot(wp;label=names,xlimit=xlimit,ylimit=ylimit)
+plot(wp;label=names)
 ```
 
 ## Summary of results
@@ -312,9 +295,7 @@ wp = WorkPrecisionSet([oprob,oprob_sparse,sparsejacprob],abstols,reltols,setups;
 names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 colors = [:green :deepskyblue1 :dodgerblue2 :royalblue2 :slateblue3 :lightskyblue]
 markershapes = [:octagon :hexagon :rtriangle :pentagon :ltriangle :star5]
-xlimit,ylimit = plot_settings(wp)
-xlimit = xlimit .* [0.95,1/0.95]; ylimit = ylimit .* [0.95,1/0.95]; 
-plot(wp;label=names,left_margin=10Plots.mm,right_margin=10Plots.mm,xlimit=xlimit,ylimit=ylimit,xticks=[1e-3,1e-2,1e-1,1e0,1e1,1e2,1e3],yticks=[1e0,1e1,1e2,1e3],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
+plot(wp;label=names,left_margin=10Plots.mm,right_margin=10Plots.mm,xticks=[1e-3,1e-2,1e-1,1e0,1e1,1e2,1e3],yticks=[1e0,1e1,1e2,1e3],color=colors,markershape=markershapes,legendfontsize=15,tickfontsize=15,guidefontsize=15, legend=:topright, lw=20, la=0.8, markersize=20,markerstrokealpha=1.0, markerstrokewidth=1.5, gridalpha=0.3, gridlinewidth=7.5,size=(1100,1000))
 ```
 
 ```julia, echo = false
