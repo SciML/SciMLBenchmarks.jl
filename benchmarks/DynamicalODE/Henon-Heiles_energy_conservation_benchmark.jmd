@@ -68,7 +68,15 @@ function g(resid, u, p)
     resid[2:4] .= 0
 end
 
-const cb = ManifoldProjection(g, nlopts=Dict(:ftol => 1e-13))
+function g_jacobian(J, u, p)
+    J[1, 1] = u[1]
+    J[1, 2] = u[2]
+    J[1, 3] = u[3]
+    J[1, 4] = u[4]
+    J[2:4, :] .= 0
+end
+
+const cb = ManifoldProjection(g, manifold_jacobian=g_jacobian, nlopts=Dict(:ftol => 1e-13))
 
 const E = H(iip_p0, iip_q0, nothing)
 ```
