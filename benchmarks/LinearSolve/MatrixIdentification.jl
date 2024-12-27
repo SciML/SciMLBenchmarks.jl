@@ -86,6 +86,8 @@ function sparsestructure(A::SparseMatrixCSC)::Any
     if upper_triangular
         return UpperTriangular(A)
     end
+
+    return SparseMatrixCSC(A)
 end
 
 
