@@ -37,7 +37,6 @@ analytic_sol_func(t, x) = -2*nu*(-(-8*t + 2*x)*exp(-(-4*t + x)^2/(4*nu*(t + 1)))
 
 ```julia
 function burgers(strategy, minimizer)
-
     @parameters x t
     @variables u(..)
     Dt = Differential(t)
@@ -47,16 +46,16 @@ function burgers(strategy, minimizer)
     eq = Dt(u(x, t)) + u(x, t) * Dx(u(x, t)) ~ nu * Dxx(u(x, t))
 
     bcs = [u(x, 0.0) ~ analytic_sol_func(x, 0.0),
-        u(0.0, t) ~ u(x_max, t)]
+           u(0.0, t) ~ u(x_max, t)]
 
     domains = [x ∈ Interval(0.0, x_max),
-        t ∈ Interval(0.0, t_max)]
+               t ∈ Interval(0.0, t_max)]
 
     chain = Lux.Chain(Lux.Dense(2, 16, tanh), Lux.Dense(16, 16, tanh), Lux.Dense(16, 1))
     discretization = PhysicsInformedNN(chain, strategy)
 
-    indvars = [x, t]   #physically independent variables
-    depvars = [u]      #dependent (target) variable
+    indvars = [x, t]   # physically independent variables
+    depvars = [u]      # dependent (target) variable
 
     dim = length(domains)
 
@@ -77,28 +76,23 @@ function burgers(strategy, minimizer)
     end
 
     cb = function (p, l)
-
         timeCounter = 0.0
-        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
+        deltaT_s = time_ns() # Start a clock when the callback begins
 
-        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime / 10^9) #Conversion nanosec to seconds
+        ctime = time_ns() - startTime - timeCounter # Time for the time benchmark plot
+        append!(times, ctime / 10^9) # Conversion nanosec to seconds
         append!(losses, l)
-        append!(error, loss_function__(p))
-        #println(length(losses), " Current loss is: ", l, " uniform error is, ", loss_function__(p))
+        append!(error, l)
 
-        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
+        timeCounter = timeCounter + time_ns() - deltaT_s # Sum all delays due to the callback functions
 
         return false
     end
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
+    prob = discretize(pde_system, discretization)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
-    prob = NeuralPDE.discretize(pde_system, discretization)
-
-    startTime = time_ns() #Fix initial time (t=0) before starting the training
-
+    startTime = time_ns() # Fix initial time (t=0) before starting the training
 
     if minimizer == "both"
         res = Optimization.solve(prob, ADAM(); callback=cb, maxiters=5)
