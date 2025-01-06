@@ -40,6 +40,7 @@ function convU0(uvec)
     m[:,:,3]  = vec2matrix(uvec[2Nx*Ny+1:3*Nx*Ny])
     return m
 end
+
 #Model Parameters---------------------------------------------------------------------------------------------------------------------
 #Model size
 const Nx = 66;
@@ -58,7 +59,7 @@ const τ0 = 0.4;
 const Dc =  get_parameterDistribution(0.004,1e2*0.004);
 const a = 0.015;
 const b =  get_parameterDistribution(0.02,0.01);
-#ODE----------------------------------------------------------------------------------------------------------------------------------
+
 function f0(du,u,p,t)
     #du+dθ-----------------------------------------------------------------------
     @inbounds for i in 1:Nx, j in 1:Ny
@@ -92,7 +93,7 @@ function f0(du,u,p,t)
           du[Ny,Nx,2] = @. 1/m*kc*(u[Ny,Nx-1,1]+u[Ny-1,Nx,1]-2*u[Ny,Nx,1]) - 1/m*kp*u[Ny,Nx,1] - 1/m*σn[Ny,Nx]*a*asinh(u[Ny,Nx,2]/2/v0*exp((τ0+b[Ny,Nx]*log(v0*abs(u[Ny,Nx,3])/Dc[Ny,Nx]))/a))
       end
 end
-#Initial Conditions---------------------------------------------------------------------------------------------------------------------------
+
 function get_IC()
     #derives initial conditions from equilibrium + perturbation of the initial position using GaussianRandomFields
     probN = NonlinearProblem(f,input, nothing);
@@ -106,8 +107,7 @@ function get_IC()
     u0[:,:,1] =  (1.0.+0.001.-1e-7.*s[1:Ny,1:Nx]).*u0[:,:,1] #makes sure only forward acceleration takes place when launching the simulation
     return u0
 end
-#ODE Speed-up----------------------------------------------------------------------------------------------------------------
-#copy of https://docs.sciml.ai/SciMLBenchmarksOutput/stable/StiffODE/Bruss/
+
 input = rand(Ny,Nx,3);
 output = similar(input);
 sparsity_pattern = Symbolics.jacobian_sparsity(f0,output,input,nothing,0.0);
@@ -123,15 +123,13 @@ cb2 =  DiscreteCallback(is_end,terminate!,save_positions=(false,false))
 solver = KenCarp47(linsolve=KLUFactorization());
 abstol = 1e-12;
 reltol = 1e-8;
-#--------------------------------------------------------------------------------------------------------------------------------
-#Solve the ODE in 2 parts: (1) low cumulative velocity (<0.01) phase, (2) high cumulative velocity (>0.01) phase. When interested in multiple stick (1) and slip (2) phases, the code of (1) and (2) would typically run within a `while`-loop
-#for Work-Precision Diagram, use either (1)+(2); or just (2)
-#code (1): From u0 to onset of high cumulative velocity (>0.01)
+
 u0 = get_IC();
 tspan = (0.0,1e9); 
 prob1 = ODEProblem(f,u0,tspan,nothing);
 sys = modelingtoolkitize(prob1);
-prob_mtk1 = ODEProblem(modelingtoolkitize(prob1),[],tspan,jac=true,sparse=true);
+sys_simplified = structural_simplify(sys)
+prob_mtk1 = ODEProblem(sys_simplified,[],tspan,jac=true,sparse=true);
 global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk1,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb1); #about 55 sec
 u1 = sol.u[end];
 t1 = sol.t[end];
@@ -139,7 +137,9 @@ test_sol1 = TestSolution(sol)
 #code (2): high cumulative velocity (>0.01) following phase (1)
 tspan = (0.0,1e4);
 prob2 = ODEProblem(f,convU0(u1),tspan,nothing);
-prob_mtk2 = ODEProblem(modelingtoolkitize(prob2),[],tspan,jac=true,sparse=true);
+sys2 = modelingtoolkitize(prob2);
+sys2_simplified = structural_simplify(sys2)
+prob_mtk2 = ODEProblem(sys2_simplified,[],tspan,jac=true,sparse=true);
 global sol,tcpu, bytes, gctime, memallocs = @timed solve(prob_mtk2,solver,reltol = reltol,abstol = abstol,maxiters = Int(1e12),save_everystep = false,dtmin = 1e-20,callback = cb2); #about 175 sec
 u2 = sol.u[end];
 t2 = t1 + sol.t[end];
