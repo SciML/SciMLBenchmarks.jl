@@ -19,10 +19,24 @@ glo_init = [5,5,5,5]
 ```
 
 ```julia
-f = @ode_def LotkaVolterraTest begin
-    dx = a*x - b*x*y
-    dy = -c*y + d*x*y
-end a b c d
+@mtkmodel LotkaVolterraTest begin
+    @parameters begin
+        a = 1.5  # Growth rate of prey
+        b = 1.0  # Predation rate
+        c = 3.0  # Death rate of predators
+        d = 1.0  # Reproduction rate of predators
+    end
+    @variables begin
+        x(t) = 1.0  # Population of prey with initial condition
+        y(t) = 1.0  # Population of predators with initial condition
+    end
+    @equations begin
+        D(x) ~ a * x - b * x * y
+        D(y) ~ -c * y + d * x * y
+    end
+end
+
+@mtkbuild f = LotkaVolterraTest()
 ```
 
 ```julia

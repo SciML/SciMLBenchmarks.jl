@@ -19,10 +19,24 @@ glo_init = [2.5,2.5,2.5,2.5]
 ```
 
 ```julia
-fitz = @ode_def FitzhughNagumo begin
-  dv = v - v^3/3 -w + l
-  dw = τinv*(v +  a - b*w)
-end a b τinv l
+@mtkmodel FitzHughNagumo begin
+    @parameters begin
+        a = 0.7      # Parameter for excitability
+        b = 0.8      # Recovery rate parameter
+        τinv = 0.08  # Inverse of the time constant
+        l = 0.5      # External stimulus
+    end
+    @variables begin
+        v(t) = 1.0  # Membrane potential with initial condition
+        w(t) = 1.0  # Recovery variable with initial condition
+    end
+    @equations begin
+        D(v) ~ v - v^3 / 3 - w + l
+        D(w) ~ τinv * (v + a - b * w)
+    end
+end
+
+@mtkbuild fitz = FitzHughNagumo()
 ```
 
 ```julia
