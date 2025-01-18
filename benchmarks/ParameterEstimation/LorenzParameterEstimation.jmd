@@ -25,11 +25,25 @@ LocIniPar = [9.0, 20.0, 2.0] # for local optimization
 ```
 
 ```julia
-g1 = @ode_def LorenzExample begin
-  dx = σ*(y-x)
-  dy = x*(ρ-z) - y
-  dz = x*y - β*z
-end σ ρ β
+@mtkmodel LorenzExample begin
+  @parameters begin
+      σ = 10.0  # Parameter: Prandtl number
+      ρ = 28.0  # Parameter: Rayleigh number
+      β = 8/3   # Parameter: Geometric factor
+  end
+  @variables begin
+      x(t) = 1.0  # Initial condition for x
+      y(t) = 1.0  # Initial condition for y
+      z(t) = 1.0  # Initial condition for z
+  end
+  @equations begin
+      D(x) ~ σ * (y - x)
+      D(y) ~ x * (ρ - z) - y
+      D(z) ~ x * y - β * z
+  end
+end
+  
+@mtkbuild g1 = LorenzExample()
 p = [10.0,28.0,2.66] # Parameters used to construct the dataset
 r0 = [1.0; 0.0; 0.0]                #[-11.8,-5.1,37.5] PODES Initial values of the system in space # [0.1, 0.0, 0.0]
 tspan = (0.0, 30.0)                 # PODES sample of 3000 observations over the (0,30) timespan
