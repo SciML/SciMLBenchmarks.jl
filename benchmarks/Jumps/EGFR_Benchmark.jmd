@@ -1,0 +1,77 @@
+---
+title: EGFR Network Benchmark
+author: 
+---
+
+```julia
+using JumpProcesses, Plots, StableRNGs, BenchmarkTools, ReactionNetworkImporters, StatsPlots, Catalyst
+```
+
+We will benchmark the aggregators of JumpProcesses on a epidermal growth factor receptor signaling network (356 species, 3749 reactions).[^1]
+
+Let's first look at how the model equilibriates to make sure we get consistent results for all the methods. Let's plot the dimer concentration as a function of time using each of the different stochastic simulation algorithms.
+
+```julia
+tf = 12.
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+egfr_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net"));
+dprob = DiscreteProblem(complete(egfr_net.rn), egfr_net.u0, (0., tf), egfr_net.p)
+dprob = remake(dprob,u0=Int64.(dprob.u0))
+
+plt = plot(title="Dimer concentrations")
+for alg in algs
+    jprob = JumpProblem(complete(egfr_net.rn), dprob, alg)
+    sol = solve(jprob, SSAStepper(), saveat = tf/200)
+    plot!(plt, sol, idxs = :Dimers, label="$alg")
+end
+plot!(plt)
+```
+These results seem pretty reasonable - it seems like we're getting the same dimer
+concentration curve for each method.
+
+
+# Model Benchmark
+We define a function to benchmark the model and then plot the results in a benchmark. The goal is to see how the SSAs perform relative to each other. 
+
+```julia
+function benchmark_and_bar_plot(model, end_time, algs)
+    times = Vector{Float64}()
+    alg_names = ["$s"[15:end-2] for s in algs]
+
+    benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+    for (i, alg) in enumerate(algs)
+        alg_name = alg_names[i]
+        println("Benchmarking $alg_name")
+        dprob = DiscreteProblem(complete(model.rn), model.u0, (0., end_time), model.p)
+        dprob = remake(dprob,u0 = Int64.(dprob.u0))
+        jprob = JumpProblem(complete(model.rn), dprob, alg; rng, save_positions = (false, false))
+
+        b = @benchmarkable solve($jprob; saveat = $end_time) samples = 5 seconds = 7200
+        bm = run(b)
+        push!(times, median(bm).time/1e9)
+    end
+
+    bar(alg_names, times, xlabel = "Algorithm", ylabel = "Average Time (s)", title = "SSA Runtime for EGFR network", legend = false)
+end
+```
+
+Now we benchmark the EGFR network on the four algorithms and plot the results. 
+```julia
+tf = 12. 
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+
+plt = benchmark_and_bar_plot(egfr_net, tf, algs)
+plt
+```
+
+### References
+[^1]: Blinov ML, Faeder JR, Goldstein B, Hlavacek WS. A network model of early events in epidermal growth factor receptor signaling that accounts for combinatorial complexity.
+[^2]: Loman TE, Ma Y, Ilin V, et al. Catalyst: Fast and flexible modeling of reaction networks.
+
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
