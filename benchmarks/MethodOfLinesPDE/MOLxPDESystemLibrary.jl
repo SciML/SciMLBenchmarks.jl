@@ -1,35 +1,20 @@
 
----
-title: PDESystemLibrary.jl Work-Precision Diagrams with Various MethodOfLines.jl Methods
-author: Alex Jones
----
-
-This benchmark is for the MethodOfLines.jl package, which is an automatic PDE discretization package.
-It is concerned with comparing the performance of various discretization methods for the Burgers equation.
-
-```julia
 using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools, LinearAlgebra,
       LinearSolve, Plots
 gr()
 using PDESystemLibrary
-```
 
-Next we define some functions to generate approproiate discretizations for the PDESystemLibrary systems.
-
-```julia
 function center_uniform_grid(ex, ivs, N)
     map(ivs) do x
         xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
-        x => (supremum(xdomain.domain) - infimum(xdomain.domain)) /
-             (floor(N^(1 / length(ivs))) - 1)
+        x => trunc(Int, N^(1 / length(ivs)))
     end
 end
 
 function edge_uniform_grid(ex, ivs, N)
     map(ivs) do x
         xdomain = ex.domain[findfirst(d -> isequal(x, d.variables), ex.domain)]
-        x => (supremum(xdomain.domain) - infimum(xdomain.domain)) /
-             (floor(N^(1 / length(ivs))))
+        x => trunc(Int, N^(1 / length(ivs)))
     end
 end
 
@@ -83,12 +68,9 @@ function discweno2(ex, ivs, t, N)
 
     MOLFiniteDifference(dxs, t, advection_scheme=WENOScheme(), grid_align=edge_align)
 end
-```
-This script tests all systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
-It then plots the work precision sets.
 
-```julia
 N = 100
+
 for ex in PDESystemLibrary.all_systems
     try
         if ex.analytic_func === nothing
@@ -161,11 +143,13 @@ for ex in PDESystemLibrary.all_systems
             advection = false
             discuu1 = uniformupwind1(ex, ivs, t, N)
             discuu2 = uniformupwind2(ex, ivs, t, N)
-            discnu1 = chebyupwind1(ex, ivs, t, N)
-            discnu2 = chebyupwind2(ex, ivs, t, N)
-            discs = [discuu1, discuu2, discnu1, discnu2]
+            discs = [discuu1, discuu2]
+            if !("Periodic" in ex.metadata)
+                discnu1 = chebyupwind1(ex, ivs, t, N)
+                discnu2 = chebyupwind2(ex, ivs, t, N)
+                push!(discs, discnu1, discnu2)
+            end
             if "Advection" in ex.metadata
-                advection = true
                 discw1 = discweno1(ex, ivs, t, N)
                 discw2 = discweno2(ex, ivs, t, N)
                 push!(discs, discw1, discw2)
@@ -176,50 +160,53 @@ for ex in PDESystemLibrary.all_systems
                 discretize(ex, disc, analytic = ex.analytic_func)
             end
 
-            title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
-            println("Running $title")
-            if advection
-                dummy_appxsol = [nothing for i in 1:length(probs)]
-                abstols = 1.0 ./ 10.0 .^ (5:8)
-                reltols = 1.0 ./ 10.0 .^ (1:4);
+            title = "$(ex.name), Tags: $(ex.metadata)"
+            println("Running Work Precision Diagram for $title")
+            dummy_appxsol = [nothing for i in 1:length(probs)]
+            abstols = 1.0 ./ 10.0 .^ (5:8)
+            reltols = 1.0 ./ 10.0 .^ (1:4);
+            if "Advection" in ex.metadata
                 solver = FBDF()
-                setups = [Dict(:alg => solver, :prob_choice => 1),
-                    Dict(:alg => solver, :prob_choice => 2),
-                    Dict(:alg => solver, :prob_choice => 3),
-                    Dict(:alg => solver, :prob_choice => 4),
-                    Dict(:alg => solver, :prob_choice => 5),
-                    Dict(:alg => solver, :prob_choice => 6),]
-                names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-                         "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
-                         "Uniform WENO, center_align", "Uniform WENO, edge_align"];
-
-                wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
-                    save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-                    numruns=10, wrap=Val(false))
-                p = plot(wp, title=title)
-                display(ex.name)
-                display(ex)
-                display(p)
-            else
-                dummy_appxsol = [nothing for i in 1:length(probs)]
-                abstols = 1.0 ./ 10.0 .^ (5:8)
-                reltols = 1.0 ./ 10.0 .^ (1:4);
-                solver = TRBDF2()
-                setups = [Dict(:alg => solver, :prob_choice => 1),
+                if "Periodic" in ex.metadata
+                    setups = [Dict(:alg => solver, :prob_choice => 1),
                     Dict(:alg => solver, :prob_choice => 2),
                     Dict(:alg => solver, :prob_choice => 3),
                     Dict(:alg => solver, :prob_choice => 4),]
-                names = ["Uniform, center_align", "Uniform, edge_align",
-                         "Chebyshev, center_align", "Chebyshev, edge_align"];
-
-                wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
-                    save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-                    numruns=10, wrap=Val(false))
-                p = plot(wp, title=title)
-                display(ex.name)
-                display(ex)
-                display(p)
+                    names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
+                            "Uniform WENO, center_align", "Uniform WENO, edge_align"];
+                else
+                    setups = [Dict(:alg => solver, :prob_choice => 1),
+                        Dict(:alg => solver, :prob_choice => 2),
+                        Dict(:alg => solver, :prob_choice => 3),
+                        Dict(:alg => solver, :prob_choice => 4),
+                        Dict(:alg => solver, :prob_choice => 5),
+                        Dict(:alg => solver, :prob_choice => 6),]
+                    names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
+                            "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
+                            "Uniform WENO, center_align", "Uniform WENO, edge_align"];
+                end
+            else
+                solver = TRBDF2()
+                if "Periodic" in ex.metadata
+                    setups = [Dict(:alg => solver, :prob_choice => 1),
+                    Dict(:alg => solver, :prob_choice => 2)]
+                names = ["Uniform, center_align", "Uniform, edge_align"];
+                else
+                    setups = [Dict(:alg => solver, :prob_choice => 1),
+                        Dict(:alg => solver, :prob_choice => 2),
+                        Dict(:alg => solver, :prob_choice => 3),
+                        Dict(:alg => solver, :prob_choice => 4),]
+                    names = ["Uniform, center_align", "Uniform, edge_align",
+                             "Chebyshev, center_align", "Chebyshev, edge_align"];
+                end
             end
+            wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
+                save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
+                numruns=10, wrap=Val(false))
+            p = plot(wp, title=title)
+            display(ex.name)
+            display(ex)
+            display(p)
 
         end
     catch e
@@ -227,4 +214,3 @@ for ex in PDESystemLibrary.all_systems
         println(e)
     end
 end 
-```
