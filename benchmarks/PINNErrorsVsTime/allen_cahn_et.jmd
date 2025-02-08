@@ -14,15 +14,13 @@ science-guided AI techniques.
 ```julia
 using NeuralPDE
 using Integrals, Cubature, Cuba
-using ModelingToolkit, Optimization, OptimizationOptimJL
-using OptimizationOptimisers
+using ModelingToolkit, Optimization, OptimizationOptimJL, OptimizationOptimisers
 using Lux, Plots
 using DelimitedFiles
-using QuasiMonteCarlo
+using QuasiMonteCarlo, Random
 import ModelingToolkit: Interval, infimum, supremum
 
 function allen_cahn(strategy, minimizer, maxIters)
-
     ##  DECLARATIONS
     @parameters t x1 x2 x3 x4
     @variables u(..)
@@ -33,19 +31,10 @@ function allen_cahn(strategy, minimizer, maxIters)
     Dxx3 = Differential(x3)^2
     Dxx4 = Differential(x4)^2
 
-
     # Discretization
     tmax = 1.0
-    x1width = 1.0
-    x2width = 1.0
-    x3width = 1.0
-    x4width = 1.0
-
-    tMeshNum = 10
-    x1MeshNum = 10
-    x2MeshNum = 10
-    x3MeshNum = 10
-    x4MeshNum = 10
+    x1width = x2width = x3width = x4width = 1.0
+    tMeshNum = x1MeshNum = x2MeshNum = x3MeshNum = x4MeshNum = 10
 
     dt = tmax / tMeshNum
     dx1 = x1width / x1MeshNum
@@ -54,11 +43,12 @@ function allen_cahn(strategy, minimizer, maxIters)
     dx4 = x4width / x4MeshNum
 
     domains = [t ∈ Interval(0.0, tmax),
-        x1 ∈ Interval(0.0, x1width),
-        x2 ∈ Interval(0.0, x2width),
-        x3 ∈ Interval(0.0, x3width),
-        x4 ∈ Interval(0.0, x4width)]
+              x1 ∈ Interval(0.0, x1width),
+              x2 ∈ Interval(0.0, x2width),
+              x3 ∈ Interval(0.0, x3width),
+              x4 ∈ Interval(0.0, x4width)]
 
+    # Define the coordinates
     ts = 0.0:dt:tmax
     x1s = 0.0:dx1:x1width
     x2s = 0.0:dx2:x2width
@@ -66,77 +56,105 @@ function allen_cahn(strategy, minimizer, maxIters)
     x4s = 0.0:dx4:x4width
 
     # Operators
-    Δu = Dxx1(u(t, x1, x2, x3, x4)) + Dxx2(u(t, x1, x2, x3, x4)) + Dxx3(u(t, x1, x2, x3, x4)) + Dxx4(u(t, x1, x2, x3, x4)) # Laplacian
-
+    Δu = Dxx1(u(t,x1,x2,x3,x4)) + Dxx2(u(t,x1,x2,x3,x4)) + 
+         Dxx3(u(t,x1,x2,x3,x4)) + Dxx4(u(t,x1,x2,x3,x4))
 
     # Equation
-    eq = Dt(u(t, x1, x2, x3, x4)) - Δu - u(t, x1, x2, x3, x4) + u(t, x1, x2, x3, x4) * u(t, x1, x2, x3, x4) * u(t, x1, x2, x3, x4) ~ 0  #ALLEN CAHN EQUATION
+    eq = Dt(u(t,x1,x2,x3,x4)) - Δu - u(t,x1,x2,x3,x4) + 
+         u(t,x1,x2,x3,x4)^3 ~ 0
 
-    initialCondition = 1 / (2 + 0.4 * (x1 * x1 + x2 * x2 + x3 * x3 + x4 * x4)) # see PNAS paper
+    # Initial condition
+    initialCondition = 1 / (2 + 0.4 * (x1^2 + x2^2 + x3^2 + x4^2))
+    bcs = [u(0,x1,x2,x3,x4) ~ initialCondition]
 
-    bcs = [u(0, x1, x2, x3, x4) ~ initialCondition]  #from literature
+    # Neural Network setup
+    n = 10
+    
+    # Create the neural network with explicit CPU device
+    chain = Lux.Chain(
+        Lux.Dense(5 => n, tanh),
+        Lux.Dense(n => n, tanh),
+        Lux.Dense(n => 1, identity)
+    )
 
-    ## NEURAL NETWORK
-    n = 10   #neuron number
-    chain = Lux.Chain(Lux.Dense(5, n, tanh), Lux.Dense(n, n, tanh), Lux.Dense(n, 1))   #Neural network from OptimizationFlux library
+    # Initialize parameters with random seed
+    rng = Random.default_rng()
+    init_params, st = Lux.setup(rng, chain)
 
-    indvars = [t, x1, x2, x3, x4]   #physically independent variables
-    depvars = [u(t, x1, x2, x3, x4)]       #dependent (target) variable
+    # Use StochasticTraining instead of QuadratureTraining
+    training_strategy = NeuralPDE.StochasticTraining(
+        500;    # Number of points for domain
+        bcs_points = 50,  # Number of points for boundary conditions
+    )
 
-    dim = length(domains)
+    # Create the PINN
+    discretization = PhysicsInformedNN(
+        chain,
+        training_strategy;
+        init_params = init_params,
+        states = st
+    )
 
-    losses = []
-    error = []
-    times = []
+    # Setup PDE system
+    @named pde_system = PDESystem(
+        eq,
+        bcs,
+        domains,
+        [t,x1,x2,x3,x4],
+        [u(t,x1,x2,x3,x4)]
+    )
 
-    dx_err = 0.2
+    # Discretize
+    prob = discretize(pde_system, discretization)
 
-    error_strategy = GridTraining(dx_err)
-
-    discretization_ = PhysicsInformedNN(chain, error_strategy)
-    @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
-    prob_ = discretize(pde_system_, discretization_)
-
-    function loss_function_(θ, p)
-        return prob_.f.f(θ, nothing)
-    end
-
-    cb_ = function (p, l)
-        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
-
-        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime / 10^9) #Conversion nanosec to seconds
-        append!(losses, l)
-        loss_ = loss_function_(p, nothing)
-        append!(error, loss_)
-        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
-
-        #if (ctime/10^9 > time) #if I exceed the limit time I stop the training
-        #    return true #Stop the minimizer and continue from line 142
-        #end
-
-        return false
-    end
-
-    @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
-
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
-    prob = NeuralPDE.discretize(pde_system, discretization)
-
+    # Training setup
+    losses = Float64[]
+    error = Float64[]
+    times = Float64[]
     timeCounter = 0.0
-    startTime = time_ns() #Fix initial time (t=0) before starting the training
-    res = Optimization.solve(prob, minimizer, callback=cb_, maxiters=maxIters)
+    startTime = time_ns()
 
+    # Callback function
+    cb = function (p, l)
+        try
+            deltaT_s = time_ns()
+            ctime = time_ns() - startTime - timeCounter
+            
+            push!(times, ctime / 1e9)
+            push!(losses, l)
+            push!(error, l)
+            
+            timeCounter += time_ns() - deltaT_s
+            return false
+        catch e
+            @warn "Callback error: $e"
+            return false
+        end
+    end
+
+    # Solve with optimization
+    res = Optimization.solve(
+        prob,
+        minimizer;
+        callback = cb,
+        maxiters = maxIters
+    )
+
+    # Generate predictions
     phi = discretization.phi
-
-    params = res.minimizer
-
-    # Model prediction
     domain = [ts, x1s, x2s, x3s, x4s]
+    
+    u_predict = try
+        [reshape([first(phi([t,x1,x2,x3,x4], res.minimizer)) 
+                 for x1 in x1s, x2 in x2s, x3 in x3s, x4 in x4s],
+                 (length(x1s), length(x2s), length(x3s), length(x4s))) 
+                 for t in ts]
+    catch e
+        @warn "Prediction generation failed: $e"
+        nothing
+    end
 
-    u_predict = [reshape([first(phi([t, x1, x2, x3, x4], res.minimizer)) for x1 in x1s for x2 in x2s for x3 in x3s for x4 in x4s], (length(x1s), length(x2s), length(x3s), length(x4s))) for t in ts]  #matrix of model's prediction
-
-    return [error, params, domain, times, losses]
+    return [error, res.minimizer, domain, times, losses]
 end
 ```
 
