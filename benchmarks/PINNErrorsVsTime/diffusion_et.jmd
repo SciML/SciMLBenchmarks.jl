@@ -61,7 +61,8 @@ function diffusion(strategy, minimizer, maxIters)
     prob_ = discretize(pde_system_, discretization_)
 
     function loss_function_(θ, p)
-        return prob_.f.f(θ, nothing)
+        params = θ.u 
+        return prob_.f.f(params, nothing)
     end
     
     cb_ = function (p,l)
@@ -106,7 +107,8 @@ maxIters = [(5000,5000,5000,5000,5000,5000),(300,300,300,300,300,300)] #iters fo
 # maxIters = [(5,5,5,5,5,5),(3,3,3,3,3,3)] #iters for ADAM/LBFGS
 
 strategies = [#NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol = 1e-4, abstol = 1e-3, maxiters = 10, batch = 10),
-              NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1e-4, abstol=1e-5, maxiters=1100, batch = 0),
+              #NeuralPDE.QuadratureTraining(quadrature_alg = HCubatureJL(), reltol = 1e-4, abstol=1e-5, maxiters=1100, batch = 100),
+              NeuralPDE.GridTraining([0.2, 0.1]),
               NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLh(), reltol = 1e-4, abstol=1e-5, maxiters=1100),
               NeuralPDE.QuadratureTraining(quadrature_alg = CubatureJLp(), reltol = 1e-4, abstol=1e-5, maxiters=1100),
               NeuralPDE.GridTraining([0.2,0.1]),
@@ -114,7 +116,7 @@ strategies = [#NeuralPDE.QuadratureTraining(quadrature_alg = CubaCuhre(), reltol
               NeuralPDE.QuasiRandomTraining(400 ; bcs_points= 50)]
 
 strategies_short_name = [#"CubaCuhre",
-                        "HCubatureJL",
+                        #"HCubatureJL",
                         "CubatureJLh",
                         "CubatureJLp",
                         #"CubaVegas",
