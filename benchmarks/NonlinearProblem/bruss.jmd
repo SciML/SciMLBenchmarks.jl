@@ -155,9 +155,7 @@ function cache_and_compute_10_jacobians(adtype, f!::F, y, x, p) where {F}
     return J
 end
 
-# XXX: run till 8 on CI
-# Ns = [2^i for i in 1:8]
-Ns = [2^i for i in 1:6]
+Ns = [2^i for i in 1:7]
 
 adtypes = [
     (
@@ -169,7 +167,7 @@ adtypes = [
             AutoPolyesterForwardDiff(; chunksize=8);
             sparsity_detector=TracerSparsityDetector()
         ),
-        [:forwarddiff, :exact_sparse]
+        [:polyester, :exact_sparse]
     ),
     (
         AutoSparse(
@@ -355,26 +353,23 @@ First, let us experiment the scaling of each algorithm with the problem size.
 ```julia
 Ns = vcat(collect(2 .^ (2:7)), [150, 175, 200])
 
-# XXX: PETSc just segfaults
 solvers_scaling = [
-    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Local Sparsity)",         alg = NewtonRaphson()),
-    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
-    (; pkg = :wrapper,              sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
-    (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :nonlinearsolve, sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
+    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
 
-    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Local Sparsity)",         alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :wrapper,              sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :nonlinearsolve, sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
 
-    (; pkg = :wrapper,              sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
+    (; pkg = :wrapper,        sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
 ]
 
 runtimes_scaling = fill(-1.0, length(solvers_scaling), length(Ns))
@@ -554,15 +549,15 @@ end
 Ns = 2 .^ (2:7)
 
 solvers_scaling_jacobian_free = [
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                    alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",       alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov",                        alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                  alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                  alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",           alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",         alg = KINSOL(; linear_solver = :GMRES)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)", alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov",                  alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",            alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",            alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",     alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",   alg = KINSOL(; linear_solver = :GMRES)),
 ]
 
 runtimes_scaling = zeros(length(solvers_scaling_jacobian_free), length(Ns)) .- 1
@@ -696,18 +691,18 @@ exploit sparsity will automatically do so.
 
 ```julia
 solvers_all = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlg",                  solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
-    (; pkg = :nonlinearsolve,       name = "RobustMultiNewton (GMRES)",        solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                   solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
-    (; pkg = :nonlinearsolve,       name = "Newton Krylov",                    solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region",                     solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve,       name = "TR Krylov",                        solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :wrapper,              name = "NR [NLsolve.jl]",                  solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "TR [NLsolve.jl]",                  solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "NR [Sundials]",                    solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",         solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+    (; pkg = :nonlinearsolve, name = "Default PolyAlg",           solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
+    (; pkg = :nonlinearsolve, name = "RobustMultiNewton (GMRES)", solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve, name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
+    (; pkg = :nonlinearsolve, name = "Newton Krylov",             solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve, name = "Trust Region",              solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve, name = "TR Krylov",                 solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :wrapper,        name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,        name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper,        name = "NR [Sundials]",             solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper,        name = "Newton Krylov [Sundials]",  solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
 
-    (; pkg = :wrapper,              name = "Mod. Powell [MINPACK]",            solver = Dict(:alg => CMINPACK())),
+    (; pkg = :wrapper,        name = "Mod. Powell [MINPACK]",     solver = Dict(:alg => CMINPACK())),
 ];
 ```
 
