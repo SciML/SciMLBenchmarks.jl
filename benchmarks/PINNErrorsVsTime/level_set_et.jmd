@@ -102,20 +102,29 @@ function level_set(strategy, minimizer, maxIters)
     prob_ = discretize(pde_system_, discretization_)
 
     function loss_function_(θ, p)
-        return prob_.f.f(θ, nothing)
+        params = θ.u
+        return prob_.f.f(params, nothing)
     end
 
-    cb_ = function (p, l)
-        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
+    function cb_(p, l)
+        try
+            deltaT_s = time_ns()
+            ctime = time_ns() - startTime - timeCounter
 
-        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime / 10^9) #Conversion nanosec to seconds
-        append!(losses, l)
-        loss_ = loss_function_(p, nothing)
-        append!(error, loss_)
-        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
+            push!(times, ctime / 1e9)
+            push!(losses, l)
 
-        return false
+            # Extract parameters for loss calculation
+            params = p.u
+            loss_ = loss_function_(p, nothing)
+            push!(error, loss_)
+
+            timeCounter += time_ns() - deltaT_s
+            return false
+        catch e
+            @warn "Callback error: $e"
+            return false
+        end
     end
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)

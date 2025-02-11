@@ -99,26 +99,34 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-     discretization_ = PhysicsInformedNN(chain, error_strategy)
+    discretization_ = PhysicsInformedNN(chain, error_strategy)
     @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
     prob_ = discretize(pde_system_, discretization_)
 
     function loss_function_(θ, p)
-        return prob_.f.f(θ, nothing)
+        params = θ.u
+        return prob_.f.f(params, nothing)
     end
 
-    cb_ = function (p,l)
-        deltaT_s = time_ns() #Start a clock when the callback begins, this will evaluate questo misurerà anche il calcolo degli uniform error
-
-        ctime = time_ns() - startTime - timeCounter #This variable is the time to use for the time benchmark plot
-        append!(times, ctime/10^9) #Conversion nanosec to seconds
-        append!(losses, l)
-        loss_ = loss_function_(p,nothing)
-        append!(error, loss_)
-
-        timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
-
-        return false
+    function cb_(p, l)
+        try
+            deltaT_s = time_ns()
+            ctime = time_ns() - startTime - timeCounter
+    
+            push!(times, ctime / 1e9)
+            push!(losses, l)
+    
+            # Extract parameters for loss calculation
+            params = p.u
+            loss_ = loss_function_(p, nothing)
+            push!(error, loss_)
+    
+            timeCounter += time_ns() - deltaT_s
+            return false
+        catch e
+            @warn "Callback error: $e"
+            return false
+        end
     end
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
@@ -177,7 +185,7 @@ minimizers_short_name = ["ADAM",
 # Run models
 error_res =  Dict()
 domains = Dict()
-params_res = Dict()  #to use same params for the next run
+params_res = Dict()
 times = Dict()
 ```
 
