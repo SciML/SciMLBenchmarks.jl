@@ -1,0 +1,77 @@
+---
+title: BCR Symbolic Jacobian
+author: Aayush Sabharwal, Bowen Zhu, Chris Rackauckas
+---
+
+The following benchmark is of 1122 ODEs with 24388 terms that describe a stiff
+chemical reaction network modeling the BCR signaling network from [Barua et
+al.](https://doi.org/10.4049/jimmunol.1102003). We use
+[`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
+to load the BioNetGen model files as a
+[Catalyst](https://github.com/SciML/Catalyst.jl) model, and then use
+[ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl) to convert the
+Catalyst network model to ODEs.
+
+The resultant large model is used to benchmark the time taken to compute a symbolic
+jacobian, generate a function to calculate it and call the function.
+
+
+```julia
+using OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
+    Plots, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
+    LinearSolve, Symbolics, SymbolicUtils.Code, SparseArrays
+
+datadir  = joinpath(dirname(pathof(ReactionNetworkImporters)),"../data/bcr")
+const to = TimerOutput()
+tf       = 100000.0
+
+# generate ModelingToolkit ODEs
+prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
+show(to)
+rn    = complete(prnbng.rn; split = false)
+obs = [eq.lhs for eq in observed(rn)]
+osys = convert(ODESystem, rn)
+
+rhs = [eq.rhs for eq in full_equations(osys)]
+vars = unknowns(osys)
+pars = parameters(osys)
+
+SymbolicUtils.ENABLE_HASHCONSING[] = false
+@timeit to "Calculate jacobian - without hashconsing" jac_nohc = Symbolics.sparsejacobian(rhs, vars);
+SymbolicUtils.ENABLE_HASHCONSING[] = true
+SymbolicUtils.toggle_caching!(Symbolics.occursin_info, false)
+@timeit to "Calculate jacobian - hashconsing, without caching" jac_hc_nocache = Symbolics.sparsejacobian(rhs, vars);
+SymbolicUtils.toggle_caching!(Symbolics.occursin_info, true)
+stats = SymbolicUtils.get_stats(Symbolics.occursin_info)
+@assert stats.hits == stats.misses == 0
+@timeit to "Calculate jacobian - hashconsing and caching" jac_hc_cache = Symbolics.sparsejacobian(rhs, vars);
+
+@assert isequal(jac_nohc, jac_hc_nocache)
+@assert isequal(jac_hc_nocache, jac_hc_cache)
+
+jac = jac_hc_cache
+args = (vars, pars, ModelingToolkit.get_iv(osys))
+# out of place versions run into an error saying the expression is too large
+# due to the `SymbolicUtils.Code.create_array` call. `iip_config` prevents it
+# from trying to build the function.
+kwargs = (; iip_config = (false, true), expression = Val{false})
+@timeit to "Build jacobian - no CSE" _, jac_nocse_iip = build_function(jac, args...; cse = false, kwargs...);
+@timeit to "Build jacobian - CSE" _, jac_cse_iip = build_function(jac, args...; cse = true, kwargs...);
+
+defs = defaults(osys)
+u = Float64[Symbolics.fixpoint_sub(var, defs) for var in vars]
+buffer_cse = SparseMatrixCSC{Float64, Int}(undef, length(u), length(u))
+buffer_nocse = SparseMatrixCSC{Float64, Int}(undef, length(u), length(u))
+p = Float64[Symbolics.fixpoint_sub(par, defs) for par in pars]
+tt = 0.0
+
+@timeit to "Compile jacobian - CSE" jac_cse_iip(buffer_cse, u, p, tt)
+@timeit to "Compute jacobian - CSE" jac_cse_iip(buffer_cse, u, p, t)
+
+@timeit to "Compile jacobian - no CSE" jac_nocse_iip(buffer_nocse, u, p, tt)
+@timeit to "Compute jacobian - no CSE" jac_nocse_iip(buffer_nocse, u, p, t)
+
+@assert isapprox(buffer_cse, buffer_nocse, rtol = 1e-10)
+
+show(to)
+```
