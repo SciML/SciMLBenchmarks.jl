@@ -61,38 +61,41 @@ function init_brusselator_2d(xyd, N)
     return u
 end
 
+function brusselator_2d_loop(du_, u_, p)
+    A, B, α, xyd_brusselator, N = p
+    δx = step(xyd_brusselator)
+    α = α / δx ^ 2
+
+    du = reshape(du_, N, N, 2)
+    u = reshape(u_, N, N, 2)
+
+    # @inbounds
+    # @simd
+    for I in CartesianIndices((N, N))
+        i, j = Tuple(I)
+        x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
+        ip1, im1 = limit(i + 1, N), limit(i - 1, N)
+        jp1, jm1 = limit(j + 1, N), limit(j - 1, N)
+
+        du[i, j, 1] = α * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
+                            4u[i, j, 1]) +
+                        B + u[i, j, 1] ^ 2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
+                        brusselator_f(x, y)
+
+        du[i, j, 2] = α * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
+                            4u[i, j, 2]) +
+                        A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
+    end
+    return nothing
+end
+
 function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
     xyd_brusselator = range(0; stop = 1, length = N)
-
-    function brusselator_2d_loop(du_, u_, p)
-        A, B, α, δx = p
-        α = α / δx ^ 2
-
-        du = reshape(du_, N, N, 2)
-        u = reshape(u_, N, N, 2)
-
-        @inbounds @simd for I in CartesianIndices((N, N))
-            i, j = Tuple(I)
-            x, y = xyd_brusselator[I[1]], xyd_brusselator[I[2]]
-            ip1, im1 = limit(i + 1, N), limit(i - 1, N)
-            jp1, jm1 = limit(j + 1, N), limit(j - 1, N)
-
-            du[i, j, 1] = α * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
-                               4u[i, j, 1]) +
-                          B + u[i, j, 1] ^ 2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
-                          brusselator_f(x, y)
-
-            du[i, j, 2] = α * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
-                               4u[i, j, 2]) +
-                            A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
-        end
-        return nothing
-    end
 
     return NonlinearProblem(
         NonlinearFunction(brusselator_2d_loop; sparsity),
         vec(init_brusselator_2d(xyd_brusselator, N)),
-        (3.4, 1.0, 10.0, step(xyd_brusselator));
+        (3.4, 1.0, 10.0, xyd_brusselator, N);
         kwargs...
     )
 end
@@ -155,9 +158,7 @@ function cache_and_compute_10_jacobians(adtype, f!::F, y, x, p) where {F}
     return J
 end
 
-# XXX: run till 8 on CI
-# Ns = [2^i for i in 1:8]
-Ns = [2^i for i in 1:6]
+Ns = [2^i for i in 1:8]
 
 adtypes = [
     (
@@ -355,24 +356,21 @@ First, let us experiment the scaling of each algorithm with the problem size.
 ```julia
 Ns = vcat(collect(2 .^ (2:7)), [150, 175, 200])
 
-# XXX: PETSc just segfaults
 solvers_scaling = [
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Local Sparsity)",         alg = NewtonRaphson()),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
     (; pkg = :wrapper,              sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
     (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
 
     (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Local Sparsity)",         alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
     (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
     (; pkg = :wrapper,              sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
 
     (; pkg = :wrapper,              sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
 ]
@@ -553,6 +551,7 @@ end
 
 Ns = 2 .^ (2:7)
 
+# XXX: Add PETSc
 solvers_scaling_jacobian_free = [
     (; pkg = :nonlinearsolve,  name = "Newton Krylov",                    alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
     (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
@@ -695,6 +694,7 @@ In this section, we will generate the work-precision of the solvers. All solvers
 exploit sparsity will automatically do so.
 
 ```julia
+# XXX: Add PETSc
 solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Default PolyAlg",                  solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
     (; pkg = :nonlinearsolve,       name = "RobustMultiNewton (GMRES)",        solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
