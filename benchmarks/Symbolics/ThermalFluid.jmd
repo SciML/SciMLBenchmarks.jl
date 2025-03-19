@@ -10,7 +10,7 @@ using Pkg
 # Rev fixes precompilation https://github.com/hzgzh/XSteam.jl/pull/2
 Pkg.add(Pkg.PackageSpec(;name="XSteam", rev="f2a1c589054cfd6bba307985a3a534b6f5a1863b"))
 
-using ModelingToolkit, Symbolics, XSteam, Polynomials, CairoMakie
+using ModelingToolkit, Symbolics, XSteam, Polynomials, CairoMakie, PrettyTables
 using SparseArrays
 using ModelingToolkit: t_nounits as t, D_nounits as D
 ```
@@ -293,12 +293,31 @@ first_call_times = copy.(build_times)
 second_call_times = copy.(build_times)
 ```
 
-## Julia Timings
+## Timings
 
 ```julia
 for (i, n) in enumerate(N)
   run_and_time!(jacobian_times, build_times, first_call_times, second_call_times, i, n)
 end
+```
+
+## Results
+
+```julia
+data = hcat(N, jacobian_times, build_times, first_call_times, second_call_times)
+header = ["N", "Jacobian calculation time", "`build_function` time", "First call time", "Second call time"]
+pretty_table(data; header)
+```
+
+```julia
+f = Figure(size = (800, 1200))
+labels = header[2:end]
+times = [jacobian_times, build_times, first_call_times, second_call_times]
+for (i, (label, data)) in enumerate(zip(labels, times))
+  ax = Axis(f[i, 1], xscale = log10, yscale = log10, ylabel = label)
+  lines!(ax, N, data)
+end
+f
 ```
 
 ## Appendix
