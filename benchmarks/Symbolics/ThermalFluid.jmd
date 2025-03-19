@@ -10,8 +10,8 @@ using Pkg
 # Rev fixes precompilation https://github.com/hzgzh/XSteam.jl/pull/2
 Pkg.add(Pkg.PackageSpec(;name="XSteam", rev="f2a1c589054cfd6bba307985a3a534b6f5a1863b"))
 
-using ModelingToolkit, Symbolics, XSteam, Polynomials, CairoMakie, PrettyTables
-using SparseArrays
+using ModelingToolkit, Symbolics, SymbolicUtils, XSteam, Polynomials, CairoMakie, PrettyTables
+using SparseArrays, Chairmarks
 using ModelingToolkit: t_nounits as t, D_nounits as D
 ```
 
@@ -247,21 +247,25 @@ function TestBenchPreinsulated(; name, L=1.0, dn=0.05, t_layer=[0.0056, 0.013], 
   compose(ODESystem(eqs, t, [], []; name=name), subs)
 end
 
+function call(fn, args...)
+  fn(args...)
+end
+
 function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, N)
   @mtkbuild sys = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
   SymbolicUtils.ENABLE_HASHCONSING[] = false
-  jac_result = @timed calculate_jacobian(sys; sparse = true)
-  jac_nocse = jac_result.value
-  jacobian_times[1][i] = jac_result.time
-  jacobian_gctimes[1][i] = jac_result.gctime
-  jacobian_allocs[1][i] = jac_result.bytes
+  jac_result = @be calculate_jacobian(sys; sparse = true)
+  jac_nocse = calculate_jacobian(sys; sparse = true)
+  jacobian_times[1][i] = minimum(x -> x.time, jac_result.samples)
+  jacobian_gctimes[1][i] = minimum(x -> x.time * x.gc_fraction, jac_result.samples)
+  jacobian_allocs[1][i] = minimum(x -> x.bytes, jac_result.samples)
   SymbolicUtils.ENABLE_HASHCONSING[] = true
   SymbolicUtils.clear_cache!(Symbolics.occursin_info)
-  jac_result = @timed calculate_jacobian(sys; sparse = true)
-  jac_cse = jac_result.value
-  jacobian_times[2][i] = jac_result.time
-  jacobian_gctimes[2][i] = jac_result.gctime
-  jacobian_allocs[2][i] = jac_result.bytes
+  jac_result = @be calculate_jacobian(sys; sparse = true)
+  jac_cse = calculate_jacobian(sys; sparse = true)
+  jacobian_times[2][i] = minimum(x -> x.time, jac_result.samples)
+  jacobian_gctimes[2][i] = minimum(x -> x.time * x.gc_fraction, jac_result.samples)
+  jacobian_allocs[2][i] = minimum(x -> x.bytes, jac_result.samples)
 
   @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
@@ -277,21 +281,21 @@ function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_
   buffer_cse = similar(jac, Float64)
   buffer_cse.nzval .= 0.0
 
-  build_result_nocse = @timed build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)
-  f_jac_nocse = build_result_nocse.value[2]
-  build_times[1][i] = build_result_nocse.time
-  first_call_result_nocse = @timed f_jac_nocse(buffer_nocse, u0, p, t0)
-  first_call_times[1][i] = first_call_result_nocse.time
-  second_call_result_nocse = @timed f_jac_nocse(buffer_nocse, u0, p, t0)
-  second_call_times[1][i] = second_call_result_nocse.time
+  build_result_nocse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)
+  f_jac_nocse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)[2]
+  build_times[1][i] = minimum(x -> x.time, build_result_nocse.samples)
+  first_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
+  first_call_times[1][i] = minimum(x -> x.time, first_call_result_nocse.samples)
+  second_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
+  second_call_times[1][i] = minimum(x -> x.time, second_call_result_nocse.samples)
 
-  build_result_cse = @timed build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)
-  f_jac_cse = build_result_cse.value[2]
-  build_times[2][i] = build_result_cse.time
-  first_call_result_cse = @timed f_jac_cse(buffer_cse, u0, p, t0)
-  first_call_times[2][i] = first_call_result_cse.time
-  second_call_result_cse = @timed f_jac_cse(buffer_cse, u0, p, t0)
-  second_call_times[2][i] = second_call_result_cse.time
+  build_result_cse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)
+  f_jac_cse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)[2]
+  build_times[2][i] = minimum(x -> x.time, build_result_cse.samples)
+  first_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
+  first_call_times[2][i] = minimum(x -> x.time, first_call_result_cse.samples)
+  second_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
+  second_call_times[2][i] = minimum(x -> x.time, second_call_result_cse.samples)
 
   return nothing
 end
@@ -301,7 +305,7 @@ end
 N = [5, 10, 20, 40, 60, 80, 160, 320, 480];
 jacobian_times = [zeros(Float64, length(N)), zeros(Float64, length(N))]
 jacobian_gctimes = copy.(jacobian_times)
-jacobian_allocs = [zeros(Int64, length(N)), zeros(Int64, length(N))]
+jacobian_allocs = copy.(jacobian_times)
 # [without_cse_times, with_cse_times]
 build_times = copy.(jacobian_times)
 first_call_times = copy.(jacobian_times)
