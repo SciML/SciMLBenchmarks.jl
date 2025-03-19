@@ -247,11 +247,24 @@ function TestBenchPreinsulated(; name, L=1.0, dn=0.05, t_layer=[0.0056, 0.013], 
   compose(ODESystem(eqs, t, [], []; name=name), subs)
 end
 
-function run_and_time!(jacobian_times, build_times, first_call_times, second_call_times, i, N)
+function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, N)
   @mtkbuild sys = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+  SymbolicUtils.ENABLE_HASHCONSING[] = false
   jac_result = @timed calculate_jacobian(sys; sparse = true)
-  jac = jac_result.value
-  jacobian_times[i] = jac_result.time
+  jac_nocse = jac_result.value
+  jacobian_times[1][i] = jac_result.time
+  jacobian_gctimes[1][i] = jac_result.gctime
+  jacobian_allocs[1][i] = jac_result.bytes
+  SymbolicUtils.ENABLE_HASHCONSING[] = true
+  SymbolicUtils.clear_cache!(Symbolics.occursin_info)
+  jac_result = @timed calculate_jacobian(sys; sparse = true)
+  jac_cse = jac_result.value
+  jacobian_times[2][i] = jac_result.time
+  jacobian_gctimes[2][i] = jac_result.gctime
+  jacobian_allocs[2][i] = jac_result.bytes
+
+  @assert isequal(jac_nocse, jac_cse)
+  jac = jac_cse
 
   dvs = unknowns(sys)
   ps = parameters(sys)
@@ -286,36 +299,43 @@ end
 
 ```julia
 N = [5, 10, 20, 40, 60, 80, 160, 320, 480];
-jacobian_times = zeros(Float64, length(N))
+jacobian_times = [zeros(Float64, length(N)), zeros(Float64, length(N))]
+jacobian_gctimes = copy.(jacobian_times)
+jacobian_allocs = [zeros(Int64, length(N)), zeros(Int64, length(N))]
 # [without_cse_times, with_cse_times]
-build_times = [copy(jacobian_times), copy(jacobian_times)]
-first_call_times = copy.(build_times)
-second_call_times = copy.(build_times)
+build_times = copy.(jacobian_times)
+first_call_times = copy.(jacobian_times)
+second_call_times = copy.(jacobian_times)
 ```
 
 ## Timings
 
 ```julia
+# compile
+run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, 1, 5)
 for (i, n) in enumerate(N)
-  run_and_time!(jacobian_times, build_times, first_call_times, second_call_times, i, n)
+  run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, n)
 end
 ```
 
 ## Results
 
 ```julia
-data = hcat(N, jacobian_times, build_times, first_call_times, second_call_times)
-header = ["N", "Jacobian calculation time", "`build_function` time", "First call time", "Second call time"]
-pretty_table(data; header)
+tabledata = hcat(N, jacobian_times..., jacobian_gctimes..., jacobian_allocs..., build_times..., first_call_times..., second_call_times...)
+header = ["N", "Jacobian time (no hashconsing)", "Jacobian time (hashconsing)", "Jacobian GC time (no hashconsing)", "Jacobian GC time (hashconsing)", "Jacobian allocated memory (no hashconsing) (B)", "Jacobian allocated memory (hashconsing) (B)", "`build_function` time (no CSE)", "`build_function` time (CSE)", "First call time (no CSE)", "First call time (CSE)", "Second call time (no CSE)", "Second call time (CSE)"]
+pretty_table(tabledata; header, backend = Val(:html))
 ```
 
 ```julia
-f = Figure(size = (800, 1200))
-labels = header[2:end]
-times = [jacobian_times, build_times, first_call_times, second_call_times]
+f = Figure(size = (800, 1200));
+labels = ["Symbolic jacobian time", "Symbolic jacobian\nGC time", "Symbolic jacobian\nallocated memory (B)", "`build_function` time", "First call time", "Second call time"]
+times = [jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times]
 for (i, (label, data)) in enumerate(zip(labels, times))
-  ax = Axis(f[i, 1], xscale = log10, yscale = log10, ylabel = label)
-  lines!(ax, N, data)
+  ax = Axis(f[i, 1], xscale = log10, yscale = log10, ylabel = label, xticks = N)
+  l1 = lines!(ax, N, data[1])
+  l2 = lines!(ax, N, data[2])
+  legend_entries = startswith(label, "Symbolic") ? ["without hashconsing", "with hashconsing"] : ["without CSE", "with CSE"]
+  Legend(f[i, 2], [l1, l2], legend_entries)
 end
 f
 ```
