@@ -67,10 +67,10 @@ p = Float64[Symbolics.fixpoint_sub(par, defs) for par in pars]
 tt = 0.0
 
 @timeit to "Compile jacobian - CSE" jac_cse_iip(buffer_cse, u, p, tt)
-@timeit to "Compute jacobian - CSE" jac_cse_iip(buffer_cse, u, p, t)
+@timeit to "Compute jacobian - CSE" jac_cse_iip(buffer_cse, u, p, tt)
 
 @timeit to "Compile jacobian - no CSE" jac_nocse_iip(buffer_nocse, u, p, tt)
-@timeit to "Compute jacobian - no CSE" jac_nocse_iip(buffer_nocse, u, p, t)
+@timeit to "Compute jacobian - no CSE" jac_nocse_iip(buffer_nocse, u, p, tt)
 
 @assert isapprox(buffer_cse, buffer_nocse, rtol = 1e-10)
 
@@ -107,7 +107,7 @@ function run_and_time!(rhs, vars, pars, iv, u0, p, t0, N, i, jac_times, jac_allo
 
     build_result = @be build_function(jac, args...; cse = true, kwargs...);
     build_times[2][i] = minimum(x -> x.time, build_result.samples)
-    jacfn_cse = build_function(jac, args...; cse = false, kwargs...)[2]
+    jacfn_cse = build_function(jac, args...; cse = true, kwargs...)[2]
 
     buffer = similar(jac, Float64)
     call_result = @be jacfn_nocse(buffer, u0, p, t0)
