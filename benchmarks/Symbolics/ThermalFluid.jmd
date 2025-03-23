@@ -27,8 +27,8 @@ using ModelingToolkit: t_nounits as t, D_nounits as D
 
 m_flow_source(t) = 2.75
 T_source(t) = (t > 12 * 3600) * 56.0 + 12.0
-@register_symbolic m_flow_source(t)
-@register_symbolic T_source(t)
+# @register_symbolic m_flow_source(t)
+# @register_symbolic T_source(t)
 
 #build polynomial liquid-water property only dependent on Temperature
 p_l = 5 #bar
@@ -38,11 +38,11 @@ T_vec = collect(1:1:150);
 @generated Pr_T(t) = :(Base.evalpoly(t, $(fit(T_vec, 1e3 * Cp_pT.(p_l, T_vec) .* my_pT.(p_l, T_vec) ./ tc_pT.(p_l, T_vec), 5).coeffs...,)))
 @generated rho_T(t) = :(Base.evalpoly(t, $(fit(T_vec, rho_pT.(p_l, T_vec), 4).coeffs...,)))
 @generated rhocp_T(t) = :(Base.evalpoly(t, $(fit(T_vec, 1000 * rho_pT.(p_l, T_vec) .* Cp_pT.(p_l, T_vec), 5).coeffs...,)))
-@register_symbolic kin_visc_T(t)
-@register_symbolic lambda_T(t)
-@register_symbolic Pr_T(t)
-@register_symbolic rho_T(t)
-@register_symbolic rhocp_T(t)
+# @register_symbolic kin_visc_T(t)
+# @register_symbolic lambda_T(t)
+# @register_symbolic Pr_T(t)
+# @register_symbolic rho_T(t)
+# @register_symbolic rhocp_T(t)
 
 @connector function FluidPort(; name, p=101325.0, m=0.0, T=0.0)
   sts = @variables p(t) = p m(t) = m [connect = Flow] T(t) = T [connect = Stream]
@@ -77,7 +77,7 @@ function Nusselt(Re, Pr, f)
   end
 end
 
-@register_symbolic Churchill_f(Re, epsilon, d)
+# @register_symbolic Churchill_f(Re, epsilon, d)
 #Darcy weisbach friction factor
 function Churchill_f(Re, epsilon, d)
   theta_1 = (-2.457 * log(((7 / Re)^0.9) + (0.27 * (epsilon / d))))^16
@@ -139,19 +139,19 @@ function FluidRegion(; name, L=1.0, dn=0.05, N=100, T0=0.0,
   ODESystem(eqs, t, sts, p; systems=[inlet, outlet, heatport], name=name)
 end
 
-@register_symbolic Cn_circular_wall_inner(d, D, cp, ρ)
+# @register_symbolic Cn_circular_wall_inner(d, D, cp, ρ)
 function Cn_circular_wall_inner(d, D, cp, ρ)
   C = pi / 4 * (D^2 - d^2) * cp * ρ
   return C / 2
 end
 
-@register_symbolic Cn_circular_wall_outer(d, D, cp, ρ)
+# @register_symbolic Cn_circular_wall_outer(d, D, cp, ρ)
 function Cn_circular_wall_outer(d, D, cp, ρ)
   C = pi / 4 * (D^2 - d^2) * cp * ρ
   return C / 2
 end
 
-@register_symbolic Ke_circular_wall(d, D, λ)
+# @register_symbolic Ke_circular_wall(d, D, λ)
 function Ke_circular_wall(d, D, λ)
   2 * pi * λ / log(D / d)
 end
