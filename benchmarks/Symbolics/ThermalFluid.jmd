@@ -11,7 +11,7 @@ using Pkg
 Pkg.add(Pkg.PackageSpec(;name="XSteam", rev="f2a1c589054cfd6bba307985a3a534b6f5a1863b"))
 
 using ModelingToolkit, Symbolics, SymbolicUtils, XSteam, Polynomials, CairoMakie, PrettyTables
-using SparseArrays, Chairmarks
+using SparseArrays, Chairmarks, Statistics
 using ModelingToolkit: t_nounits as t, D_nounits as D
 ```
 
@@ -256,16 +256,16 @@ function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_
   SymbolicUtils.ENABLE_HASHCONSING[] = false
   jac_result = @be calculate_jacobian(sys; sparse = true)
   jac_nocse = calculate_jacobian(sys; sparse = true)
-  jacobian_times[1][i] = minimum(x -> x.time, jac_result.samples)
-  jacobian_gctimes[1][i] = minimum(x -> x.time * x.gc_fraction, jac_result.samples)
-  jacobian_allocs[1][i] = minimum(x -> x.bytes, jac_result.samples)
+  jacobian_times[1][i] = mean(x -> x.time, jac_result.samples)
+  jacobian_gctimes[1][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
+  jacobian_allocs[1][i] = mean(x -> x.bytes, jac_result.samples)
   SymbolicUtils.ENABLE_HASHCONSING[] = true
   SymbolicUtils.clear_cache!(Symbolics.occursin_info)
   jac_result = @be calculate_jacobian(sys; sparse = true)
   jac_cse = calculate_jacobian(sys; sparse = true)
-  jacobian_times[2][i] = minimum(x -> x.time, jac_result.samples)
-  jacobian_gctimes[2][i] = minimum(x -> x.time * x.gc_fraction, jac_result.samples)
-  jacobian_allocs[2][i] = minimum(x -> x.bytes, jac_result.samples)
+  jacobian_times[2][i] = mean(x -> x.time, jac_result.samples)
+  jacobian_gctimes[2][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
+  jacobian_allocs[2][i] = mean(x -> x.bytes, jac_result.samples)
 
   @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
@@ -281,21 +281,21 @@ function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_
   buffer_cse = similar(jac, Float64)
   buffer_cse.nzval .= 0.0
 
-  build_result_nocse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)
   f_jac_nocse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)[2]
-  build_times[1][i] = minimum(x -> x.time, build_result_nocse.samples)
+  build_result_nocse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)
+  build_times[1][i] = mean(x -> x.time, build_result_nocse.samples)
   first_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
-  first_call_times[1][i] = minimum(x -> x.time, first_call_result_nocse.samples)
+  first_call_times[1][i] = mean(x -> x.time, first_call_result_nocse.samples)
   second_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
-  second_call_times[1][i] = minimum(x -> x.time, second_call_result_nocse.samples)
+  second_call_times[1][i] = mean(x -> x.time, second_call_result_nocse.samples)
 
-  build_result_cse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)
   f_jac_cse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)[2]
-  build_times[2][i] = minimum(x -> x.time, build_result_cse.samples)
+  build_result_cse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)
+  build_times[2][i] = mean(x -> x.time, build_result_cse.samples)
   first_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
-  first_call_times[2][i] = minimum(x -> x.time, first_call_result_cse.samples)
+  first_call_times[2][i] = mean(x -> x.time, first_call_result_cse.samples)
   second_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
-  second_call_times[2][i] = minimum(x -> x.time, second_call_result_cse.samples)
+  second_call_times[2][i] = mean(x -> x.time, second_call_result_cse.samples)
 
   return nothing
 end
