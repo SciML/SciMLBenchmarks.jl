@@ -264,8 +264,7 @@ function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_a
   jacobian_allocs[1][i] = mean(x -> x.bytes, jac_result.samples)
   @info "times" jacobian_times[1][i] jacobian_gctimes[1][i] jacobian_allocs[1][i]
   SymbolicUtils.ENABLE_HASHCONSING[] = true
-  SymbolicUtils.clear_cache!(Symbolics.occursin_info)
-  jac_result = @be calculate_jacobian(sys; sparse = true)
+  jac_result = @be (SymbolicUtils.clear_cache!(Symbolics.occursin_info); calculate_jacobian(sys; sparse = true))
   @info "Hashconsing benchmark"
   jac_cse = calculate_jacobian(sys; sparse = true)
   @info "Hashconsing result"
@@ -350,6 +349,7 @@ second_call_times = copy.(jacobian_times)
 ## Timings
 
 ```julia
+Chairmarks.DEFAULTS.seconds = 15.0
 # compile
 run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, functions, 1, 5)
 run_and_time_call!(functions, first_call_times, second_call_times, 1)

@@ -93,8 +93,7 @@ function run_and_time_construct!(rhs, vars, pars, iv, N, i, jac_times, jac_alloc
     jac_nohc = Symbolics.sparsejacobian(outputs, vars)
 
     SymbolicUtils.ENABLE_HASHCONSING[] = true
-    SymbolicUtils.clear_cache!(Symbolics.occursin_info)
-    jac_result = @be Symbolics.sparsejacobian(outputs, vars)
+    jac_result = @be (SymbolicUtils.clear_cache!(Symbolics.occursin_info); Symbolics.sparsejacobian(outputs, vars))
     jac_times[2][i] = minimum(x -> x.time, jac_result.samples)
     jac_allocs[2][i] = minimum(x -> x.bytes, jac_result.samples)
     jac_hc = Symbolics.sparsejacobian(outputs, vars)
@@ -147,6 +146,7 @@ end
 # Run benchmark
 
 ```julia
+Chairmarks.DEFAULTS.seconds = 15.0
 N = [10, 20, 40, 80, 160, 320]
 jacobian_times = [zeros(Float64, length(N)), zeros(Float64, length(N))]
 jacobian_allocs = copy.(jacobian_times)
