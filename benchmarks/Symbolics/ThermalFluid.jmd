@@ -253,20 +253,26 @@ end
 
 function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, N)
   @mtkbuild sys = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+  @info "Built system" N
   SymbolicUtils.ENABLE_HASHCONSING[] = false
   jac_result = @be calculate_jacobian(sys; sparse = true)
+  @info "No hashconsing benchmark"
   jac_nocse = calculate_jacobian(sys; sparse = true)
+  @info "No hashconsing result"
   jacobian_times[1][i] = mean(x -> x.time, jac_result.samples)
   jacobian_gctimes[1][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
   jacobian_allocs[1][i] = mean(x -> x.bytes, jac_result.samples)
+  @info "times" jacobian_times[1][i] jacobian_gctimes[1][i] jacobian_allocs[1][i]
   SymbolicUtils.ENABLE_HASHCONSING[] = true
   SymbolicUtils.clear_cache!(Symbolics.occursin_info)
   jac_result = @be calculate_jacobian(sys; sparse = true)
+  @info "Hashconsing benchmark"
   jac_cse = calculate_jacobian(sys; sparse = true)
+  @info "Hashconsing result"
   jacobian_times[2][i] = mean(x -> x.time, jac_result.samples)
   jacobian_gctimes[2][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
   jacobian_allocs[2][i] = mean(x -> x.bytes, jac_result.samples)
-
+  @info "times" jacobian_times[2][i] jacobian_gctimes[2][i] jacobian_allocs[2][i]
   @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
 
@@ -282,27 +288,37 @@ function run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_
   buffer_cse.nzval .= 0.0
 
   f_jac_nocse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)[2]
+  @info "No CSE build_function result"
   build_result_nocse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = false)
+  @info "No CSE build_function benchmark"
   build_times[1][i] = mean(x -> x.time, build_result_nocse.samples)
-  first_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
-  first_call_times[1][i] = mean(x -> x.time, first_call_result_nocse.samples)
+  @info "time" build_times[1][i]
+  first_call_result_nocse = @timed call(f_jac_nocse, buffer_nocse, u0, p, t0)
+  first_call_times[1][i] = first_call_result_nocse.time
+  @info "time" first_call_times[1][i]
   second_call_result_nocse = @be call(f_jac_nocse, buffer_nocse, u0, p, t0)
   second_call_times[1][i] = mean(x -> x.time, second_call_result_nocse.samples)
+  @info "time" second_call_times[1][i]
 
   f_jac_cse = build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)[2]
+  @info "CSE build_function result"
   build_result_cse = @be build_function(jac, dvs, ps, t; iip_config = (false, true), expression = Val{false}, cse = true)
+  @info "CSE build_function benchmark"
   build_times[2][i] = mean(x -> x.time, build_result_cse.samples)
-  first_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
-  first_call_times[2][i] = mean(x -> x.time, first_call_result_cse.samples)
+  @info "time" build_times[2][i]
+  first_call_result_cse = @timed call(f_jac_cse, buffer_cse, u0, p, t0)
+  first_call_times[2][i] = first_call_result_cse.time
+  @info "time" first_call_times[2][i]
   second_call_result_cse = @be call(f_jac_cse, buffer_cse, u0, p, t0)
   second_call_times[2][i] = mean(x -> x.time, second_call_result_cse.samples)
+  @info "time" second_call_times[2][i]
 
   return nothing
 end
 ```
 
 ```julia
-N = [5, 10, 20, 40, 60, 80, 160, 320, 480];
+N = [5, 10, 20, 40, 80, 160, 320];
 jacobian_times = [zeros(Float64, length(N)), zeros(Float64, length(N))]
 jacobian_gctimes = copy.(jacobian_times)
 jacobian_allocs = copy.(jacobian_times)
@@ -318,7 +334,8 @@ second_call_times = copy.(jacobian_times)
 # compile
 run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, 1, 5)
 for (i, n) in enumerate(N)
-  run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, n)
+  @info i n
+  @time run_and_time!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, first_call_times, second_call_times, i, n)
 end
 ```
 
