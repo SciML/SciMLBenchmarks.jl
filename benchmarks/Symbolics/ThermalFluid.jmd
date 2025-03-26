@@ -250,23 +250,34 @@ end
 function call(fn, args...)
   fn(args...)
 end
+```
+
+The `sparsejacobian` function in Symbolics.jl is optimized for hashconsing and caching, and as such
+performs very poorly without either of those features. We use the old implementation, optimized without
+hashconsing, to benchmark performance without hashconsing and without caching to avoid biasing the results.
+
+```julia
+include("old_sparse_jacobian.jl")
 
 function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, functions, i, N)
   @mtkbuild sys = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
+  rhs = [eq.rhs for eq in full_equations(sys)]
+  dvs = unknowns(sys)
+
   @info "Built system"
   SymbolicUtils.ENABLE_HASHCONSING[] = false
-  jac_result = @be calculate_jacobian(sys; sparse = true)
+  jac_result = @be old_sparsejacobian(rhs, dvs)
   @info "No hashconsing benchmark"
-  jac_nocse = calculate_jacobian(sys; sparse = true)
+  jac_nocse = old_sparsejacobian(rhs, dvs)
   @info "No hashconsing result"
   jacobian_times[1][i] = mean(x -> x.time, jac_result.samples)
   jacobian_gctimes[1][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
   jacobian_allocs[1][i] = mean(x -> x.bytes, jac_result.samples)
   @info "times" jacobian_times[1][i] jacobian_gctimes[1][i] jacobian_allocs[1][i]
   SymbolicUtils.ENABLE_HASHCONSING[] = true
-  jac_result = @be (SymbolicUtils.clear_cache!(Symbolics.occursin_info); calculate_jacobian(sys; sparse = true))
+  jac_result = @be (Symbolics.clear_derivative_caches!(); Symbolics.sparsejacobian(rhs, dvs))
   @info "Hashconsing benchmark"
-  jac_cse = calculate_jacobian(sys; sparse = true)
+  jac_cse = Symbolics.sparsejacobian(rhs, dvs)
   @info "Hashconsing result"
   jacobian_times[2][i] = mean(x -> x.time, jac_result.samples)
   jacobian_gctimes[2][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
@@ -275,7 +286,6 @@ function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_a
   @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
 
-  dvs = unknowns(sys)
   ps = parameters(sys)
   defs = defaults(sys)
   u0 = Float64[Symbolics.fixpoint_sub(v, defs) for v in dvs]
