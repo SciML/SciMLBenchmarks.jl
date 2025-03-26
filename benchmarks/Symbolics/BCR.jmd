@@ -17,7 +17,7 @@ jacobian, generate a function to calculate it and call the function.
 
 
 ```julia
-using OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
+using Catalyst, ReactionNetworkImporters,
     TimerOutputs, LinearAlgebra, ModelingToolkit, Chairmarks,
     LinearSolve, Symbolics, SymbolicUtils, SymbolicUtils.Code, SparseArrays, CairoMakie,
     PrettyTables
@@ -36,15 +36,29 @@ osys = convert(ODESystem, rn)
 rhs = [eq.rhs for eq in full_equations(osys)]
 vars = unknowns(osys)
 pars = parameters(osys)
+```
 
+The `sparsejacobian` function in Symbolics.jl is optimized for hashconsing and caching, and as such
+performs very poorly without either of those features. We use the old implementation, optimized without
+hashconsing, to benchmark performance without hashconsing and without caching to avoid biasing the results.
+
+```julia
+include("old_sparse_jacobian.jl")
+```
+
+```julia
 SymbolicUtils.ENABLE_HASHCONSING[] = false
-@timeit to "Calculate jacobian - without hashconsing" jac_nohc = Symbolics.sparsejacobian(rhs, vars);
+@timeit to "Calculate jacobian - without hashconsing" jac_nohc = old_sparsejacobian(rhs, vars);
 SymbolicUtils.ENABLE_HASHCONSING[] = true
-SymbolicUtils.toggle_caching!(Symbolics.occursin_info, false)
-@timeit to "Calculate jacobian - hashconsing, without caching" jac_hc_nocache = Symbolics.sparsejacobian(rhs, vars);
-SymbolicUtils.toggle_caching!(Symbolics.occursin_info, true)
-stats = SymbolicUtils.get_stats(Symbolics.occursin_info)
-@assert stats.hits == stats.misses == 0
+Symbolics.toggle_derivative_caching!(false)
+Symbolics.clear_derivative_caches!()
+@timeit to "Calculate jacobian - hashconsing, without caching" jac_hc_nocache = old_sparsejacobian(rhs, vars);
+Symbolics.toggle_derivative_caching!(true)
+for fn in Symbolics.cached_derivative_functions()
+    stats = SymbolicUtils.get_stats(fn)
+    @assert stats.hits == stats.misses == 0
+end
+Symbolics.clear_derivative_caches!()
 @timeit to "Calculate jacobian - hashconsing and caching" jac_hc_cache = Symbolics.sparsejacobian(rhs, vars);
 
 @assert isequal(jac_nohc, jac_hc_nocache)
@@ -87,19 +101,16 @@ We'll also measure scaling.
 function run_and_time_construct!(rhs, vars, pars, iv, N, i, jac_times, jac_allocs, build_times, functions)
     outputs = rhs[1:N]
     SymbolicUtils.ENABLE_HASHCONSING[] = false
-    jac_result = @be Symbolics.sparsejacobian(outputs, vars)
+    jac_result = @be old_sparsejacobian(outputs, vars)
     jac_times[1][i] = minimum(x -> x.time, jac_result.samples)
     jac_allocs[1][i] = minimum(x -> x.bytes, jac_result.samples)
-    jac_nohc = Symbolics.sparsejacobian(outputs, vars)
 
     SymbolicUtils.ENABLE_HASHCONSING[] = true
-    jac_result = @be (SymbolicUtils.clear_cache!(Symbolics.occursin_info); Symbolics.sparsejacobian(outputs, vars))
+    jac_result = @be (Symbolics.clear_derivative_caches!(); Symbolics.sparsejacobian(outputs, vars))
     jac_times[2][i] = minimum(x -> x.time, jac_result.samples)
     jac_allocs[2][i] = minimum(x -> x.bytes, jac_result.samples)
-    jac_hc = Symbolics.sparsejacobian(outputs, vars)
 
-    @assert isequal(jac_nohc, jac_hc)
-    jac = jac_hc
+    jac = Symbolics.sparsejacobian(outputs, vars)
     args = (vars, pars, iv)
     kwargs = (; iip_config = (false, true), expression = Val{true})
     
