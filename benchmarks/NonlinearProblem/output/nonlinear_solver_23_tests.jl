@@ -1,40 +1,34 @@
----
-title: Nonlinear Solver 23 Test Problems
-author: Torkel Loman & Avik Pal
----
+# Nonlinear Solver 23 Test Problems
+# author Torkel Loman & Avik Pal
 
-These benchmarks compares the runtime and error for a range of nonlinear solvers. The problems are a standard set of problems as described [here](https://people.sc.fsu.edu/~jburkardt/m_src/test_nonlin/test_nonlin.html). The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. For each problem we test the following solvers:
-- NonlinearSolve.jl's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) method (`NewtonRaphson()`).
-- NonlinearSolve.jl's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) method (`TrustRegion()`).
-- NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
-- MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
-- MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
-- NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
-- NLsolveJL's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
-- NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
-- Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
+# These benchmarks compares the runtime and error for a range of nonlinear solvers. The problems are a standard set of problems as described [here](https://people.sc.fsu.edu/~jburkardt/m_src/test_nonlin/test_nonlin.html). The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. For each problem we test the following solvers:
+# - NonlinearSolve.jl's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) method (`NewtonRaphson()`).
+# - NonlinearSolve.jl's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) method (`TrustRegion()`).
+# - NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
+# - MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
+# - MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
+# - NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
+# - NLsolveJL's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
+# - NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
+# - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
-solver_tracker = [];
+# Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following Line Search options (in addition to the default):
+# - `HagerZhang`
+# - `MoreThuente`
+# - `BackTracking`
 
-Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following Line Search options (in addition to the default):
-- `HagerZhang`
-- `MoreThuente`
-- `BackTracking`
+# # and for NonlinearSolve.jl's Trust Region we try the following Radius Update schemes (in addition to the default):
+# - `NLsolve`
+# - `NocedalWright`
+# - `Hei`
+# - `Yuan`
+# - `Bastin`
+# - `Fan`
+# and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
 
-and for NonlinearSolve.jl's Trust Region we try the following Radius Update schemes (in addition to the default):
-- `NLsolve` 
-- `NocedalWright` 
-- `Hei` 
-- `Yuan` 
-- `Bastin` 
-- `Fan` 
-and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
+# For each benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Trust Region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded for which problems.
 
-For each benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Trust Region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded for which problems.
-
-# Setup
-
-Fetch required packages.
+# Fetch required packages.
 
 ```julia
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, Setfield,
@@ -45,10 +39,10 @@ import PolyesterForwardDiff, MINPACK, NLsolve
 const RUS = RadiusUpdateSchemes;
 ```
 
-Declare the benchmarked solvers (and their names and plotting options).
+# Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
-# XXX: Add PETSc
+
 solvers_all = [
     (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson())),
@@ -81,26 +75,24 @@ solver_tracker = [];
 wp_general_tracker = [];
 ```
 
-Sets tolerances.
+# Sets tolerances.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:12)
 reltols = 1.0 ./ 10.0 .^ (4:12);
 ```
 
-Prepares various helper functions for benchmarking a specific problem.
+# Prepares various helper functions for benchmarking a specific problem.
 
 ```julia
-# Benchmarks a specific problem, checks which solvers can solve it and their performance
+
 function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
-    # Finds the problem and the true solution.
+
     prob = nlprob_23_testcases[prob_name]
 
-    # Finds the solvers that can solve the problem
     successful_solvers = filter(Base.Fix1(check_solver, prob), solvers_all);
     push!(solver_tracker, prob_name => successful_solvers);
 
-    # Handles the non-general cases.
     solvers_NR = filter(s -> s.type==:NR, successful_solvers)
     solvers_TR = filter(s -> s.type==:TR, successful_solvers)
     solvers_LM = filter(s -> s.type==:LM, successful_solvers)
@@ -117,7 +109,6 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
         maxiters=1000,
         termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
-    # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
     add_solver!(solvers_general, nothing, solvers_TR, wp_TR)
     add_solver!(solvers_general, nothing, solvers_LM, wp_LM)
@@ -136,7 +127,6 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     return fig
 end
 
-# Checks if a solver can successfully solve a given problem.
 function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8,
@@ -160,12 +150,10 @@ function check_solver(prob, solver)
     return true
 end
 
-# Adds an additional, selected, solver to the general solver set.
-# Adds an additional, selected, solver to the general solver set.
 function add_solver!(solvers_general, selected_solver_name, additional_solver_set, wp)
     if isnothing(selected_solver_name)
         isempty(wp.wps) && return
-        selected_idx = argmin(median.(getfield.(wp.wps, :times))) 
+        selected_idx = argmin(median.(getfield.(wp.wps, :times)))
     else
         selected_idx = findfirst(s -> s.name==selected_solver_name, additional_solver_set)
         isnothing(selected_solver) && error("The $(selected_solver_name) was designated to \
@@ -177,7 +165,7 @@ function add_solver!(solvers_general, selected_solver_name, additional_solver_se
 end;
 ```
 
-Plotting related helper functions.
+# Plotting related helper functions.
 
 ```julia
 __log10_zero(x) = ifelse(iszero(x), -100, log10(x))
@@ -185,7 +173,6 @@ Makie.inverse_transform(::typeof(__log10_zero)) = exp10
 Makie.defaultlimits(::typeof(__log10_zero)) = Makie.defaultlimits(log10)
 Makie.defined_interval(::typeof(__log10_zero)) = 0.0..Inf
 
-# Skip minor ticks for __log10_zero scale
 function Makie.get_minor_tickvalues(i::IntervalsBetween, scale::typeof(__log10_zero),
         tickvalues, vmin, vmax)
     return []
@@ -208,7 +195,6 @@ function __filter_nearzero((ticks, ticklabels))
     return ticks, ticklabels
 end
 
-# Plots a work-precision diagram.
 function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
     LINESTYLES = Dict(:nonlinearsolve => :solid, :simplenonlinearsolve => :dash,
         :wrapper => :dot)
@@ -298,9 +284,7 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
 end
 ```
 
-# Benchmarks
-
-We here run benchmarks for each of the 23 models. 
+# We here run benchmarks for each of the 23 models.
 
 ### Problem 1 (Generalized Rosenbrock function)
 
@@ -440,9 +424,9 @@ benchmark_problem!("Boggs function")
 benchmark_problem!("Chandrasekhar function")
 ```
 
-## Summary of successful solvers
+# Summary of successful solvers
 
-Finally, we print a summary of which solvers successfully solved which problems.
+# Finally, we print a summary of which solvers successfully solved which problems.
 
 ```julia
 solver_successes = [(solver.name in getfield.(prob[2], :name)) ? "O" : "X" for prob in solver_tracker, solver in solvers_all]
@@ -459,7 +443,7 @@ println(io, "```")
 Base.Text(String(take!(io)))
 ```
 
-## Summary of General Solver Performance on All Problems
+# Summary of General Solver Performance on All Problems
 
 ```julia
 fig = begin
@@ -573,3 +557,5 @@ save("summary_wp_23test_problems.svg", fig)
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
+
+# This file was generated using Literate.jl, https://github.com/fredrikekre/Literate.jl
