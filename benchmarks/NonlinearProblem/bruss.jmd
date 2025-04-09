@@ -155,7 +155,7 @@ function cache_and_compute_10_jacobians(adtype, f!::F, y, x, p) where {F}
     return J
 end
 
-Ns = [2^i for i in 1:7]
+Ns = [2^i for i in 1:4]
 
 adtypes = [
     (
@@ -210,7 +210,7 @@ adtypes = [
 times = Matrix{Float64}(undef, length(Ns), length(adtypes))
 
 for (i, N) in enumerate(Ns)
-    @info N
+    str = "$(lpad(N, 10)) "
     test_problem = generate_brusselator_problem(N)
     bruss_f! = test_problem.f
     u0 = test_problem.u0
@@ -222,8 +222,9 @@ for (i, N) in enumerate(Ns)
                 $(adtype), $(bruss_f!), $(y), $(u0), $(test_problem.p)
             )
         end
-        @info times[i, j]
+        str = str * "$(lpad(times[i, j], 16))"
     end
+    println(str)
 end
 ```
 
@@ -250,7 +251,7 @@ fig = begin
             xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5, yreversed=true)
 
         spy!(ax, J_; markersize=1, marker=:circle, framecolor=:lightgray,
-            colormap=:seaborn_bright)
+            colormap=:tableau_20)
 
         ax = Axis(fig[1, 2]; title="Scaling of Sparse Jacobian Computation",
             titlesize=22, titlegap=10, xscale=log10, yscale=log10,
@@ -259,7 +260,7 @@ fig = begin
             xlabel=L"Input Dimension ($\mathbf{N}$)", ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
             ylabelsize=22, yaxisposition=:right)
 
-        colors = cgrad(:seaborn_bright, length(adtypes); categorical=true)
+        colors = cgrad(:tableau_20, length(adtypes); categorical=true)
 
         line_list = []
         scatter_list = []
@@ -359,18 +360,18 @@ solvers_scaling = [
     (; pkg = :wrapper,        sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
     (; pkg = :wrapper,        sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
     (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
-    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
-    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :wrapper,        sparsity = :exact,  name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
 
     (; pkg = :nonlinearsolve, sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
     (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
     (; pkg = :wrapper,        sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
     (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
-    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
-    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :wrapper,        sparsity = :exact,  name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
 
     (; pkg = :wrapper,        sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
 ]
+
+GC.enable(false) # for PETSc
 
 runtimes_scaling = fill(-1.0, length(solvers_scaling), length(Ns))
 
@@ -441,7 +442,7 @@ fig = begin
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:seaborn_bright, length(solvers_scaling); categorical = true)
+    colors = cgrad(:tableau_20, length(solvers_scaling); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
@@ -619,7 +620,7 @@ fig = begin
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:seaborn_bright, length(solvers_scaling_jacobian_free); categorical = true)
+    colors = cgrad(:tableau_20, length(solvers_scaling_jacobian_free); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
@@ -765,7 +766,7 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:seaborn_bright, length(successful_solvers); categorical = true)
+    colors = cgrad(:tableau_20, length(successful_solvers); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
