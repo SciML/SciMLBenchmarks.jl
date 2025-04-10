@@ -193,15 +193,53 @@ pretty_table(tabledata; header, backend = Val(:html))
 ```
 
 ```julia
-f = Figure(size = (800, 1200));
-labels = ["Symbolic jacobian time", "Symbolic jacobian\nallocated memory (B)", "`build_function` time", "First call time", "Second call time"]
+f = Figure(size = (750, 400))
+titles = [
+    "Jacobian symbolic computation", "Jacobian symbolic computation", "Code generation",
+    "Numerical function compilation", "Numerical function evaluation"]
+labels = ["Time (seconds)", "Allocated memory (bytes)",
+    "Time (seconds)", "Time (seconds)", "Time (seconds)"]
 times = [jacobian_times, jacobian_allocs, build_times, first_call_times, second_call_times]
-for (i, (label, data)) in enumerate(zip(labels, times))
-  ax = Axis(f[i, 1], xscale = log10, yscale = log10, ylabel = label, xticks = N)
-  l1 = lines!(ax, N, data[1])
-  l2 = lines!(ax, N, data[2])
-  legend_entries = startswith(label, "Symbolic") ? ["without hashconsing", "with hashconsing"] : ["without CSE", "with CSE"]
-  Legend(f[i, 2], [l1, l2], legend_entries)
+axes = Axis[]
+for i in 1:2
+    label = labels[i]
+    data = times[i]
+    ax = Axis(f[1, i], xscale = log10, yscale = log10, xlabel = "model size",
+        xlabelsize = 10, ylabel = label, ylabelsize = 10, xticks = N,
+        title = titles[i], titlesize = 12, xticklabelsize = 10, yticklabelsize = 10)
+    push!(axes, ax)
+    l1 = scatterlines!(ax, N, data[1], label = "without hashconsing")
+    l2 = scatterlines!(ax, N, data[2], label = "with hashconsing")
 end
+Legend(f[1, 3], axes[1], "Methods", tellwidth = false, labelsize = 12, titlesize = 15)
+axes2 = Axis[]
+# make equal y-axis unit length
+mn3, mx3 = extrema(reduce(vcat, times[3]))
+xn3 = log10(mx3 / mn3)
+mn4, mx4 = extrema(reduce(vcat, times[4]))
+xn4 = log10(mx4 / mn4)
+mn5, mx5 = extrema(reduce(vcat, times[5]))
+xn5 = log10(mx5 / mn5)
+xn = max(xn3, xn4, xn5)
+xn += 0.2
+hxn = xn / 2
+hxn3 = (log10(mx3) + log10(mn3)) / 2
+hxn4 = (log10(mx4) + log10(mn4)) / 2
+hxn5 = (log10(mx5) + log10(mn5)) / 2
+ylims = [(exp10(hxn3 - hxn), exp10(hxn3 + hxn)), (exp10(hxn4 - hxn), exp10(hxn4 + hxn)),
+    (exp10(hxn5 - hxn), exp10(hxn5 + hxn))]
+for i in 1:3
+    ir = i + 2
+    label = labels[ir]
+    data = times[ir]
+    ax = Axis(f[2, i], xscale = log10, yscale = log10, xlabel = "model size",
+        xlabelsize = 10, ylabel = label, ylabelsize = 10, xticks = N,
+        title = titles[ir], titlesize = 12, xticklabelsize = 10, yticklabelsize = 10)
+    ylims!(ax, ylims[i]...)
+    push!(axes2, ax)
+    l1 = scatterlines!(ax, N, data[1], label = "without hashconsing")
+    l2 = scatterlines!(ax, N, data[2], label = "with hashconsing")
+end
+save("bcr.pdf", f)
 f
 ```
