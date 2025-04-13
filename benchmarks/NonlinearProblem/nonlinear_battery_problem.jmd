@@ -57,9 +57,10 @@ solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true)))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), linsolve = CholeskyFactorization()))),
+    (; pkg = :wrapper,              name = "Newton Raphson [PETSc]",                                 solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic"))),
     (; pkg = :wrapper,              name = "Newton Raphson with BackTracking [PETSc]",               solver = Dict(:alg => PETScSNES(; snes_type = "newtonls"))),
     (; pkg = :wrapper,              name = "Trust Region [PETSc]",                                   solver = Dict(:alg => PETScSNES(; snes_type = "newtontr"))),
-    (; pkg = :wrapper,              name = "Nonlinear GMRES [PETSc]",                                solver = Dict(:alg => PETScSNES(; snes_type = "ngmres"))),
+    (; pkg = :wrapper,              name = "Newton Krylov with GMRES [PETSc]",                       solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres"))),
     (; pkg = :wrapper,              name = "Modified Powell [MINPACK]",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
     (; pkg = :wrapper,              name = "Levenberg-Marquardt [MINPACK]",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
     (; pkg = :wrapper,              name = "Newton Raphson [NLsolve.jl]",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
@@ -205,28 +206,42 @@ reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
 Prepares various helper functions for benchmarking a specific problem.
 
 ```julia
+function log_msg(msg; kwargs...)
+    if startswith(msg, "[Info]")
+        @info msg
+    elseif startswith(msg, "[Warn]")
+        @warn msg
+    elseif startswith(msg, "[Error]")
+        @error msg
+    else
+        @info msg
+    end
+    Base.printstyled(msg; kwargs...)
+    return
+end
+
 function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-4, reltol = 1e-4,
             maxiters = 10000)
         err = norm(sol.resid, Inf)
         if !SciMLBase.successful_retcode(sol.retcode)
-            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
+            log_msg("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
                 color = :red)
             return false
         elseif err > 1e3
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
+            log_msg("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
                 color = :red)
             return false
         elseif isinf(err) || isnan(err)
-            Base.printstyled("[Warn] Solver $(solver.name) had a residual of $(err).\n";
+            log_msg("[Warn] Solver $(solver.name) had a residual of $(err).\n";
                 color = :red)
             return false
         end
-        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
+        log_msg("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
             color = :green)
     catch e
-        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
+        log_msg("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
         return false
     end
     return true
