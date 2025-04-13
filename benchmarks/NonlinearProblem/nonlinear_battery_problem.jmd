@@ -1,6 +1,7 @@
 ---
 title: Doyle-Fuller-Newman (DFN) Battery Model Initialization
 author: Marc D. Berliner & Avik Pal
+priority: 10000
 ---
 
 These benchmarks compares the runtime and error for a range of nonlinear solvers. The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. We test the following solvers:
@@ -23,7 +24,7 @@ Fetch required packages.
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie,
     RecursiveFactorization
-import MINPACK, NLsolve
+import MINPACK, NLsolve, PETSc
 import LineSearches
 
 const RUS = RadiusUpdateSchemes;
@@ -35,7 +36,8 @@ Declare the benchmarked solvers (and their names and plotting options).
 HagerZhang() = LineSearchesJL(; method = LineSearches.HagerZhang())
 MoreThuente() = LineSearchesJL(; method = LineSearches.MoreThuente())
 
-# XXX: Add PETSc
+GC.enable(false) # for PETSc
+
 solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
     (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson())),
@@ -55,6 +57,9 @@ solvers_all = [
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true)))),
     (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), linsolve = CholeskyFactorization()))),
+    (; pkg = :wrapper,              name = "Newton Raphson with BackTracking [PETSc]",               solver = Dict(:alg => PETScSNES(; snes_type = "newtonls"))),
+    (; pkg = :wrapper,              name = "Trust Region [PETSc]",                                   solver = Dict(:alg => PETScSNES(; snes_type = "newtontr"))),
+    (; pkg = :wrapper,              name = "Nonlinear GMRES [PETSc]",                                solver = Dict(:alg => PETScSNES(; snes_type = "ngmres"))),
     (; pkg = :wrapper,              name = "Modified Powell [MINPACK]",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
     (; pkg = :wrapper,              name = "Levenberg-Marquardt [MINPACK]",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
     (; pkg = :wrapper,              name = "Newton Raphson [NLsolve.jl]",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
@@ -62,7 +67,7 @@ solvers_all = [
     (; pkg = :wrapper,              name = "Mod. Newton Raphson [Sundials]",                         solver = Dict(:alg => KINSOL())),
     (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",                               solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
     (; pkg = :wrapper,              name = "Newton Raphson with LineSearch [Sundials]",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch))),
-    (; pkg = :wrapper,              name = "Speed Mapping [SpeedMapping.jl]",                        solver = Dict(:alg => SpeedMappingJL()))
+    (; pkg = :wrapper,              name = "Speed Mapping [SpeedMapping.jl]",                        solver = Dict(:alg => SpeedMappingJL())),
 ];
 ```
 
@@ -265,7 +270,7 @@ fig = begin
 
     idxs = sortperm(median.(getfield.(wp_set.wps, :times)))
 
-    with_theme(plot_theme) do 
+    with_theme(plot_theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
         # `textbf` doesn't work
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
