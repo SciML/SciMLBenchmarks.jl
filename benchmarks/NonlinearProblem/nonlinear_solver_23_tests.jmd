@@ -39,7 +39,7 @@ Fetch required packages.
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, Setfield,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, CairoMakie,
     RecursiveFactorization
-import PolyesterForwardDiff, MINPACK, NLsolve
+import PolyesterForwardDiff, MINPACK, NLsolve, LineSearches
 
 const RUS = RadiusUpdateSchemes;
 ```
@@ -47,7 +47,9 @@ const RUS = RadiusUpdateSchemes;
 Declare the benchmarked solvers (and their names and plotting options).
 
 ```julia
-# XXX: Add PETSc
+HagerZhang() = LineSearchesJL(; method = LineSearches.HagerZhang())
+MoreThuente() = LineSearchesJL(; method = LineSearches.MoreThuente())
+
 solvers_all = [
     (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10))),
     (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson())),
