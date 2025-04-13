@@ -360,13 +360,16 @@ solvers_scaling = [
     (; pkg = :wrapper,        sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
     (; pkg = :wrapper,        sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
     (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
-    (; pkg = :wrapper,        sparsity = :exact,  name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
+    # TODO: fix sparsity detection for PETSc
+    # (; pkg = :wrapper,        sparsity = :exact,  name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
 
     (; pkg = :nonlinearsolve, sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    # TODO: fix sparsity detection for PETSc
+    # (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
     (; pkg = :wrapper,        sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
     (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
-    (; pkg = :wrapper,        sparsity = :exact,  name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
+    # TODO: fix sparsity detection for PETSc
+    # (; pkg = :wrapper,        sparsity = :exact,  name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
 
     (; pkg = :wrapper,        sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
 ]
@@ -404,7 +407,7 @@ for (i, N) in enumerate(Ns)
             (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :TrustRegion && N > 64) ||
             (alg isa NLsolveJL && N > 128 && alg.method == :newton) ||
             (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson && N > 128 && ptype == :none) ||
-            (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson && N > 150 && ptype == :approx)
+            (alg isa PETScSNES && N > 64 && ptype == :exact)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
