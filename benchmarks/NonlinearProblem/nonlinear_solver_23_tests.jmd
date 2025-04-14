@@ -21,12 +21,12 @@ Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following 
 - `BackTracking`
 
 and for NonlinearSolve.jl's Trust Region we try the following Radius Update schemes (in addition to the default):
-- `NLsolve` 
-- `NocedalWright` 
-- `Hei` 
-- `Yuan` 
-- `Bastin` 
-- `Fan` 
+- `NLsolve`
+- `NocedalWright`
+- `Hei`
+- `Yuan`
+- `Bastin`
+- `Fan`
 and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
 
 For each benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Trust Region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded for which problems.
@@ -38,7 +38,7 @@ Fetch required packages.
 ```julia
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, Setfield,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, CairoMakie,
-    RecursiveFactorization
+    RecursiveFactorization, Enzyme
 import PolyesterForwardDiff, MINPACK, NLsolve, LineSearches
 
 const RUS = RadiusUpdateSchemes;
@@ -92,13 +92,34 @@ reltols = 1.0 ./ 10.0 .^ (4:12);
 Prepares various helper functions for benchmarking a specific problem.
 
 ```julia
+function set_ad_chunksize(solvers, u0)
+    ck = NonlinearSolve.pickchunksize(u0)
+    for i in eachindex(solvers)
+        @set! solvers[i].solver[:alg] = __set_ad_chunksize(solvers[i].solver[:alg], ck)
+    end
+    return solvers
+end
+
+function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm, ck)
+    ad = AutoPolyesterForwardDiff(; chunksize = ck)
+    return GeneralizedFirstOrderAlgorithm(; solver.descent, solver.linesearch,
+        solver.trustregion, jvp_autodiff = ad, solver.max_shrink_times, solver.vjp_autodiff,
+        concrete_jac = solver.concrete_jac, name = solver.name)
+end
+function __set_ad_chunksize(solver::NonlinearSolvePolyAlgorithm, ck)
+    algs = [__set_ad_chunksize(alg, ck) for alg in solver.algs]
+    return NonlinearSolvePolyAlgorithm(algs; solver.start_index)
+end
+__set_ad_chunksize(solver, ck) = solver
+
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
 function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     # Finds the problem and the true solution.
     prob = nlprob_23_testcases[prob_name]
 
     # Finds the solvers that can solve the problem
-    successful_solvers = filter(Base.Fix1(check_solver, prob), solvers_all);
+    solvers_concrete = set_ad_chunksize(solvers_all, prob.prob.u0);
+    successful_solvers = filter(solver -> check_solver(prob, solver), solvers_concrete);
     push!(solver_tracker, prob_name => successful_solvers);
 
     # Handles the non-general cases.
@@ -162,11 +183,10 @@ function check_solver(prob, solver)
 end
 
 # Adds an additional, selected, solver to the general solver set.
-# Adds an additional, selected, solver to the general solver set.
 function add_solver!(solvers_general, selected_solver_name, additional_solver_set, wp)
     if isnothing(selected_solver_name)
         isempty(wp.wps) && return
-        selected_idx = argmin(median.(getfield.(wp.wps, :times))) 
+        selected_idx = argmin(median.(getfield.(wp.wps, :times)))
     else
         selected_idx = findfirst(s -> s.name==selected_solver_name, additional_solver_set)
         isnothing(selected_solver) && error("The $(selected_solver_name) was designated to \
