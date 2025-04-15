@@ -11,7 +11,7 @@ Fetch required packages
 ```julia
 using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevTools,
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
-    Enzyme, SparseConnectivityTracer, DifferentiationInterface
+    Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
 import NLsolve, MINPACK, PETSc, RecursiveFactorization
 
 const RUS = RadiusUpdateSchemes;
@@ -156,31 +156,38 @@ function cache_and_compute_10_jacobians(adtype, f!::F, y, x, p) where {F}
     return J
 end
 
-Ns = [2^i for i in 1:8]
+Ns = [2^i for i in 3:8];
 
 adtypes = [
     (
-        AutoSparse(AutoFiniteDiff(); sparsity_detector=TracerSparsityDetector()),
+        AutoSparse(
+            AutoFiniteDiff();
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+        ),
         [:finitediff, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoPolyesterForwardDiff(; chunksize=8);
-            sparsity_detector=TracerSparsityDetector()
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:polyester, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoEnzyme(; mode=Enzyme.Forward);
-            sparsity_detector=TracerSparsityDetector()
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoFiniteDiff();
-            sparsity_detector=DenseSparsityDetector(AutoFiniteDiff(); atol=1e-5)
+            sparsity_detector=DenseSparsityDetector(AutoFiniteDiff(); atol=1e-5),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:finitediff, :approx_sparse]
     ),
@@ -189,7 +196,8 @@ adtypes = [
             AutoPolyesterForwardDiff(; chunksize=8);
             sparsity_detector=DenseSparsityDetector(
                 AutoPolyesterForwardDiff(; chunksize=8); atol=1e-5
-            )
+            ),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:polyester, :approx_sparse]
     ),
@@ -198,7 +206,8 @@ adtypes = [
             AutoEnzyme(; mode=Enzyme.Forward);
             sparsity_detector=DenseSparsityDetector(
                 AutoEnzyme(; mode=Enzyme.Forward); atol=1e-5
-            )
+            ),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :approx_sparse]
     ),
@@ -206,9 +215,9 @@ adtypes = [
         AutoPolyesterForwardDiff(; chunksize=8),
         [:polyester, :none]
     ),
-]
+];
 
-times = Matrix{Float64}(undef, length(Ns), length(adtypes))
+times = Matrix{Float64}(undef, length(Ns), length(adtypes));
 
 for (i, N) in enumerate(Ns)
     str = "$(lpad(N, 10)) "
@@ -227,6 +236,7 @@ for (i, N) in enumerate(Ns)
     end
     println(str)
 end
+nothing
 ```
 
 Plotting the results.
@@ -255,10 +265,11 @@ fig = begin
             colormap=:tableau_20)
 
         ax = Axis(fig[1, 2]; title="Scaling of Sparse Jacobian Computation",
-            titlesize=22, titlegap=10, xscale=log10, yscale=log10,
+            titlesize=22, titlegap=10, xscale=log2, yscale=log2,
             xticksize=20, yticksize=20, xticklabelsize=20, yticklabelsize=20,
             xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5,
-            xlabel=L"Input Dimension ($\mathbf{N}$)", ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
+            xlabel=L"Input Dimension ($\mathbf{N}$)",
+            ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
             ylabelsize=22, yaxisposition=:right)
 
         colors = cgrad(:tableau_20, length(adtypes); categorical=true)
@@ -334,7 +345,7 @@ fig = begin
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in local_sparse_idxs],
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in non_sparse_idxs],
             ],
-            ["Exact Sparsity", "Approx. Local Sparsity", "No Sparsity"];
+            ["Exact Sparsity", "Approx. Local Sparsity", "Dense"];
             position=:rb, framevisible=true, framewidth=2.5, titlesize=18,
             labelsize=16, patchsize=(40.0f0, 20.0f0)
         )
@@ -447,9 +458,9 @@ fig = begin
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
-        # (:nonlinearsolve, :approx) => :dash,
         (:nonlinearsolve, :exact) => :dashdot,
         # (:simplenonlinearsolve, :none) => :solid,
+        (:wrapper, :exact) => :dash,
         (:wrapper, :none) => :dot,
     )
 
@@ -553,20 +564,20 @@ Ns = 2 .^ (2:7)
 solvers_scaling_jacobian_free = [
     (; pkg = :nonlinearsolve,  name = "Newton Krylov",                      alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
     (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",                alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                alg = NewtonRaphson(; linsolve = KrylovJL_CG(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",         alg = NewtonRaphson(; linsolve = KrylovJL_CG(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",         alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
     (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",              alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true)),
     (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu")),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "cg", pc_type = "gamg")),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]", alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "cg", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg")),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]", alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
     (; pkg = :nonlinearsolve,  name = "TR Krylov",                          alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
     (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                    alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                    alg = TrustRegion(; linsolve = KrylovJL_CG(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",             alg = TrustRegion(; linsolve = KrylovJL_CG(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                    alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",             alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
     (; pkg = :wrapper,         name = "TR Krylov [PETSc]",                  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", snes_mf = true)),
     (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu")),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "cg", pc_type = "gamg")),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG Jacobi) [PETSc]",     alg = PETScSNES(; snes_type = "newtontr", ksp_type = "cg", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
+    (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg")),
+    (; pkg = :wrapper,         name = "TR Krylov (AMG Jacobi) [PETSc]",     alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
     (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",           alg = KINSOL(; linear_solver = :GMRES)),
 ]
 
@@ -787,7 +798,7 @@ fig = begin
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
-    with_theme(plot_theme) do 
+    with_theme(plot_theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
         # `textbf` doesn't work
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
