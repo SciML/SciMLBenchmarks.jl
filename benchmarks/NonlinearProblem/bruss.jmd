@@ -1,7 +1,7 @@
 ---
 title: Ill-Conditioned Nonlinear System Work-Precision Diagrams
 author: Avik Pal
-priority: 10
+priority: 1000000
 ---
 
 # Setup
@@ -346,7 +346,7 @@ fig = begin
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in non_sparse_idxs],
             ],
             ["Exact Sparsity", "Approx. Local Sparsity", "Dense"];
-            position=:rb, framevisible=true, framewidth=2.5, titlesize=18,
+            position=:lt, framevisible=true, framewidth=2.5, titlesize=18,
             labelsize=16, patchsize=(40.0f0, 20.0f0)
         )
 
@@ -565,15 +565,15 @@ solvers_scaling_jacobian_free = [
     (; pkg = :nonlinearsolve,  name = "Newton Krylov",                      alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
     (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",                alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
     (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",         alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    # (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",         alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
     (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",              alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true)),
     (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu")),
     (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg")),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]", alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
+    # (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]", alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
     (; pkg = :nonlinearsolve,  name = "TR Krylov",                          alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
     (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                    alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
     (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                    alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",             alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    # (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",             alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
     # (; pkg = :wrapper,         name = "TR Krylov [PETSc]",                  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", snes_mf = true)),
     # (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu")),
     # (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg")),
@@ -603,13 +603,13 @@ for (i, N) in enumerate(Ns)
                 termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
                                         nothing :
                                         NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
-                sol = solve(prob, alg; abstol=1e-6, reltol=1e-6,
-                    linsolve_kwargs = (; abstol = 1e-9, reltol = 1e-9),
+                sol = solve(prob, alg; abstol=1e-5, reltol=1e-5,
+                    linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
                     termination_condition)
-                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-5
-                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-6,
-                        reltol=1e-6, 
-                        linsolve_kwargs = (; abstol = 1e-9, reltol = 1e-9),
+                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-4
+                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-5,
+                        reltol=1e-5,
+                        linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
                         termination_condition=$termination_condition)
                 else
                     runtimes_scaling[j, i] = NaN
