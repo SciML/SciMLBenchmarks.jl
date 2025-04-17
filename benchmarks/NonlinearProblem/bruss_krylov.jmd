@@ -162,10 +162,10 @@ solvers_scaling_jacobian_free = [
 
     (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",             alg = KINSOL(; linear_solver = :GMRES)),
 
-    (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",                alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true)),
-    (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu")),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg")),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]",   alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi")),
+    (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",                alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true, autodiff=nothing)),
+    (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu", autodiff=nothing)),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", autodiff=nothing)),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]",   alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", autodiff=nothing)),
     (; pkg = :wrapper,         name = "TR Krylov (Not Matrix Free) [PETSc]",                  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres")),
     # (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu")),
     # (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",            alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg")),
@@ -197,12 +197,12 @@ for (j, solver) in enumerate(solvers_scaling_jacobian_free)
                 termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
                                         nothing :
                                         NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
-                sol = solve(prob, alg; abstol=1e-5, reltol=1e-5,
+                sol = solve(prob, alg; abstol=1e-4, reltol=1e-4,
                     linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
                     termination_condition)
                 if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-3
-                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-5,
-                        reltol=1e-5,
+                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-4,
+                        reltol=1e-4,
                         linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
                         termination_condition=$termination_condition)
                 else
