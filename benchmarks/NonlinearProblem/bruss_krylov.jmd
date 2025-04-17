@@ -147,7 +147,7 @@ function algebraicmultigrid_jacobi(W, p = nothing)
     return Pl, LinearAlgebra.I
 end
 
-Ns = 2 .^ (2:4) # TODO: make 7
+Ns = 2 .^ (2:7)
 
 solvers_scaling_jacobian_free = [
     (; pkg = :nonlinearsolve,  name = "Newton Krylov",                        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
@@ -173,7 +173,7 @@ solvers_scaling_jacobian_free = [
 ]
 
 gc_disabled = false
-runtimes_scaling = zeros(length(solvers_scaling_jacobian_free), length(Ns)) .- 1
+runtimes_scaling = fill(-1.0, length(solvers_scaling_jacobian_free), length(Ns))
 
 for (j, solver) in enumerate(solvers_scaling_jacobian_free)
     alg = solver.alg
@@ -233,6 +233,10 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
+    successful_solvers = map(x -> any(isfinite, x), eachrow(runtimes_scaling))
+    solvers_scaling_jacobian_free = solvers_scaling_jacobian_free[successful_solvers]
+    runtimes_scaling = runtimes_scaling[successful_solvers, :]
+
     cycle = Cycle([:marker], covary = true)
     colors = cgrad(:tableau_20, length(solvers_scaling_jacobian_free); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
@@ -249,7 +253,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
 
         ax = Axis(fig[1, 1:2], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
-            xscale = log10, yscale = log10, xlabelsize = 22, ylabelsize = 22,
+            xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
 
