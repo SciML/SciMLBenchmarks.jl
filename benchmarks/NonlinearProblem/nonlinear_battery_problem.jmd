@@ -1,7 +1,7 @@
 ---
 title: Doyle-Fuller-Newman (DFN) Battery Model Initialization
 author: Marc D. Berliner & Avik Pal
-priority: 10000
+priority: 50000000
 ---
 
 These benchmarks compares the runtime and error for a range of nonlinear solvers. The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. We test the following solvers:
@@ -23,7 +23,7 @@ Fetch required packages.
 ```julia
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, SpeedMapping,
     BenchmarkTools, LinearAlgebra, DiffEqDevTools, PolyesterForwardDiff, CairoMakie,
-    RecursiveFactorization
+    RecursiveFactorization, Enzyme
 import MINPACK, NLsolve, PETSc
 import LineSearches
 
@@ -39,38 +39,43 @@ MoreThuente() = LineSearchesJL(; method = LineSearches.MoreThuente())
 GC.enable(false) # for PETSc
 
 solvers_all = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson())),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",                 solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",                solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson (BackTracking LineSearch)",               solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Krylov with GMRES",                               solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve,       name = "Default PolyAlgorithm",                                  solver = Dict(:alg => FastShortcutNonlinearPolyalg(; autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                                         solver = Dict(:alg => NewtonRaphson(; autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (HagerZhang LineSearch)",                 solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang(), autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (MoreThuente LineSearch)",                solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente(), autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Raphson (BackTracking LineSearch)",               solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking(), autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Newton Krylov with GMRES",                               solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES(), autodiff = AutoEnzyme()))),
     (; pkg = :nonlinearsolve,       name = "DFSane",                                                 solver = Dict(:alg => DFSane())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region",                                           solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                          solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (Nocedal Wright)",                          solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (Hei)",                                     solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (Yuan)",                                    solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (Bastin)",                                  solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region (Fan)",                                     solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan))),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt",                                    solver = Dict(:alg => LevenbergMarquardt())),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true)))),
-    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), linsolve = CholeskyFactorization()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region",                                           solver = Dict(:alg => TrustRegion(; autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (NLsolve Update)",                          solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Nocedal Wright)",                          solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Hei)",                                     solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Yuan)",                                    solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Bastin)",                                  solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Trust Region (Fan)",                                     solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan, autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt",                                    solver = Dict(:alg => LevenbergMarquardt(; autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt with Cholesky",                      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.)",               solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), autodiff = AutoEnzyme()))),
+    (; pkg = :nonlinearsolve,       name = "Levenberg-Marquardt (No Geodesic Accln.) with Cholesky", solver = Dict(:alg => LevenbergMarquardt(; disable_geodesic = Val(true), linsolve = CholeskyFactorization(), autodiff = AutoEnzyme()))),
+
+    (; pkg = :wrapper,              name = "Newton Raphson [Sundials]",                              solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
+    (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",                               solver = Dict(:alg => KINSOL(; linear_solver = :GMRES, maxsetupcalls=1))),
+    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch [Sundials]",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch, maxsetupcalls=1))),
+
+    (; pkg = :wrapper,              name = "Newton Raphson [NLsolve.jl]",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,              name = "Trust Region [NLsolve.jl]",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+
+    (; pkg = :wrapper,              name = "Modified Powell [MINPACK]",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper,              name = "Levenberg-Marquardt [MINPACK]",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
+
+    (; pkg = :wrapper,              name = "Speed Mapping [SpeedMapping.jl]",                        solver = Dict(:alg => SpeedMappingJL())),
+
     (; pkg = :wrapper,              name = "Newton Raphson [PETSc]",                                 solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic"))),
     (; pkg = :wrapper,              name = "Newton Raphson with QR [PETSc]",                         solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", pc_type = "qr"))),
     (; pkg = :wrapper,              name = "Newton Raphson with BackTracking [PETSc]",               solver = Dict(:alg => PETScSNES(; snes_type = "newtonls"))),
     (; pkg = :wrapper,              name = "Newton Raphson with BackTracking & QR [PETSc]",          solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", pc_type = "qr"))),
     (; pkg = :wrapper,              name = "Trust Region [PETSc]",                                   solver = Dict(:alg => PETScSNES(; snes_type = "newtontr"))),
     (; pkg = :wrapper,              name = "Newton Krylov with GMRES [PETSc]",                       solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres"))),
-    (; pkg = :wrapper,              name = "Modified Powell [MINPACK]",                              solver = Dict(:alg => CMINPACK(; method = :hybr))),
-    (; pkg = :wrapper,              name = "Levenberg-Marquardt [MINPACK]",                          solver = Dict(:alg => CMINPACK(; method = :lm))),
-    (; pkg = :wrapper,              name = "Newton Raphson [NLsolve.jl]",                            solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Trust Region [NLsolve.jl]",                              solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "Newton Raphson [Sundials]",                              solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
-    (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",                               solver = Dict(:alg => KINSOL(; linear_solver = :GMRES, maxsetupcalls=1))),
-    (; pkg = :wrapper,              name = "Newton Raphson with LineSearch [Sundials]",              solver = Dict(:alg => KINSOL(; globalization_strategy = :LineSearch, maxsetupcalls=1))),
-    (; pkg = :wrapper,              name = "Speed Mapping [SpeedMapping.jl]",                        solver = Dict(:alg => SpeedMappingJL())),
 ];
 ```
 
