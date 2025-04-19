@@ -9,7 +9,7 @@ priority: 10000000
 Fetch required packages
 
 ```julia
-using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevTools,
+using NonlinearSolve, LinearAlgebra, SparseArrays, DiffEqDevTools,
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
     Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
 import NLsolve, MINPACK, PETSc, RecursiveFactorization
@@ -203,13 +203,15 @@ for (j, solver) in enumerate(solvers_scaling_jacobian_free)
                 termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
                                         nothing :
                                         NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
-                sol = solve(prob, alg; abstol=1e-4, reltol=1e-4,
-                    linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
+                # PETSc doesn't converge properly
+                tol = alg isa PETScSNES ? 1e-6 : 1e-4
+                sol = solve(prob, alg; abstol=tol, reltol=tol,
+                    linsolve_kwargs = (; abstol = 1e-8, reltol = 1e-8),
                     termination_condition)
-                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-3
-                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-4,
-                        reltol=1e-4,
-                        linsolve_kwargs = (; abstol = 1e-6, reltol = 1e-6),
+                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-4
+                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg;
+                        abstol=$tol, reltol=$tol,
+                        linsolve_kwargs = (; abstol = 1e-8, reltol = 1e-8),
                         termination_condition=$termination_condition)
                 else
                     runtimes_scaling[j, i] = NaN
