@@ -108,7 +108,7 @@ function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm, ck, N)
     end
     return GeneralizedFirstOrderAlgorithm(; solver.descent, solver.linesearch,
         solver.trustregion, jvp_autodiff = ad, solver.max_shrink_times, solver.vjp_autodiff,
-        concrete_jac = solver.concrete_jac, name = solver.name)
+        concrete_jac = solver.concrete_jac, name = solver.name, autodiff = ad)
 end
 function __set_ad_chunksize(solver::NonlinearSolvePolyAlgorithm, ck, N)
     algs = [__set_ad_chunksize(alg, ck, N) for alg in solver.algs]
@@ -133,15 +133,15 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver);
         names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l∞,
         maxiters=1000,
-        termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+        termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
     wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver);
         names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l∞,
         maxiters=1000,
-        termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+        termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
     wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver);
         names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l∞,
         maxiters=1000,
-        termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+        termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
     # Handles the general case
     solvers_general = filter(s -> s.type==:general, successful_solvers)
@@ -152,7 +152,7 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
         numruns=100, error_estimate=:l∞, maxiters=1000,
-        termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+        termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
     push!(wp_general_tracker, prob_name => wp_general)
 
@@ -168,7 +168,7 @@ function check_solver(prob, solver)
     try
         sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8,
             maxiters=1000000,
-            termination_condition=NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+            termination_condition=AbsNormTerminationMode(Base.Fix1(maximum, abs)))
         if norm(sol.resid, Inf) < 1e-6
             Base.printstyled("[Info] Solver $(solver.name) returned retcode $(sol.retcode) \
                 with an residual norm = $(norm(sol.resid, Inf)).\n"; color=:green)
