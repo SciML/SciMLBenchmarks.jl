@@ -51,31 +51,31 @@ HagerZhang() = LineSearchesJL(; method = LineSearches.HagerZhang())
 MoreThuente() = LineSearchesJL(; method = LineSearches.MoreThuente())
 
 solvers_all = [
-    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson())),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",           solver = Dict(:alg => NewtonRaphson(; linesearch = HagerZhang()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",          solver = Dict(:alg => NewtonRaphson(; linesearch = MoreThuente()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (BackTracking)",         solver = Dict(:alg => NewtonRaphson(; linesearch = BackTracking()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region",              solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (NLsolve Update)",       solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Nocedal Wright)",       solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.NocedalWright))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Hei)",                  solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Hei))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Yuan)",                 solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Yuan))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Bastin)",               solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Bastin))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Fan)",                  solver = Dict(:alg => TrustRegion(; radius_update_scheme = RUS.Fan))),
+    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10, linsolve = \))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",           solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = HagerZhang()))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",          solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = MoreThuente()))),
+    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (BackTracking)",         solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = BackTracking()))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region",              solver = Dict(:alg => TrustRegion(; linsolve = \))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (NLsolve Update)",       solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Nocedal Wright)",       solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NocedalWright))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Hei)",                  solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Hei))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Yuan)",                 solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Yuan))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Bastin)",               solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Bastin))),
+    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Fan)",                  solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Fan))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt",       solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization()))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM with Cholesky",          solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5)",       solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), α_geodesic=0.5))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5) Chol.", solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic=0.5))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.)",            solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), disable_geodesic = Val(true)))),
     (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.) Chol.",      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
-    (; pkg = :nonlinearsolve, type = :general, name = "Pseudo Transient",          solver = Dict(:alg => PseudoTransient(; alpha_initial=10.0))),
+    (; pkg = :nonlinearsolve, type = :general, name = "Pseudo Transient",          solver = Dict(:alg => PseudoTransient(; linsolve = \, alpha_initial=10.0))),
     (; pkg = :wrapper,        type = :general, name = "Powell [MINPACK]",          solver = Dict(:alg => CMINPACK(; method=:hybr))),
-    (; pkg = :wrapper,        type = :general, name = "LM [MINPACK]",              solver = Dict(:alg => CMINPACK(; method=:lm))),
-    (; pkg = :wrapper,        type = :general, name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method=:newton))),
-    (; pkg = :wrapper,        type = :general, name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL())),
-    (; pkg = :wrapper,        type = :general, name = "NR [Sundials]",             solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
-    (; pkg = :wrapper,        type = :general, name = "NR LineSearch [Sundials]",  solver = Dict(:alg => KINSOL(; globalization_strategy=:LineSearch, maxsetupcalls=1)))
+    (; pkg = :wrapper,        type = :LM,      name = "LM [MINPACK]",              solver = Dict(:alg => CMINPACK(; method=:lm))),
+    (; pkg = :wrapper,        type = :NR,      name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method=:newton))),
+    (; pkg = :wrapper,        type = :TR,      name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL())),
+    (; pkg = :wrapper,        type = :NR,      name = "NR [Sundials]",             solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
+    (; pkg = :wrapper,        type = :NR,      name = "NR LineSearch [Sundials]",  solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, globalization_strategy=:LineSearch, maxsetupcalls=1)))
 ];
 
 solver_tracker = [];
@@ -95,22 +95,26 @@ Prepares various helper functions for benchmarking a specific problem.
 function set_ad_chunksize(solvers, u0)
     ck = NonlinearSolve.pickchunksize(u0)
     for i in eachindex(solvers)
-        @set! solvers[i].solver[:alg] = __set_ad_chunksize(solvers[i].solver[:alg], ck)
+        @set! solvers[i].solver[:alg] = __set_ad_chunksize(solvers[i].solver[:alg], ck, length(u0))
     end
     return solvers
 end
 
-function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm, ck)
-    ad = AutoPolyesterForwardDiff(; chunksize = ck)
+function __set_ad_chunksize(solver::GeneralizedFirstOrderAlgorithm, ck, N)
+    if N > ck
+        ad = AutoPolyesterForwardDiff(; chunksize = ck)
+    else
+        ad = AutoForwardDiff(; chunksize = ck)
+    end
     return GeneralizedFirstOrderAlgorithm(; solver.descent, solver.linesearch,
         solver.trustregion, jvp_autodiff = ad, solver.max_shrink_times, solver.vjp_autodiff,
         concrete_jac = solver.concrete_jac, name = solver.name)
 end
-function __set_ad_chunksize(solver::NonlinearSolvePolyAlgorithm, ck)
-    algs = [__set_ad_chunksize(alg, ck) for alg in solver.algs]
+function __set_ad_chunksize(solver::NonlinearSolvePolyAlgorithm, ck, N)
+    algs = [__set_ad_chunksize(alg, ck, N) for alg in solver.algs]
     return NonlinearSolvePolyAlgorithm(algs; solver.start_index)
 end
-__set_ad_chunksize(solver, ck) = solver
+__set_ad_chunksize(solver, ck, N) = solver
 
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
 function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
@@ -147,7 +151,8 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
 
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
         getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
-        numruns=100, error_estimate=:l∞, maxiters=1000)
+        numruns=100, error_estimate=:l∞, maxiters=1000,
+        termination_condition = NonlinearSolve.AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
     push!(wp_general_tracker, prob_name => wp_general)
 
@@ -321,7 +326,7 @@ end
 
 # Benchmarks
 
-We here run benchmarks for each of the 23 models. 
+We here run benchmarks for each of the 23 models.
 
 ### Problem 1 (Generalized Rosenbrock function)
 
