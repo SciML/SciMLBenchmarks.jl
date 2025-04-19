@@ -152,29 +152,30 @@ function algebraicmultigrid_jacobi(W, p = nothing)
 end
 
 Ns = 2 .^ (2:7)
+krylov_dim = 1000
 
 solvers_scaling_jacobian_free = [
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; gmres_restart = 50))),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",           alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",           alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
 
-    (; pkg = :nonlinearsolve,  name = "TR Krylov",                            alg = TrustRegion(; linsolve = KrylovJL_GMRES(; gmres_restart = 50))),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",               alg = TrustRegion(; linsolve = KrylovJL_GMRES(; gmres_restart = 50, precs = algebraicmultigrid_jacobi), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov",                            alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",               alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
 
-    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",             alg = KINSOL(; linear_solver = :GMRES, maxsetupcalls=1, krylov_dim=50)),
+    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",             alg = KINSOL(; linear_solver = :GMRES, maxsetupcalls=1, krylov_dim)),
 
-    (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",                alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true, ksp_gmres_restart = 50)),
-    (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = 50, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = 50)),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]",   alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = 50)),
+    (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",                alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true, ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = krylov_dim, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]",   alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim)),
 
-    (; pkg = :wrapper,         name = "TR Krylov (Not Matrix Free) [PETSc]",  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", ksp_gmres_restart = 50)),
-    (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = 50, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = 50)),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG Jacobi) [PETSc]",       alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = 50)),
+    (; pkg = :wrapper,         name = "TR Krylov (Not Matrix Free) [PETSc]",  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = krylov_dim, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
+    (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,         name = "TR Krylov (AMG Jacobi) [PETSc]",       alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim)),
 ]
 
 gc_disabled = false
