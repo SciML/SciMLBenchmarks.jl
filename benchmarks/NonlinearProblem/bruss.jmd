@@ -1,6 +1,7 @@
 ---
 title: Ill-Conditioned Nonlinear System Work-Precision Diagrams
 author: Avik Pal
+priority: 1000000
 ---
 
 # Setup
@@ -8,9 +9,9 @@ author: Avik Pal
 Fetch required packages
 
 ```julia
-using NonlinearSolve, SparseDiffTools, LinearAlgebra, SparseArrays, DiffEqDevTools,
+using NonlinearSolve, LinearAlgebra, SparseArrays, DiffEqDevTools,
     CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
-    Enzyme, SparseConnectivityTracer, DifferentiationInterface
+    Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
 import NLsolve, MINPACK, PETSc, RecursiveFactorization
 
 const RUS = RadiusUpdateSchemes;
@@ -132,7 +133,7 @@ bruss_f!, u0 = (du, u) -> test_problem.f(du, u, test_problem.p), test_problem.u0
 y = similar(u0)
 
 J = Float64.(ADTypes.jacobian_sparsity(bruss_f!, y, u0, TracerSparsityDetector()))
-colors = matrix_colors(J)
+colors = fast_coloring(J, ColoringProblem(), GreedyColoringAlgorithm())
 
 begin
     J_ = similar(J)
@@ -155,42 +156,48 @@ function cache_and_compute_10_jacobians(adtype, f!::F, y, x, p) where {F}
     return J
 end
 
-# XXX: run till 8 on CI
-# Ns = [2^i for i in 1:8]
-Ns = [2^i for i in 1:6]
+Ns = [2^i for i in 1:8];
 
 adtypes = [
     (
-        AutoSparse(AutoFiniteDiff(); sparsity_detector=TracerSparsityDetector()),
+        AutoSparse(
+            AutoFiniteDiff();
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+        ),
         [:finitediff, :exact_sparse]
     ),
     (
         AutoSparse(
-            AutoPolyesterForwardDiff(; chunksize=8);
-            sparsity_detector=TracerSparsityDetector()
+            AutoPolyesterForwardDiff();
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
-        [:forwarddiff, :exact_sparse]
+        [:polyester, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoEnzyme(; mode=Enzyme.Forward);
-            sparsity_detector=TracerSparsityDetector()
+            sparsity_detector=TracerSparsityDetector(),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoFiniteDiff();
-            sparsity_detector=DenseSparsityDetector(AutoFiniteDiff(); atol=1e-5)
+            sparsity_detector=DenseSparsityDetector(AutoFiniteDiff(); atol=1e-5),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:finitediff, :approx_sparse]
     ),
     (
         AutoSparse(
-            AutoPolyesterForwardDiff(; chunksize=8);
+            AutoPolyesterForwardDiff();
             sparsity_detector=DenseSparsityDetector(
-                AutoPolyesterForwardDiff(; chunksize=8); atol=1e-5
-            )
+                AutoPolyesterForwardDiff(); atol=1e-5
+            ),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:polyester, :approx_sparse]
     ),
@@ -199,20 +206,21 @@ adtypes = [
             AutoEnzyme(; mode=Enzyme.Forward);
             sparsity_detector=DenseSparsityDetector(
                 AutoEnzyme(; mode=Enzyme.Forward); atol=1e-5
-            )
+            ),
+            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :approx_sparse]
     ),
     (
-        AutoPolyesterForwardDiff(; chunksize=8),
+        AutoPolyesterForwardDiff(),
         [:polyester, :none]
     ),
-]
+];
 
-times = Matrix{Float64}(undef, length(Ns), length(adtypes))
+times = Matrix{Float64}(undef, length(Ns), length(adtypes));
 
 for (i, N) in enumerate(Ns)
-    @info N
+    str = "$(lpad(N, 10)) "
     test_problem = generate_brusselator_problem(N)
     bruss_f! = test_problem.f
     u0 = test_problem.u0
@@ -224,9 +232,11 @@ for (i, N) in enumerate(Ns)
                 $(adtype), $(bruss_f!), $(y), $(u0), $(test_problem.p)
             )
         end
-        @info times[i, j]
+        str = str * "$(lpad(times[i, j], 16))"
     end
+    println(str)
 end
+nothing
 ```
 
 Plotting the results.
@@ -252,16 +262,17 @@ fig = begin
             xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5, yreversed=true)
 
         spy!(ax, J_; markersize=1, marker=:circle, framecolor=:lightgray,
-            colormap=:seaborn_bright)
+            colormap=:tableau_20)
 
         ax = Axis(fig[1, 2]; title="Scaling of Sparse Jacobian Computation",
-            titlesize=22, titlegap=10, xscale=log10, yscale=log10,
+            titlesize=22, titlegap=10, xscale=log2, yscale=log2,
             xticksize=20, yticksize=20, xticklabelsize=20, yticklabelsize=20,
             xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5,
-            xlabel=L"Input Dimension ($\mathbf{N}$)", ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
+            xlabel=L"Input Dimension ($\mathbf{N}$)",
+            ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
             ylabelsize=22, yaxisposition=:right)
 
-        colors = cgrad(:seaborn_bright, length(adtypes); categorical=true)
+        colors = cgrad(:tableau_20, length(adtypes); categorical=true)
 
         line_list = []
         scatter_list = []
@@ -334,8 +345,8 @@ fig = begin
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in local_sparse_idxs],
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in non_sparse_idxs],
             ],
-            ["Exact Sparsity", "Approx. Local Sparsity", "No Sparsity"];
-            position=:rb, framevisible=true, framewidth=2.5, titlesize=18,
+            ["Exact Sparsity", "Approx. Local Sparsity", "Dense"];
+            position=:lt, framevisible=true, framewidth=2.5, titlesize=18,
             labelsize=16, patchsize=(40.0f0, 20.0f0)
         )
 
@@ -355,27 +366,24 @@ First, let us experiment the scaling of each algorithm with the problem size.
 ```julia
 Ns = vcat(collect(2 .^ (2:7)), [150, 175, 200])
 
-# XXX: PETSc just segfaults
 solvers_scaling = [
-    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "NR (Approx. Local Sparsity)",         alg = NewtonRaphson()),
-    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
-    (; pkg = :wrapper,              sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
-    (; pkg = :wrapper,              sparsity = :none,   name = "Mod. NR [Sundials]",                  alg = KINSOL()),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtonls")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls")),
+    (; pkg = :nonlinearsolve, sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
+    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [Sundials]",                       alg = KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing)),
+    (; pkg = :wrapper,        sparsity = :exact,  name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic")),
 
-    (; pkg = :nonlinearsolve,       sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    # (; pkg = :nonlinearsolve,       sparsity = :approx, name = "TR (Approx. Local Sparsity)",         alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :nonlinearsolve,       sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :wrapper,              sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Approx. Local Sparsity)", alg = PETScSNES(; snes_type = "newtontr")),
-    # (; pkg = :wrapper,              sparsity = :none,   name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
+    (; pkg = :nonlinearsolve, sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
+    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr", autodiff = missing)),
+    (; pkg = :wrapper,        sparsity = :exact,  name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
 
-    (; pkg = :wrapper,              sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
+    (; pkg = :wrapper,        sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
 ]
+
+GC.enable(false) # for PETSc
 
 runtimes_scaling = fill(-1.0, length(solvers_scaling), length(Ns))
 
@@ -408,7 +416,7 @@ for (i, N) in enumerate(Ns)
             (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :TrustRegion && N > 64) ||
             (alg isa NLsolveJL && N > 128 && alg.method == :newton) ||
             (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson && N > 128 && ptype == :none) ||
-            (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson && N > 150 && ptype == :approx)
+            (alg isa PETScSNES && N > 64)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
@@ -446,13 +454,13 @@ fig = begin
     STROKEWIDTH = 2.5
 
     cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:seaborn_bright, length(solvers_scaling); categorical = true)
+    colors = cgrad(:tableau_20, length(solvers_scaling); categorical = true)
     theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
     LINESTYLES = Dict(
         (:nonlinearsolve, :none) => :solid,
-        # (:nonlinearsolve, :approx) => :dash,
         (:nonlinearsolve, :exact) => :dashdot,
         # (:simplenonlinearsolve, :none) => :solid,
+        (:wrapper, :exact) => :dash,
         (:wrapper, :none) => :dot,
     )
 
@@ -462,7 +470,7 @@ fig = begin
         fig = Figure(; size = (WIDTH, HEIGHT))
 
         ax = Axis(fig[1, 1:3], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
-            xscale = log10, yscale = log10, xlabelsize = 22, ylabelsize = 22,
+            xscale = log2, yscale = log2, xlabelsize = 22, ylabelsize = 22,
             xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
 
@@ -496,7 +504,7 @@ fig = begin
         ]
 
         axislegend(ax, main_legend, [s.name for s in solvers_scaling[idxs]],
-            "Successful Solvers\n(Fastest to Slowest)";
+            "Successful Solvers";
             framevisible=true, framewidth = STROKEWIDTH, orientation = :vertical,
             titlesize = 20, nbanks = 1, labelsize = 16,
             tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
@@ -526,169 +534,6 @@ end
 save("brusselator_scaling.svg", fig)
 ```
 
-# Jacobian-Free Newton / TR Krylov Methods
-
-In this section, we will benchmark jacobian-free nonlinear solvers with Krylov methods. We
-will use preconditioning from `AlgebraicMultigrid.jl` and `IncompleteLU.jl`. Unfortunately,
-our ability to use 3rd party software is limited here, since only `Sundials.jl` supports
-jacobian-free methods via `:GMRES`.
-
-```julia
-using AlgebraicMultigrid, IncompleteLU
-
-incompletelu(W, p = nothing) = ilu(W, τ = 50.0), LinearAlgebra.I
-
-function algebraicmultigrid(W, p = nothing)
-    return aspreconditioner(ruge_stuben(convert(AbstractMatrix, W))), LinearAlgebra.I
-end
-
-function algebraicmultigrid_jacobi(W, p = nothing)
-    A = convert(AbstractMatrix, W)
-    Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(
-        A, presmoother = AlgebraicMultigrid.Jacobi(rand(size(A, 1))),
-        postsmoother = AlgebraicMultigrid.Jacobi(rand(size(A, 1)))
-    ))
-    return Pl, LinearAlgebra.I
-end
-
-Ns = 2 .^ (2:7)
-
-solvers_scaling_jacobian_free = [
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                    alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",              alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",       alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov",                        alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                  alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                  alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",           alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",         alg = KINSOL(; linear_solver = :GMRES)),
-]
-
-runtimes_scaling = zeros(length(solvers_scaling_jacobian_free), length(Ns)) .- 1
-
-for (i, N) in enumerate(Ns)
-    prob = generate_brusselator_problem(
-        N; sparsity = TracerSparsityDetector()
-    )
-
-    @info "Benchmarking N = $N"
-
-    for (j, solver) in enumerate(solvers_scaling_jacobian_free)
-        alg = solver.alg
-        name = solver.name
-
-        if (j > 1 && runtimes_scaling[j - 1, i] == -1)
-            # The last benchmark failed so skip this too
-            runtimes_scaling[j, i] = NaN
-            @warn "$(name): Would Have Timed out"
-        else
-            function benchmark_function()
-                termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
-                                        nothing :
-                                        NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
-                sol = solve(prob, alg; abstol=1e-6, reltol=1e-6,
-                    linsolve_kwargs = (; abstol = 1e-9, reltol = 1e-9),
-                    termination_condition)
-                if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-5
-                    runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-6,
-                        reltol=1e-6, 
-                        linsolve_kwargs = (; abstol = 1e-9, reltol = 1e-9),
-                        termination_condition=$termination_condition)
-                else
-                    runtimes_scaling[j, i] = NaN
-                end
-                @info "$(name): $(runtimes_scaling[j, i]) | $(norm(sol.resid, Inf)) | $(sol.retcode)"
-            end
-
-            timeout(benchmark_function, 600)
-
-            if runtimes_scaling[j, i] == -1
-                @warn "$(name): Timed out"
-                runtimes_scaling[j, i] = NaN
-            end
-        end
-    end
-
-    println()
-end
-```
-
-Plot the results.
-
-```julia
-fig = begin
-    ASPECT_RATIO = 0.7
-    WIDTH = 1200
-    HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
-    STROKEWIDTH = 2.5
-
-    cycle = Cycle([:marker], covary = true)
-    colors = cgrad(:seaborn_bright, length(solvers_scaling_jacobian_free); categorical = true)
-    theme = Theme(Lines = (cycle = cycle,), Scatter = (cycle = cycle,))
-    LINESTYLES = Dict(
-        (:nonlinearsolve, :none) => :solid,
-        (:nonlinearsolve, :amg) => :dot,
-        (:nonlinearsolve, :amg_jacobi) => :dash,
-        (:nonlinearsolve, :ilu) => :dashdot,
-    )
-
-    Ns_ = Ns .^ 2 .* 2
-
-    with_theme(theme) do
-        fig = Figure(; size = (WIDTH, HEIGHT))
-
-        ax = Axis(fig[1, 1:2], ylabel = L"Time ($s$)", xlabel = L"Problem Size ($N$)",
-            xscale = log10, yscale = log10, xlabelsize = 22, ylabelsize = 22,
-            xticklabelsize = 20, yticklabelsize = 20, xtickwidth = STROKEWIDTH,
-            ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
-
-        idxs = get_ordering(runtimes_scaling)
-
-        ls, scs, labels = [], [], []
-        for (i, solver) in zip(idxs, solvers_scaling_jacobian_free[idxs])
-            all(isnan, runtimes_scaling[i, :]) && continue
-            precon = occursin("AMG Jacobi", solver.name) ? :amg_jacobi : occursin("AMG", solver.name) ? :amg : occursin("ILU", solver.name) ? :ilu : :none
-            linestyle = LINESTYLES[(solver.pkg, precon)]
-            l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
-                linestyle)
-            sc = scatter!(Ns_, runtimes_scaling[i, :]; markersize = 16, strokewidth = 2,
-                color = colors[i])
-            push!(ls, l)
-            push!(scs, sc)
-            push!(labels, solver.name)
-        end
-
-        axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)], labels,
-            "Successful Solvers\n(Fastest to Slowest)";
-            framevisible=true, framewidth = STROKEWIDTH, orientation = :vertical,
-            titlesize = 20, labelsize = 16, position = :rb,
-            tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
-
-        axislegend(ax, [
-                LineElement(; linestyle = :solid, linewidth = 5),
-                LineElement(; linestyle = :dot, linewidth = 5),
-                LineElement(; linestyle = :dash, linewidth = 5),
-                LineElement(; linestyle = :dashdot, linewidth = 5),
-            ], ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
-            "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
-            orientation = :vertical, titlesize = 20, labelsize = 16,
-            tellheight = true, tellwidth = true, patchsize = (40.0f0, 20.0f0),
-            position = :lt)
-
-        fig[0, :] = Label(fig,
-            "Brusselator 2D: Scaling of Jacobian-Free Nonlinear Solvers with Problem Size",
-            fontsize = 24, tellwidth = false, font = :bold)
-
-        return fig
-    end
-end
-```
-
-```julia
-save("brusselator_krylov_methods_scaling.svg", fig)
-```
-
 # Work-Precision Diagram
 
 In this section, we will generate the work-precision of the solvers. All solvers that can
@@ -696,18 +541,25 @@ exploit sparsity will automatically do so.
 
 ```julia
 solvers_all = [
-    (; pkg = :nonlinearsolve,       name = "Default PolyAlg",                  solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
-    (; pkg = :nonlinearsolve,       name = "RobustMultiNewton (GMRES)",        solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :nonlinearsolve,       name = "Newton Raphson",                   solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
-    (; pkg = :nonlinearsolve,       name = "Newton Krylov",                    solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :nonlinearsolve,       name = "Trust Region",                     solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve,       name = "TR Krylov",                        solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :wrapper,              name = "NR [NLsolve.jl]",                  solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              name = "TR [NLsolve.jl]",                  solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              name = "NR [Sundials]",                    solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              name = "Newton Krylov [Sundials]",         solver = Dict(:alg => KINSOL(; linear_solver = :GMRES))),
+    (; pkg = :nonlinearsolve, name = "Default PolyAlg",           solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
+    (; pkg = :nonlinearsolve, name = "RobustMultiNewton (GMRES)", solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
 
-    (; pkg = :wrapper,              name = "Mod. Powell [MINPACK]",            solver = Dict(:alg => CMINPACK())),
+    (; pkg = :nonlinearsolve, name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
+    (; pkg = :nonlinearsolve, name = "Newton Krylov",             solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve, name = "Trust Region",              solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve, name = "TR Krylov",                 solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))),
+
+    (; pkg = :wrapper,        name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper,        name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+
+    (; pkg = :wrapper,        name = "NR [Sundials]",             solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
+    (; pkg = :wrapper,        name = "Newton Krylov [Sundials]",  solver = Dict(:alg => KINSOL(; linear_solver = :GMRES, maxsetupcalls=1, krylov_dim = 1000))),
+
+    (; pkg = :wrapper,        name = "Mod. Powell [MINPACK]",     solver = Dict(:alg => CMINPACK())),
+
+    (; pkg = :wrapper,        name = "NR [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing))),
+    (; pkg = :wrapper,        name = "TR [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtontr", autodiff = missing))),
+    (; pkg = :wrapper,        name = "Newton Krylov [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", autodiff = missing, snes_mf = true, ksp_gmres_restart = 1000))),
 ];
 ```
 
@@ -770,17 +622,17 @@ fig = begin
     HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
     STROKEWIDTH = 2.5
 
-    colors = cgrad(:seaborn_bright, length(successful_solvers); categorical = true)
+    colors = cgrad(:tableau_20, length(successful_solvers); categorical = true)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
-    with_theme(plot_theme) do 
+    with_theme(plot_theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
         # `textbf` doesn't work
         ax = Axis(fig[1, 1], ylabel = L"Time $\mathbf{(s)}$",
             xlabelsize = 22, ylabelsize = 22,
             xlabel = L"Error: $\mathbf{||f(u^\ast)||_\infty}$",
-            xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
+            xscale = log2, yscale = log2, xtickwidth = STROKEWIDTH,
             ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
             xticklabelsize = 20, yticklabelsize = 20)
 

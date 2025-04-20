@@ -68,12 +68,19 @@ function weave_all(build_list=(:script,:github))
 end
 
 function weave_folder(folder, build_list=(:script,:github))
+  weave_files = String[]
+  priorities = Int[]
   for file in readdir(folder)
     # Skip non-`.jmd` files
-    if !endswith(file, ".jmd")
-      continue
-    end
+    endswith(file, ".jmd") || continue
+    push!(weave_files, file)
+    weave_doc = Weave.WeaveDoc(joinpath(folder, file))
+    push!(priorities, get(weave_doc.header, "priority", 0))
+  end
 
+  weave_files = weave_files[sortperm(priorities; rev=true)]
+
+  for file in weave_files
     try
       @eval @subprocess begin
         using SciMLBenchmarks
