@@ -1,0 +1,161 @@
+---
+title: NonlinearSolve.jl suite of interval root-finding algorithms
+author: Fabian Gittins
+---
+
+In this benchmark, we will examine how the interval root-finding algorithms
+provided in `NonlinearSolve.jl` fare against one another for a selection of
+examples.
+
+## `Roots.jl` baseline
+
+To give us sensible measure to compare with, we will use the `Roots.jl` package
+as a baseline,
+
+```julia
+using BenchmarkTools
+using Roots
+```
+
+and search for the roots of the function
+
+```julia
+f(u, p) = u * sin(u) - p;
+```
+
+To get a good idea of the performance of the algorithms, we will use a large
+number of random `p` values and determine the roots with all of them.
+Specifically, we will draw `N = 100_000` random values (which we seed for
+reproducibility),
+
+```julia
+using Random
+
+Random.seed!(42)
+
+const N = 100_000
+ps = 1.5 .* rand(N)
+
+function g!(out, ps, uspan)
+    for i in 1:N
+        out[i] = find_zero(f, uspan, ps[i])
+    end
+    out
+end;
+```
+
+Now, we can run the benchmark for `Roots.jl`:
+
+```julia
+out = zeros(N)
+uspan = (0.0, 2.0)
+
+@btime g!(out, ps, uspan);
+```
+
+However, speed is not the only thing we care about. We also want the algorithms
+to be accurate. We will use the mean of the absolute errors to measure the
+accuracy,
+
+```julia
+println("Mean absolute error: $(mean(abs.(f.(out, ps))))")
+```
+
+For simplicity, we will assume the default tolerances of the methods, while
+noting that these can be set.
+
+## `NonlinearSolve.jl` algorithms
+
+With the preliminaries out of the way, let's see how the `NonlinearSolve.jl`
+solvers perform! We define a (non-allocating) function to benchmark,
+
+```julia
+using NonlinearSolve
+
+function h!(out, ps, uspan, alg)
+    for i in 1:N
+        prob = IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(f), uspan, ps[i])
+        sol = solve(prob, alg)
+        out[i] = sol.u
+    end
+    out
+end;
+```
+
+and loop through the methods,
+
+```julia
+for alg in (Alefeld, NonlinearSolve.Bisection, Brent, Falsi,
+            ITP, Muller, Ridder)
+    println("Benchmark of $alg:")
+    @btime h!($out, $ps, $uspan, $(alg()))
+    println("Mean absolute error: $(mean(abs.(f.(out, ps))))\n")
+end
+```
+
+Although each method finds the roots with different accuracies, we can see that
+all the `NonlinearSolve.jl` algorithms are performant and non-allocating.
+
+## A different function
+
+At this point, we will consider a separate function to solve. We will now
+search for the root of
+
+```julia
+g(u) = exp(u) - 1e-15;
+```
+
+The root of this particular function is analytic and given by
+`u = - 15 * log(10)`. Due to the nature of the function, it can be difficult to
+numerically resolve the root.
+
+Since we do not adjust the value of `p` here, we will just solve this same
+function `N` times. As before, we start with `Roots.jl`,
+
+```julia
+function i!(out, uspan)
+    for i in 1:N
+        out[i] = find_zero(g, uspan)
+    end
+    out
+end
+
+uspan = (-100.0, 0.0)
+
+@btime i!(out, uspan)
+println("Mean absolute error: $(mean(abs.(g.(out))))")
+```
+
+So, how do the `NonlinearSolve.jl` methods fare?
+
+```julia
+g(u, p) = g(u)
+
+function j!(out, uspan, alg)
+    N = length(out)
+    for i in 1:N
+        prob = IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(g), uspan)
+        sol = solve(prob, alg)
+        out[i] = sol.u
+    end
+    out
+end
+
+for alg in (Alefeld, NonlinearSolve.Bisection, Brent, Falsi,
+            ITP, Muller, Ridder)
+    println("Benchmark of $alg:")
+    @btime j!($out, $uspan, $(alg()))
+    println("Mean absolute error: $(mean(abs.(g.(out))))\n")
+end
+```
+
+Again, we see that the `NonlinearSolve.jl` root-finding algorithms are fast.
+However, it is notable that some are able to resolve the root more accurately
+than others. This is entirely to be expected as some of the algorithms, like
+`Bisection`, bracket the root and thus will reliably converge to high accuracy.
+Others, like `Muller`, are not bracketing methods, but can be extremely fast.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
