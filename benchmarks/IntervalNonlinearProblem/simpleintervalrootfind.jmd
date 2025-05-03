@@ -12,7 +12,9 @@ and thus can be assumed to be considered optimized from MATLAB's perspective. MA
 In comparison, Roots.jl:
 
 ```julia
-using Roots, BenchmarkTools
+using Roots, BenchmarkTools, Random
+
+Random.seed!(42)
 
 const N = 100_000;
 levels = 1.5 .* rand(N);
@@ -20,7 +22,7 @@ out = zeros(N);
 myfun(x, lv) = x * sin(x) - lv
 function froots(out, levels, u0)
     for i in 1:N
-        out[i] = find_zero(x->myfun(x, levels[i]), u0)
+        out[i] = find_zero(myfun, u0, levels[i])
     end
 end
 
@@ -58,10 +60,7 @@ end
 
 MATLAB 2022a reportedly achieves 1.66s. Try this code yourself: we receive ~0.05 seconds, or a 33x speedup.
 
-## Appendix
-
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
-
