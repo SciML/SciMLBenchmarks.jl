@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 17, 14, 12, 23, 4, 5, 21, 32, 7, 3, 9, 19, 30, 16, 29, 8, 10, 18, 22, 33, 20, 31, 13, 11, 25, 24, 28, 6, 15, 26, 27, 2, 34]
+    [1, 18, 15, 13, 24, 4, 5, 22, 33, 7, 3, 9, 20, 31, 17, 30, 8, 11, 19, 23, 34, 21, 32, 14, 12, 26, 10, 25, 29, 6, 16, 27, 28, 2, 35]
 )
 
 names = [
@@ -70,6 +70,7 @@ names = [
     "Jump Process Equations (Gillespie Benchmarks)",
     "Hybrid (Time-Dependent) Jump Processes",
     "Nonlinear Optimization Solver Benchmarks",
+    "Global Optimization Benchmarks",
     "Optimization Framework Benchmarks",
     "Parameter Estimation and Inverse Problem Benchmarks",
     "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
