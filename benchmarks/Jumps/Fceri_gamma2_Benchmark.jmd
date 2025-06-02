@@ -1,0 +1,54 @@
+---
+title: Fc gamma Network Benchmark
+author: Vincent Du
+---
+
+```julia
+using JumpProcesses, Plots, StableRNGs, Random, BenchmarkTools, ReactionNetworkImporters, StatsPlots, Catalyst
+```
+
+We will benchmark the aggregators of JumpProcesses on a human IgE receptor signaling network (3744 species, 58276 reactions)[^1, ^2]. This network reaches steady state after 150 seconds. 
+
+# Model Benchmark
+We define a function to benchmark the model and then plot the results in a benchmark. 
+```julia
+function benchmark_and_bar_plot(model, end_time, algs)
+    times = Vector{Float64}()
+    alg_names = ["$s"[1:end-2] for s in algs]
+
+    benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
+    for (i, alg) in enumerate(algs)
+        alg_name = alg_names[i]
+        println("benchmarking $alg_name")
+        dprob = DiscreteProblem(complete(model.rn), model.u0, (0., end_time), model.p)
+        dprob = remake(dprob,u0 = Int64.(dprob.u0))
+        jprob = JumpProblem(complete(model.rn), dprob, alg; rng, save_positions = (false, false))
+
+        b = @benchmarkable solve($jprob, SSAStepper(); saveat = $end_time) samples = 3 seconds = 3600
+        bm = run(b)
+        push!(times, median(bm).time/2e9)
+    end
+
+    bar(alg_names, times, xlabel = "Algorithm", ylabel = "Average Time", title = "SSA Runtime for Fc gamma network", legend = false)
+end
+```
+
+Now we benchmark the Fc gamma network on the four algorithms. 
+```julia
+tf = 150. 
+rng = StableRNG(53124)
+algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
+fceri_gamma2_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/fceri_gamma2.net")); 
+
+benchmark_and_bar_plot(fceri_gamma2_net, tf, algs)
+```
+
+### References
+[^1]: Faeder JR, Hlavacek WS, Reischl I, Blinov ML, Metzger H, Redondo A, et al. Investigation of Early Events in FcεRI-Mediated Signaling Using a Detailed Mathematical Model.
+[^2]: Loman TE, Ma Y, Ilin V, et al. Catalyst: Fast and flexible modeling of reaction networks.
+
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
