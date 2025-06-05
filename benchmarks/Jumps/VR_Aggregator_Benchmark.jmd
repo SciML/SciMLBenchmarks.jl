@@ -15,7 +15,7 @@ rng = StableRNG(12345)
 
 # Introduction
 
-This document benchmarks the performance of variable rate jumps in `JumpProcesses.jl` and visualizes example solution trajectories for the test cases from `variable_rate_test.jl`. The benchmark compares `VRDirectCB` and `VRFRMODE` aggregators, while the visualization shows state variables vs. time to verify simulation behavior.
+This document benchmarks the performance of variable rate jumps in `JumpProcesses.jl` and visualizes example solution trajectories for the test cases from `variable_rate_test.jl`. The benchmark compares `VR_Direct` and `VR_FRM` aggregators, while the visualization shows state variables vs. time to verify simulation behavior.
 
 **Note**: If you encounter a precompilation error due to method overwriting in `JumpProcesses.jl`, add `__precompile__(false)` to `/home/siva/Desktop/julia/JumpProcesses.jl/src/JumpProcesses.jl` and clear the compilation cache (`rm -rf ~/.julia/compiled`).
 
@@ -37,26 +37,26 @@ We define factories for each test case to create problems with a variable number
 
 ```julia
 algorithms = Tuple{Any, Any, String, String}[
-    (VRDirectCB(), Tsit5(), "VRDirectCB", "Test 1 Tsit5 (VRDirectCB)"),
-    (VRFRMODE(), Tsit5(), "VRFRMODE", "Test 1 Tsit5 (VRFRMODE)"),
-    (VRDirectCB(), Rosenbrock23(autodiff=false), "VRDirectCB", "Test 1 Rosenbrock23 (no autodiff, VRDirectCB)"),
-    (VRFRMODE(), Rosenbrock23(autodiff=false), "VRFRMODE", "Test 1 Rosenbrock23 (no autodiff, VRFRMODE)"),
-    (VRDirectCB(), Rosenbrock23(), "VRDirectCB", "Test 1 Rosenbrock23 (autodiff, VRDirectCB)"),
-    (VRFRMODE(), Rosenbrock23(), "VRFRMODE", "Test 1 Rosenbrock23 (autodiff, VRFRMODE)"),
-    (VRDirectCB(), SRIW1(), "VRDirectCB", "Test 2 SRIW1 (VRDirectCB)"),
-    (VRFRMODE(), SRIW1(), "VRFRMODE", "Test 2 SRIW1 (VRFRMODE)"),
-    (VRDirectCB(), SRA1(), "VRDirectCB", "Test 3 SRA1 (VRDirectCB)"),
-    (VRFRMODE(), SRA1(), "VRFRMODE", "Test 3 SRA1 (VRFRMODE)"),
-    (VRDirectCB(), Tsit5(), "VRDirectCB", "Test 4 Tsit5 (VRDirectCB, ConstantRateJump)"),
-    (VRFRMODE(), Tsit5(), "VRFRMODE", "Test 4 Tsit5 (VRFRMODE, ConstantRateJump)"),
-    (VRDirectCB(), Tsit5(), "VRDirectCB", "Test 5 Tsit5 (VRDirectCB)"),
-    (VRFRMODE(), Tsit5(), "VRFRMODE", "Test 5 Tsit5 (VRFRMODE)"),
-    (VRDirectCB(), SRIW1(), "VRDirectCB", "Test 6 SRIW1 (VRDirectCB)"),
-    (VRFRMODE(), SRIW1(), "VRFRMODE", "Test 6 SRIW1 (VRFRMODE)"),
-    (VRDirectCB(), Tsit5(), "VRDirectCB", "Test 7 Tsit5 (VRDirectCB)"),
-    (VRFRMODE(), Tsit5(), "VRFRMODE", "Test 7 Tsit5 (VRFRMODE)"),
-    (VRDirectCB(), Tsit5(), "VRDirectCB", "Test 8 Tsit5 (VRDirectCB)"),
-    (VRFRMODE(), Tsit5(), "VRFRMODE", "Test 8 Tsit5 (VRFRMODE)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 1 Tsit5 (VR_Direct)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 1 Tsit5 (VR_FRM)"),
+    (VR_Direct(), Rosenbrock23(autodiff=false), "VR_Direct", "Test 1 Rosenbrock23 (no autodiff, VR_Direct)"),
+    (VR_FRM(), Rosenbrock23(autodiff=false), "VR_FRM", "Test 1 Rosenbrock23 (no autodiff, VR_FRM)"),
+    (VR_Direct(), Rosenbrock23(), "VR_Direct", "Test 1 Rosenbrock23 (autodiff, VR_Direct)"),
+    (VR_FRM(), Rosenbrock23(), "VR_FRM", "Test 1 Rosenbrock23 (autodiff, VR_FRM)"),
+    (VR_Direct(), SRIW1(), "VR_Direct", "Test 2 SRIW1 (VR_Direct)"),
+    (VR_FRM(), SRIW1(), "VR_FRM", "Test 2 SRIW1 (VR_FRM)"),
+    (VR_Direct(), SRA1(), "VR_Direct", "Test 3 SRA1 (VR_Direct)"),
+    (VR_FRM(), SRA1(), "VR_FRM", "Test 3 SRA1 (VR_FRM)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 4 Tsit5 (VR_Direct, ConstantRateJump)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 4 Tsit5 (VR_FRM, ConstantRateJump)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 5 Tsit5 (VR_Direct)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 5 Tsit5 (VR_FRM)"),
+    (VR_Direct(), SRIW1(), "VR_Direct", "Test 6 SRIW1 (VR_Direct)"),
+    (VR_FRM(), SRIW1(), "VR_FRM", "Test 6 SRIW1 (VR_FRM)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 7 Tsit5 (VR_Direct)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 7 Tsit5 (VR_FRM)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 8 Tsit5 (VR_Direct)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 8 Tsit5 (VR_FRM)"),
 ]
 
 function create_test1_problem(num_jumps, vr_aggregator, solver)
@@ -145,20 +145,20 @@ end
 
 # Solution Visualization
 
-We solve one trajectory for each test case with 2 jumps (2x2 matrix for Test 7) using `VRDirectCB` and plot the state variables vs. time.
+We solve one trajectory for each test case with 2 jumps (2x2 matrix for Test 7) using `VR_Direct` and plot the state variables vs. time.
 
 ```julia
 let figs = []
     for test_num in 1:8
         # Select a representative solver for each test
         algo, stepper = if test_num == 1
-            VRDirectCB(), Tsit5()
+            VR_Direct(), Tsit5()
         elseif test_num == 2 || test_num == 6
-            VRDirectCB(), SRIW1()
+            VR_Direct(), SRIW1()
         elseif test_num == 3
-            VRDirectCB(), SRA1()
+            VR_Direct(), SRA1()
         elseif test_num in [4, 5, 7, 8]
-            VRDirectCB(), Tsit5()
+            VR_Direct(), Tsit5()
         end
         label = "Test $test_num"
         
@@ -275,7 +275,7 @@ end
 
 # Benchmark Results
 
-We plot the median execution times for each test case, comparing `VRDirectCB` and `VRFRMODE`.
+We plot the median execution times for each test case, comparing `VR_Direct` and `VR_FRM`.
 
 ```julia
 let figs = []
