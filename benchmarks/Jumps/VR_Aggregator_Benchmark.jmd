@@ -1,0 +1,270 @@
+---
+title: Benchmarking Variable Rate Aggregator
+author: Siva Sathyaseelan D N, Chris Rackauckas, Samuel Isaacson
+weave_options:
+    fig_ext : ".png"
+---
+
+```julia
+using DiffEqBase, JumpProcesses, OrdinaryDiffEq, StochasticDiffEq
+using Random, LinearSolve, StableRNGs, BenchmarkTools, Plots, LinearAlgebra
+fmt = :png
+width_px, height_px = default(:size)
+rng = StableRNG(12345)
+```
+
+# Introduction
+
+This document benchmarks the performance of variable rate jumps in `JumpProcesses.jl` and 
+visualizes example solution trajectories for the test cases from `variable_rate_test.jl`. 
+The benchmark compares `VR_Direct`,`VR_DirectFW` and `VR_FRM` aggregators, while the visualization shows 
+state variables vs. time to verify simulation behavior.
+
+The test cases are:
+1. **Scalar ODE with Variable Rate Jumps**: Solved with `Tsit5` and `Rosenbrock23` (with/without autodiff).
+2. **Scalar SDE with Variable Rate Jumps**: Solved with `SRIW1`.
+3. **ODE with Constant Rate Jump**: Solved with `Tsit5`.
+4. **ODE with Variable Rate Jumps (Alternative Rate)**: Solved with `Tsit5`.
+5. **SDE with Variable Rate Jumps (Alternative Rate)**: Solved with `SRIW1`.
+6. **Complex ODE with Variable Rate Jump**: Solved with `Tsit5`.
+
+For visualization, we solve one trajectory per test case with 2 jumps. For benchmarking, 
+we vary jumps from 1 to 20, running 100 trajectories per configuration.
+
+# Benchmark and Visualization Setup
+
+We define factories for each test case to create problems with a variable number of jumps.
+
+```julia
+algorithms = Tuple{Any, Any, String, String}[
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 1 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 1 Tsit5 (VR_DirectFW)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 1 Tsit5 (VR_FRM)"),
+    (VR_Direct(), Rosenbrock23(autodiff=false), "VR_Direct", "Test 1 Rosenbrock23 (no autodiff, VR_Direct)"),
+    (VR_DirectFW(), Rosenbrock23(autodiff=false), "VR_DirectFW", "Test 1 Rosenbrock23 (no autodiff, VR_DirectFW)"),
+    (VR_FRM(), Rosenbrock23(autodiff=false), "VR_FRM", "Test 1 Rosenbrock23 (no autodiff, VR_FRM)"),
+    (VR_Direct(), Rosenbrock23(), "VR_Direct", "Test 1 Rosenbrock23 (autodiff, VR_Direct)"),
+    (VR_DirectFW(), Rosenbrock23(), "VR_DirectFW", "Test 1 Rosenbrock23 (autodiff, VR_DirectFW)"),
+    (VR_FRM(), Rosenbrock23(), "VR_FRM", "Test 1 Rosenbrock23 (autodiff, VR_FRM)"),
+    (VR_Direct(), SRIW1(), "VR_Direct", "Test 2 SRIW1 (VR_Direct)"),
+    (VR_DirectFW(), SRIW1(), "VR_DirectFW", "Test 2 SRIW1 (VR_DirectFW)"),
+    (VR_FRM(), SRIW1(), "VR_FRM", "Test 2 SRIW1 (VR_FRM)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 3 Tsit5 (VR_Direct, ConstantRateJump)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 3 Tsit5 (VR_DirectFW, ConstantRateJump)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 3 Tsit5 (VR_FRM, ConstantRateJump)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 4 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 4 Tsit5 (VR_DirectFW)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 4 Tsit5 (VR_FRM)"),
+    (VR_Direct(), SRIW1(), "VR_Direct", "Test 5 SRIW1 (VR_Direct)"),
+    (VR_DirectFW(), SRIW1(), "VR_DirectFW", "Test 5 SRIW1 (VR_DirectFW)"),
+    (VR_FRM(), SRIW1(), "VR_FRM", "Test 5 SRIW1 (VR_FRM)"),
+    (VR_Direct(), Tsit5(), "VR_Direct", "Test 6 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 6 Tsit5 (VR_DirectFW)"),
+    (VR_FRM(), Tsit5(), "VR_FRM", "Test 6 Tsit5 (VR_FRM)"),
+]
+
+function create_test1_problem(num_jumps, vr_aggregator, solver)
+    f = (du, u, p, t) -> (du[1] = u[1])
+    prob = ODEProblem(f, [0.2], (0.0, 10.0))
+    jumps = [VariableRateJump((u, p, t) -> u[1], (integrator) -> (integrator.u[1] = integrator.u[1] / 2); interp_points=100) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+
+function create_test2_problem(num_jumps, vr_aggregator, solver)
+    f = (du, u, p, t) -> (du[1] = u[1])
+    g = (du, u, p, t) -> (du[1] = u[1])
+    prob = SDEProblem(f, g, [0.2], (0.0, 10.0))
+    jumps = [VariableRateJump((u, p, t) -> u[1], (integrator) -> (integrator.u[1] = integrator.u[1] / 2); interp_points=100) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+
+function create_test3_problem(num_jumps, vr_aggregator, solver)
+    f2 = (du, u, p, t) -> (du[1] = u[1])
+    prob = ODEProblem(f2, [0.2], (0.0, 10.0))
+    jumps = [ConstantRateJump((u, p, t) -> 2, (integrator) -> (integrator.u[1] = integrator.u[1] / 2)) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+
+function create_test4_problem(num_jumps, vr_aggregator, solver)
+    f2 = (du, u, p, t) -> (du[1] = u[1])
+    prob = ODEProblem(f2, [0.2], (0.0, 10.0))
+    jumps = [VariableRateJump((u, p, t) -> u[1], (integrator) -> (integrator.u[1] = integrator.u[1] / 2); interp_points=100) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+
+function create_test5_problem(num_jumps, vr_aggregator, solver)
+    f2 = (du, u, p, t) -> (du[1] = u[1])
+    g2 = (du, u, p, t) -> (du[1] = u[1])
+    prob = SDEProblem(f2, g2, [0.2], (0.0, 10.0))
+    jumps = [VariableRateJump((u, p, t) -> u[1], (integrator) -> (integrator.u[1] = integrator.u[1] / 2); interp_points=100) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+
+function create_test6_problem(num_jumps, vr_aggregator, solver)
+    f4 = (dx, x, p, t) -> (dx[1] = x[1])
+    rate4 = (x, p, t) -> t
+    affect4! = (integrator) -> (integrator.u[1] = integrator.u[1] * 0.5)
+    prob = ODEProblem(f4, [1.0 + 0.0im], (0.0, 6.0))
+    jumps = [VariableRateJump(rate4, affect4!) for _ in 1:num_jumps]
+    jump_prob = JumpProblem(prob, Direct(), jumps...; vr_aggregator=vr_aggregator, rng=rng)
+    ensemble_prob = EnsembleProblem(prob)
+    return ensemble_prob, jump_prob
+end
+```
+
+# Solution Visualization
+
+We solve one trajectory for each test case with 2 jumps using `VR_Direct` and plot the state variables vs. time.
+
+```julia
+let figs = []
+    for test_num in 1:6
+        # Select a representative solver for each test
+        algo, stepper = if  test_num == 2 || test_num == 5
+            VR_Direct(), SRIW1()
+        else
+            VR_Direct(), Tsit5()
+        end
+        label = "Test $test_num"
+        
+        # Create problem with 2 jumps (or 2x2 matrix)
+        ensemble_prob, jump_prob = if test_num == 1
+            create_test1_problem(2, algo, stepper)
+        elseif test_num == 2
+            create_test2_problem(2, algo, stepper)
+        elseif test_num == 3
+            create_test3_problem(2, algo, stepper)
+        elseif test_num == 4
+            create_test4_problem(2, algo, stepper)
+        elseif test_num == 5
+            create_test5_problem(2, algo, stepper)
+        elseif test_num == 6
+            create_test6_problem(2, algo, stepper)
+        end
+            
+        try
+            sol = solve(jump_prob, stepper; saveat=0.01)
+            # Plot solution
+            fig = plot(title="Test $test_num: Solution Trajectory", xlabel="Time", ylabel="State")
+            if test_num == 6
+                # For complex ODE, plot real part
+                plot!(sol.t, real.(sol[1,:]), label="Real Part")
+            else
+                # For scalar problems, plot state
+                plot!(sol.t, sol[1,:], label="u[1]")
+            end
+            push!(figs, fig)
+        catch e
+            @warn "Failed to solve Test $test_num: $(sprint(showerror, e))"
+        end
+    end
+    plot(figs..., layout=(4, 2), format=fmt, size=(width_px, 4*height_px/2))
+end
+```
+
+# Benchmark Execution
+
+We benchmark each test case for 1 to 20 jumps, running 100 trajectories. Errors are logged to diagnose failures.
+
+```julia
+num_jumps_range = append!([1], 5:5:20)
+bs = Vector{Vector{BenchmarkTools.Trial}}()
+errors = Dict{String, Vector{String}}()
+
+for (algo, stepper, agg_name, label) in algorithms
+    @info label
+    push!(bs, Vector{BenchmarkTools.Trial}())
+    errors[label] = String[]
+    _bs = bs[end]
+    test_num = parse(Int, match(r"Test (\d+)", label).captures[1])
+    range_var = num_jumps_range
+    for (i, var) in enumerate(range_var)
+        if test_num == 1
+            ensemble_prob, jump_prob = create_test1_problem(var, algo, stepper)
+        elseif test_num == 2
+            ensemble_prob, jump_prob = create_test2_problem(var, algo, stepper)
+        elseif test_num == 3
+            ensemble_prob, jump_prob = create_test3_problem(var, algo, stepper)
+        elseif test_num == 4
+            ensemble_prob, jump_prob = create_test4_problem(var, algo, stepper)
+        elseif test_num == 5
+            ensemble_prob, jump_prob = create_test5_problem(var, algo, stepper)
+        elseif test_num == 6
+            ensemble_prob, jump_prob = create_test6_problem(var, algo, stepper)
+        end
+        trial = try
+            @benchmark(
+                solve($jump_prob, $stepper), 
+                samples=50, 
+                evals=1, 
+                seconds=10
+            )
+        catch e
+            push!(errors[label], "Error at Num Jumps = $var: $(sprint(showerror, e))")
+            BenchmarkTools.Trial(BenchmarkTools.Parameters(samples=50, evals=1, seconds=10))
+        end
+        push!(_bs, trial)
+
+        median_time = length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" : "nan"
+        println("algo=$label, Num Jumps = $var, length = $(length(trial.times)), median time = $median_time")
+    end
+end
+
+# Log errors
+for (label, err_list) in errors
+    if !isempty(err_list)
+        @warn "Errors for $label:"
+        for err in err_list
+            println(err)
+        end
+    end
+end
+```
+
+# Benchmark Results
+
+We plot the median execution times for each test case, comparing `VR_Direct`,`VR_DirectFW` and `VR_FRM`.
+
+```julia
+let figs = []
+    for test_num in 1:6
+        test_algorithms = filter(a -> parse(Int, match(r"Test (\d+)", a[4]).captures[1]) == test_num, algorithms)
+        is_matrix_test = test_num == 7
+        range_var = is_matrix_test ? matrix_sizes : num_jumps_range
+        fig = plot(
+            yscale=:log10,
+            xlabel=is_matrix_test ? "Matrix Size" : "Number of Jumps",
+            ylabel="Time (ns)",
+            legend_position=:outertopright,
+            title="Test $test_num: Simulations, 50 samples"
+        )
+        for (i, (algo, stepper, agg_name, label)) in enumerate(test_algorithms)
+            algo_idx = findfirst(a -> a[4] == label, algorithms)
+            _bs, _vars = [], []
+            for (j, b) in enumerate(bs[algo_idx])
+                if length(b) == 50
+                    push!(_bs, median(b.times))
+                    push!(_vars, range_var[j])
+                end
+            end
+            if !isempty(_bs)
+                plot!(_vars, _bs, label=label)
+            else
+                @warn "No valid data for $label in Test $test_num"
+            end
+        end
+        push!(figs, fig)
+    end
+    plot(figs..., layout=(6, 1), format=fmt, size=(width_px, 8*height_px/2))
+end
+```
