@@ -17,7 +17,7 @@ rng = StableRNG(12345)
 
 This document benchmarks the performance of variable rate jumps in `JumpProcesses.jl` and 
 visualizes example solution trajectories for the test cases from `variable_rate_test.jl`. 
-The benchmark compares `VR_Direct` and `VR_FRM` aggregators, while the visualization shows 
+The benchmark compares `VR_Direct`,`VR_DirectFW` and `VR_FRM` aggregators, while the visualization shows 
 state variables vs. time to verify simulation behavior.
 
 The test cases are:
@@ -38,20 +38,28 @@ We define factories for each test case to create problems with a variable number
 ```julia
 algorithms = Tuple{Any, Any, String, String}[
     (VR_Direct(), Tsit5(), "VR_Direct", "Test 1 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 1 Tsit5 (VR_DirectFW)"),
     (VR_FRM(), Tsit5(), "VR_FRM", "Test 1 Tsit5 (VR_FRM)"),
     (VR_Direct(), Rosenbrock23(autodiff=false), "VR_Direct", "Test 1 Rosenbrock23 (no autodiff, VR_Direct)"),
+    (VR_DirectFW(), Rosenbrock23(autodiff=false), "VR_DirectFW", "Test 1 Rosenbrock23 (no autodiff, VR_DirectFW)"),
     (VR_FRM(), Rosenbrock23(autodiff=false), "VR_FRM", "Test 1 Rosenbrock23 (no autodiff, VR_FRM)"),
     (VR_Direct(), Rosenbrock23(), "VR_Direct", "Test 1 Rosenbrock23 (autodiff, VR_Direct)"),
+    (VR_DirectFW(), Rosenbrock23(), "VR_DirectFW", "Test 1 Rosenbrock23 (autodiff, VR_DirectFW)"),
     (VR_FRM(), Rosenbrock23(), "VR_FRM", "Test 1 Rosenbrock23 (autodiff, VR_FRM)"),
     (VR_Direct(), SRIW1(), "VR_Direct", "Test 2 SRIW1 (VR_Direct)"),
+    (VR_DirectFW(), SRIW1(), "VR_DirectFW", "Test 2 SRIW1 (VR_DirectFW)"),
     (VR_FRM(), SRIW1(), "VR_FRM", "Test 2 SRIW1 (VR_FRM)"),
     (VR_Direct(), Tsit5(), "VR_Direct", "Test 3 Tsit5 (VR_Direct, ConstantRateJump)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 3 Tsit5 (VR_DirectFW, ConstantRateJump)"),
     (VR_FRM(), Tsit5(), "VR_FRM", "Test 3 Tsit5 (VR_FRM, ConstantRateJump)"),
     (VR_Direct(), Tsit5(), "VR_Direct", "Test 4 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 4 Tsit5 (VR_DirectFW)"),
     (VR_FRM(), Tsit5(), "VR_FRM", "Test 4 Tsit5 (VR_FRM)"),
     (VR_Direct(), SRIW1(), "VR_Direct", "Test 5 SRIW1 (VR_Direct)"),
+    (VR_DirectFW(), SRIW1(), "VR_DirectFW", "Test 5 SRIW1 (VR_DirectFW)"),
     (VR_FRM(), SRIW1(), "VR_FRM", "Test 5 SRIW1 (VR_FRM)"),
     (VR_Direct(), Tsit5(), "VR_Direct", "Test 6 Tsit5 (VR_Direct)"),
+    (VR_DirectFW(), Tsit5(), "VR_DirectFW", "Test 6 Tsit5 (VR_DirectFW)"),
     (VR_FRM(), Tsit5(), "VR_FRM", "Test 6 Tsit5 (VR_FRM)"),
 ]
 
@@ -225,7 +233,7 @@ end
 
 # Benchmark Results
 
-We plot the median execution times for each test case, comparing `VR_Direct` and `VR_FRM`.
+We plot the median execution times for each test case, comparing `VR_Direct`,`VR_DirectFW` and `VR_FRM`.
 
 ```julia
 let figs = []
