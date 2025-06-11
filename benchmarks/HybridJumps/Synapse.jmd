@@ -1954,7 +1954,8 @@ function SynapseProblem(
     p_synapse,
     nu,
     algo::T,
-    agg = nothing;
+    agg = nothing
+    vr_agg = VR_FRM();
     saveat = [],
     save_everystep = isempty(saveat),
     kwargs...,
@@ -2127,7 +2128,8 @@ function SynapseProblem(
     p_synapse,
     nu,
     algo,
-    agg;
+    agg
+    vr_agg;
     jumps = nothing,
     save_positions = (false, true),
     saveat = [],
@@ -2158,6 +2160,7 @@ function SynapseProblem(
         oprob,
         agg,
         jumps;
+        vr_aggregator = vr_agg,
         dep_graph,
         save_positions,
         saveat,
@@ -2185,7 +2188,8 @@ function evolveSynapse(
     is_glu_released,
     nu,
     algos,
-    agg = nothing;
+    agg = nothing
+    vr_agg = VR_FRM();
     progress = false,
     abstol = 1e-8,
     reltol = 1e-7,
@@ -2204,7 +2208,8 @@ function evolveSynapse(
         is_glu_released,
         nu,
         algos,
-        agg;
+        agg
+        vr_agg;
         progress,
         abstol,
         reltol,
@@ -2227,7 +2232,8 @@ function evolveSynapse_noformat(
     is_glu_released,
     nu,
     algos,
-    agg = nothing;
+    agg = nothing
+    vr_agg = VR_FRM();
     progress = false,
     abstol = 1e-8,
     reltol = 1e-7,
@@ -2273,7 +2279,8 @@ function evolveSynapse_noformat(
             p_synapse,
             nu,
             algos[1],
-            agg;
+            agg
+            vr_agg;
             jumps,
             reltol,
             abstol,
@@ -2295,7 +2302,8 @@ function evolveSynapse_noformat(
             p_synapse,
             nu,
             algos[2],
-            agg;
+            agg
+            vr_agg;
             jumps,
             reltol,
             abstol,
@@ -2415,12 +2423,35 @@ const algorithms = (
     (
         label = "PDMP",
         agg = nothing,
+        vr_agg = VR_FRM(),
         solver = (CHV(solver), CHV(solver)),
         saveat = [],
     ),
     (
         label = "Coevolve",
         agg = Coevolve(),
+        vr_agg = VR_FRM(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "VR_Direct",
+        agg = Coevolve(),
+        vr_agg = VR_Direct(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "VR_DirectFW",
+        agg = Coevolve(),
+        vr_agg = VR_DirectFW(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "VR_FRM",
+        agg = Coevolve(),
+        vr_agg = VR_FRM(),
         solver = (solver, solver),
         saveat = 1 / p_synapse.sampling_rate,
     ),
@@ -2445,7 +2476,8 @@ for algo in algorithms
             [true],
             nu,
             algo.solver,
-            algo.agg;
+            algo.agg
+            alg.vr_agg;
             save_positions = (false, true),
             saveat = algo.saveat,
             save_everystep = false,
@@ -2491,7 +2523,8 @@ for algo in algorithms
                 [true],
                 nu,
                 $(algo).solver,
-                $(algo).agg;
+                $(algo).agg
+                $(algo).vr_agg;
                 save_positions = (false, true),
                 saveat = $(algo).saveat,
                 save_everystep = false,
