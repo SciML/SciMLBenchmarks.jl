@@ -1640,7 +1640,7 @@ function J_synapse(p_synapse::SynapseParams, nu)
 
     # we order the jumps in their order they appear in the dependency graph
     jumps = JumpSet(;
-        constant_jumps = [
+        constant_jumps = (
             # AMPA
             #2line-GO
             @j_jump(1, p_synapse, nu, 4 * AMPA_k1 * p.Glu * p.xd[1]), # 1
@@ -1740,8 +1740,8 @@ function J_synapse(p_synapse::SynapseParams, nu)
             @j_jump(97, p_synapse, nu, GABA_r_c1 * p.xd[49]), # 97
             @j_jump(98, p_synapse, nu, GABA_r_ro2 * p.xd[48]), # 98
             @j_jump(99, p_synapse, nu, GABA_r_c2 * p.xd[50]), # 99
-        ],
-        variable_jumps = [
+        ),
+        variable_jumps = (
             # R-type VGCC
             @j_jump(
                 56,
@@ -1913,7 +1913,7 @@ function J_synapse(p_synapse::SynapseParams, nu)
             @j_jump(77, p_synapse, nu, p.xd[37] * P_rate, 1, typemax(Float64)), # 77
             @j_jump(78, p_synapse, nu, p.xd[36] * P_rate, 1, typemax(Float64)), # 78
             @j_jump(79, p_synapse, nu, p.xd[38] * D_rate, 1, typemax(Float64)), # 79
-        ],
+        ),
     )
 
     return jumps
@@ -2428,22 +2428,29 @@ const algorithms = (
         saveat = [],
     ),
     (
-        label = "Coevolve(VR_FRM)",
+        label = "Coevolve",
         agg = Coevolve(),
         vr_agg = VR_FRM(),
         solver = (solver, solver),
         saveat = 1 / p_synapse.sampling_rate,
     ),
     (
-        label = "Coevolve(VR_Direct)",
-        agg = Coevolve(),
+        label = "Direct(VR_FRM)",
+        agg = Direct(),
+        vr_agg = VR_FRM(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "Direct(VR_Direct)",
+        agg = Direct(),
         vr_agg = VR_Direct(),
         solver = (solver, solver),
         saveat = 1 / p_synapse.sampling_rate,
     ),
     (
-        label = "Coevolve(VR_DirectFW)",
-        agg = Coevolve(),
+        label = "Direct(VR_DirectFW)",
+        agg = Direct(),
         vr_agg = VR_DirectFW(),
         solver = (solver, solver),
         saveat = 1 / p_synapse.sampling_rate,
