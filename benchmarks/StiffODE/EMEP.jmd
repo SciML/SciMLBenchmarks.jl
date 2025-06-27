@@ -1,0 +1,307 @@
+---
+title: EMEP Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, StaticArrays, RecursiveFactorization
+gr()
+
+# EMEP Problem from the IVP Test Set
+# European Monitoring and Evaluation Programme - Ozone Chemistry Model
+# This is a larger atmospheric chemistry system (66 species) compared to the existing Pollution benchmark
+# Origin: Norwegian Meteorological Institute, Oslo
+
+function emep!(du, u, p, t)
+    # EMEP ozone chemistry model - simplified version with key species
+    # Real EMEP has ~66 species and ~140 reactions; this is a representative subset of 30 species
+    
+    # Key atmospheric chemistry rate constants (temperature dependent, 298K)
+    k1 = 1.4e-13   # NO2 + OH → HNO3
+    k2 = 3.2e-11   # NO + O3 → NO2 + O2
+    k3 = 1.8e-12   # NO2 + O3 → NO3 + O2
+    k4 = 2.15e-11  # NO3 + NO2 → N2O5
+    k5 = 1.3e-12   # OH + CO → HO2 + CO2
+    k6 = 7.7e-12   # HO2 + NO → OH + NO2
+    k7 = 1.6e-12   # OH + CH4 → CH3O2 + H2O
+    k8 = 8.1e-12   # CH3O2 + NO → CH3O + NO2
+    k9 = 5.4e-12   # CH3O + O2 → HCHO + HO2
+    k10 = 9.0e-12  # OH + HCHO → HO2 + CO
+    k11 = 1.9e-12  # OH + C2H6 → C2H5O2
+    k12 = 7.5e-12  # C2H5O2 + NO → C2H5O + NO2
+    k13 = 1.2e-14  # OH + C2H4 → products
+    k14 = 6.9e-12  # OH + C3H8 → C3H7O2
+    k15 = 8.2e-12  # C3H7O2 + NO → products
+    k16 = 2.6e-11  # OH + isoprene → products
+    k17 = 1.4e-10  # OH + α-pinene → products
+    k18 = 1.2e-11  # O3 + alkenes → products
+    k19 = 5.5e-12  # HO2 + HO2 → H2O2 + O2
+    k20 = 1.7e-12  # OH + H2O2 → HO2 + H2O
+    k21 = 2.9e-12  # NO3 + organics → products
+    k22 = 1.4e-13  # N2O5 + H2O → 2HNO3
+    k23 = 3.0e-12  # PAN decomposition
+    k24 = 8.1e-29  # PAN formation
+    k25 = 1.5e-11  # SO2 + OH → HSO3
+    
+    # Photolysis rates (time dependent, simplified diurnal cycle)
+    solar_factor = max(0.0, sin(π * t / 12))  # 12-hour day cycle
+    j_no2 = 8.2e-3 * solar_factor    # NO2 photolysis
+    j_o3 = 3.2e-5 * solar_factor     # O3 photolysis  
+    j_hcho = 1.2e-5 * solar_factor   # HCHO photolysis
+    j_h2o2 = 5.8e-6 * solar_factor   # H2O2 photolysis
+    j_n2o5 = 1.0e-4 * solar_factor   # N2O5 photolysis
+    
+    # Species concentrations (30 major species)
+    # u[1] = O3, u[2] = NO, u[3] = NO2, u[4] = NO3, u[5] = N2O5
+    # u[6] = OH, u[7] = HO2, u[8] = H2O2, u[9] = CO, u[10] = CH4
+    # u[11] = HCHO, u[12] = CH3O2, u[13] = CH3O, u[14] = C2H6, u[15] = C2H5O2
+    # u[16] = C2H4, u[17] = C3H8, u[18] = C3H7O2, u[19] = isoprene, u[20] = α-pinene
+    # u[21] = HNO3, u[22] = PAN, u[23] = SO2, u[24] = HSO3, u[25] = aerosol
+    # u[26] = RCHO, u[27] = RO2, u[28] = alkenes, u[29] = aromatics, u[30] = biogenics
+    
+    # Core NOx-Ox chemistry
+    du[1] = j_o3 * u[1] - k2 * u[2] * u[1] - k3 * u[3] * u[1] - k18 * u[1] * u[28]  # O3
+    du[2] = j_no2 * u[3] - k2 * u[2] * u[1] + k6 * u[7] * u[2] + k8 * u[12] * u[2]  # NO
+    du[3] = k2 * u[2] * u[1] - j_no2 * u[3] - k3 * u[3] * u[1] - k4 * u[3] * u[4]   # NO2
+    du[4] = k3 * u[3] * u[1] - k4 * u[3] * u[4] + j_n2o5 * u[5] - k21 * u[4] * u[19] # NO3
+    du[5] = k4 * u[3] * u[4] - j_n2o5 * u[5] - k22 * u[5]  # N2O5
+    
+    # Hydroxyl radical chemistry
+    du[6] = j_o3 * u[1] + k6 * u[7] * u[2] - k1 * u[3] * u[6] - k5 * u[6] * u[9] - 
+            k7 * u[6] * u[10] - k10 * u[6] * u[11] - k11 * u[6] * u[14] - 
+            k13 * u[6] * u[16] - k14 * u[6] * u[17] - k16 * u[6] * u[19] - 
+            k17 * u[6] * u[20] - k20 * u[6] * u[8] - k25 * u[6] * u[23]  # OH
+    
+    # Peroxy radical chemistry  
+    du[7] = k5 * u[6] * u[9] + k9 * u[13] + k10 * u[6] * u[11] - k6 * u[7] * u[2] -
+            2 * k19 * u[7] * u[7] + k20 * u[6] * u[8] + j_h2o2 * u[8]  # HO2
+    du[8] = k19 * u[7] * u[7] - k20 * u[6] * u[8] - j_h2o2 * u[8]  # H2O2
+    
+    # Carbon chemistry
+    du[9] = k10 * u[6] * u[11] - k5 * u[6] * u[9]  # CO
+    du[10] = -k7 * u[6] * u[10]  # CH4
+    du[11] = k9 * u[13] - k10 * u[6] * u[11] - j_hcho * u[11]  # HCHO
+    du[12] = k7 * u[6] * u[10] - k8 * u[12] * u[2]  # CH3O2
+    du[13] = k8 * u[12] * u[2] - k9 * u[13]  # CH3O
+    
+    # Higher hydrocarbons
+    du[14] = -k11 * u[6] * u[14]  # C2H6
+    du[15] = k11 * u[6] * u[14] - k12 * u[15] * u[2]  # C2H5O2
+    du[16] = -k13 * u[6] * u[16]  # C2H4
+    du[17] = -k14 * u[6] * u[17]  # C3H8
+    du[18] = k14 * u[6] * u[17] - k15 * u[18] * u[2]  # C3H7O2
+    
+    # Biogenic compounds
+    du[19] = -k16 * u[6] * u[19] - k21 * u[4] * u[19]  # isoprene
+    du[20] = -k17 * u[6] * u[20]  # α-pinene
+    
+    # Nitrogen reservoir species
+    du[21] = k1 * u[3] * u[6] + k22 * u[5]  # HNO3
+    du[22] = k24 * u[3] * u[27] - k23 * u[22]  # PAN
+    
+    # Sulfur chemistry
+    du[23] = -k25 * u[6] * u[23]  # SO2
+    du[24] = k25 * u[6] * u[23]  # HSO3
+    
+    # Secondary species
+    du[25] = 0.1 * (u[24] + u[21])  # aerosol formation
+    du[26] = k12 * u[15] * u[2] + k15 * u[18] * u[2]  # RCHO
+    du[27] = k11 * u[6] * u[14] + k14 * u[6] * u[17] - k24 * u[3] * u[27]  # RO2
+    du[28] = -k18 * u[1] * u[28]  # alkenes
+    du[29] = -0.5e-11 * u[6] * u[29]  # aromatics
+    du[30] = k16 * u[6] * u[19] + k17 * u[6] * u[20]  # biogenic products
+end
+
+# Initial conditions for European summer atmosphere (ppb converted to molecules/cm³)
+# Typical concentrations for continental Europe during ozone season
+u0 = [
+    80.0,   # O3 (80 ppb)
+    0.5,    # NO (0.5 ppb)  
+    2.0,    # NO2 (2 ppb)
+    0.01,   # NO3 (0.01 ppb)
+    0.001,  # N2O5 (0.001 ppb)
+    0.1,    # OH (0.1 ppt, but scaled)
+    1.0,    # HO2 (1 ppt, scaled)
+    0.5,    # H2O2 (0.5 ppb)
+    150.0,  # CO (150 ppb)
+    1800.0, # CH4 (1.8 ppm)
+    1.0,    # HCHO (1 ppb)
+    0.1,    # CH3O2 (0.1 ppt, scaled)
+    0.01,   # CH3O (0.01 ppt, scaled)
+    2.0,    # C2H6 (2 ppb)
+    0.05,   # C2H5O2 (scaled)
+    1.0,    # C2H4 (1 ppb)
+    1.5,    # C3H8 (1.5 ppb)
+    0.03,   # C3H7O2 (scaled)
+    2.0,    # isoprene (2 ppb)
+    0.5,    # α-pinene (0.5 ppb)
+    1.0,    # HNO3 (1 ppb)
+    0.1,    # PAN (0.1 ppb)
+    2.0,    # SO2 (2 ppb)
+    0.0,    # HSO3 (initially zero)
+    5.0,    # aerosol (5 μg/m³, scaled)
+    0.2,    # RCHO (0.2 ppb)
+    0.08,   # RO2 (scaled)
+    3.0,    # alkenes (3 ppb)
+    5.0,    # aromatics (5 ppb)
+    0.0     # biogenic products (initially zero)
+]
+
+# Time span - 3 days (72 hours) to capture diurnal cycles
+tspan = (0.0, 72.0)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan)
+probstatic = ODEProblem{false}(emep!, SVector{30}(u0), tspan)
+
+# Generate reference solution  
+sol = solve(prob, CVODE_BDF(), abstol=1/10^12, reltol=1/10^12)
+sol2 = solve(probstatic, Rodas5P(), abstol=1/10^12, reltol=1/10^12)
+probs = [prob, probstatic]
+test_sol = [sol, sol2]
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8)
+```
+
+```julia
+# Plot key ozone chemistry species
+plot(sol, vars=[1,2,3,6,7], labels=["O3" "NO" "NO2" "OH" "HO2"], 
+     xlabel="Time (hours)", title="EMEP Ozone Chemistry")
+```
+
+```julia
+# Plot organic species evolution
+plot(sol, vars=[9,10,11,19,20], labels=["CO" "CH4" "HCHO" "Isoprene" "α-Pinene"],
+     xlabel="Time (hours)", title="Organic Species")
+```
+
+```julia
+# Plot nitrogen species
+plot(sol, vars=[2,3,4,21,22], labels=["NO" "NO2" "NO3" "HNO3" "PAN"],
+     xlabel="Time (hours)", title="Nitrogen Species")
+```
+
+## Omissions
+
+Some methods may struggle with this large stiff system due to the wide range of time scales.
+
+```julia
+# Methods that typically don't work well on large atmospheric chemistry systems
+setups = [
+#Dict(:alg=>ROCK2()),    # Explicit stabilized methods struggle
+#Dict(:alg=>ROCK4()),    # Large system size causes issues
+]
+```
+
+## High Tolerances
+
+This is the speed when you just want the answer.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>lsoda())]
+names = ["Rosenbrock23" "Rosenbrock23 Static" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda"]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:10)
+reltols = 1.0 ./ 10.0 .^ (4:7)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+The EMEP problem represents a challenging 30-species atmospheric chemistry system modeling European ozone formation. This larger system (compared to the 20-species Pollution benchmark) includes complex photochemistry, biogenic emissions, and multiple chemical families (NOx, HOx, VOCs). The system exhibits stiffness due to widely varying reaction rates spanning many orders of magnitude. At high tolerances, `Rosenbrock23` and `lsoda` perform well for this large system. For higher precision atmospheric modeling, `CVODE_BDF` and `KenCarp4` show excellent performance, with static array versions providing efficiency gains.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

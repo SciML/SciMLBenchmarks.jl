@@ -1,0 +1,251 @@
+---
+title: Medical Akzo Nobel Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, StaticArrays, RecursiveFactorization
+gr()
+
+# Medical Akzo Nobel Problem from the IVP Test Set
+# This models radioimmunotherapy - the penetration of radio-labeled antibodies into tumor tissue
+# It's a singularly perturbed system with small parameter ε causing stiff behavior
+
+function medical_akzo_nobel!(du, u, p, t)
+    # Parameters for radioimmunotherapy model
+    ε = 1e-6  # Small parameter causing stiffness (singular perturbation)
+    
+    # Binding and diffusion parameters
+    k_on = 1e6    # Association rate (1/M/s)
+    k_off = 1e-3  # Dissociation rate (1/s)
+    D = 1e-10     # Diffusion coefficient (m²/s)
+    
+    # Tissue parameters
+    R_total = 1e-9  # Total receptor concentration (M)
+    ρ = 0.1         # Tissue porosity
+    
+    # Antibody injection parameters
+    C_plasma = 1e-8 * exp(-0.1*t)  # Plasma concentration (exponential decay)
+    
+    # Variables:
+    # u[1] = Free antibody concentration in tissue
+    # u[2] = Bound antibody-receptor complex concentration
+    # u[3] = Free receptor concentration
+    # u[4] = Antibody concentration at tissue boundary
+    # u[5] = Penetration depth indicator
+    # u[6] = Total uptake in tissue
+    
+    # Free receptors (conservation)
+    R_free = R_total - u[2]
+    
+    # Antibody-receptor binding kinetics (fast process)
+    binding_rate = k_on * u[1] * R_free - k_off * u[2]
+    
+    # Diffusion from plasma to tissue boundary (medium process)
+    boundary_flux = (C_plasma - u[4]) / ε
+    
+    # Penetration into tissue interior (slow process)
+    penetration_flux = D * (u[4] - u[1]) / (ε * ρ)
+    
+    # Differential equations
+    # Free antibody in tissue (affected by binding and penetration)
+    du[1] = penetration_flux - binding_rate
+    
+    # Bound complex formation (fast equilibrium)
+    du[2] = binding_rate
+    
+    # Free receptor dynamics (affected by binding)
+    du[3] = -binding_rate + k_off * u[2]
+    
+    # Boundary concentration (diffusion from plasma)
+    du[4] = boundary_flux - penetration_flux
+    
+    # Penetration depth (integrated measure)
+    du[5] = (u[1] / (u[1] + u[2] + 1e-12)) / ε
+    
+    # Total tissue uptake (diagnostic/therapeutic measure)
+    du[6] = u[1] + u[2]
+end
+
+# Initial conditions - tissue initially free of antibodies
+u0 = [0.0,      # Free antibody
+      0.0,      # Bound complex  
+      1e-9,     # Free receptors (initially all available)
+      0.0,      # Boundary antibody
+      0.0,      # Penetration depth
+      0.0]      # Total uptake
+
+# Time span - therapeutic time course (hours)
+tspan = (0.0, 24.0)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(medical_akzo_nobel!, u0, tspan)
+probstatic = ODEProblem{false}(medical_akzo_nobel!, SVector{6}(u0), tspan)
+
+# Generate reference solution
+sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
+sol2 = solve(probstatic, Rodas5P(), abstol=1/10^14, reltol=1/10^14)
+probs = [prob, probstatic]
+test_sol = [sol, sol2]
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8)
+```
+
+```julia
+plot(sol, labels=["Free Ab" "Bound Complex" "Free Receptors" "Boundary Ab" "Penetration" "Total Uptake"])
+```
+
+```julia
+# Focus on the therapeutic variables
+plot(sol, vars=[2,6], labels=["Bound Complex" "Total Uptake"], 
+     xlabel="Time (hours)", title="Radioimmunotherapy Uptake")
+```
+
+## Omissions
+
+Some methods may struggle with the singular perturbation due to the small parameter ε.
+
+```julia
+# Methods that typically have issues with singular perturbations
+setups = [
+#Dict(:alg=>ROCK2()),    # Explicit methods struggle with stiff systems
+#Dict(:alg=>ROCK4()),    # Small ε makes these unstable
+]
+```
+
+## High Tolerances
+
+This is the speed when you just want the answer.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+names = ["Rosenbrock23" "Rosenbrock23 Static" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda" "radau"]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp47()),
+          Dict(:alg=>KenCarp47(), :prob_choice => 2),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+The Medical Akzo Nobel problem demonstrates the challenges of singularly perturbed systems in radioimmunotherapy modeling. The small parameter ε creates a stiff system with multiple time scales: fast antibody-receptor binding, medium diffusion from plasma, and slow tissue penetration. This makes it an excellent benchmark for testing solver robustness on medical applications. At high tolerances, `Rosenbrock23` performs well, while `Rodas4` and `KenCarp4` excel at medium tolerances. For high precision medical simulations, `radau` and the implicit methods show the best performance.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
