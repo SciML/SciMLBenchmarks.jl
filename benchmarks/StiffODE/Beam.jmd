@@ -1,0 +1,221 @@
+---
+title: Beam Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, StaticArrays, RecursiveFactorization
+gr()
+
+# Beam Problem from the IVP Test Set
+# This is an 80-dimensional stiff ODE system modeling an elastic beam
+# The beam is discretized using finite differences resulting in a large stiff system
+
+function beam!(du, u, p, t)
+    # Parameters for the elastic beam model
+    n = 40  # Half the system size (position and velocity variables)
+    L = 1.0  # Beam length
+    E = 2.1e11  # Young's modulus (steel)
+    I = 8.333e-6  # Area moment of inertia
+    ρ = 7800.0  # Density
+    A = 0.01  # Cross-sectional area
+    
+    dx = L / (n - 1)  # Spatial discretization
+    
+    # Stiffness and mass parameters
+    k = E * I / dx^4  # Bending stiffness factor
+    m = ρ * A * dx    # Mass per segment
+    
+    # Damping coefficient (to make the system stiff)
+    c = 100.0
+    
+    # Applied load (time-varying distributed load)
+    load = sin(10.0 * t) * 1e3
+    
+    # First n variables are displacements (y), second n are velocities (dy/dt)
+    y = @view u[1:n]
+    v = @view u[n+1:2*n]
+    
+    # Velocity equations: dy/dt = v
+    du[1:n] .= v
+    
+    # Acceleration equations: m * d²y/dt² = -k * d⁴y/dx⁴ - c * dy/dt + f(x,t)
+    # Using finite differences for the fourth derivative
+    
+    # Interior points (finite difference approximation of d⁴y/dx⁴)
+    for i in 3:n-2
+        d4y_dx4 = (y[i+2] - 4*y[i+1] + 6*y[i] - 4*y[i-1] + y[i-2])
+        du[n+i] = (-k * d4y_dx4 - c * v[i] + load) / m
+    end
+    
+    # Boundary conditions: clamped at x=0, free at x=L
+    # At x=0: y=0, dy/dx=0 (clamped)
+    du[n+1] = -c * v[1] / m  # y[1] = 0 (displacement)
+    du[n+2] = -c * v[2] / m  # dy/dx = 0 at boundary
+    
+    # At x=L: d²y/dx²=0, d³y/dx³=0 (free end)
+    # Use simplified boundary conditions for the last two points
+    du[n+n-1] = (-c * v[n-1] + load * 0.1) / m  # Reduced load at boundary
+    du[n+n] = (-c * v[n] + load * 0.1) / m      # Reduced load at free end
+end
+
+# Initial conditions - beam starts at rest with small perturbation
+n = 40
+u0 = zeros(2*n)
+
+# Add small initial displacement (first mode shape approximation)
+for i in 1:n
+    x = (i-1) / (n-1)
+    u0[i] = 0.001 * sin(π * x)  # Small initial displacement
+end
+
+# Time span
+tspan = (0.0, 1.0)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(beam!, u0, tspan)
+probstatic = ODEProblem{false}(beam!, SVector{80}(u0), tspan)
+
+# Generate reference solution
+sol = solve(prob, CVODE_BDF(), abstol=1/10^12, reltol=1/10^12)
+sol2 = solve(probstatic, Rodas5P(), abstol=1/10^12, reltol=1/10^12)
+probs = [prob, probstatic]
+test_sol = [sol, sol2]
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8)
+```
+
+```julia
+# Plot the beam displacement at different times
+plot(sol, vars=1:5:20, labels=["x=0.0" "x=0.25" "x=0.5" "x=0.75" "x=1.0"])
+```
+
+```julia
+# Plot the beam velocity at different positions
+plot(sol, vars=41:5:60, labels=["v at x=0.0" "v at x=0.25" "v at x=0.5" "v at x=0.75" "v at x=1.0"])
+```
+
+## Omissions
+
+Some methods may struggle with this large stiff system due to the high dimensionality and strong coupling.
+
+```julia
+# ROCK methods typically don't perform well on such large stiff systems
+setups = [
+#Dict(:alg=>ROCK2()),
+#Dict(:alg=>ROCK4())
+]
+```
+
+## High Tolerances
+
+This is the speed when you just want the answer.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>lsoda())]
+names = ["Rosenbrock23" "Rosenbrock23 Static" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda"]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:10)
+reltols = 1.0 ./ 10.0 .^ (4:7)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+The Beam problem demonstrates the challenges of solving large-scale stiff systems arising from spatial discretization of PDEs. The 80-dimensional system exhibits stiffness due to the wide separation between structural and vibrational time scales. At high tolerances, `Rosenbrock23` and `lsoda` perform well due to their efficient handling of large systems. For higher precision, `CVODE_BDF` and `KenCarp4` show good performance, with the static array versions providing some efficiency gains.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

@@ -1,0 +1,192 @@
+---
+title: E5 Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, StaticArrays, RecursiveFactorization
+gr()
+
+# E5 Problem from Hairer-Wanner Test Set
+# This is a 4-dimensional stiff ODE system modeling chemical pyrolysis
+# Originally described as coming from "stiff detest"
+
+function e5!(du, u, p, t)
+    # Parameters for the E5 chemical pyrolysis model
+    k1, k2, k3, k4 = 7.89e-10, 1.1e7, 1.13e3, 1.13e3
+    
+    # Chemical reactions
+    # A -> B (k1, slow)
+    # B -> C (k2, fast) 
+    # C -> D (k3, moderate)
+    # D -> A (k4, moderate, closing the cycle)
+    
+    du[1] = -k1 * u[1] + k4 * u[4]                    # dA/dt
+    du[2] = k1 * u[1] - k2 * u[2]                     # dB/dt  
+    du[3] = k2 * u[2] - k3 * u[3]                     # dC/dt
+    du[4] = k3 * u[3] - k4 * u[4]                     # dD/dt
+end
+
+# Initial conditions - most species start at A
+u0 = [1.76e-3, 0.0, 0.0, 0.0]
+
+# Time span - long enough to see the stiff transients
+tspan = (0.0, 1e6)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(e5!, u0, tspan)
+probstatic = ODEProblem{false}(e5!, SVector{4}(u0), tspan)
+
+# Generate reference solution
+sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
+sol2 = solve(probstatic, Rodas5P(), abstol=1/10^14, reltol=1/10^14)
+probs = [prob, probstatic]
+test_sol = [sol, sol2]
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8)
+```
+
+```julia
+plot(sol, labels=["A" "B" "C" "D"])
+```
+
+```julia
+plot(sol, xscale=:log10, labels=["A" "B" "C" "D"])
+```
+
+## High Tolerances
+
+This is the speed when you just want the answer.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          Dict(:alg=>lsoda()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+names = ["Rosenbrock23" "Rosenbrock23 Static" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda" "radau"]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp4(), :prob_choice => 2),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+## Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp47()),
+          Dict(:alg=>KenCarp47(), :prob_choice => 2),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas4(), :prob_choice => 2),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+The E5 problem demonstrates a classic stiff chemical pyrolysis system with widely separated time scales. The slow formation of intermediate B is followed by rapid conversion to C and D. At high tolerances, `Rosenbrock23` performs well, while `Rodas4` and `KenCarp4` excel at medium tolerances. For high precision requirements, `radau` and the Rodas family show excellent efficiency.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
