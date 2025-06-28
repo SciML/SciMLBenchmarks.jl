@@ -13,20 +13,25 @@ gr()
 # 4-dimensional stiff ODE system with widely separated rate constants
 
 function e5!(du, u, p, t)
-    # E5 problem - exact implementation from the Fortran feval subroutine
-    # This creates a stiff system due to the wide range of rate constants
+    # E5 problem - exact translation from Fortran feval subroutine:
+    # prod1=7.89D-10*y(1)
+    # prod2=1.1D7*y(1)*y(3)  
+    # prod3=1.13D9*y(2)*y(3)
+    # prod4=1.13D3*y(4)
+    # f(1)=-prod1-prod2
+    # f(2)=prod1-prod3
+    # f(4)=prod2-prod4
+    # f(3)=f(2)-f(4)
     
-    # Production terms (exact from Fortran)
     prod1 = 7.89e-10 * u[1]
     prod2 = 1.1e7 * u[1] * u[3]
     prod3 = 1.13e9 * u[2] * u[3]
     prod4 = 1.13e3 * u[4]
     
-    # Differential equations (exact from Fortran feval)
-    du[1] = -prod1 - prod2                           # f(1) = -prod1 - prod2
-    du[2] = prod1 - prod3                            # f(2) = prod1 - prod3
-    du[4] = prod2 - prod4                            # f(4) = prod2 - prod4
-    du[3] = du[2] - du[4]                            # f(3) = f(2) - f(4)
+    du[1] = -prod1 - prod2        # f(1)
+    du[2] = prod1 - prod3         # f(2) 
+    du[4] = prod2 - prod4         # f(4)
+    du[3] = du[2] - du[4]         # f(3) = f(2) - f(4)
 end
 
 # Initial conditions - system starts with all mass in species A
