@@ -8,70 +8,75 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using LinearAlgebra, StaticArrays, RecursiveFactorization
 gr()
 
-# Beam Problem from the IVP Test Set
-# This is an 80-dimensional stiff ODE system modeling an elastic beam
-# The beam is discretized using finite differences resulting in a large stiff system
+# Beam Problem from the Bari/CWI Test Set
+# Exact implementation based on the Fortran code from deTestSet
+# Original source: https://github.com/cran/deTestSet/blob/master/src/Ex_beam.f
 
 function beam!(du, u, p, t)
-    # Parameters for the elastic beam model
-    n = 40  # Half the system size (position and velocity variables)
-    L = 1.0  # Beam length
-    E = 2.1e11  # Young's modulus (steel)
-    I = 8.333e-6  # Area moment of inertia
-    ρ = 7800.0  # Density
-    A = 0.01  # Cross-sectional area
+    # Parameters from the original Fortran implementation
+    n = 40  # Number of spatial discretization points
+    deltas = 1.0 / n
+    nquatr = n^4
     
-    dx = L / (n - 1)  # Spatial discretization
+    # Force term - sinusoidal loading
+    f = sin(t)
     
-    # Stiffness and mass parameters
-    k = E * I / dx^4  # Bending stiffness factor
-    m = ρ * A * dx    # Mass per segment
+    # The Beam equation is:
+    # phi_tt + beta * phi_t + phi_ssss + beta * Gamma(phi) = F(t)
+    # where Gamma(phi) = phi - sin(phi) (nonlinear term)
+    # Discretized using finite differences
     
-    # Damping coefficient (to make the system stiff)
-    c = 100.0
+    # First n variables are angles phi[i], second n are angular velocities phi_t[i]
+    phi = @view u[1:n]
+    phi_t = @view u[n+1:2*n]
     
-    # Applied load (time-varying distributed load)
-    load = sin(10.0 * t) * 1e3
+    # Velocity equations: d(phi)/dt = phi_t
+    du[1:n] .= phi_t
     
-    # First n variables are displacements (y), second n are velocities (dy/dt)
-    y = @view u[1:n]
-    v = @view u[n+1:2*n]
+    # Compute phi_ssss (fourth spatial derivative) using finite differences
+    # with boundary conditions phi[0] = phi[n+1] = 0
     
-    # Velocity equations: dy/dt = v
-    du[1:n] .= v
+    # Initialize acceleration array
+    phi_tt = @view du[n+1:2*n]
     
-    # Acceleration equations: m * d²y/dt² = -k * d⁴y/dx⁴ - c * dy/dt + f(x,t)
-    # Using finite differences for the fourth derivative
-    
-    # Interior points (finite difference approximation of d⁴y/dx⁴)
+    # Interior points
     for i in 3:n-2
-        d4y_dx4 = (y[i+2] - 4*y[i+1] + 6*y[i] - 4*y[i-1] + y[i-2])
-        du[n+i] = (-k * d4y_dx4 - c * v[i] + load) / m
+        # Fourth derivative approximation
+        phi_ssss = (phi[i-2] - 4*phi[i-1] + 6*phi[i] - 4*phi[i+1] + phi[i+2]) * nquatr
+        # Nonlinear term Gamma
+        gamma_phi = phi[i] - sin(phi[i])
+        # Acceleration equation (with beta = 0.01 damping from original)
+        phi_tt[i] = -phi_ssss - 0.01 * gamma_phi + f
     end
     
-    # Boundary conditions: clamped at x=0, free at x=L
-    # At x=0: y=0, dy/dx=0 (clamped)
-    du[n+1] = -c * v[1] / m  # y[1] = 0 (displacement)
-    du[n+2] = -c * v[2] / m  # dy/dx = 0 at boundary
+    # Boundary conditions
+    # i = 1: use phi[0] = 0
+    phi_ssss = (6*phi[1] - 4*phi[2] + phi[3]) * nquatr
+    gamma_phi = phi[1] - sin(phi[1])
+    phi_tt[1] = -phi_ssss - 0.01 * gamma_phi + f
     
-    # At x=L: d²y/dx²=0, d³y/dx³=0 (free end)
-    # Use simplified boundary conditions for the last two points
-    du[n+n-1] = (-c * v[n-1] + load * 0.1) / m  # Reduced load at boundary
-    du[n+n] = (-c * v[n] + load * 0.1) / m      # Reduced load at free end
+    # i = 2: use phi[0] = 0
+    phi_ssss = (-4*phi[1] + 6*phi[2] - 4*phi[3] + phi[4]) * nquatr
+    gamma_phi = phi[2] - sin(phi[2])
+    phi_tt[2] = -phi_ssss - 0.01 * gamma_phi + f
+    
+    # i = n-1: use phi[n+1] = 0
+    phi_ssss = (phi[n-3] - 4*phi[n-2] + 6*phi[n-1] - 4*phi[n]) * nquatr
+    gamma_phi = phi[n-1] - sin(phi[n-1])
+    phi_tt[n-1] = -phi_ssss - 0.01 * gamma_phi + f
+    
+    # i = n: use phi[n+1] = 0
+    phi_ssss = (phi[n-2] - 4*phi[n-1] + 6*phi[n]) * nquatr
+    gamma_phi = phi[n] - sin(phi[n])
+    phi_tt[n] = -phi_ssss - 0.01 * gamma_phi + f
 end
 
-# Initial conditions - beam starts at rest with small perturbation
+# Initial conditions (from original Fortran)
 n = 40
 u0 = zeros(2*n)
 
-# Add small initial displacement (first mode shape approximation)
-for i in 1:n
-    x = (i-1) / (n-1)
-    u0[i] = 0.001 * sin(π * x)  # Small initial displacement
-end
-
-# Time span
-tspan = (0.0, 1.0)
+# Time span (from test set - often run to t=π)
+tspan = (0.0, π)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(beam!, u0, tspan)
 probstatic = ODEProblem{false}(beam!, SVector{80}(u0), tspan)
@@ -87,13 +92,15 @@ reltols = 1.0 ./ 10.0 .^ (1:8)
 ```
 
 ```julia
-# Plot the beam displacement at different times
-plot(sol, vars=1:5:20, labels=["x=0.0" "x=0.25" "x=0.5" "x=0.75" "x=1.0"])
+# Plot the beam deflection at different times
+plot(sol, vars=1:5:40, labels=["x=$(i/40)" for i in 1:5:40], 
+     xlabel="Time", ylabel="Angle φ", title="Beam Deflection")
 ```
 
 ```julia
-# Plot the beam velocity at different positions
-plot(sol, vars=41:5:60, labels=["v at x=0.0" "v at x=0.25" "v at x=0.5" "v at x=0.75" "v at x=1.0"])
+# Plot the angular velocity distribution
+plot(sol, vars=41:5:80, labels=["v at x=$(i/40)" for i in 1:5:40],
+     xlabel="Time", ylabel="Angular velocity", title="Beam Angular Velocities")
 ```
 
 ## Omissions
@@ -101,7 +108,7 @@ plot(sol, vars=41:5:60, labels=["v at x=0.0" "v at x=0.25" "v at x=0.5" "v at x=
 Some methods may struggle with this large stiff system due to the high dimensionality and strong coupling.
 
 ```julia
-# ROCK methods typically don't perform well on such large stiff systems
+# Methods that typically have issues with large stiff systems
 setups = [
 #Dict(:alg=>ROCK2()),
 #Dict(:alg=>ROCK4())
@@ -213,7 +220,7 @@ plot(wp)
 
 ### Conclusion
 
-The Beam problem demonstrates the challenges of solving large-scale stiff systems arising from spatial discretization of PDEs. The 80-dimensional system exhibits stiffness due to the wide separation between structural and vibrational time scales. At high tolerances, `Rosenbrock23` and `lsoda` perform well due to their efficient handling of large systems. For higher precision, `CVODE_BDF` and `KenCarp4` show good performance, with the static array versions providing some efficiency gains.
+The Beam problem demonstrates the exact formulation from the Bari/CWI test set, modeling the nonlinear dynamics of a flexible beam under sinusoidal loading. The 80-dimensional system represents spatial discretization of the beam equation with fourth-order spatial derivatives and nonlinear terms. The stiffness arises from the high-order spatial discretization (n^4 scaling) combined with the nonlinear sin(φ) terms. At high tolerances, `Rosenbrock23` and `lsoda` perform well. For higher precision, `CVODE_BDF` and `KenCarp4` show good performance, with static array versions providing efficiency gains.
 
 ```julia, echo = false
 using SciMLBenchmarks

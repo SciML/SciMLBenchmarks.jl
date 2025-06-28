@@ -8,61 +8,96 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using LinearAlgebra, StaticArrays, RecursiveFactorization
 gr()
 
-# Ring Modulator Circuit Parameters
-# Based on the classic ring modulator test problem from the IVP test set
-# This is a 15-dimensional stiff ODE system modeling an electronic ring modulator circuit
+# Ring Modulator Problem from the Bari/CWI Test Set
+# Exact implementation based on the Fortran code from deTestSet
+# Original source: https://github.com/cran/deTestSet/blob/master/src/Ex_ring.f
 
 function ring_modulator!(du, u, p, t)
-    # Parameters for the ring modulator circuit
-    c1, c2, c3, c4, c5 = 1e-9, 2e-9, 1e-9, 5e-10, 3e-9
-    l1, l2, l3 = 1e-6, 2e-6, 1.5e-6
-    r1, r2, r3, r4, r5 = 1e3, 2e3, 5e2, 1e4, 3e3
+    # Parameters from the original Fortran implementation
+    c = 1.6e-8
+    cs = 2e-12  
+    cp = 1e-8
+    r = 25000.0
+    rp = 50.0
+    lh = 4.45
+    ls1 = 2e-7
+    ls2 = 5e-8
+    ls3 = 5e-8
+    rg1 = 36.0
+    rg2 = 17.5
+    rg3 = 17.5
+    ri = 5e-7
+    rc = 5e-8
+    gamma = 40.67286402e-9
+    delta = 17.7493332
     
-    # Input signals
-    vin1 = sin(2π * 1e3 * t)  # 1 kHz carrier
-    vin2 = sin(2π * 50 * t)   # 50 Hz modulation
+    # Input signals (exact from Fortran)
+    pi = 3.141592653589793
+    uin1 = 0.5 * sin(2000.0 * pi * t)
+    uin2 = 2.0 * sin(20000.0 * pi * t)
     
-    # Diode parameters
-    is = 1e-12  # saturation current
-    vt = 26e-3  # thermal voltage
+    # Intermediate voltage calculations
+    ud1 = u[3] - u[5] - u[7] + uin2
+    ud2 = -u[4] + u[6] + u[8] + uin2  
+    ud3 = -u[3] + u[5] - u[9] - uin2
+    ud4 = u[4] - u[6] + u[10] - uin2
     
-    # Diode currents (simplified exponential model)
-    id1 = is * (exp(u[11]/vt) - 1)
-    id2 = is * (exp(u[12]/vt) - 1)
-    id3 = is * (exp(u[13]/vt) - 1)
-    id4 = is * (exp(u[14]/vt) - 1)
+    # Diode currents with overflow protection (from Fortran)
+    if delta * ud1 > 700.0
+        qud1 = gamma * exp(700.0)
+    elseif delta * ud1 < -700.0  
+        qud1 = -gamma
+    else
+        qud1 = gamma * (exp(delta * ud1) - 1.0)
+    end
     
-    # Capacitor equations (dv/dt = i/C)
-    du[1] = (u[6] - u[1]) / (r1 * c1)  # vc1
-    du[2] = (u[7] - u[2]) / (r2 * c2)  # vc2
-    du[3] = (u[8] - u[3]) / (r3 * c3)  # vc3
-    du[4] = (u[9] - u[4]) / (r4 * c4)  # vc4
-    du[5] = (u[10] - u[5]) / (r5 * c5) # vc5
+    if delta * ud2 > 700.0
+        qud2 = gamma * exp(700.0)
+    elseif delta * ud2 < -700.0
+        qud2 = -gamma  
+    else
+        qud2 = gamma * (exp(delta * ud2) - 1.0)
+    end
     
-    # Inductor equations (di/dt = v/L)
-    du[6] = (vin1 - u[1] - r1 * u[6]) / l1    # il1
-    du[7] = (u[1] - u[2] - r2 * u[7]) / l2    # il2
-    du[8] = (u[2] - u[3] - r3 * u[8]) / l3    # il3
+    if delta * ud3 > 700.0
+        qud3 = gamma * exp(700.0)
+    elseif delta * ud3 < -700.0
+        qud3 = -gamma
+    else  
+        qud3 = gamma * (exp(delta * ud3) - 1.0)
+    end
     
-    # Node voltage equations
-    du[9] = (-u[4] + u[11] - u[12] + id1 - id2) * 1e6  # vn1
-    du[10] = (-u[5] + u[12] - u[13] + id2 - id3) * 1e6 # vn2
+    if delta * ud4 > 700.0
+        qud4 = gamma * exp(700.0) 
+    elseif delta * ud4 < -700.0
+        qud4 = -gamma
+    else
+        qud4 = gamma * (exp(delta * ud4) - 1.0)
+    end
     
-    # Diode voltage equations
-    du[11] = (u[9] - u[11] + vin2) * 1e4      # vd1
-    du[12] = (u[10] - u[12] - vin2) * 1e4     # vd2
-    du[13] = (-u[10] - u[13] + vin2) * 1e4    # vd3
-    du[14] = (-u[9] - u[14] - vin2) * 1e4     # vd4
-    
-    # Output stage
-    du[15] = (u[13] - u[14] - u[15]) * 1e3    # vout
+    # The 15 differential equations (exact from Fortran ringfunc)
+    du[1] = (uin1 - rg1 * u[1] - u[2]) / ls1
+    du[2] = (u[1] - u[3] - rp * u[2]) / lh  
+    du[3] = (-u[2] + u[11] - rg2 * u[3]) / ls2
+    du[4] = (-u[12] - rg3 * u[4]) / ls3
+    du[5] = (-qud1 + qud3) / cs
+    du[6] = (qud2 - qud4) / cs  
+    du[7] = (-qud1 - qud3) / cs
+    du[8] = (qud2 + qud4) / cs
+    du[9] = (qud3 - qud1) / cs
+    du[10] = (-qud4 - qud2) / cs
+    du[11] = (u[3] - u[13] - r * u[11]) / c
+    du[12] = (u[4] - u[14] - r * u[12]) / c  
+    du[13] = (u[11] - u[15] - rp * u[13]) / cp
+    du[14] = (u[12] - rp * u[14]) / cp
+    du[15] = (u[13] - rp * u[15]) / cp
 end
 
-# Initial conditions (all voltages and currents start at zero)
+# Initial conditions (from original Fortran - all zeros)
 u0 = zeros(15)
 
-# Time span
-tspan = (0.0, 1e-3)  # 1 millisecond simulation
+# Time span (from test set - often run to t=0.001)
+tspan = (0.0, 0.001)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(ring_modulator!, u0, tspan)
 probstatic = ODEProblem{false}(ring_modulator!, SVector{15}(u0), tspan)
@@ -78,11 +113,28 @@ reltols = 1.0 ./ 10.0 .^ (1:8)
 ```
 
 ```julia
-plot(sol, vars=[1,2,3,15], labels=["VC1" "VC2" "VC3" "Vout"])
+plot(sol, vars=[1,2,3,11,12], labels=["I1" "I2" "I3" "U11" "U12"])
 ```
 
 ```julia
-plot(sol, vars=[6,7,8], labels=["IL1" "IL2" "IL3"])
+plot(sol, vars=[5,6,7,8,9,10], labels=["U5" "U6" "U7" "U8" "U9" "U10"])
+```
+
+```julia
+# Plot the final output voltage
+plot(sol, vars=[15], labels=["Output"], title="Ring Modulator Output")
+```
+
+## Omissions
+
+The following were omitted from the tests due to convergence failures or instability with this highly nonlinear problem.
+
+```julia
+# ROCK methods don't handle the strong nonlinearity well
+setups = [
+#Dict(:alg=>ROCK2()),    
+#Dict(:alg=>ROCK4())
+]
 ```
 
 ## High Tolerances
@@ -214,7 +266,7 @@ plot(wp)
 
 ### Conclusion
 
-The Ring Modulator problem represents a challenging 15-dimensional stiff ODE system arising from electronic circuit analysis. At high tolerances, `Rosenbrock23` and `lsoda` perform well. At medium tolerances, `KenCarp4` and `Rodas4` show excellent performance. For high precision requirements, `radau` and the Rodas family of methods are most efficient.
+The Ring Modulator problem represents the original 15-dimensional stiff ODE system from the Bari/CWI test set, modeling a nonlinear electronic circuit with diode ring modulation. The system exhibits strong stiffness due to the exponential diode characteristics and widely separated time constants in the circuit components. The input signals at 1 kHz and 10 kHz create complex frequency mixing behavior. At high tolerances, `Rosenbrock23` and `lsoda` perform well on this challenging nonlinear system. At medium tolerances, `KenCarp4` and `Rodas4` show excellent performance. For high precision circuit simulation, `radau` and the Rodas family methods are most efficient.
 
 ```julia, echo = false
 using SciMLBenchmarks

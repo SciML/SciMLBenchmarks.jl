@@ -8,30 +8,35 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using LinearAlgebra, StaticArrays, RecursiveFactorization
 gr()
 
-# E5 Problem from Hairer-Wanner Test Set
-# This is a 4-dimensional stiff ODE system modeling chemical pyrolysis
-# Originally described as coming from "stiff detest"
+# E5 Problem from Stiff Test Set
+# This is a 4-dimensional stiff ODE system from the classic test collection
+# Based on chemical reaction networks with widely separated time scales
 
 function e5!(du, u, p, t)
-    # Parameters for the E5 chemical pyrolysis model
-    k1, k2, k3, k4 = 7.89e-10, 1.1e7, 1.13e3, 1.13e3
+    # Parameters for the E5 stiff system - chemical kinetics with fast/slow reactions
+    # These parameters create a stiff system due to the wide range of rate constants
+    k1 = 7.89e-10    # Very slow reaction
+    k2 = 1.1e7       # Very fast reaction
+    k3 = 1.13e3      # Moderate reaction
+    k4 = 1.13e3      # Moderate reaction
     
-    # Chemical reactions
-    # A -> B (k1, slow)
-    # B -> C (k2, fast) 
-    # C -> D (k3, moderate)
-    # D -> A (k4, moderate, closing the cycle)
+    # Chemical reaction network:
+    # Species A -> B (slow initiation)
+    # Species B -> C (fast consumption) 
+    # Species C -> D (moderate)
+    # Species D -> A (moderate, completing cycle)
     
+    # Mass conservation: A + B + C + D = constant
     du[1] = -k1 * u[1] + k4 * u[4]                    # dA/dt
     du[2] = k1 * u[1] - k2 * u[2]                     # dB/dt  
     du[3] = k2 * u[2] - k3 * u[3]                     # dC/dt
     du[4] = k3 * u[3] - k4 * u[4]                     # dD/dt
 end
 
-# Initial conditions - most species start at A
+# Initial conditions - system starts with all mass in species A
 u0 = [1.76e-3, 0.0, 0.0, 0.0]
 
-# Time span - long enough to see the stiff transients
+# Time span - long enough to see both fast and slow time scales
 tspan = (0.0, 1e6)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(e5!, u0, tspan)
