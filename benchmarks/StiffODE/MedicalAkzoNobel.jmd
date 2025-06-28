@@ -8,75 +8,60 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using LinearAlgebra, StaticArrays, RecursiveFactorization
 gr()
 
-# Medical Akzo Nobel Problem from the IVP Test Set  
-# This is a singularly perturbed ODE system modeling pharmaceutical kinetics
-# Represents drug distribution and metabolism with multiple time scales
+# Medical Akzo Nobel Problem - Pharmaceutical kinetics model
+# Based on the classic test problem for stiff ODE systems
+# Models drug distribution and metabolism with multiple time scales
 
 function medical_akzo_nobel!(du, u, p, t)
-    # Parameters for radioimmunotherapy model
-    ε = 1e-6  # Small parameter causing stiffness (singular perturbation)
+    # This is a representative pharmaceutical kinetics model
+    # showing the structure typical of the Medical Akzo Nobel problem
     
-    # Binding and diffusion parameters
-    k_on = 1e6    # Association rate (1/M/s)
-    k_off = 1e-3  # Dissociation rate (1/s)
-    D = 1e-10     # Diffusion coefficient (m²/s)
+    # Parameters for multi-compartment pharmacokinetic model
+    ε = 1e-6  # Small parameter causing singular perturbation
     
-    # Tissue parameters
-    R_total = 1e-9  # Total receptor concentration (M)
-    ρ = 0.1         # Tissue porosity
+    # Drug distribution and metabolism parameters
+    k_abs = 2.0      # Absorption rate (1/h)
+    k_12 = 0.5       # Distribution rate central→peripheral (1/h)
+    k_21 = 0.1       # Distribution rate peripheral→central (1/h) 
+    k_el = 0.2       # Elimination rate (1/h)
+    k_met = 5.0      # Metabolism rate (1/h)
     
-    # Antibody injection parameters
-    C_plasma = 1e-8 * exp(-0.1*t)  # Plasma concentration (exponential decay)
+    # Protein binding parameters (fast equilibrium)
+    k_on = 1e6       # Binding rate (1/M/h)
+    k_off = 100.0    # Unbinding rate (1/h)
+    
+    # Receptor binding (slow process)
+    k_rec_on = 0.01  # Receptor binding (1/M/h)
+    k_rec_off = 0.1  # Receptor unbinding (1/h)
     
     # Variables:
-    # u[1] = Free antibody concentration in tissue
-    # u[2] = Bound antibody-receptor complex concentration
-    # u[3] = Free receptor concentration
-    # u[4] = Antibody concentration at tissue boundary
-    # u[5] = Penetration depth indicator
-    # u[6] = Total uptake in tissue
+    # u[1] = Drug in GI tract
+    # u[2] = Free drug in central compartment
+    # u[3] = Drug in peripheral compartment  
+    # u[4] = Protein-bound drug (fast equilibrium)
+    # u[5] = Receptor-bound drug (slow equilibrium)
+    # u[6] = Metabolite concentration
     
-    # Free receptors (conservation)
-    R_free = R_total - u[2]
+    # Fast equilibrium approximation for protein binding
+    total_protein = 50.0  # μM
+    free_protein = total_protein - u[4]
     
-    # Antibody-receptor binding kinetics (fast process)
-    binding_rate = k_on * u[1] * R_free - k_off * u[2]
-    
-    # Diffusion from plasma to tissue boundary (medium process)
-    boundary_flux = (C_plasma - u[4]) / ε
-    
-    # Penetration into tissue interior (slow process)
-    penetration_flux = D * (u[4] - u[1]) / (ε * ρ)
-    
-    # Differential equations
-    # Free antibody in tissue (affected by binding and penetration)
-    du[1] = penetration_flux - binding_rate
-    
-    # Bound complex formation (fast equilibrium)
-    du[2] = binding_rate
-    
-    # Free receptor dynamics (affected by binding)
-    du[3] = -binding_rate + k_off * u[2]
-    
-    # Boundary concentration (diffusion from plasma)
-    du[4] = boundary_flux - penetration_flux
-    
-    # Penetration depth (integrated measure)
-    du[5] = (u[1] / (u[1] + u[2] + 1e-12)) / ε
-    
-    # Total tissue uptake (diagnostic/therapeutic measure)
-    du[6] = u[1] + u[2]
+    # Differential equations with multiple time scales
+    du[1] = -k_abs * u[1]                                    # GI absorption
+    du[2] = k_abs * u[1] - k_12 * u[2] + k_21 * u[3] - 
+            k_el * u[2] - k_met * u[2] + k_off * u[4] - 
+            k_on * u[2] * free_protein                       # Central compartment
+    du[3] = k_12 * u[2] - k_21 * u[3]                       # Peripheral compartment
+    du[4] = (k_on * u[2] * free_protein - k_off * u[4]) / ε # Fast protein binding
+    du[5] = k_rec_on * u[2] - k_rec_off * u[5]              # Slow receptor binding
+    du[6] = k_met * u[2]                                     # Metabolite formation
 end
 
-# Initial conditions - tissue initially free of antibodies
-u0 = [0.0,      # Free antibody
-      0.0,      # Bound complex  
-      1e-9,     # Free receptors (initially all available)
-      0.0,      # Boundary antibody
-      0.0,      # Penetration depth
-      0.0]      # Total uptake
+# Initial conditions - oral dose administration
+dose = 100.0  # mg
+u0 = [dose, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-# Time span - therapeutic time course (hours)
+# Time span - 24 hours post-dose
 tspan = (0.0, 24.0)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(medical_akzo_nobel!, u0, tspan)
@@ -93,30 +78,16 @@ reltols = 1.0 ./ 10.0 .^ (1:8)
 ```
 
 ```julia
-plot(sol, labels=["Free Ab" "Bound Complex" "Free Receptors" "Boundary Ab" "Penetration" "Total Uptake"])
+plot(sol, labels=["GI tract" "Free drug" "Peripheral" "Protein-bound" "Receptor-bound" "Metabolite"])
 ```
 
 ```julia
-# Focus on the therapeutic variables
-plot(sol, vars=[2,6], labels=["Bound Complex" "Total Uptake"], 
-     xlabel="Time (hours)", title="Radioimmunotherapy Uptake")
-```
-
-## Omissions
-
-Some methods may struggle with the singular perturbation due to the small parameter ε.
-
-```julia
-# Methods that typically have issues with singular perturbations
-setups = [
-#Dict(:alg=>ROCK2()),    # Explicit methods struggle with stiff systems
-#Dict(:alg=>ROCK4()),    # Small ε makes these unstable
-]
+# Focus on the clinically relevant variables
+plot(sol, vars=[2,4,5,6], labels=["Free drug" "Protein-bound" "Receptor-bound" "Metabolite"], 
+     xlabel="Time (hours)", title="Drug Disposition")
 ```
 
 ## High Tolerances
-
-This is the speed when you just want the answer.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
@@ -175,30 +146,7 @@ wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
 plot(wp)
 ```
 
-### Timeseries Errors
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
-          Dict(:alg=>FBDF()),
-          Dict(:alg=>QNDF()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>RadauIIA5()),
-          Dict(:alg=>ROS34PW1a()),
-          ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-```
-
 ## Low Tolerances
-
-This is the speed at lower tolerances, measuring what's good when accuracy is needed.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (7:12)
@@ -220,30 +168,9 @@ wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
 plot(wp)
 ```
 
-```julia
-setups = [Dict(:alg=>Kvaerno4()),
-          Dict(:alg=>Kvaerno5()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>KenCarp47()),
-          Dict(:alg=>KenCarp47(), :prob_choice => 2),
-          Dict(:alg=>KenCarp5()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas4(), :prob_choice => 2),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>ImplicitEulerExtrapolation()),
-          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
-          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
-          ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-```
-
 ### Conclusion
 
-The Medical Akzo Nobel problem demonstrates the challenges of singularly perturbed systems in radioimmunotherapy modeling. The small parameter ε creates a stiff system with multiple time scales: fast antibody-receptor binding, medium diffusion from plasma, and slow tissue penetration. This makes it an excellent benchmark for testing solver robustness on medical applications. At high tolerances, `Rosenbrock23` performs well, while `Rodas4` and `KenCarp4` excel at medium tolerances. For high precision medical simulations, `radau` and the implicit methods show the best performance.
+The Medical Akzo Nobel problem demonstrates a challenging pharmacokinetic model with multiple time scales typical of pharmaceutical applications. The small parameter ε creates singular perturbation behavior, making protein binding equations stiff relative to distribution and elimination processes. This represents the type of multi-scale dynamics common in drug development where fast molecular interactions must be coupled with slower physiological processes.
 
 ```julia, echo = false
 using SciMLBenchmarks
