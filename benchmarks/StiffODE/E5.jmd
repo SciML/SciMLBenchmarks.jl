@@ -34,6 +34,29 @@ function e5!(du, u, p, t)
     du[3] = du[2] - du[4]         # f(3) = f(2) - f(4)
 end
 
+function e5(u, p, t)
+    # E5 problem - exact translation from Fortran feval subroutine:
+    # prod1=7.89D-10*y(1)
+    # prod2=1.1D7*y(1)*y(3)  
+    # prod3=1.13D9*y(2)*y(3)
+    # prod4=1.13D3*y(4)
+    # f(1)=-prod1-prod2
+    # f(2)=prod1-prod3
+    # f(4)=prod2-prod4
+    # f(3)=f(2)-f(4)
+    
+    prod1 = 7.89e-10 * u[1]
+    prod2 = 1.1e7 * u[1] * u[3]
+    prod3 = 1.13e9 * u[2] * u[3]
+    prod4 = 1.13e3 * u[4]
+    
+    du1 = -prod1 - prod2        # f(1)
+    du2 = prod1 - prod3         # f(2) 
+    du4 = prod2 - prod4         # f(4)
+    du3 = du2 - du4         # f(3) = f(2) - f(4)
+    SA[du1,du2,du3,du4]
+end
+
 # Initial conditions - system starts with all mass in species A
 u0 = [1.76e-3, 0.0, 0.0, 0.0]
 
@@ -41,7 +64,7 @@ u0 = [1.76e-3, 0.0, 0.0, 0.0]
 tspan = (0.0, 1e6)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(e5!, u0, tspan)
-probstatic = ODEProblem{false}(e5!, SVector{4}(u0), tspan)
+probstatic = ODEProblem{false}(e5, SVector{4}(u0), tspan)
 
 # Generate reference solution
 sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
