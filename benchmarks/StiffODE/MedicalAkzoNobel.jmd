@@ -55,7 +55,7 @@ function medical_akzo_nobel!(du, u, p, t)
         
         du[i] = (u[i-2] - 2.0*u[i] + u[i+2]) * beta / dzeta2 + 
                 alpha * (u[i+2] - u[i-2]) / (2.0 * dzeta) - k * u[i] * u[i+1]
-        du[i+1] = -k * u[i] * u[i+1]
+        du[i+1] = -k * u[i] * u[i-1]
     end
     
     # Last equations (j=N)
@@ -68,7 +68,7 @@ function medical_akzo_nobel!(du, u, p, t)
     # At boundary (zeta=1), simplified form
     du[i] = (u[i-2] - 2.0*u[i]) * beta / dzeta2 + 
             alpha * (-u[i-2]) / (2.0 * dzeta) - k * u[i] * u[i+1]
-    du[i+1] = -k * u[i] * u[i+1]
+    du[i+1] = -k * u[i] * u[i-1]
 end
 
 # Initial conditions from Fortran medakzo.f
@@ -83,7 +83,7 @@ end
 # Time span from Fortran test - 0 to 20 with discontinuity at t=5
 tspan = (0.0, 20.0)
 
-prob = ODEProblem{true, SciMLBase.FullSpecialize}(medical_akzo_nobel!, u0, tspan)
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(medical_akzo_nobel!, u0, tspan, tstops=[5.0])
 # Note: 400-dimensional system too large for static arrays
 
 # Generate reference solution
