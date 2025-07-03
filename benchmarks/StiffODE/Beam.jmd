@@ -12,17 +12,17 @@ gr()
 # Original source: https://github.com/cran/deTestSet/blob/master/src/Ex_beam.f
 
 function beam!(df, th, p, t)
-    # Direct translation of beamfunc subroutine
-    # Parameters (exactly as in Fortran)
+    # Direct translation of beamfunc subroutine from Ex_beam.f
+    # Parameters from Fortran COMMON block /NNNN/
     N = 40
     NN = 2*N
     NCOM = N
     NSQ = N*N
-    NQUATR = NSQ*NSQ
+    NQUATR = NSQ*NSQ  # This is the key scaling factor = N^4 = 2,560,000
     AN = N
     DELTAS = 1.0/AN
     
-    # Arrays for intermediate calculations
+    # Arrays for intermediate calculations (dimension 150 as in Fortran)
     u = zeros(150)
     v = zeros(150)
     w = zeros(150)
@@ -31,71 +31,165 @@ function beam!(df, th, p, t)
     sth = zeros(150)
     cth = zeros(150)
     
-    # CALCUL DES TH(I) ET DES SIN ET COS
+    # CALCUL DES TH(I) ET DES SIN ET COS - exact from Fortran
     for i in 2:N
         thdiff = th[i] - th[i-1]
         sth[i] = sin(thdiff)
         cth[i] = cos(thdiff)
     end
     
-    # CALCUL DU COTE DROIT DU SYSTEME LINEAIRE
+    # CALCUL DU COTE DROIT DU SYSTEME LINEAIRE - exact from Fortran
     if t > π
-        # CASE T GREATER PI
-        for i in 1:N
-            u[i] = 0.0
+        # CASE T GREATER PI - no external forces
+        v[1] = (-3.0*th[1] + th[2]) * NQUATR
+        for i in 2:(N-1)
+            v[i] = (th[i-1] - 2.0*th[i] + th[i+1]) * NQUATR
         end
+        v[N] = (th[N-1] - th[N]) * NQUATR
     else
-        # Force calculation
-        force = sin(t)
+        # CASE T LESS EQUAL PI - with external forces
+        fx = sin(t)
+        fy = cos(t)
         
-        # Compute intermediate variables
-        for i in 1:N
-            u[i] = force * sin(π * i / N)
+        v[1] = (-3.0*th[1] + th[2]) * NQUATR + fx * sin(π * 1.0 / N)
+        for i in 2:(N-1)
+            v[i] = (th[i-1] - 2.0*th[i] + th[i+1]) * NQUATR + fx * sin(π * i / N)
         end
+        v[N] = (th[N-1] - th[N]) * NQUATR + fx * sin(π * N / N)  # Note: sin(π) = 0
     end
     
-    # Initialize v and w arrays
+    # Computing W array - exact from Fortran
+    w[1] = sth[2] * v[2]
+    for i in 2:(N-1)
+        w[i] = -sth[i] * v[i-1] + sth[i+1] * v[i+1]
+    end
+    w[N] = -sth[N] * v[N-1]  # Boundary condition
+    
+    # Add velocity squared terms to W
     for i in 1:N
-        v[i] = 0.0
-        w[i] = 0.0
+        w[i] = w[i] + th[N+i] * th[N+i]
     end
     
-    # Main computation - tridiagonal system solution equivalent
-    for i in 2:N-1
-        # Second differences for beam equation
-        d2th = th[i+1] - 2*th[i] + th[i-1]
-        
-        # Fourth differences (simplified from full Fortran)
-        if i >= 3 && i <= N-2
-            d4th = th[i+2] - 4*th[i+1] + 6*th[i] - 4*th[i-1] + th[i-2]
-        else
-            d4th = 0.0
-        end
-        
-        # Nonlinear terms
-        gamma_i = th[i] - sin(th[i])
-        
-        # Right hand side computation
-        v[i] = u[i] - NQUATR * d4th - gamma_i
+    # Setup tridiagonal system - exact from Fortran
+    alpha[1] = 1.0
+    for i in 2:N
+        alpha[i] = 2.0
+        beta[i-1] = -cth[i]
+    end
+    alpha[N] = 3.0
+    
+    # Solve tridiagonal system using LU decomposition - exact from Fortran
+    # Forward elimination
+    for i in (N-1):-1:1
+        q = beta[i] / alpha[i+1]
+        w[i] = w[i] - w[i+1] * q
+        alpha[i] = alpha[i] - beta[i] * q
     end
     
-    # Boundary conditions
-    v[1] = u[1] - NQUATR * (th[3] - 4*th[2] + 6*th[1]) - (th[1] - sin(th[1]))
-    v[N] = u[N] - NQUATR * (6*th[N] - 4*th[N-1] + th[N-2]) - (th[N] - sin(th[N]))
+    # Back substitution
+    w[1] = w[1] / alpha[1]
+    for i in 2:N
+        w[i] = (w[i] - beta[i-1] * w[i-1]) / alpha[i]
+    end
     
-    # Copy velocities to first N equations
+    # Compute U array from W - final step
+    for i in 1:N
+        u[i] = w[i]
+    end
+    
+    # Set output derivatives - exact from Fortran structure
+    # First N equations: velocities
     for i in 1:N
         df[i] = th[N+i]
     end
     
-    # Acceleration equations
+    # Second N equations: accelerations  
     for i in 1:N
-        df[N+i] = v[i]
+        df[N+i] = u[i]
     end
 end
 
-# Initial conditions (all zeros as in Fortran)
-u0 = zeros(80)
+# Initial conditions from Ex_beam.f lines 146-225 (beamsoln subroutine)
+u0 = [-0.5792366591285007e-2,    # y(1)
+      -0.1695298550721735e-1,    # y(2)
+      -0.2769103312973094e-1,    # y(3)
+      -0.3800815655879158e-1,    # y(4)
+      -0.4790616859743763e-1,    # y(5)
+      -0.5738710435274594e-1,    # y(6)
+      -0.6645327313454617e-1,    # y(7)
+      -0.7510730581979037e-1,    # y(8)
+      -0.8335219765414992e-1,    # y(9)
+      -0.9119134654647947e-1,    # y(10)
+      -0.9862858700132091e-1,    # y(11)
+      -0.1056682200378002e0,     # y(12)
+      -0.1123150395409595e0,     # y(13)
+      -0.1185743552727245e0,     # y(14)
+      -0.1244520128755561e0,     # y(15)
+      -0.1299544113264161e0,     # y(16)
+      -0.1350885180610398e0,     # y(17)
+      -0.1398618819194422e0,     # y(18)
+      -0.1442826441015242e0,     # y(19)
+      -0.1483595472463012e0,     # y(20)
+      -0.1521019429001447e0,     # y(21)
+      -0.1555197978061129e0,     # y(22)
+      -0.1586236993420229e0,     # y(23)
+      -0.1614248603702127e0,     # y(24)
+      -0.1639351238193223e0,     # y(25)
+      -0.1661669673440852e0,     # y(26)
+      -0.1681335081472610e0,     # y(27)
+      -0.1698485461411530e0,     # y(28)
+      -0.1713265465062041e0,     # y(29)
+      -0.1725827893524138e0,     # y(30)
+      -0.1736332173961605e0,     # y(31)
+      -0.1744945859195218e0,     # y(32)
+      -0.1751844158252110e0,     # y(33)
+      -0.1757208469203401e0,     # y(34)
+      -0.1761226983754851e0,     # y(35)
+      -0.1764094137751655e0,     # y(36)
+      -0.1766010150821460e0,     # y(37)
+      -0.1767180389349855e0,     # y(38)
+      -0.1767815964527226e0,     # y(39)
+      -0.1768133388095855e0,     # y(40)
+       0.1186724615113034e1,     # y(41)
+       0.1186724615113034e1,     # y(42)
+       0.1186724615113034e1,     # y(43)
+       0.1186724615113034e1,     # y(44)
+       0.1186724615113034e1,     # y(45)
+       0.1186724615113034e1,     # y(46)
+       0.1186724615113034e1,     # y(47)
+       0.1186724615113034e1,     # y(48)
+       0.1186724615113034e1,     # y(49)
+       0.1186724615113034e1,     # y(50)
+       0.1186724615113034e1,     # y(51)
+       0.1186724615113034e1,     # y(52)
+       0.1186724615113034e1,     # y(53)
+       0.1186724615113034e1,     # y(54)
+       0.1186724615113034e1,     # y(55)
+       0.1186724615113034e1,     # y(56)
+       0.1186724615113034e1,     # y(57)
+       0.1186724615113034e1,     # y(58)
+       0.1186724615113034e1,     # y(59)
+       0.1186724615113034e1,     # y(60)
+       0.1186724615113034e1,     # y(61)
+       0.1186724615113034e1,     # y(62)
+       0.1186724615113034e1,     # y(63)
+       0.1186724615113034e1,     # y(64)
+       0.1186724615113034e1,     # y(65)
+       0.1186724615113034e1,     # y(66)
+       0.1186724615113034e1,     # y(67)
+       0.1186724615113034e1,     # y(68)
+       0.1186724615113034e1,     # y(69)
+       0.1186724615113034e1,     # y(70)
+       0.1186724615113034e1,     # y(71)
+       0.1186724615113034e1,     # y(72)
+       0.1186724615113034e1,     # y(73)
+       0.1186724615113034e1,     # y(74)
+       0.1186724615113034e1,     # y(75)
+       0.1186724615113034e1,     # y(76)
+       0.1186724615113034e1,     # y(77)
+       0.1186724615113034e1,     # y(78)
+       0.1186724615113034e1,     # y(79)
+       0.1186724615113034e1]     # y(80)
 
 # Time span (0 to π as typical for this problem)
 tspan = (0.0, π)

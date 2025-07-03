@@ -13,7 +13,8 @@ gr()
 # Direct translation of ringfunc subroutine
 
 function ring_modulator!(du, u, p, t)
-    # Parameters from the original Fortran implementation
+    # Direct translation of ringfunc subroutine from Ex_ring.f
+    # Parameters from common block /ringcom/ (values from parameter initialization)
     c = 1.6e-8
     cs = 2e-12  
     cp = 1e-8
@@ -31,70 +32,83 @@ function ring_modulator!(du, u, p, t)
     gamma = 40.67286402e-9
     delta = 17.7493332
     
-    # Input signals (exact from Fortran)
-    pi = 3.141592653589793
-    uin1 = 0.5 * sin(2000.0 * pi * t)
-    uin2 = 2.0 * sin(20000.0 * pi * t)
+    # Input signals - exact from Fortran
+    # uin1 = 0.5d0*sin(2d3*pi*t)
+    # uin2 = 2d0*sin(2d4*pi*t)
+    pi = 3.141592653589793238462643383
+    uin1 = 0.5 * sin(2e3 * pi * t)
+    uin2 = 2.0 * sin(2e4 * pi * t)
     
-    # Intermediate voltage calculations
-    ud1 = u[3] - u[5] - u[7] + uin2
-    ud2 = -u[4] + u[6] + u[8] + uin2  
-    ud3 = -u[3] + u[5] - u[9] - uin2
-    ud4 = u[4] - u[6] + u[10] - uin2
+    # Intermediate voltage calculations - exact from Fortran
+    # ud1 = +y(3)-y(5)-y(7)-uin2
+    # ud2 = -y(4)+y(6)-y(7)-uin2  
+    # ud3 = +y(4)+y(5)+y(7)+uin2
+    # ud4 = -y(3)-y(6)+y(7)+uin2
+    ud1 = +u[3] - u[5] - u[7] - uin2
+    ud2 = -u[4] + u[6] - u[7] - uin2  
+    ud3 = +u[4] + u[5] + u[7] + uin2
+    ud4 = -u[3] - u[6] + u[7] + uin2
     
-    # Diode currents with overflow protection (from Fortran)
-    if delta * ud1 > 700.0
-        qud1 = gamma * exp(700.0)
-    elseif delta * ud1 < -700.0  
-        qud1 = -gamma
-    else
-        qud1 = gamma * (exp(delta * ud1) - 1.0)
-    end
+    # Diode currents - exact from Fortran
+    # qud1 = gamma*(exp(delta*ud1)-1d0)
+    # qud2 = gamma*(exp(delta*ud2)-1d0)
+    # qud3 = gamma*(exp(delta*ud3)-1d0)
+    # qud4 = gamma*(exp(delta*ud4)-1d0)
+    qud1 = gamma * (exp(delta * ud1) - 1.0)
+    qud2 = gamma * (exp(delta * ud2) - 1.0)
+    qud3 = gamma * (exp(delta * ud3) - 1.0)
+    qud4 = gamma * (exp(delta * ud4) - 1.0)
     
-    if delta * ud2 > 700.0
-        qud2 = gamma * exp(700.0)
-    elseif delta * ud2 < -700.0
-        qud2 = -gamma  
-    else
-        qud2 = gamma * (exp(delta * ud2) - 1.0)
-    end
+    # The 15 differential equations - exact from Fortran ringfunc
+    # f(1) = (y(8)-0.5d0*y(10)+0.5d0*y(11)+y(14)-y(1)/r)/c
+    # f(2) = (y(9)-0.5d0*y(12)+0.5d0*y(13)+y(15)-y(2)/r)/c
+    # f(3) = (-qud1+qud3)/cs
+    # f(4) = (-qud2+qud4)/cs
+    # f(5) = (-qud1-qud3)/cs  
+    # f(6) = (-qud2-qud4)/cs
+    # f(7) = (qud1-qud3)/cs
+    # f(8) = (uin1-rg1*y(1)-y(2))/ls1
+    # f(9) = (uin2-rg2*y(2)-y(3))/ls2
+    # f(10) = (-rg3*y(3))/ls3
+    # f(11) = (y(1)-y(4)-rp*y(8))/lh
+    # f(12) = (y(2)-y(5)-rp*y(9))/lh
+    # f(13) = (y(2)-y(6)-rp*y(10))/lh
+    # f(14) = (y(3)-y(7)-rp*y(11))/lh
+    # f(15) = (y(3)-rp*y(12))/lh
     
-    if delta * ud3 > 700.0
-        qud3 = gamma * exp(700.0)
-    elseif delta * ud3 < -700.0
-        qud3 = -gamma
-    else  
-        qud3 = gamma * (exp(delta * ud3) - 1.0)
-    end
-    
-    if delta * ud4 > 700.0
-        qud4 = gamma * exp(700.0) 
-    elseif delta * ud4 < -700.0
-        qud4 = -gamma
-    else
-        qud4 = gamma * (exp(delta * ud4) - 1.0)
-    end
-    
-    # The 15 differential equations (exact from Fortran ringfunc)
-    du[1] = (uin1 - rg1 * u[1] - u[2]) / ls1
-    du[2] = (u[1] - u[3] - rp * u[2]) / lh  
-    du[3] = (-u[2] + u[11] - rg2 * u[3]) / ls2
-    du[4] = (-u[12] - rg3 * u[4]) / ls3
-    du[5] = (-qud1 + qud3) / cs
-    du[6] = (qud2 - qud4) / cs  
-    du[7] = (-qud1 - qud3) / cs
-    du[8] = (qud2 + qud4) / cs
-    du[9] = (qud3 - qud1) / cs
-    du[10] = (-qud4 - qud2) / cs
-    du[11] = (u[3] - u[13] - r * u[11]) / c
-    du[12] = (u[4] - u[14] - r * u[12]) / c  
-    du[13] = (u[11] - u[15] - rp * u[13]) / cp
-    du[14] = (u[12] - rp * u[14]) / cp
-    du[15] = (u[13] - rp * u[15]) / cp
+    du[1] = (u[8] - 0.5*u[10] + 0.5*u[11] + u[14] - u[1]/r) / c
+    du[2] = (u[9] - 0.5*u[12] + 0.5*u[13] + u[15] - u[2]/r) / c
+    du[3] = (-qud1 + qud3) / cs
+    du[4] = (-qud2 + qud4) / cs
+    du[5] = (-qud1 - qud3) / cs
+    du[6] = (-qud2 - qud4) / cs
+    du[7] = (qud1 - qud3) / cs
+    du[8] = (uin1 - rg1*u[1] - u[2]) / ls1
+    du[9] = (uin2 - rg2*u[2] - u[3]) / ls2
+    du[10] = (-rg3*u[3]) / ls3
+    du[11] = (u[1] - u[4] - rp*u[8]) / lh
+    du[12] = (u[2] - u[5] - rp*u[9]) / lh
+    du[13] = (u[2] - u[6] - rp*u[10]) / lh
+    du[14] = (u[3] - u[7] - rp*u[11]) / lh
+    du[15] = (u[3] - rp*u[12]) / lh
 end
 
-# Initial conditions (from original Fortran - all zeros)
-u0 = zeros(15)
+# Initial conditions from Ex_ring.f lines 193-207 (ringsoln subroutine)
+u0 = [-0.2339057358486745e-1,    # y(1)
+      -0.7367485485540825e-2,    # y(2) 
+       0.2582956709291169e0,     # y(3)
+      -0.4064465721283450e0,     # y(4)
+      -0.4039455665149794e0,     # y(5)
+       0.2607966765422943e0,     # y(6)
+       0.1106761861269975e0,     # y(7)
+       0.2939904342435596e-6,    # y(8)
+      -0.2840029933642329e-7,    # y(9)
+       0.7267198267264553e-3,    # y(10)
+       0.7929487196960840e-3,    # y(11)
+      -0.7255283495698965e-3,    # y(12)
+      -0.7941401968526521e-3,    # y(13)
+       0.7088495416976114e-4,    # y(14)
+       0.2390059075236570e-4]    # y(15)
 
 # Time span (from test set - often run to t=0.001)
 tspan = (0.0, 0.001)

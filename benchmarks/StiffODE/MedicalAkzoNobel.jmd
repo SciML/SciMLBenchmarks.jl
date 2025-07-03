@@ -13,78 +13,98 @@ gr()
 # Models drug distribution and metabolism with multiple time scales
 
 function medical_akzo_nobel!(du, u, p, t)
-    # This is a representative pharmaceutical kinetics model
-    # showing the structure typical of the Medical Akzo Nobel problem
+    # Direct translation of Medical Akzo Nobel problem from medakzo.f
+    # Parameters from Fortran: k=100.0, c=4.0
+    # 400-dimensional system with finite difference discretization
     
-    # Parameters for multi-compartment pharmacokinetic model
-    ε = 1e-6  # Small parameter causing singular perturbation
+    k = 100.0
+    c = 4.0
     
-    # Drug distribution and metabolism parameters
-    k_abs = 2.0      # Absorption rate (1/h)
-    k_12 = 0.5       # Distribution rate central→peripheral (1/h)
-    k_21 = 0.1       # Distribution rate peripheral→central (1/h) 
-    k_el = 0.2       # Elimination rate (1/h)
-    k_met = 5.0      # Metabolism rate (1/h)
+    # Problem dimension (neqn = 400, so N = 200)
+    neqn = length(u)
+    N = div(neqn, 2)
     
-    # Protein binding parameters (fast equilibrium)
-    k_on = 1e6       # Binding rate (1/M/h)
-    k_off = 100.0    # Unbinding rate (1/h)
+    # Grid spacing
+    dzeta = 1.0 / N
+    dzeta2 = dzeta * dzeta
     
-    # Receptor binding (slow process)
-    k_rec_on = 0.01  # Receptor binding (1/M/h)
-    k_rec_off = 0.1  # Receptor unbinding (1/h)
+    # Time-dependent forcing term with discontinuity at t=5
+    if t <= 5.0
+        phi = 2.0
+    else
+        phi = 0.0
+    end
     
-    # Variables:
-    # u[1] = Drug in GI tract
-    # u[2] = Free drug in central compartment
-    # u[3] = Drug in peripheral compartment  
-    # u[4] = Protein-bound drug (fast equilibrium)
-    # u[5] = Receptor-bound drug (slow equilibrium)
-    # u[6] = Metabolite concentration
+    # First equation (j=1, i=1)
+    zeta = 0.0  # For boundary
+    dum = (dzeta - 1.0)^2 / c
+    alpha = 2.0 * (dzeta - 1.0) * dum / c
+    beta = dum^2
     
-    # Fast equilibrium approximation for protein binding
-    total_protein = 50.0  # μM
-    free_protein = total_protein - u[4]
+    du[1] = (phi - 2.0*u[1] + u[3]) * beta / dzeta2 + 
+            alpha * (u[3] - phi) / (2.0 * dzeta) - k * u[1] * u[2]
+    du[2] = -k * u[1] * u[2]
     
-    # Differential equations with multiple time scales
-    du[1] = -k_abs * u[1]                                    # GI absorption
-    du[2] = k_abs * u[1] - k_12 * u[2] + k_21 * u[3] - 
-            k_el * u[2] - k_met * u[2] + k_off * u[4] - 
-            k_on * u[2] * free_protein                       # Central compartment
-    du[3] = k_12 * u[2] - k_21 * u[3]                       # Peripheral compartment
-    du[4] = (k_on * u[2] * free_protein - k_off * u[4]) / ε # Fast protein binding
-    du[5] = k_rec_on * u[2] - k_rec_off * u[5]              # Slow receptor binding
-    du[6] = k_met * u[2]                                     # Metabolite formation
+    # Middle equations (j=2 to N-1)
+    for j in 2:(N-1)
+        i = 2*j - 1
+        zeta = j * dzeta
+        dum = (zeta - 1.0)^2 / c
+        alpha = 2.0 * (zeta - 1.0) * dum / c
+        beta = dum^2
+        
+        du[i] = (u[i-2] - 2.0*u[i] + u[i+2]) * beta / dzeta2 + 
+                alpha * (u[i+2] - u[i-2]) / (2.0 * dzeta) - k * u[i] * u[i+1]
+        du[i+1] = -k * u[i] * u[i+1]
+    end
+    
+    # Last equations (j=N)
+    i = 2*N - 1
+    zeta = N * dzeta  # zeta = 1.0 at boundary
+    dum = (zeta - 1.0)^2 / c  # This becomes 0 at boundary
+    alpha = 2.0 * (zeta - 1.0) * dum / c
+    beta = dum^2
+    
+    # At boundary (zeta=1), simplified form
+    du[i] = (u[i-2] - 2.0*u[i]) * beta / dzeta2 + 
+            alpha * (-u[i-2]) / (2.0 * dzeta) - k * u[i] * u[i+1]
+    du[i+1] = -k * u[i] * u[i+1]
 end
 
-# Initial conditions - oral dose administration
-dose = 100.0  # mg
-u0 = [dose, 0.0, 0.0, 0.0, 0.0, 0.0]
+# Initial conditions from Fortran medakzo.f
+# For j = 1 to neqn/2: y(2*j-1) = 0.0, y(2*j) = 1.0
+neqn = 400  # Full 400-dimensional system as in Fortran
+u0 = zeros(neqn)
+for j in 1:div(neqn, 2)
+    u0[2*j-1] = 0.0  # y(2*j-1) = 0.0
+    u0[2*j] = 1.0    # y(2*j) = 1.0
+end
 
-# Time span - 24 hours post-dose
-tspan = (0.0, 24.0)
+# Time span from Fortran test - 0 to 20 with discontinuity at t=5
+tspan = (0.0, 20.0)
 
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(medical_akzo_nobel!, u0, tspan)
-probstatic = ODEProblem{false}(medical_akzo_nobel!, SVector{6}(u0), tspan)
+# Note: 400-dimensional system too large for static arrays
 
 # Generate reference solution
 sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
-sol2 = solve(probstatic, Rodas5P(), abstol=1/10^14, reltol=1/10^14)
-probs = [prob, probstatic]
-test_sol = [sol, sol2]
+probs = [prob]
+test_sol = [sol]
 
 abstols = 1.0 ./ 10.0 .^ (4:11)
 reltols = 1.0 ./ 10.0 .^ (1:8)
 ```
 
 ```julia
-plot(sol, labels=["GI tract" "Free drug" "Peripheral" "Protein-bound" "Receptor-bound" "Metabolite"])
+# Plot first few variables to show system behavior
+plot(sol, vars=1:10, xlabel="Time", ylabel="Concentration", 
+     title="Medical Akzo Nobel - First 10 Variables")
 ```
 
 ```julia
-# Focus on the clinically relevant variables
-plot(sol, vars=[2,4,5,6], labels=["Free drug" "Protein-bound" "Receptor-bound" "Metabolite"], 
-     xlabel="Time (hours)", title="Drug Disposition")
+# Plot every 10th variable to show spatial distribution
+plot(sol, vars=1:10:100, xlabel="Time", ylabel="Concentration",
+     title="Medical Akzo Nobel - Spatial Distribution")
 ```
 
 ## High Tolerances
@@ -111,14 +131,13 @@ plot(wp)
 
 ```julia
 setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
           Dict(:alg=>Kvaerno3()),
           Dict(:alg=>KenCarp4()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>KenCarp3()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-names = ["Rosenbrock23" "Rosenbrock23 Static" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda" "radau"]
+names = ["Rosenbrock23" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda" "radau"]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;names=names, verbose=false, dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
@@ -131,10 +150,8 @@ abstols = 1.0 ./ 10.0 .^ (6:9)
 reltols = 1.0 ./ 10.0 .^ (3:6)
 
 setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
           Dict(:alg=>KenCarp5()),
           Dict(:alg=>KenCarp4()),
-          Dict(:alg=>KenCarp4(), :prob_choice => 2),
           Dict(:alg=>KenCarp3()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>CVODE_BDF()),
@@ -157,7 +174,6 @@ setups = [Dict(:alg=>FBDF()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas4(), :prob_choice => 2),
           Dict(:alg=>rodas()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>radau()),
@@ -170,7 +186,7 @@ plot(wp)
 
 ### Conclusion
 
-The Medical Akzo Nobel problem demonstrates a challenging pharmacokinetic model with multiple time scales typical of pharmaceutical applications. The small parameter ε creates singular perturbation behavior, making protein binding equations stiff relative to distribution and elimination processes. This represents the type of multi-scale dynamics common in drug development where fast molecular interactions must be coupled with slower physiological processes.
+The Medical Akzo Nobel problem is a direct translation of the 400-dimensional stiff ODE system from the original Fortran test set. This problem models a reaction-diffusion system with finite difference spatial discretization, featuring parameters k=100.0 and c=4.0. The system exhibits stiffness due to the reaction terms -k*y(i)*y(j) combined with diffusion and advection operators. The time-dependent forcing function phi switches from 2.0 to 0.0 at t=5, creating a discontinuity that challenges numerical methods. This benchmark represents one of the larger dimensional test problems in the classic stiff ODE test suite.
 
 ```julia, echo = false
 using SciMLBenchmarks
