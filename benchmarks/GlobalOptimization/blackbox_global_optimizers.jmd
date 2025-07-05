@@ -15,10 +15,11 @@ difficult global optima.
 ```julia
 using BlackBoxOptimizationBenchmarking, Plots, Optimization, Memoize, Statistics
 import BlackBoxOptimizationBenchmarking.Chain
+using BlackBoxOptimizationBenchmarking: BenchmarkSetup
 const BBOB = BlackBoxOptimizationBenchmarking
 
 using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
-using OptimizationMetaheuristics, OptimizationNOMAD, OptimizationPRIMA, OptimizationOptimisers, OptimizationSciPy, OptimizationPyCMA
+using OptimizationMetaheuristics, OptimizationNOMAD, OptimizationPRIMA, OptimizationOptimisers, OptimizationSciPy
 ```
 
 ```julia
@@ -32,7 +33,15 @@ test_functions = BBOB.list_functions()
 dimension = 3
 run_length = round.(Int, 10 .^ LinRange(1,5,30))
 
-@memoize run_bench(algo) = BBOB.benchmark(setup[algo], test_functions, run_length, Ntrials=40, dimension = dimension)
+@memoize function run_bench(algo)
+    return BBOB.benchmark(setup[algo], test_functions, run_length; Ntrials = 40, dimension = dimension)
+end
+
+const python_optimizers = Set([
+    "ScipyDifferentialEvolution", "ScipyBasinhopping", "ScipyDualAnnealing",
+    "ScipyShgo", "ScipyDirect", "ScipyBrute"
+])
+
 ```
 
 ```julia
@@ -60,11 +69,11 @@ setup = Dict(
     "Optimisers.RMSProp" => chain(Optimisers.RMSProp(), isboxed=false),
     # SciPy global optimizers
     "ScipyDifferentialEvolution" => chain(ScipyDifferentialEvolution(), isboxed=true),
-    "ScipyBasinhopping" => chain(ScipyBasinhopping(), isboxed=true),
-    "ScipyDualAnnealing" => chain(ScipyDualAnnealing(), isboxed=true),
-    "ScipyShgo" => chain(ScipyShgo(), isboxed=true),
-    "ScipyDirect" => chain(ScipyDirect(), isboxed=true),
-    "ScipyBrute" => chain(ScipyBrute(), isboxed=true),
+    "ScipyBasinhopping"          => chain(ScipyBasinhopping(),       isboxed=true),
+    "ScipyDualAnnealing"         => chain(ScipyDualAnnealing(),      isboxed=true),
+    "ScipyShgo"                  => chain(ScipyShgo(),               isboxed=true),
+    "ScipyDirect"                => chain(ScipyDirect(),             isboxed=true),
+    "ScipyBrute"                 => chain(ScipyBrute(),              isboxed=true),
     # "NOMADOpt" => chain(NOMADOpt()), too much printing
     # "OptimizationPRIMA.UOBYQA()" => chain(OptimizationPRIMA.UOBYQA()), :StackOverflowError?
     # "OptimizationPRIMA.NEWUOA()" => OptimizationPRIMA.UOBYQA(),
@@ -91,12 +100,12 @@ f = test_functions[3]
 
 single_setup = BenchmarkSetup(NLopt.GN_CRS2_LM(), isboxed=true)
 
-sol = [BBOB.solve_problem(single_setup, f, 3, 5_000) for in in 1:10]
-@info [sol.objective < Δf + f.f_opt for sol in sol]
+sol = [BBOB.solve_problem(single_setup, f, 3, 5_000) for _ in 1:10]
+@info [s.objective < Δf + f.f_opt for s in sol]
 
 p = plot(f, size = (600,600), zoom = 1.5)
-for sol in sol
-    scatter!(sol.u[1:1], sol.u[2:2], label="", c="blue", marker = :xcross, markersize=5, markerstrokewidth=0)
+for s in sol
+    scatter!(s.u[1:1], s.u[2:2], label = "", c = "blue", marker = :xcross, markersize = 5, markerstrokewidth = 0)
 end
 p
 ```
@@ -104,17 +113,39 @@ p
 ## Test all
 
 ```julia
-results = Array{BBOB.BenchmarkResults}(undef, length(setup))
+results = Vector{Union{BBOB.BenchmarkResults, Nothing}}(undef, length(setup))
 
-Threads.@threads for (i,algo) in collect(enumerate(keys(setup)))
-    results[i] = run_bench(algo)
+all_keys = collect(keys(setup))
+
+for (i, algo) in enumerate(all_keys)
+    if algo in python_optimizers
+        try
+            results[i] = run_bench(algo)
+        catch err
+            @warn "Benchmark for $algo failed – skipping" exception = err
+        end
+    end
 end
+
+Threads.@threads for (i, algo) in collect(enumerate(all_keys))
+    if !(algo in python_optimizers)
+        try
+            results[i] = run_bench(algo)
+        catch err
+            @warn "Benchmark for $algo failed – skipping" exception = err
+        end
+    end
+end
+
+labels = all_keys
+valid_idx = [i for i in eachindex(results) if results[i] !== nothing]
+results = results[valid_idx]
+labels  = labels[valid_idx]
 
 results
 ```
 
 ```julia
-labels = collect(keys(setup))
 idx = sortperm([b.success_rate[end] for b in results], rev=true)
 
 p = plot(xscale = :log10, legend = :outerright, size = (700,350), margin=10Plots.px, dpi=200)
@@ -142,7 +173,6 @@ p = heatmap(
 ```
 
 ```julia
-labels = collect(keys(setup))
 idx = sortperm([b.distance_to_minimizer[end] for b in results], rev=false)
 
 p = plot(xscale = :log10, legend = :outerright, size = (900,500), margin=10Plots.px, ylim = (0,5))
@@ -167,4 +197,3 @@ bar(
     legend = false, margin = 25Plots.px
 )
 ```
-
