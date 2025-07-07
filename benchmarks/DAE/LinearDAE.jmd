@@ -77,8 +77,8 @@ rlc_eqs = E_rlc * Dx ~ A_rlc * x + B_rlc .* u(t)
 @mtkbuild rlc_sys = ODESystem(rlc_eqs, t)
 
 # Problems using constant voltage input
-rlc_prob = ODEProblem(rlc_sys, [], (0.0, 1e-3))
-rlc_static_prob = ODEProblem{false}(rlc_sys, SA[], (0.0, 1e-3))
+rlc_prob = ODEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
+rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
 ```
 
 ## Index-2 DAE: Two Interconnected Rotating Masses  
@@ -161,8 +161,8 @@ rl_eqs = E_rl * Dx ~ A_rl * x + B_rl .* u(t)
 @mtkbuild rl_sys = ODESystem(rl_eqs, t)
 
 # Problems using current source input
-rl_prob = ODEProblem(rl_sys, [], (0.0, 1.0))
-rl_static_prob = ODEProblem{false}(rl_sys, SA[], (0.0, 1.0))
+rl_prob = ODEProblem(rl_sys, [v_L => 1.0], (0.0, 1.0))
+rl_static_prob = ODEProblem{false}(rl_sys, SA[v_L => 1.0], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Cart Pendulum
@@ -210,8 +210,8 @@ cart_eqs = E_cart * Dx ~ A_cart * x + B_cart .* u(t)
 @mtkbuild cart_sys = ODESystem(cart_eqs, t)
 
 # Problems using force input
-cart_prob = ODEProblem(cart_sys, [], (0.0, 1.0))
-cart_static_prob = ODEProblem{false}(cart_sys, SA[], (0.0, 1.0))
+cart_prob = ODEProblem(cart_sys, [dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
+cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Electric Generator
@@ -252,8 +252,8 @@ gen_eqs = E_gen * Dx ~ A_gen * x + B_gen .* u(t)
 @mtkbuild gen_sys = ODESystem(gen_eqs, t)
 
 # Problems using torque input
-gen_prob = ODEProblem(gen_sys, [], (0.0, 1.0))
-gen_static_prob = ODEProblem{false}(gen_sys, SA[], (0.0, 1.0))
+gen_prob = ODEProblem(gen_sys, [ω_gen => 1.0], (0.0, 1.0))
+gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Damped Mass-Spring System
@@ -308,7 +308,7 @@ x = [x1_spring, x2_spring, v1_spring, v2_spring, λ_spring]
 Dx = D.(x)
 
 # Input function: impulse force followed by decay
-u(t) = (t < 0.1) ? 10.0 : 0.1*exp(-5*t)  # Initial impulse then decay
+u(t) = ifelse((t < 0.1), 10.0, 0.1*exp(-5*t))  # Initial impulse then decay
 
 # E*Dx = A*x + B*u
 spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
@@ -316,31 +316,31 @@ spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
 @mtkbuild spring_sys = ODESystem(spring_eqs, t)
 
 # Problems using force input
-spring_prob = ODEProblem(spring_sys, [], (0.0, 2.0))
-spring_static_prob = ODEProblem{false}(spring_sys, SA[], (0.0, 2.0))
+spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 0.0], (0.0, 2.0))
+spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 0.0], (0.0, 2.0))
 ```
 
 ## Generate Reference Solutions
 
 ```julia
 # Generate reference solutions for all systems using robust methods
-rlc_ref = solve(rlc_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-rlc_static_ref = solve(rlc_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+rlc_ref = solve(rlc_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+rlc_static_ref = solve(rlc_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
-masses_ref = solve(masses_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-masses_static_ref = solve(masses_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+masses_ref = solve(masses_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+masses_static_ref = solve(masses_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
-rl_ref = solve(rl_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-rl_static_ref = solve(rl_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+rl_ref = solve(rl_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+rl_static_ref = solve(rl_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
-cart_ref = solve(cart_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-cart_static_ref = solve(cart_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+cart_ref = solve(cart_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+cart_static_ref = solve(cart_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
-gen_ref = solve(gen_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-gen_static_ref = solve(gen_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+gen_ref = solve(gen_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+gen_static_ref = solve(gen_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
-spring_ref = solve(spring_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
-spring_static_ref = solve(spring_static_prob, CVODE_BDF(), abstol=abstol_ref, reltol=reltol_ref)
+spring_ref = solve(spring_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 
 # Problem and reference solution arrays
 all_probs = [
