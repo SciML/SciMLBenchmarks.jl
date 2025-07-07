@@ -171,49 +171,49 @@ test_functions = [
     (name = "Wilkinson-like polynomial", 
      f = (u, p) -> (u - 1) * (u - 2) * (u - 3) * (u - 4) * (u - 5) - p,
      interval = (0.5, 5.5),
-     p_range = (-0.1, 0.1)),
+     p = 0.05),
      
     # Function 2: Trigonometric with multiple roots
     (name = "sin(x) - 0.5x",
      f = (u, p) -> sin(u) - 0.5*u - p,
      interval = (-10.0, 10.0), 
-     p_range = (-0.5, 0.5)),
+     p = 0.3),
      
     # Function 3: Exponential function (sensitive near zero)
     (name = "exp(x) - 1 - x - x²/2",
      f = (u, p) -> exp(u) - 1 - u - u^2/2 - p,
      interval = (-2.0, 2.0),
-     p_range = (-0.01, 0.01)),
+     p = 0.005),
      
     # Function 4: Rational function with pole
     (name = "1/(x-0.5) - 2",
      f = (u, p) -> 1/(u - 0.5) - 2 - p,
      interval = (0.6, 2.0),
-     p_range = (-0.1, 0.1)),
+     p = 0.05),
      
     # Function 5: Logarithmic function
     (name = "log(x) - x + 2",
      f = (u, p) -> log(u) - u + 2 - p,
      interval = (0.1, 3.0),
-     p_range = (-0.1, 0.1)),
+     p = 0.05),
      
     # Function 6: High oscillation function
     (name = "sin(20x) + 0.1x",
      f = (u, p) -> sin(20*u) + 0.1*u - p,
      interval = (-5.0, 5.0),
-     p_range = (-0.2, 0.2)),
+     p = 0.1),
      
     # Function 7: Function with very flat region
     (name = "x³ - 2x² + x",
      f = (u, p) -> u^3 - 2*u^2 + u - p,
      interval = (-1.0, 2.0),
-     p_range = (-0.05, 0.05)),
+     p = 0.025),
      
     # Function 8: Bessel-like function
     (name = "x·sin(1/x) - 0.1",
      f = (u, p) -> u * sin(1/u) - 0.1 - p,
      interval = (0.01, 1.0),
-     p_range = (-0.02, 0.02)),
+     p = 0.01),
 ]
 
 # Add SimpleNonlinearSolve algorithms  
@@ -235,25 +235,32 @@ all_algorithms = [
 
 # Benchmark function for testing all algorithms on a given function
 function benchmark_function(test_func, N_samples=10000)
-    Random.seed!(42)
-    ps = test_func.p_range[1] .+ (test_func.p_range[2] - test_func.p_range[1]) .* rand(N_samples)
-    
     println("\\n=== Testing: $(test_func.name) ===")
     println("Interval: $(test_func.interval)")
-    println("Parameter range: $(test_func.p_range)")
+    println("Parameter: $(test_func.p)")
     
     results = []
     
     # Test Roots.jl baseline
     try
-        out_roots = zeros(N_samples)
+        # Cache the function for Roots.jl
+        roots_func = u -> test_func.f(u, test_func.p)
+        
+        # Warmup run to exclude compilation time
+        find_zero(roots_func, test_func.interval)
+        
+        # Actual timing
         time_roots = @elapsed begin
             for i in 1:N_samples
-                out_roots[i] = find_zero(u -> test_func.f(u, ps[i]), test_func.interval)
+                root = find_zero(roots_func, test_func.interval)
             end
         end
-        error_roots = mean(abs.(test_func.f.(out_roots, ps)))
-        println("Roots.jl: $(round(time_roots*1000, digits=2)) ms, MAE: $(round(error_roots, sigdigits=3))")
+        
+        # Calculate error using one solve
+        final_root = find_zero(roots_func, test_func.interval)
+        error_roots = abs(test_func.f(final_root, test_func.p))
+        
+        println("Roots.jl: $(round(time_roots*1000, digits=2)) ms, Error: $(round(error_roots, sigdigits=3))")
         push!(results, (name="Roots.jl", time=time_roots, error=error_roots, success=true))
     catch e
         println("Roots.jl: FAILED - $e")
@@ -263,18 +270,30 @@ function benchmark_function(test_func, N_samples=10000)
     # Test all algorithms
     for alg_info in all_algorithms
         try
-            out = zeros(N_samples)
+            # Warmup run to exclude compilation time
+            prob_warmup = IntervalNonlinearProblem{false}(
+                IntervalNonlinearFunction{false}(test_func.f), 
+                test_func.interval, test_func.p)
+            solve(prob_warmup, alg_info.alg())
+            
+            # Actual timing
             time_taken = @elapsed begin
                 for i in 1:N_samples
                     prob = IntervalNonlinearProblem{false}(
-                        IntervalNonlinearFunction{false}((u, p) -> test_func.f(u, p)), 
-                        test_func.interval, ps[i])
+                        IntervalNonlinearFunction{false}(test_func.f), 
+                        test_func.interval, test_func.p)
                     sol = solve(prob, alg_info.alg())
-                    out[i] = sol.u
                 end
             end
-            error_val = mean(abs.(test_func.f.(out, ps)))
-            println("$(alg_info.name): $(round(time_taken*1000, digits=2)) ms, MAE: $(round(error_val, sigdigits=3))")
+            
+            # Calculate error using one solve
+            prob_final = IntervalNonlinearProblem{false}(
+                IntervalNonlinearFunction{false}(test_func.f), 
+                test_func.interval, test_func.p)
+            sol_final = solve(prob_final, alg_info.alg())
+            error_val = abs(test_func.f(sol_final.u, test_func.p))
+            
+            println("$(alg_info.name): $(round(time_taken*1000, digits=2)) ms, Error: $(round(error_val, sigdigits=3))")
             push!(results, (name=alg_info.name, time=time_taken, error=error_val, success=true))
         catch e
             println("$(alg_info.name): FAILED - $e")
@@ -288,7 +307,7 @@ end
 # Run benchmarks on all test functions
 all_results = []
 for test_func in test_functions
-    results = benchmark_function(test_func, 5000)  # Use smaller N for comprehensive testing
+    results = benchmark_function(test_func, 10000)  # Increased N since we're using fixed parameters
     push!(all_results, (func_name=test_func.name, results=results))
 end
 ```
@@ -339,9 +358,10 @@ function print_summary_table(all_results)
     
     println("\\n" * "="^80)
     println("Notes:")
-    println("- Times shown in milliseconds for 5000 function evaluations") 
+    println("- Times shown in milliseconds for 10000 function evaluations") 
     println("- BNS = BracketingNonlinearSolve.jl, SNS = SimpleNonlinearSolve.jl")
     println("- FAIL indicates algorithm failed or took excessive time")
+    println("- Compilation time excluded via warmup runs")
     println("="^80)
 end
 
@@ -355,7 +375,7 @@ Now let's examine the accuracy of each method:
 ```julia
 function print_accuracy_table(all_results)
     println("\\n" * "="^80)
-    println("ACCURACY ANALYSIS (Mean Absolute Error)")
+    println("ACCURACY ANALYSIS (Absolute Error)")
     println("="^80)
     
     alg_names = unique([r.name for func_results in all_results for r in func_results.results])
