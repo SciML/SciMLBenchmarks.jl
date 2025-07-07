@@ -1,292 +1,124 @@
 ---
-title: KS FDM Work-Precision Diagrams
-author: HAO HAO
+title: Kuramoto-Sivashinsky Finite-Difference Method Work-Precision Diagrams
+author: Arjit Seth
 ---
 
 ```julia
-using ApproxFun, OrdinaryDiffEq, Sundials, LinearSolve
+using OrdinaryDiffEq
 using DiffEqDevTools
-using LinearAlgebra, RecursiveFactorization
-using Plots; gr()
+using SciMLOperators
+using LinearSolve
+using LinearAlgebra
+using SparseArrays
+using Plots
+gr();
 ```
 
-Here is the KS equation using FDM.
+The Kuramoto-Sivashinsky equation is considered with the following initial and periodic boundary conditions:
+```math
+\begin{align}
+    \partial_t u + \partial_x^2 u + \partial_x^4 u
+    + \alpha \partial_x (u \partial_x u) & = 0 \\
+    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \quad \text{for } x \in [0, L] \\
+    u(t,0) & = u(t,L) = 1
+\end{align}
+```
+The derivatives are discretized via finite differences, incorporating the periodic boundary conditions.
 
 ```julia
-# Linear term
-function linear_term(N)
-    dx = 1 / (N + 1) # Discretization
+# Linear term: second and fourth derivatives
+function linear_term(N, dx, alpha)
+    # Second derivative operator (-u_xx)
+    e = ones(N + 1)
+    D2 = spdiagm(1 => e[1:end-1], 0 => -2e, -1 => e[1:end-1])
+    D2[1, end] = 1.0 # Left ghost cell
+    D2[end, 1] = 1.0 # Right ghost cell
+    D2 /= dx^2 # Central difference
 
-    # Second derivative operator
-    d2 = (-2) * ones(N) # main diagonal
-    du2 = ones(N - 1) # off diagonal
-    D2 = (1 / dx^2) * diagm(
-        -1 => du2,
-        0 => d2,
-        1 => du2
-    )
+    # Fourth derivative operator (-u_xxxx)
+    D4 = D2 * D2
 
-    # Fourth derivative operator
-    d4 = 6 * ones(N) # main diagonal
-    du4 = (-4) * ones(N - 1) # off diagonal
-    duu4 = ones(N - 2)
-    D4 = (1 / dx^4) * diagm(
-        -2 => duu4,
-        -1 => du4,
-        0 => d4,
-        1 => du4,
-        2 => duu4
-    )
+    mu, nu = 1, 1 # Operator coefficients
 
-    return -0.0004 * (D2 + D4)
+    return -alpha * (mu * D2 + nu * D4)
 end
 
-# Nonlinear term
-function nonlinear_term(N)
-    dx = 1 / (N + 1)
-    du = ones(N - 1) # super diagonal
-    dl = -ones(N - 1) # lower diagonal
-    D = (-0.2 / (4 * dx)) * diagm(-1 => dl, 1 => du)
 
-    tmp = zeros(N)
+function nonlinear_term(N, dx, alpha)
+    # First derivative operator
+    e = ones(N)
+    D1 = spdiagm(1 => e, -1 => -e)
+    D1[1, end] = -1 # Left ghost cell
+    D1[end, 1] = 1  # Right ghost cell
+    D1 /= 2dx # Central difference
+
+    # Nonlinear convection term (-u * u_x)
     function (du, u, p, t)
-        @. tmp = u^2
-        mul!(du, D, tmp)
+        mul!(du, D1, u)
+        @. du *= -alpha * u
     end
 end
 
 # Construct the problem
-function kuramoto_sivashinsky(N)
-    f1 = linear_term(N)
-    f2 = nonlinear_term(N)
-    dx = 1 / (N + 1)
-    xs = (1:N) * dx
+function kuramoto_sivashinsky(N, L, alpha)
+    x = LinRange(0, L, N + 1)
+    dx = x[2] - x[1]
 
-    μ0 = 0.3
-    σ0 = 0.05
-    f0 = x -> 0.6 * exp(-(x - μ0)^2 / (2 * σ0^2))
-    u0 = f0.(xs)
+    f1 = linear_term(N, dx, alpha)
+    f2 = nonlinear_term(N, dx, alpha)
+
+    u0 = @. cos((2π / L) * x) # Initial condition
     prob = SplitODEProblem(MatrixOperator(f1), f2, u0, (0.0, 1.0))
 
-    return xs, prob
+    return x, prob
 end;
 ```
 
-Reference solution using RadauIIA5 is below:
+Reference solution using an adaptive timestepping method with high precision:
 
 ```julia
-xs, prob = kuramoto_sivashinsky(200)
-sol = solve(prob, RadauIIA5(autodiff=false); abstol=1e-14, reltol=1e-14)
-test_sol = TestSolution(sol);
+N = 128  # Number of grid points
+L = 32.0  # Domain length
+alpha = 50.0 # Lipschitz constant scaling factor
+xs, prob = kuramoto_sivashinsky(N, L, alpha)
+@time sol = solve(prob, RadauIIA5(autodiff=false); abstol=1e-14, reltol=1e-14, adaptive=true)
 
-# %%
-tslices = LinRange(0.0, 1.0, 100)
-ys = mapreduce(hcat, tslices) do t
-    sol(t)
-end
-labels = ["t = $t" for t in tslices]
-fn = heatmap(xs, tslices, ys',
-    xlabel="x", ylabel="t",
-)
+tslices = LinRange(0.0, 1.0, 50)
+ys = mapreduce(sol, hcat, tslices)
+plt = heatmap(xs, tslices, ys', xlabel="x", ylabel="t")
 ```
 
-Linear solvers
+## Work-Precision Diagrams
+
 
 ```julia
-const LS_Dense = LinSolveFactorize(lu)
-```
+test_sol = TestSolution(sol); # Reference solution for error estimation
 
-## High tolerances
-
-## In-family comparisons
-
-1.IMEX methods (dense linear solver)
-
-```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
+abstols = 0.1 .^ (5:9) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:5)
+multipliers = 0.5 .^ (0:4)
 setups = [
-    Dict(:alg => IMEXEuler(), :dts => 1e-3 * multipliers),
+    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers), 
     Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers)
-]
-labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, low order")
-```
-
-1.IMEX methods (Krylov linear solver)
-
-```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups = [
-    Dict(:alg => IMEXEuler(linsolve=KrylovJL_GMRES()), :dts => 1e-3 * multipliers),
-    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
-    Dict(:alg => CNLF2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
-    Dict(:alg => SBDF2(linsolve=KrylovJL_GMRES()), :dts => 1e-3 * multipliers)
-]
-labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, Krylov linsolve, low order")
-```
-
-2. ExpRK methods
-
-```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups = [
-    Dict(:alg => NorsettEuler(), :dts => 1e-3 * multipliers),
-    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-3 * multipliers),
-    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-2 * multipliers)
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers)
 ]
 labels = hcat(
-    "NorsettEuler (caching)", 
-    "NorsettEuler (m=5)", 
-    "NorsettEuler (m=20)",
-    "ETDRK2 (caching)", 
-    "ETDRK2 (m=5)", 
-    "ETDRK2 (m=20)"
+    "IMEXEuler", 
+    "CNAB2",
+    "CNLF2",
+    "ETDRK2",
+    "SBDF2",
 )
+
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels,
-    numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Inf);
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
-```
-
-## Between family comparisons
-
-```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups = [
-    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
-          Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-9 * multipliers),
-          Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers)
-]
-labels = ["CNAB2 (dense linsolve)" "CNAB2 (Krylov linsolve)" "ETDRK2 (m=5)"]
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
-```
-
-## Low tolerances
-
-## In-family comparisons
-
-1.IMEX methods (dense linear solver)
-
-```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [
-    Dict(:alg => KenCarp3()),
-    Dict(:alg => KenCarp4()),
-    Dict(:alg => KenCarp5()),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Dense)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Dense)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense))
-]
-labels = hcat("KenCarp3", "KenCarp4", "KenCarp5", "ARKODE3", "ARKODE4", "ARKODE5")
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, dense linsolve, medium order")
-```
-
-1.IMEX methods (Krylov linear solver)
-
-```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [
-    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
-    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
-    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES))
-]
-labels = ["KenCarp3" "KenCarp4" "KenCarp5" "ARKODE3" "ARKODE4" "ARKODE5"]
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX methods, medium order")
-```
-
-2.ExpRK methods
-
-```julia
-abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [
-    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-          Dict(:alg => ETDRK3(krylov=true, m=5), :dts => 1e-2 * multipliers),
-          Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
-          Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers),
-          Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
-          Dict(:alg => HochOst4(krylov=true, m=5), :dts => 1e-2 * multipliers)
-]
-labels = hcat("ETDRK3 (caching)", "ETDRK3 (m=5)", "ETDRK4 (caching)",
-              "ETDRK4 (m=5)", "HochOst4 (caching)", "HochOst4 (m=5)")
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, medium order")
-```
-
-## Between family comparisons
-
-
-```julia
-abstols = 0.1 .^ (7:11)
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [
-    Dict(:alg => KenCarp5()),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Dense)),
-    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
-    Dict(:alg => ETDRK3(krylov=true, m=5), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=5), :dts => 1e-2 * multipliers)
-]
-labels = hcat("KenCarp5 (dense linsolve)", "ARKODE (dense linsolve)", "KenCarp5 (Krylov linsolve)",
-              "ARKODE (Krylov linsolve)", "ETDRK3 (m=5)", "ETDRK4 (m=5)")
-@time wp = WorkPrecisionSet(prob,abstols,reltols,setups;
-                            print_names=true, names=labels,
-                            numruns=5, error_estimate=:l2,
-                            save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="Between family, medium order")
+plot(wp, label=labels, 
+    markershape=:auto, title="Work-Precision Diagram",
+    legend=:topright, size=(800, 600))
 ```
 
 ```julia, echo = false
