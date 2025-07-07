@@ -1,0 +1,248 @@
+---
+title: Nonlinear Schrödinger Equation Work-Precision Diagrams  
+author: Chris Rackauckas
+---
+
+# Nonlinear Schrödinger PDE System
+
+This benchmark tests a large ODE system derived from a coupled nonlinear Schrödinger (NLS) equation system via spectral discretization. The original PDE system describes nonlinear optical wave propagation with two coupled waves ψ and φ.
+
+## References
+
+This benchmark is based on the discussion and formulation from:
+[Julia Discourse Thread: "Am I going about solving this PDE system the right way?"](https://discourse.julialang.org/t/am-i-going-about-solving-this-pde-system-the-right-way/74621/9)
+
+## Mathematical Formulation
+
+The system consists of two coupled (1+1)D nonlinear PDEs:
+
+1. **First wave equation**: `-i∂ψ/∂X = -(sgn(β₂ₛ)/2)(∂²ψ/∂τ²) + |ψ|²ψ`
+2. **Second wave equation**: `-i∂φ/∂X = -(s₄/2)(∂²φ/∂τ²) + is₁(∂φ/∂τ) + s₂ψφ*exp[i(s₃ + q)X] + s₅|ψ|²φ`
+
+### Parameters
+- β₂F = -1.0, β₂S = -1.0 (dispersion parameters)
+- γc = 2.0, γs = 1.0, γf = 1.0 (nonlinearity parameters)  
+- s₁ = 0.0, s₂ = 0.2, s₃ = -7.5 (coupling parameters)
+- s₄ = β₂F/|β₂S|, s₅ = γc/γs, s₆ = γf/γs
+- q = 10 (frequency offset)
+
+### Discretization
+- Grid points: N = 2048
+- Propagation distance: L = 75.0
+- Time steps: 2000
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Plots, StaticArrays, FFTW, LinearAlgebra
+using SciMLBenchmarks
+
+# Parameters
+const β₂F = -1.0
+const β₂S = -1.0  
+const γc = 2.0
+const γs = 1.0
+const γf = 1.0
+const s1 = 0.0
+const s2 = 0.2
+const s3 = -7.5
+const s4 = β₂F / abs(β₂S)
+const s5 = γc / γs
+const s6 = γf / γs
+const q = 10.0
+
+# Grid parameters
+const N = 2048
+const L = 75.0
+const dt = L / 2000
+
+# Spatial grid
+const T_max = N / 2
+const dT = 1.0
+const T = collect((-N/2):(N/2-1)) * dT
+const ω = 2π * fftfreq(N, 1/dT)
+
+# Initial condition functions
+function soliton(q, t; shift=0.0)
+    return sqrt(2*q) * sech.(sqrt(q) * (t .- shift)) * exp.(1im * (t .- shift))
+end
+
+function f_pulse(t, t0, A, σ²)
+    return A * exp.(-0.5 * (t .- t0).^2 / σ²)
+end
+
+# Initial conditions
+ψ₀ = soliton(q, T, shift=20.0)
+F₀ = f_pulse(T, -20.0, 10, 1e-18) .* exp.(1.12157im * T)
+
+# Combine into state vector: [Re(ψ), Im(ψ), Re(φ), Im(φ)]
+u₀ = vcat(real(ψ₀), imag(ψ₀), real(F₀), imag(F₀))
+
+function nls_rhs!(du, u, p, X)
+    # Extract real and imaginary parts
+    ψ_re = @view u[1:N]
+    ψ_im = @view u[N+1:2N]  
+    φ_re = @view u[2N+1:3N]
+    φ_im = @view u[3N+1:4N]
+    
+    # Reconstruct complex arrays
+    ψ = complex.(ψ_re, ψ_im)
+    φ = complex.(φ_re, φ_im)
+    
+    # FFT to frequency domain
+    ψ_hat = fft(ψ)
+    φ_hat = fft(φ)
+    
+    # Apply dispersion terms in frequency domain
+    # First equation: -i∂ψ/∂X = -(sgn(β₂S)/2)(∂²ψ/∂τ²) + nonlinear terms
+    disp_ψ = -1im * (sign(β₂S)/2) * (1im * ω).^2 .* ψ_hat
+    ψ_disp = ifft(disp_ψ)
+    
+    # Second equation dispersion: -(s₄/2)(∂²φ/∂τ²) + is₁(∂φ/∂τ)  
+    disp_φ = -1im * ((s4/2) * (1im * ω).^2 .* φ_hat + s1 * (1im * ω) .* φ_hat)
+    φ_disp = ifft(disp_φ)
+    
+    # Nonlinear terms
+    ψ_mod² = abs2.(ψ)
+    nonlin_ψ = -1im * ψ_mod² .* ψ
+    nonlin_φ = -1im * (s2 * ψ .* conj.(φ) * exp(1im * (s3 + q) * X) + s5 * ψ_mod² .* φ)
+    
+    # Total RHS for each equation
+    dψ_dt = ψ_disp + nonlin_ψ
+    dφ_dt = φ_disp + nonlin_φ
+    
+    # Store results in du
+    du[1:N] .= real.(dψ_dt)
+    du[N+1:2N] .= imag.(dψ_dt)
+    du[2N+1:3N] .= real.(dφ_dt)
+    du[3N+1:4N] .= imag.(dφ_dt)
+    
+    return nothing
+end
+
+# Create the ODE problem
+prob = ODEProblem(nls_rhs!, u₀, (0.0, L))
+probstatic = ODEProblem{false}(nls_rhs!, u₀, (0.0, L))
+
+# Generate reference solution
+ref_sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12, saveat=0.1)
+
+# Store solutions for work-precision testing
+probs = [prob, probstatic]
+test_sol = [ref_sol, ref_sol]
+
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (2:5)
+```
+
+```julia
+# Plot initial conditions
+ψ_init = complex.(u₀[1:N], u₀[N+1:2N])
+φ_init = complex.(u₀[2N+1:3N], u₀[3N+1:4N])
+
+p1 = plot(T, abs.(ψ_init), label="|ψ₀|", title="Initial Conditions", lw=2)
+plot!(p1, T, abs.(φ_init), label="|φ₀|", lw=2)
+xlabel!(p1, "τ")
+ylabel!(p1, "Amplitude")
+xlim!(p1, (-50, 50))
+
+# Plot final solution
+ψ_final = complex.(ref_sol.u[end][1:N], ref_sol.u[end][N+1:2N])  
+φ_final = complex.(ref_sol.u[end][2N+1:3N], ref_sol.u[end][3N+1:4N])
+
+p2 = plot(T, abs.(ψ_final), label="|ψ(L)|", title="Final Solutions", lw=2)
+plot!(p2, T, abs.(φ_final), label="|φ(L)|", lw=2)
+xlabel!(p2, "τ")
+ylabel!(p2, "Amplitude")
+xlim!(p2, (-50, 50))
+
+plot(p1, p2, layout=(1,2), size=(800, 400))
+```
+
+## Low Order Methods
+
+```julia
+setups = [
+    Dict(:alg=>DP5()),
+    Dict(:alg=>BS5()),
+    Dict(:alg=>Tsit5()),
+    Dict(:alg=>Vern6()),
+    Dict(:alg=>Tsit5(), :prob_choice => 2),
+    Dict(:alg=>Vern6(), :prob_choice => 2)
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5),
+                     numruns=10)
+plot(wp, title="NLS System - Low Order Methods")
+```
+
+## Higher Order Methods
+
+```julia
+setups = [
+    Dict(:alg=>DP8()),
+    Dict(:alg=>Vern7()),
+    Dict(:alg=>Vern8()),
+    Dict(:alg=>Vern9()),
+    Dict(:alg=>Vern7(), :prob_choice => 2),
+    Dict(:alg=>Vern8(), :prob_choice => 2),
+    Dict(:alg=>Vern9(), :prob_choice => 2)
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5),
+                     numruns=10)
+plot(wp, title="NLS System - Higher Order Methods")
+```
+
+## Adaptive vs Fixed Step Methods
+
+```julia
+setups = [
+    Dict(:alg=>Vern7()),
+    Dict(:alg=>Vern8()),
+    Dict(:alg=>Vern9()),
+    Dict(:alg=>Euler(), :dts => 1.0 ./ 10.0 .^ (1:4)),
+    Dict(:alg=>RK4(), :dts => 1.0 ./ 10.0 .^ (1:4))
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5),
+                     numruns=10)
+plot(wp, title="NLS System - Adaptive vs Fixed Step")
+```
+
+## Special Methods for Oscillatory Problems
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [
+    Dict(:alg=>Vern7()),
+    Dict(:alg=>Vern8()),
+    Dict(:alg=>Vern9()),
+    Dict(:alg=>DP8()),
+    Dict(:alg=>TsitPap8())
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5),
+                     numruns=10)
+plot(wp, title="NLS System - Oscillatory Methods")
+```
+
+### Conclusion
+
+This benchmark demonstrates the performance of various ODE solvers on a large (8192-dimensional) system derived from a coupled nonlinear Schrödinger equation via spectral discretization. The system exhibits:
+
+- High dimensionality (N=2048 complex variables → 4096 real variables)
+- Nonlinear dynamics with quadratic and cubic nonlinearities
+- Oscillatory behavior due to dispersion and phase terms
+- Conservation properties (energy, momentum)
+
+The benchmark shows how solver performance scales with this type of large, oscillatory, nonlinear ODE system that arises from PDE discretization.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
