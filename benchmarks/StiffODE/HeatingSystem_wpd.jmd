@@ -18,6 +18,7 @@ This represents a realistic engineering system with multiple time scales, making
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA, LinearSolve
+using PreallocationTools
 using ProfileSVG, BenchmarkTools, Profile
 gr() # gr(fmt=:png)
 using LinearAlgebra, StaticArrays, RecursiveFactorization
@@ -78,11 +79,13 @@ hist(x, p, e = 1) = -(x + 0.5)*(x - 0.5) * x * 1/(0.0474)*e + p
 sat(x, xmin, xmax) = tanh(2*(x-xmin)/(xmax-xmin)-1) * (xmax-xmin)/2 + (xmax+xmin)/2
 
 # Main ODE function for the heating system
-function heating(du, u, (p, Qh, Que), t)
+function heating(du, u, (p, _Qh, _Que), t)
     (Td, Tu, x) = set_up_vars(u)
     (dTd, dTu, dx) = set_up_vars(du)
     (Cu, Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b) = set_up_params(p)
-    
+    Qh = PreallocationTools.get_tmp(_Qh, du)
+    Que = PreallocationTools.get_tmp(_Que, du)
+
     # External temperature with daily variation
     Text = 278.15 + 8*sin(2π*t/86400)
     
@@ -115,8 +118,8 @@ end
 
 # Initial conditions and parameters
 u0 = [Td0, fill(Tu0, N)..., fill(-0.5, N)...]
-Qh0 = zeros(N)
-Que0 = zeros(N)
+Qh0 = DiffCache(zeros(N))
+Que0 = DiffCache(zeros(N))
 p = [Cu..., Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b]
 tspan = (0., 50_000.)
 
