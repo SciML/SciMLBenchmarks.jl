@@ -31,6 +31,9 @@ or building work-precision diagrams for direct comparison of speed at given erro
 
 **If any of the code from any of the languages can be improved, please open a pull request**.
 
+For critiques of benchmarks, please open a pull request that changes the code in the desired manner. Issues with recommended
+changes are generally vague and not actionable, while pull requests with code changes are exact. Thus if there is something
+you think should be changed in the code, please make the recommended change in the code!
 
 ## Results
 
