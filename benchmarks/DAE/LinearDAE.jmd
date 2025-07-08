@@ -79,7 +79,6 @@ rlc_eqs = E_rlc * Dx ~ A_rlc * x + B_rlc .* u(t)
 # Problems using constant voltage input
 rlc_prob = ODEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
 rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
-rlc_dae_prob = DAEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0, D(i_R) => 0.0, D(i_L) => 0.0], [], (0.0, 1e-3))
 ```
 
 ## Index-2 DAE: Two Interconnected Rotating Masses  
@@ -124,7 +123,6 @@ masses_eqs = E_masses * Dx ~ A_masses * x + B_masses * u(t)
 # Problems using torque inputs
 masses_prob = ODEProblem(masses_sys, [], (0.0, 1.0))
 masses_static_prob = ODEProblem{false}(masses_sys, SA[], (0.0, 1.0))
-masses_dae_prob = DAEProblem(masses_sys, [D(θ2) => 0.0, D(ω1) => 0.0], [], (0.0, 1.0))
 ```
 
 ## Index-2 DAE: RL Network
@@ -165,7 +163,6 @@ rl_eqs = E_rl * Dx ~ A_rl * x + B_rl .* u(t)
 # Problems using current source input
 rl_prob = ODEProblem(rl_sys, [v_L => 1.0], (0.0, 1.0))
 rl_static_prob = ODEProblem{false}(rl_sys, SA[v_L => 1.0], (0.0, 1.0))
-rl_dae_prob = DAEProblem(rl_sys, [v_L => 1.0, D(v_L) => 0.0, D(i1) => 0.0], [], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Cart Pendulum
@@ -215,7 +212,6 @@ cart_eqs = E_cart * Dx ~ A_cart * x + B_cart .* u(t)
 # Problems using force input
 cart_prob = ODEProblem(cart_sys, [dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
 cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
-cart_dae_prob = DAEProblem(cart_sys, [dy_cart => 0.0, y_cart => 0.0], [], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Electric Generator
@@ -258,7 +254,6 @@ gen_eqs = E_gen * Dx ~ A_gen * x + B_gen .* u(t)
 # Problems using torque input
 gen_prob = ODEProblem(gen_sys, [ω_gen => 1.0], (0.0, 1.0))
 gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
-gen_dae_prob = DAEProblem(gen_sys, [ω_gen => 1.0, D(ω_gen) => 0.0], [ω_gen => 0.0], (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Damped Mass-Spring System
@@ -321,8 +316,8 @@ spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
 @mtkbuild spring_sys = ODESystem(spring_eqs, t)
 
 # Problems using force input
-spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 0.0], (0.0, 2.0))
-spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 0.0], (0.0, 2.0))
+spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
+spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
 ```
 
 ## Generate Reference Solutions
@@ -331,7 +326,6 @@ spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_sprin
 # Generate reference solutions for all systems using robust methods
 rlc_ref = solve(rlc_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 rlc_static_ref = solve(rlc_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
-rlc_dae_ref = solve(rlc_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 masses_ref = solve(masses_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 masses_static_ref = solve(masses_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
@@ -402,7 +396,7 @@ reltols = 1.0 ./ 10.0 .^ (1:4)
 # RLC Circuit Work-Precision
 setups_rlc = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
     Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
@@ -419,9 +413,9 @@ plot(wp_rlc, title="RLC Circuit (Index-1) Work-Precision")
 
 ```julia
 setups_masses = [
-    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+   #Dict(:prob_choice => 2, :alg=>Rosenbrock23()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
@@ -436,10 +430,11 @@ plot(wp_masses, title="Two Masses (Index-2) Work-Precision")
 ### Index-2 DAE: RL Network
 
 ```julia
+#=
 setups_rl = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
@@ -449,6 +444,7 @@ setups_rl = [
 wp_rl = WorkPrecisionSet(all_probs[3], abstols, reltols, setups_rl;
                         save_everystep=false, appxsol=all_refs[3], maxiters=Int(1e5), numruns=10)
 plot(wp_rl, title="RL Network (Index-2) Work-Precision")
+=#
 ```
 
 ### Index-3 DAE: Cart Pendulum
@@ -456,8 +452,8 @@ plot(wp_rl, title="RL Network (Index-2) Work-Precision")
 ```julia
 setups_cart = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
@@ -474,7 +470,7 @@ plot(wp_cart, title="Cart Pendulum (Index-3) Work-Precision")
 ```julia
 setups_gen = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
     Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
@@ -492,8 +488,8 @@ plot(wp_gen, title="Electric Generator (Index-3) Work-Precision")
 ```julia
 setups_spring = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
@@ -511,12 +507,11 @@ plot(wp_spring, title="Mass-Spring (Index-3) Work-Precision")
 abstols_low = 1.0 ./ 10.0 .^ (7:12)
 reltols_low = 1.0 ./ 10.0 .^ (4:9)
 
-# Combined analysis for all systems with DASSL and DASKR where available
 all_setups = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>Rodas5()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
@@ -542,11 +537,11 @@ reltols_high = 1.0 ./ 10.0 .^ (1:4)
 # High tolerance setups - focus on speed
 high_setups = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
-    Dict(:prob_choice => 1, :alg=>TRBDF2()),
-    Dict(:prob_choice => 1, :alg=>KenCarp4()),
-    Dict(:prob_choice => 2, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    #Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 2, :alg=>Rodas5P()),
 ]
 
 for (i, (probs, refs, name)) in enumerate(zip(all_probs, all_refs, system_names))
@@ -563,7 +558,7 @@ end
 # Create summary comparison of all DAE types
 plot_array = []
 for (i, (probs, refs, name)) in enumerate(zip(all_probs, all_refs, system_names))
-    wp = WorkPrecisionSet(probs, abstols, reltols, setups_rlc;
+    wp = WorkPrecisionSet(probs, abstols, reltols, all_setups;
                          save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=10)
     p = plot(wp, title=name, legend=false, titlefont=font(10))
     push!(plot_array, p)
@@ -579,15 +574,8 @@ plot(plot_array..., layout=(2,3), size=(1500,800))
 abstols_ts = 1.0 ./ 10.0 .^ (5:8)
 reltols_ts = 1.0 ./ 10.0 .^ (2:5)
 
-ts_setups = [
-    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>CVODE_BDF()),
-    Dict(:prob_choice => 2, :alg=>Rodas5P()),
-]
-
 for (i, (probs, refs, name)) in enumerate(zip(all_probs, all_refs, system_names))
-    wp = WorkPrecisionSet(probs, abstols_ts, reltols_ts, ts_setups;
+    wp = WorkPrecisionSet(probs, abstols_ts, reltols_ts, all_setups;
                          error_estimate=:l2, save_everystep=false, appxsol=refs, 
                          maxiters=Int(1e5), numruns=10)
     p = plot(wp, title="$name - L2 Timeseries Error")
