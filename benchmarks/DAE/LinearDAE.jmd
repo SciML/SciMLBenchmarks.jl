@@ -25,7 +25,10 @@ The suite includes:
 - **Index-2 DAEs**: Two Interconnected Rotating Masses, RL Network  
 - **Index-3 DAEs**: Cart Pendulum, Electric Generator, Damped Mass-Spring System
 
-Each DAE is defined using both ModelingToolkit symbolic form and static array mass matrix form with physically meaningful time-dependent input functions.
+Each DAE is defined using three formulations:
+1. **ModelingToolkit symbolic form** - Using symbolic variables and automatic mass matrix generation
+2. **Static array mass matrix form** - Using StaticArrays for performance 
+3. **Native DAEProblem form** - Using explicit DAE residual functions for specialized DAE solvers
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
@@ -79,6 +82,32 @@ rlc_eqs = E_rlc * Dx ~ A_rlc * x + B_rlc .* u(t)
 # Problems using constant voltage input
 rlc_prob = ODEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
 rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
+
+# DAEProblem versions
+function rlc_dae_f!(du, u, p, t)
+    i_L, v_C, i_R, i_C = u
+    du[1] = L_rlc
+    du[2] = 0.0
+    du[3] = 0.0
+    du[4] = 0.0
+    return du
+end
+
+function rlc_dae_g!(res, du, u, p, t)
+    i_L, v_C, i_R, i_C = u
+    di_L, dv_C, di_R, di_C = du
+    res[1] = L_rlc * di_L - v_C
+    res[2] = 1/C_rlc * i_L - dv_C
+    res[3] = -R_rlc * i_L + i_R
+    res[4] = v_C + i_R + i_C - 1.0  # u(t) = 1.0
+    return res
+end
+
+# Initial conditions for DAE
+u0_rlc = [0.0, 0.0, 0.0, 0.0]  # [i_L, v_C, i_R, i_C]
+du0_rlc = [0.0, 0.0, 0.0, 0.0]  # Consistent initial derivatives
+
+rlc_dae_prob = DAEProblem(rlc_dae_g!, du0_rlc, u0_rlc, (0.0, 1e-3))
 ```
 
 ## Index-2 DAE: Two Interconnected Rotating Masses  
@@ -123,6 +152,22 @@ masses_eqs = E_masses * Dx ~ A_masses * x + B_masses * u(t)
 # Problems using torque inputs
 masses_prob = ODEProblem(masses_sys, [], (0.0, 1.0))
 masses_static_prob = ODEProblem{false}(masses_sys, SA[], (0.0, 1.0))
+
+# DAEProblem version
+function masses_dae_g!(res, du, u, p, t)
+    θ1, θ2, ω1, ω2 = u
+    dθ1, dθ2, dω1, dω2 = du
+    res[1] = J1_masses * dθ1 - ω1
+    res[2] = J2_masses * dθ2 - ω2
+    res[3] = -ω1 - ω2
+    res[4] = -θ1 + θ2
+    return res
+end
+
+u0_masses = [0.0, 0.0, 0.0, 0.0]  # [θ1, θ2, ω1, ω2]
+du0_masses = [0.0, 0.0, 1.0, 0.5*sin(0.0)]  # Consistent initial derivatives
+
+masses_dae_prob = DAEProblem(masses_dae_g!, du0_masses, u0_masses, (0.0, 1.0))
 ```
 
 ## Index-2 DAE: RL Network
@@ -163,6 +208,21 @@ rl_eqs = E_rl * Dx ~ A_rl * x + B_rl .* u(t)
 # Problems using current source input
 rl_prob = ODEProblem(rl_sys, [v_L => 1.0], (0.0, 1.0))
 rl_static_prob = ODEProblem{false}(rl_sys, SA[v_L => 1.0], (0.0, 1.0))
+
+# DAEProblem version
+function rl_dae_g!(res, du, u, p, t)
+    i1, i2, v_L = u
+    di1, di2, dv_L = du
+    res[1] = -R_rl * i1 + R_rl * i2 - 1.0  # u(t) = 1.0
+    res[2] = R_rl * i1 - R_rl * i2 - v_L
+    res[3] = L_rl * dv_L - i2
+    return res
+end
+
+u0_rl = [0.0, 0.0, 1.0]  # [i1, i2, v_L]
+du0_rl = [0.0, 0.0, 0.0]  # Consistent initial derivatives
+
+rl_dae_prob = DAEProblem(rl_dae_g!, du0_rl, u0_rl, (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Cart Pendulum
@@ -212,6 +272,25 @@ cart_eqs = E_cart * Dx ~ A_cart * x + B_cart .* u(t)
 # Problems using force input
 cart_prob = ODEProblem(cart_sys, [dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
 cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0], (0.0, 1.0))
+
+# DAEProblem version
+function cart_dae_g!(res, du, u, p, t)
+    x, y, φ, dx, dy, dφ, λ = u
+    ddx, ddy, ddφ, d2x, d2y, d2φ, dλ = du
+    res[1] = ddx - dx
+    res[2] = ddy - dy
+    res[3] = ddφ - dφ
+    res[4] = m1_cart * d2x - λ - 1.0 * exp(-t)  # u(t) = 1.0 * exp(-t)
+    res[5] = m2_cart * d2y - λ
+    res[6] = -g_cart/L_cart * φ - d2φ
+    res[7] = x - L_cart * φ
+    return res
+end
+
+u0_cart = [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0]  # [x, y, φ, dx, dy, dφ, λ]
+du0_cart = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Consistent initial derivatives
+
+cart_dae_prob = DAEProblem(cart_dae_g!, du0_cart, u0_cart, (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Electric Generator
@@ -254,6 +333,22 @@ gen_eqs = E_gen * Dx ~ A_gen * x + B_gen .* u(t)
 # Problems using torque input
 gen_prob = ODEProblem(gen_sys, [ω_gen => 1.0], (0.0, 1.0))
 gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
+
+# DAEProblem version
+function gen_dae_g!(res, du, u, p, t)
+    ω, i, v1, v2 = u
+    dω, di, dv1, dv2 = du
+    res[1] = J_gen * dω - (1.0 + 0.5*cos(2π*t))  # u(t) = 1.0 + 0.5*cos(2π*t)
+    res[2] = v2
+    res[3] = -R2_gen * v2
+    res[4] = -k_gen * i + v2
+    return res
+end
+
+u0_gen = [1.0, 0.0, 0.0, 0.0]  # [ω, i, v1, v2]
+du0_gen = [0.5*cos(0.0), 0.0, 0.0, 0.0]  # Consistent initial derivatives
+
+gen_dae_prob = DAEProblem(gen_dae_g!, du0_gen, u0_gen, (0.0, 1.0))
 ```
 
 ## Index-3 DAE: Damped Mass-Spring System
@@ -318,6 +413,23 @@ spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
 # Problems using force input
 spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
 spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
+
+# DAEProblem version
+function spring_dae_g!(res, du, u, p, t)
+    x1, x2, v1, v2, λ = u
+    dx1, dx2, dv1, dv2, dλ = du
+    res[1] = dx1 - v1
+    res[2] = dx2 - v2
+    res[3] = m_spring * dv1 + k_spring * x1 + d_spring * v1 - λ - ifelse((t < 0.1), 10.0, 0.1*exp(-5*t))  # u(t)
+    res[4] = m_spring * dv2 - k_spring * x1 + k_spring * x2 - d_spring * v1 + d_spring * v2 + λ
+    res[5] = x1 - x2
+    return res
+end
+
+u0_spring = [0.0, 0.0, 1.0, 0.0, 0.0]  # [x1, x2, v1, v2, λ]
+du0_spring = [1.0, 0.0, 0.0, 0.0, 0.0]  # Consistent initial derivatives
+
+spring_dae_prob = DAEProblem(spring_dae_g!, du0_spring, u0_spring, (0.0, 20.0))
 ```
 
 ## Generate Reference Solutions
@@ -326,42 +438,48 @@ spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_sprin
 # Generate reference solutions for all systems using robust methods
 rlc_ref = solve(rlc_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 rlc_static_ref = solve(rlc_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+rlc_dae_ref = solve(rlc_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 masses_ref = solve(masses_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 masses_static_ref = solve(masses_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+masses_dae_ref = solve(masses_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 rl_ref = solve(rl_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 rl_static_ref = solve(rl_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+rl_dae_ref = solve(rl_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 cart_ref = solve(cart_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 cart_static_ref = solve(cart_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+cart_dae_ref = solve(cart_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 gen_ref = solve(gen_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 gen_static_ref = solve(gen_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+gen_dae_ref = solve(gen_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 spring_ref = solve(spring_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
 spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol=abstol_ref, reltol=reltol_ref)
+spring_dae_ref = solve(spring_dae_prob, IDA(), abstol=abstol_ref, reltol=reltol_ref)
 
 # Problem and reference solution arrays
 all_probs = [
     # Index-1: RLC Circuit
-    [rlc_prob, rlc_static_prob],
+    [rlc_prob, rlc_static_prob, rlc_dae_prob],
     # Index-2: Two Masses and RL Network
-    [masses_prob, masses_static_prob],
-    [rl_prob, rl_static_prob],
+    [masses_prob, masses_static_prob, masses_dae_prob],
+    [rl_prob, rl_static_prob, rl_dae_prob],
     # Index-3: Cart, Generator, Spring
-    [cart_prob, cart_static_prob],
-    [gen_prob, gen_static_prob],
-    [spring_prob, spring_static_prob]
+    [cart_prob, cart_static_prob, cart_dae_prob],
+    [gen_prob, gen_static_prob, gen_dae_prob],
+    [spring_prob, spring_static_prob, spring_dae_prob]
 ]
 
 all_refs = [
-    [rlc_ref, rlc_static_ref],
-    [masses_ref, masses_static_ref],
-    [rl_ref, rl_static_ref],
-    [cart_ref, cart_static_ref],
-    [gen_ref, gen_static_ref],
-    [spring_ref, spring_static_ref]
+    [rlc_ref, rlc_static_ref, rlc_dae_ref],
+    [masses_ref, masses_static_ref, masses_dae_ref],
+    [rl_ref, rl_static_ref, rl_dae_ref],
+    [cart_ref, cart_static_ref, cart_dae_ref],
+    [gen_ref, gen_static_ref, gen_dae_ref],
+    [spring_ref, spring_static_ref, spring_dae_ref]
 ]
 
 system_names = ["RLC Circuit (Index-1)", "Two Masses (Index-2)", "RL Network (Index-2)",
@@ -402,6 +520,9 @@ setups_rlc = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg=>DASSL.dassl()),
 ]
 
 wp_rlc = WorkPrecisionSet(all_probs[1], abstols, reltols, setups_rlc;
@@ -420,6 +541,8 @@ setups_masses = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 wp_masses = WorkPrecisionSet(all_probs[2], abstols, reltols, setups_masses;
@@ -458,6 +581,8 @@ setups_cart = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 wp_cart = WorkPrecisionSet(all_probs[4], abstols, reltols, setups_cart;
@@ -476,6 +601,8 @@ setups_gen = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 wp_gen = WorkPrecisionSet(all_probs[5], abstols, reltols, setups_gen;
@@ -494,6 +621,8 @@ setups_spring = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas4()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 wp_spring = WorkPrecisionSet(all_probs[6], abstols, reltols, setups_spring;
@@ -515,6 +644,8 @@ all_setups = [
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 # Generate work-precision plots for all systems at low tolerances
@@ -542,6 +673,8 @@ high_setups = [
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 2, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>DASKR.daskr()),
 ]
 
 for (i, (probs, refs, name)) in enumerate(zip(all_probs, all_refs, system_names))
