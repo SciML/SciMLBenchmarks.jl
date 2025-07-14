@@ -76,8 +76,8 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
             try
                 nlp_prob = CUTEstModel(prob_name)
                 
-                # Skip very large problems to prevent memory issues
-                if nlp_prob.meta.nvar > 50
+                # Skip extremely large problems to prevent memory issues
+                if nlp_prob.meta.nvar > 10000
                     @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
                     finalize(nlp_prob)
                     continue
@@ -88,7 +88,7 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 for optimizer in optimizers
                     try
                         # Set aggressive time and iteration limits
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 60.0)
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 5.0)
 
                         @info "✓ Solved $(prob_name) with $(optimizer)"
                         vars, time, alg, code = get_stats(sol, optimizer)
