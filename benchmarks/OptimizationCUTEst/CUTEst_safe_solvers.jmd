@@ -51,8 +51,8 @@ function get_stats(sol, optimizer_name)
     return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
 
-function run_benchmarks(problems, optimizers)
-    """Enhanced benchmark loop with better error handling"""
+function run_benchmarks(problems, optimizers; chunk_size=3)
+    """Enhanced benchmark loop with chunked processing and better error handling"""
     problem = String[]
     n_vars = Int64[]
     secs = Float64[]
@@ -62,64 +62,94 @@ function run_benchmarks(problems, optimizers)
     optz = length(optimizers)
     n = length(problems)
 
+    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
+
     broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
 
     println("Running comprehensive benchmark:")
     println("$(length(problems)) problems × $(length(optimizers)) optimizers = $(length(problems) * length(optimizers)) combinations")
     
-    for (i, prob_name) in enumerate(problems)
-        @printf("Problem %d/%d: %s\n", i, length(problems), prob_name)
+    # Process problems in chunks to manage memory
+    for chunk_start in 1:chunk_size:n
+        chunk_end = min(chunk_start + chunk_size - 1, n)
+        chunk_problems = problems[chunk_start:chunk_end]
         
-        try
-            nlp_prob = CUTEstModel(prob_name)
+        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
+        
+        for (idx, prob_name) in enumerate(chunk_problems)
+            current_problem = chunk_start + idx - 1
+            @printf("Problem %d/%d: %s\n", current_problem, n, prob_name)
             
-            # Skip very large problems for computational efficiency
-            if nlp_prob.meta.nvar > 100
-                @printf("  Skipping (too large: %d variables)\n", nlp_prob.meta.nvar)
-                finalize(nlp_prob)
-                continue
-            end
-            
-            prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
-            
-            for (optimizer_name, optimizer) in optimizers
-                @printf("  Testing %-20s... ", optimizer_name)
+            nlp_prob = nothing
+            try
+                nlp_prob = CUTEstModel(prob_name)
                 
-                try
-                    sol = solve(prob, optimizer; 
-                               maxiters = 5000,
-                               maxtime = 30.0,  # 30 seconds timeout per solve
-                               abstol = 1e-6,
-                               reltol = 1e-6)
-
-                    vars, time, alg, code = get_stats(sol, optimizer_name)
-
-                    push!(problem, prob_name)
-                    push!(n_vars, vars)
-                    push!(secs, time)
-                    push!(solver, alg)
-                    push!(retcode, code)
+                # Skip very large problems for computational efficiency
+                if nlp_prob.meta.nvar > 50
+                    @printf("  Skipping (too large: %d variables)\n", nlp_prob.meta.nvar)
+                    finalize(nlp_prob)
+                    continue
+                end
+                
+                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+                
+                for (optimizer_name, optimizer) in optimizers
+                    @printf("  Testing %-20s... ", optimizer_name)
                     
-                    success = code == :Success
-                    @printf("%s (%.3fs)\n", success ? "✓" : "✗", time)
-                    
-                catch e
-                    @printf("ERROR: %s\n", string(e))
-                    # Still record failed attempts
+                    try
+                        sol = solve(prob, optimizer; 
+                                   maxiters = 1000,
+                                   maxtime = 30.0,  # 30 seconds timeout per solve
+                                   abstol = 1e-6,
+                                   reltol = 1e-6)
+
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
+
+                        push!(problem, prob_name)
+                        push!(n_vars, vars)
+                        push!(secs, time)
+                        push!(solver, alg)
+                        push!(retcode, code)
+                        
+                        success = code == :Success
+                        @printf("%s (%.3fs)\n", success ? "✓" : "✗", time)
+                        
+                    catch e
+                        @printf("ERROR: %s\n", string(e))
+                        # Still record failed attempts
+                        push!(problem, prob_name)
+                        push!(n_vars, nlp_prob.meta.nvar)
+                        push!(secs, NaN)
+                        push!(solver, optimizer_name)
+                        push!(retcode, :Error)
+                    end
+                end
+                
+            catch e
+                @printf("  Failed to load problem: %s\n", string(e))
+                # Add failure entries for all optimizers
+                for (optimizer_name, optimizer) in optimizers
                     push!(problem, prob_name)
-                    push!(n_vars, nlp_prob.meta.nvar)
+                    push!(n_vars, -1)
                     push!(secs, NaN)
                     push!(solver, optimizer_name)
-                    push!(retcode, :Error)
+                    push!(retcode, :LOAD_FAILED)
+                end
+            finally
+                # Clean up resources
+                if nlp_prob !== nothing
+                    try
+                        finalize(nlp_prob)
+                    catch e
+                        @warn "Failed to finalize $(prob_name): $(e)"
+                    end
                 end
             end
-            
-            finalize(nlp_prob)
-            
-        catch e
-            @printf("  Failed to load problem: %s\n", string(e))
-            continue
         end
+        
+        # Force garbage collection after each chunk
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
     end
 
     return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver,
