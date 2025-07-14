@@ -5,8 +5,7 @@ using Git, GitHub, Dates
 gh_token = ARGS[1]
 myauth = GitHub.authenticate(gh_token)
 
-(@isdefined myauth) ? @info("Authentication token is found...") :
-@info("Coudn't find the authentication token")
+(@isdefined myauth) ? @info("Authentication token is found...") : @info("Coudn't find the authentication token")
 
 const git = Git.git()
 date = Dates.format(now(), "yyyy-mm-dd")
@@ -58,7 +57,7 @@ for dir in readdir(benchpath)
             GitHub.create_pull_request("SciML/SciMLBenchmarks.jl"; params = params, auth = myauth)
         else
             @info("Updating the pull request numbered: ", prs[dir])
-            GitHub.update_pull_request("SciML/SciMLBenchmarks.jl", prs[dir]; auth = myauth)
+            GitHub.update_pull_request("SciML/SciMLBenchmarks.jl", prs[dir]; auth=myauth)
         end
     end
 end
