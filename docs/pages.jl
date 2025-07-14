@@ -2,31 +2,23 @@
 
 dir = @__DIR__() * "/.."
 
-cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force = true)
-cp(
-    joinpath(dir, "docs", "extrasrc", "assets"),
-    joinpath(dir, "docs", "src", "assets"),
-    force = true,
-)
-cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force = true)
+cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
+cp(joinpath(dir, "docs", "extrasrc", "assets"), joinpath(dir, "docs", "src", "assets"), force=true)
+cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
 benchmarksdir = joinpath(dir, "docs", "src")
 
 @show readdir(benchmarksdir)
 
-pages =
-    Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science"=>"index.md"]
+pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science"=>"index.md"]
 
 for folder in readdir(benchmarksdir)
     newpages = Any[]
-    if folder[(end-2):end] != ".md" &&
-       folder != "Testing" &&
-       folder != "figures" &&
-       folder != "assets"
-        for file in
-            filter(x -> x[(end-2):end] == ".md", readdir(joinpath(benchmarksdir, folder)))
+    if folder[end-2:end] != ".md" && folder != "Testing" && folder != "figures" && folder != "assets"
+        for file in filter(x -> x[end-2:end] == ".md", readdir(
+            joinpath(benchmarksdir, folder)))
             try
                 filecontents = readlines(joinpath(benchmarksdir, folder, file))
-                title = filecontents[3][9:(end-1)]
+                title = filecontents[3][9:end-1]
 
                 # Cut out the first 5 lines from the file to remove the Weave header stuff
                 open(joinpath(benchmarksdir, folder, file), "w") do output
@@ -47,45 +39,8 @@ end
 
 # The result is in alphabetical order, change to the wanted order
 
-permute!(
-    pages,
-    [
-        1,
-        18,
-        15,
-        13,
-        24,
-        4,
-        5,
-        22,
-        33,
-        7,
-        3,
-        9,
-        20,
-        31,
-        17,
-        30,
-        8,
-        11,
-        19,
-        23,
-        34,
-        21,
-        32,
-        14,
-        12,
-        26,
-        10,
-        25,
-        29,
-        6,
-        16,
-        27,
-        28,
-        2,
-        35,
-    ],
+permute!(pages,
+    [1, 18, 15, 13, 24, 4, 5, 22, 33, 7, 3, 9, 20, 31, 17, 30, 8, 11, 19, 23, 34, 21, 32, 14, 12, 26, 10, 25, 29, 6, 16, 27, 28, 2, 35]
 )
 
 names = [
@@ -123,9 +78,8 @@ names = [
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
     "SDE Adaptivity Benchmarks",
-    "Surrogate Benchmarks",
-]
+    "Surrogate Benchmarks"]
 
-for i = 1:length(pages)
+for i in 1:length(pages)
     pages[i] = names[i] => pages[i][2]
 end
