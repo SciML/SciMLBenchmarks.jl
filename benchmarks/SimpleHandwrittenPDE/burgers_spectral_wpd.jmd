@@ -5,16 +5,21 @@ author: Arjit Seth
 
 ### Problem Description
 
-The following initial-boundary-value problem is considered for Burgers' equation in one dimension:
+The Burgers' partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
 ```math
 \begin{aligned}
-    \frac{\partial}{\partial t} u(x,t) + \frac{\partial}{\partial x} u^2(x,t) & = \nu \frac{\partial^2}{\partial x^2} u(x,t) \\
-    u(x,0) & = \exp\left(-\frac{(x - \mu_0)^2}{2 \sigma_0^2}\right), \quad \mu_0 = 0.0, \sigma_0 = 0.1, x \in [-1,] \\
+    \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
+    u(0,x) & = \exp\left(\frac{x^2}{2 \times 0.01^2}\right), \\
+    u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
-The equations are discretized in space via pseudospectral methods. Specifically, the Chebyshev basis is used to represent the solution in space.
+The spatial derivative operators are represented via Chebyshev pseudospectral approximations. Here, the domain is discretized by projecting on a cosine-spaced grid of points $x_s \in [-1, 1]$; the solution is approximated on this grid via linear combinations of Chebyshev polynomial basis functions in space. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
 ```math
-
+\begin{aligned}
+    \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
+    u(0,x_s) & = \exp\left(\frac{x_s^2}{2 \times 0.01^2}\right), \\
+    u(t,-L) & = u(t,L) = 0.
+\end{aligned}
 ```
 
 ### Implementation
@@ -41,7 +46,7 @@ function f_nonlinear!(du, u, p, t)
 end
 
 # Constructor
-function make_burgers(n)
+function burgers(n)
     T = ChebyshevT() # Chebyshev basis
     x1 = reverse(ChebyshevGrid{1}(n - 2)) # 1st kind points, sorted
     x2 = reverse(ChebyshevGrid{2}(n)) # 2nd kind points, sorted
@@ -50,10 +55,8 @@ function make_burgers(n)
     D1 = diff(T, 1)[x1, 1:n] / V # 1st derivative from x2 to x1
     D2 = diff(T, 2)[x1, 1:n] / V # 2nd derivative from x2 to x1
 
-    μ0 = 0.0
-    σ0 = 0.1
-    u0 = @. exp(-(x2 - μ0)^2 / (2 * σ0^2)) # Initial condition
-    # u0 = @. cos(2π * x2) # Initial condition
+
+    u0 = @. exp(-x2^2 / (2 * 0.1^2)) # Initial condition
     B_l = [1 zeros(1, n-1)] # Left Dirichlet conditions
     B_r = reverse(B_l) # Right Dirichlet
     M = lu([B_l; D0; B_r]) # Mass matrix for the problem
@@ -74,7 +77,7 @@ end
 
 ```julia
 n = 128 # Number of Chebyshev points
-xs, prob = make_burgers(n)
+xs, prob = burgers(n)
 @time sol = solve(prob, Rodas5(autodiff=false), reltol = 1e-12, abstol = 1e-12)
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
@@ -137,7 +140,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Between Family Comparisons
@@ -160,7 +163,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 
