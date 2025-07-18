@@ -3,6 +3,7 @@ title: Burgers' Equation Pseudospectral Method Work-Precision Diagrams
 author: Arjit Seth
 ---
 
+### Problem Description
 
 The following initial-boundary-value problem is considered for Burgers' equation in one dimension:
 ```math
@@ -15,6 +16,8 @@ The equations are discretized in space via pseudospectral methods. Specifically,
 ```math
 
 ```
+
+### Implementation
 
 ```julia
 using OrdinaryDiffEq
@@ -30,83 +33,134 @@ gr();
 ```
 
 ```julia
-# DAE vector field
-function burgers!(du, u, p, t)
-    D₁, D₂, R, nu = p
-    du[1] = u[1] # left bc
-    mul!(@view(du[2:(end - 1)]), nu * D₂, u) # 2nd derivative excluding ghost cells
-    # mul!(tmp, D₁, u) # 1st derivative excluding ghost cells
-    @view(du[2:(end - 1)]) .-= (R * u) .* (D₁ * u) # currently allocating, pass temp
-    du[end] = u[end] # right bc
+# Nonlinear component of vector field
+function f_nonlinear!(du, u, p, t)
+    M, D0, D1, tmp = p
+    tmp[2:end-1] .= -(D0 * u) .* (D1 * u) # Nonlinear convection
+    ldiv!(du, M, tmp) # Solve the linear system M * du = tmp
 end
 
 # Constructor
 function make_burgers(n)
     T = ChebyshevT() # Chebyshev basis
-    x₁ = reverse(ChebyshevGrid{1}(n-2)) # 1st kind points, sorted
-    x₂ = reverse(ChebyshevGrid{2}(n)) # 2nd kind points, sorted
-    V = T[x₂, 1:n] # Vandermonde matrix, its inverse is transform from values to coefficients
-    D₁ = diff(T, 1)[x₁, 1:n] / V # 1st derivative from x₂ to x₁
-    D₂ = diff(T, 2)[x₁, 1:n] / V # 2nd derivative from x₂ to x₁
-    R = T[x₁, 1:n] / V # discretisation of identity matrix
+    x1 = reverse(ChebyshevGrid{1}(n - 2)) # 1st kind points, sorted
+    x2 = reverse(ChebyshevGrid{2}(n)) # 2nd kind points, sorted
+    V = T[x2, 1:n] # Vandermonde matrix, its inverse is transform from values to coefficients
+    D0 = diff(T, 0)[x1, 1:n] / V # 0th derivative from x2 to x1 (identity)
+    D1 = diff(T, 1)[x1, 1:n] / V # 1st derivative from x2 to x1
+    D2 = diff(T, 2)[x1, 1:n] / V # 2nd derivative from x2 to x1
 
     μ0 = 0.0
     σ0 = 0.1
-    u0 = @. exp(-(x₂ - μ0)^2 / (2 * σ0^2)) # Initial condition
-    B_l = [1; zeros(n-1)]' # Left Dirichlet conditions
-    B_r = [zeros(n-1); 1]' # Right Dirichlet conditions
-    prob = ODEProblem(
-        ODEFunction(burgers!, mass_matrix = [B_l; R; B_r]), 
-        u0, (0.0, 1.0), 
-        (D₁, D₂, R, 1e-2, similar(u0[2:end-1]))
-    )
+    u0 = @. exp(-(x2 - μ0)^2 / (2 * σ0^2)) # Initial condition
+    # u0 = @. cos(2π * x2) # Initial condition
+    B_l = [1 zeros(1, n-1)] # Left Dirichlet conditions
+    B_r = reverse(B_l) # Right Dirichlet
+    M = lu([B_l; D0; B_r]) # Mass matrix for the problem
+    nu = 1e-2 # Diffusion coefficient
+    D2_bc = [zeros(1, n); D2; zeros(1, n)] # 2nd derivative with boundary conditions
+    prob = SplitODEProblem(
+                MatrixOperator(nu * (M \ D2_bc)),
+                f_nonlinear!, 
+                u0, (0.0, 1.0),
+                (M, D0, D1, similar(u0))
+            )
 
-    return x₂, prob
+    return x2, prob
 end
 ```
 
-Reference solution using Rodas5 is below:
+### Reference Solution
 
 ```julia
 n = 128 # Number of Chebyshev points
 xs, prob = make_burgers(n)
-@time sol = solve(prob, Rodas5(), reltol = 1e-12, abstol = 1e-12)
+@time sol = solve(prob, Rodas5(autodiff=false), reltol = 1e-12, abstol = 1e-12)
+
+test_sol = TestSolution(sol) # Reference solution for error estimation
 
 tslices = LinRange(prob.tspan..., 50)
-ys = mapreduce(sol, hcat, t)
+ys = mapreduce(sol, hcat, tslices)
 heatmap(xs, tslices, ys')
 ```
 
 ## Work-Precision Diagrams
 
-```julia
-test_sol = TestSolution(sol); # Reference solution for error estimation
+### Implicit-Explicit Methods
 
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers)
+]
+labels = hcat(
+    "IMEXEuler",
+    "CNAB2",
+    "CNLF2",
+    "SBDF2",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
+```
+
+### Exponential Integrators
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
+]
+labels = hcat(
+    "NorsettEuler (caching)", 
+    "NorsettEuler (m=5)",
+    "NorsettEuler (m=20)",
+    "ETDRK2 (caching)", 
+    "ETDRK2 (m=5)", 
+    "ETDRK2 (m=20)"
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+```
+
+### Between Family Comparisons
+
+```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
 setups = [
-    Dict(:alg => Rodas3(), :dts => 1e-4 * multipliers),
-    Dict(:alg => Rodas4(), :dts => 1e-4 * multipliers),
-    Dict(:alg => Rodas5(), :dts => 1e-4 * multipliers),
-    Dict(:alg => GRK4T(), :dts => 1e-4 * multipliers),
-    Dict(:alg => GRK4A(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
 ]
 labels = hcat(
-    "Rodas3",
-    "Rodas4",
-    "Rodas5",
-    "GRK4T",
-    "GRK4A",
+    "CNAB2 (dense linsolve)",
+    "CNAB2 (Krylov linsolve)", 
+    "ETDRK2 (m=5)",
 )
-
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Inf);
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, 
-    markershape=:auto, title="Work-Precision Diagram",
-    legend=:topright, size=(800, 600))
+plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
 ```
 
 
