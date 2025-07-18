@@ -3,6 +3,27 @@ title: Kuramoto-Sivashinsky Pseudospectral Methods Work-Precision Diagrams
 author: Arjit Seth
 ---
 
+## Problem Description
+
+The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
+```math
+\begin{align}
+    \partial_t u & =  -\kappa \partial_x \left[u(t,x) \partial_x u(t,x)\right] - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x) \\
+    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \\
+    u(t,-L) & = u(t,L) = 1.
+\end{align}
+```
+The spatial derivative operators are represented via Fourier pseudospectral approximations. Here, the domain is discretized by projecting on an equispaced grid of points $x_s \in [-L, L]$; the solution is approximated on this grid via linear combinations of sinusoidal functions in space. The coefficients $\kappa = 1, \beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+```math
+\begin{align}
+    \frac{du}{dt} & =  -\kappa D_x (u D_x u) - \beta D_x^2 u - \gamma D_x^4 u \\
+    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \\
+    u(t,-L) & = u(t,L) = 1.
+\end{align}
+```
+
+### Implementation
+
 ```julia
 using OrdinaryDiffEq
 using DiffEqDevTools
@@ -10,90 +31,152 @@ using SciMLOperators
 using LinearSolve
 using LinearAlgebra
 using SparseArrays
-using DomainSets
-using ApproxFun
+using SummationByPartsOperators
+const SBP = SummationByPartsOperators
 using Plots
 gr();
 ```
 
-Here is the kuramoto_sivashinsky equation using Fourier spectral methods.
-
 ```julia
-function nonlinear_term(dû, û, p, t)
-    D1, T, Ti, u, tmp, alpha = p
-    mul!(u, D1, û) # Derivative in Fourier space
-    mul!(tmp, Ti, u) # Map to real space: u_x
-    mul!(u, Ti, û) # Map to real space: u
-    @. u *= tmp # Multiply in real space: u * u_x
-    mul!(dû, T, -alpha * u) # Transform back to Fourier space
-end
+nonlinear_convection!(du, u, p, t) = du .= (-p.alpha / 3) * (u .* (p.D1 * u) + p.D1 * (u .^ 2))
 
-function kuramoto_sivashinsky(S, n)
-    D1 = (ApproxFun.Derivative(S) → S)[1:n, 1:n] # First derivative
-    D2 = ApproxFun.Derivative(S, 2)[1:n, 1:n] # Second derivative
-    D4 = ApproxFun.Derivative(S, 4)[1:n, 1:n] # Fourth derivative
-    T = ApproxFun.plan_transform(S, n) # Transform to Fourier space
-    Ti = ApproxFun.plan_itransform(S, n) # Inverse transform to real space
+function kuramoto_sivashinsky(N, L, alpha)
+    D1 = fourier_derivative_operator(xmin = -L, xmax = L, N = N)
+    D2 = D1^2 # 2nd derivative operator
+    D4 = D1^4 # 4th derivative operator
+    x = SBP.grid(D1)
+    u0 = @. cos(2π * x / L) # Initial condition
+    p = (; D1, alpha)
 
-    x = points(S, n) # Discretization
-    û₀ = T * @. (cos((2π / L) * x) + 0.1 * cos((4π / L) * x)) # Initial condition
-
-    alpha = 5.0 # Lipshitz constant scaling factor
-    nu = 10.0 # Diffusion and fourth-order coefficient
-    p = (D1, T, Ti, similar(û₀), similar(û₀), alpha)
-
-    prob = SplitODEProblem(MatrixOperator(-alpha * nu * Diagonal(D4 + D2)), nonlinear_term, û₀,
-                           (0.0, 1.0), p)
+    tspan = (0.0, 1.0)
+    prob = SplitODEProblem(MatrixOperator(-p.alpha / 2 * (sparse(D2) + 1/4 * sparse(D4))),
+                           nonlinear_convection!, 
+                           u0, tspan, p);
 
     return x, prob
-end
+end;
 ```
 
-Reference solution using Rodas5 is below:
+### Reference Solution
+
+Using an adaptive timestepping method to solve the system of ordinary differential equations with high precision.
 
 ```julia
-n = 128
-L = 16.0 # Domain length
-S = ApproxFun.Fourier(-L..L)
-xs, prob = kuramoto_sivashinsky(S, n)
-T, Ti = prob.p[2:3]
-@time sol = solve(prob, Rodas5(autodiff = false); reltol = 1e-12, abstol = 1e-12)
+N = 128  # Number of grid points
+L = 16.0  # Domain length
+alpha = 30.0 # Time scaling factor
+xs, prob = kuramoto_sivashinsky(N, L, alpha)
+
+sol = solve(prob, Rodas5(autodiff=false); dt = 1e-4, reltol = 1e-12, abstol = 1e-12)
+
+test_sol = TestSolution(sol) # Reference soluton for error estimation
 
 tslices = LinRange(prob.tspan..., 50)
-ys = mapreduce(t -> Ti * sol(t), hcat, tslices)
+ys = mapreduce(sol, hcat, tslices)
 heatmap(xs, tslices, ys', xlabel = "x", ylabel = "t")
 ```
 
 ## Work-Precision Diagrams
 
-```julia
-test_sol = TestSolution(sol); # Reference solution for error estimation
+### Implicit-Explicit Methods
 
-abstols = 0.1 .^ (5:9) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:5)
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:4)
 setups = [
-    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers), 
-    Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
-    Dict(:alg => CNLF2(), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
-    Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers)
+    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers)
 ]
 labels = hcat(
-    "IMEXEuler", 
+    "IMEXEuler",
     "CNAB2",
     "CNLF2",
-    "ETDRK2",
     "SBDF2",
 )
-
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Inf);
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, 
-    markershape=:auto, title="Work-Precision Diagram",
-    legend=:topright, size=(800, 600))
+plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
+```
+
+### Exponential Integrators
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
+]
+labels = hcat(
+    "NorsettEuler (caching)", 
+    "NorsettEuler (m=5)",
+    "NorsettEuler (m=20)",
+    "ETDRK2 (caching)", 
+    "ETDRK2 (m=5)", 
+    "ETDRK2 (m=20)"
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
+```
+
+### Explicit Methods
+
+```julia
+abstols = 0.1 .^ (5:7) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:3)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => RK4(), :dts => 1e-4 * multipliers),
+    Dict(:alg => Tsit5(), :dts => 1e-4 * multipliers),
+    Dict(:alg => Vern7(), :dts => 1e-4 * multipliers)
+]
+labels = hcat(
+    "RK4",
+    "Tsit5",
+    "Vern7",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
+```
+
+
+### Between Family Comparisons
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+]
+labels = hcat(
+    "CNAB2 (dense linsolve)",
+    "CNAB2 (Krylov linsolve)", 
+    "ETDRK2 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 ```julia, echo = false
