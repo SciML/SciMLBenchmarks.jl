@@ -3,22 +3,26 @@ title: Allen-Cahn Finite-Difference Method Work-Precision Diagrams
 author: Arjit Seth
 ---
 
-## Equations
+## Problem Description
 
-The Allen-Cahn PDE is posed as follows:
+The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 2,~T = 1$, with the following initial and Dirichlet boundary conditions:
 ```math
 \begin{align}
-   \partial_t u = \gamma \nabla^2 u - u^3 + u \\
+   \partial_t u(t,x) & = p(u(t,x) - u(t,x)^3) + \epsilon \partial_x^2 u(t,x), \\
+    u(0,x) & = \cos(2\pi x), \\
+    u(t,-L) & = u(t,L) = 0.
 \end{align}
 ```
-This is discretized in space via the finite difference method:
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $p = 3,~\epsilon = 10^{-3}$ are chosen to produce `interesting' behavior as seen in the reference solution below.
 ```math
 \begin{align}
-    \partial_t u = \gamma D_x^2 u - u^3 + u
+    \frac{du}{dt} & = p(u - u^3) + \epsilon D_x^2 u, \\
+    u(0,x_s) & = \cos(2\pi x_s), \\
+    u(t,-L) & = u(t,L) = 0.
 \end{align}
 ```
 
-## Packages
+### Implementation
 
 ```julia
 using OrdinaryDiffEq
@@ -33,8 +37,6 @@ using Plots
 gr();
 ```
 
-## Implementation
-
 ```julia
 # Nonlinear term: u - u^3
 function forcing_term(du, u, p, t)
@@ -47,21 +49,22 @@ end
 # Construct the problem
 function allen_cahn(N, L)
     # Linear and nonlinear terms
-    nu = 1e-3 # Diffusion coefficient
-    D2 = derivative_operator(MattssonSvärdNordström2004(); derivative_order = 2,
-                             accuracy_order = 4, xmin = -L, xmax = L, N = N)
+    eps = 1e-3 # Diffusion coefficient
+    D2 = derivative_operator(MattssonSvärdNordström2004(); 
+                             derivative_order = 2, accuracy_order = 4, 
+                             xmin = -L, xmax = L, N = N)
 
     x = LinRange(-L, L, N) # Domain discretization
     u0 = @. cos(2π * x) # Initial condition
     p = 3.0 # Nonlinear coefficient
 
-    prob = SplitODEProblem(MatrixOperator(nu * sparse(D2)), forcing_term, u0, (0.0, 1.0), p)
+    prob = SplitODEProblem(MatrixOperator(eps * sparse(D2)), forcing_term, u0, (0.0, 1.0), p)
 
     x, prob
 end;
 ```
 
-## Reference Solution
+### Reference Solution
 
 ```julia
 N = 128 # Number of grid points
@@ -130,7 +133,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Explicit Methods
@@ -179,7 +182,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 
