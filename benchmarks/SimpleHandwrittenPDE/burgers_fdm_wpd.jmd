@@ -3,38 +3,26 @@ title: Burgers' Equation Finite-Difference Method Work-Precision Diagrams
 author: Arjit Seth
 ---
 
-The following initial-boundary-value problem is considered for Burgers' equation in one dimension:
-```math
-\begin{aligned}
-    \frac{\partial}{\partial t} u(x,t) + \frac{\partial}{\partial x} u^2(x,t) & = \nu \frac{\partial^2}{\partial x^2} u(x,t) \\
-    u(x,0) & = \cos(\cos(x-0.1))
-\end{aligned}
-```
-The equations are discretized via finite differences.
-```math
-\begin{aligned}
-    \frac{\partial}{\partial t} u_i(t) + \frac{u_{i
-+1}^2(t) - u_{i-1}^2(t)}{2\Delta x} & = \nu \left(\frac{u_{i+1}(t) - 2u_i(t) + u_{i-1}(t)}{\Delta x^2}\right) \\
-    u_i(0) & = \cos(\cos(x_i-0.1)) \\
-    \implies \frac{\partial}{\partial t} \mathbf u(t) & = D_1 \mathbf u(t) + D_2 \mathbf u(t) \\
-    D_1 & = \frac{1}{2\Delta x} \begin{bmatrix}
-    -1 & 1 & 0 & \cdots & 0 \\
-    0 & -1 & 1 & \cdots & 0 \\
-    \vdots & \vdots & \ddots & \ddots & \vdots \\
-    0 & 0 & \cdots & -1 & 1 \\
-    0 & 0 & \cdots & 0 & -1
-    \end{bmatrix} \\
-    D_2 & = \frac{\nu}{\Delta x^2} \begin{bmatrix}
-    -2 & 1 & 0 & \cdots & 0 \\
-    1 & -2 & 1 & \cdots & 0 \\
-    0 & 1 & -2 & \cdots & 0 \\
-    \vdots & \vdots & \ddots & \ddots & \vdots \\
-    0 & 0 & \cdots & 1 & -2
-    \end{bmatrix}
-\end{aligned}
-```
-where the second term is the linear diffusion term and the first term is the nonlinear advection term.
+## Problem Description
 
+The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
+```math
+\begin{aligned}
+    \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
+    u(0,x) & = \exp\left[\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(-L,x) & = u(L,x) = 0.
+\end{aligned}
+```
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
+```math
+\begin{aligned}
+    \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
+    u(0,x_s) & = \exp\left[\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(t,-L) & = u(t,L) = 0.
+\end{aligned}
+```
+
+### Implementation
 
 ```julia
 using OrdinaryDiffEq
@@ -43,57 +31,40 @@ using SciMLOperators
 using LinearSolve
 using LinearAlgebra
 using SparseArrays
+using SummationByPartsOperators
+const SBP = SummationByPartsOperators
 using Plots
 gr();
 ```
 
 ```julia
-# Linear term (second derivative)
-function linear_term(N, dx, nu)
-    e = ones(N + 1) # super diagonal
-    D2 = spdiagm(-1 => e[1:end-1], 0 => -2e, 1 => e[1:end-1])
-    D2 /= dx^2 # Central difference
+nonlinear_convection!(du, u, p, t) = du .= (-p.alpha / 3) * (u .* (p.D1 * u) + p.D1 * (u .^ 2))
 
-    return nu * D2
-end
-
-# Nonlinear term (nonlinear convection)
-function nonlinear_term(N, dx, alpha)
-    # First derivative operator
-    e = ones(N)
-    D1 = spdiagm(1 => e, -1 => -e)
-    # D1[1, end] = -1 # Left ghost cell
-    # D1[end, 1] = 1  # Right ghost cell
-    D1 /= 2dx # Central difference
-
-    # Nonlinear convection term: -(u * u_x)
-    # tmp = zeros(N + 1)
-    function (du, u, p, t)
-        # @. tmp = u^2s
-        mul!(du, D1, u)
-        @. du *= -alpha * u
-    end
-end
-
-# Construct the problem
+# Constructor
 function burgers(N, L)
-    x = LinRange(0, L, N + 1)
-    dx = x[2] - x[1]
-
+    # Derivative operators
+    D1 = derivative_operator(MattssonSvärdNordström2004(); 
+                             derivative_order = 1, accuracy_order = 2, 
+                             xmin = -L, xmax = L, N = N)
+    D2 = derivative_operator(MattssonSvärdNordström2004(); 
+                             derivative_order = 2, accuracy_order = 2, 
+                             xmin = -L, xmax = L, N = N)
+    
+    x = LinRange(0, L, N) # Domain discretization
+    u0 = @. exp(-(x - 0.5)^2 / (2 * 0.05^2)) # Initial condition
     nu = 1e-2 # Diffusion coefficient
     alpha = 1.0 # Convection coefficient
-    f1 = linear_term(N, dx, nu)
-    f2 = nonlinear_term(N, dx, alpha)
+    p = (; D1, alpha)
 
-    μ0 = 0.5
-    σ0 = 0.05
-    u0 = @. exp(-(x - μ0)^2 / (2 * σ0^2)) # Initial condition
-    prob = SplitODEProblem(MatrixOperator(f1), f2, u0, (0.0, 1.0))
+    prob = SplitODEProblem(MatrixOperator(nu * sparse(D2)), nonlinear_convection!, u0, (0.0, 1.0), p)
+
     return x, prob
 end;
 ```
 
-Reference solution using Vern9 with adaptive time-stepping:
+### Reference Solution
+
+Using an adaptive timestepping method to solve the system of ordinary differential equations with high precision.
 
 ```julia
 N = 128
@@ -161,7 +132,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Explicit Methods
@@ -208,7 +179,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 ```julia, echo = false
