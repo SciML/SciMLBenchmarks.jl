@@ -3,6 +3,27 @@ title: Kortwrieg-de Vries Equation FDM Work-Precision Diagrams
 author: Arjit Seth
 ---
 
+### Problem Description
+
+The Kortwrieg de Vries (KdV) partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 20$, with the following initial and periodic boundary conditions:
+```math
+\begin{align}
+    \partial_t u(t,x) & = -6u(t,x)\partial_x u(t,x) -\partial_x^3 u(t,x), \\
+    u(0,x) & = \cos\left(\frac{\pi x}{L}\right), \\
+    u(t,-L) & = u(t,L) = -1.
+\end{align}
+```
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. 
+```math
+\begin{align}
+    \frac{du}{dt} & = -6uD_x u -D_x^3 u, \\
+    u(0,x) & = \cos\left(\frac{\pi x}{L}\right), \\
+    u(t,-L) & = u(t,L) = -1.
+\end{align}
+```
+
+### Implementation
+
 ```julia
 using OrdinaryDiffEq
 using DiffEqDevTools
@@ -16,31 +37,14 @@ using Plots
 gr();
 ```
 
-The Kortwrieg de Vries (KdV) partial differential equation is solved with the following initial and boundary conditions:
-```math
-\begin{align}
-    \partial_t u(x,t) & = -6u\partial_x u(x,t) -\partial_x^3 u(x,t) \\
-    u(0,x) & = 0.9\exp\left[-\frac{(x - \mu)^2}{2 * \sigma^2}\right], \quad \mu = 0.5,~\sigma = 0.05 \\
-    u(t,0) & = u(t,1) = 0
-\end{align}
-```
-This is discretized in space via the finite difference method.
-```math
-\begin{align}
-    \frac{du}{dt} & = -6uD_x u -D_x^3 u \\
-    u(0,x) & = 0.9\exp\left[-\frac{(x - \mu)^2}{2 * σ^2}\right], \quad \mu = 0.5,~\sigma = 0.05 \\
-    u(t,0) & = u(t,1) = 0, 
-\end{align}
-```
-
 ```julia
 nonlinear_convection!(du, u, p, t) = du .= (-6 * p.alpha / 3) * (u .* (p.D1 * u) + p.D1 * (u .^ 2))
 
 # Construct the problem
 function kortwrieg_de_vries(N, L, alpha)
-    D1 = periodic_derivative_operator(derivative_order = 1, accuracy_order = 6,
+    D1 = periodic_derivative_operator(derivative_order = 1, accuracy_order = 4,
                                       xmin = -L, xmax = L, N = N)
-    D3 = periodic_derivative_operator(derivative_order = 3, accuracy_order = 6,
+    D3 = periodic_derivative_operator(derivative_order = 3, accuracy_order = 4,
                                       xmin = -L, xmax = L, N = N)
 
     # u0 = usol.(first(tspan), SBP.grid(D1))
@@ -57,17 +61,18 @@ function kortwrieg_de_vries(N, L, alpha)
 end;
 ```
 
-Reference solution using Tsit5 is below:
+### Reference Solution
+
+Using an adaptive timestepping method to solve the system of ordinary differential equations with high precision.
 
 ```julia
 N = 128 # Number of grid points
 L = 16.0  # Domain length
-alpha = 20.0 # Lipschitz constant scaling factor
+alpha = 20.0 # Time scaling factor
 xs, prob = kortwrieg_de_vries(N, L, alpha)
 
-@time sol = solve(prob, AutoVern7(Rodas5(autodiff = false)); 
-                  dt = 1e-4, abstol = 1e-14,
-                  reltol = 1e-14, adaptive = true)
+@time sol = solve(prob, AutoVern7(RadauIIA5(autodiff=false)); 
+                  dt = 1e-4, abstol = 1e-14, reltol = 1e-14);
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
 
@@ -76,6 +81,8 @@ ys = mapreduce(sol, hcat, tslices)
 plt = heatmap(xs, tslices, ys', xlabel="x", ylabel="t")
 ```
 
+## Work-Precision Diagrams
+
 ### Implicit-Explicit Methods
 
 ```julia
@@ -83,13 +90,13 @@ abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:4)
 setups = [
-    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
+    # Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers), # Taking forever due to the accuracy order of the derivative
     Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
     Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers)
 ]
 labels = hcat(
-    "IMEXEuler",
+    # "IMEXEuler",
     "CNAB2",
     "CNLF2",
     "SBDF2",
@@ -127,7 +134,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Explicit Methods
@@ -174,7 +181,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 ```julia, echo = false
