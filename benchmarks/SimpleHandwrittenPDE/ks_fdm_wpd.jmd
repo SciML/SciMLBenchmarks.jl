@@ -3,6 +3,27 @@ title: Kuramoto-Sivashinsky Finite-Difference Method Work-Precision Diagrams
 author: Arjit Seth
 ---
 
+## Problem Description
+
+The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
+```math
+\begin{align}
+    \partial_t u & =  -\kappa u(t,x)\partial_x u(t,x) - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x), \\
+    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \\
+    u(t,-L) & = u(t,L) = 1.
+\end{align}
+```
+The spatial derivative operators are represented via finite difference approximations, incorporating the periodic boundary conditions on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $\kappa = 1,~\beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+```math
+\begin{align}
+    \frac{du}{dt} & =  -\kappa u D_x u - \beta D_x^2 u - \gamma D_x^4 u, \\
+    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \\
+    u(t,-L) & = u(t,L) = 1.
+\end{align}
+```
+
+### Implementation
+
 ```julia
 using OrdinaryDiffEq
 using DiffEqDevTools
@@ -16,27 +37,16 @@ using Plots
 gr();
 ```
 
-The Kuramoto-Sivashinsky equation is considered with the following initial and periodic boundary conditions:
-```math
-\begin{align}
-    \partial_t u + \partial_x^2 u + \partial_x^4 u
-    + \alpha \partial_x (u \partial_x u) & = 0 \\
-    u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \quad \text{for } x \in [0, L] \\
-    u(t,0) & = u(t,L) = 1
-\end{align}
-```
-The derivatives are discretized via finite differences, incorporating the periodic boundary conditions.
-
 ```julia
 nonlinear_convection!(du, u, p, t) = du .= (-p.alpha / 3) * (u .* (p.D1 * u) + p.D1 * (u .^ 2))
 
 # Construct the problem
 function kuramoto_sivashinsky(N, L, alpha)
-    D1 = periodic_derivative_operator(derivative_order = 1, accuracy_order = 8,
+    D1 = periodic_derivative_operator(derivative_order = 1, accuracy_order = 4,
                                       xmin = -L, xmax = L, N = N)
-    D2 = periodic_derivative_operator(derivative_order = 2, accuracy_order = 8,
+    D2 = periodic_derivative_operator(derivative_order = 2, accuracy_order = 4,
                                       xmin = -L, xmax = L, N = N)
-    D4 = periodic_derivative_operator(derivative_order = 4, accuracy_order = 8,
+    D4 = periodic_derivative_operator(derivative_order = 4, accuracy_order = 4,
                                       xmin = -L, xmax = L, N = N)
 
     x = SBP.grid(D1)
@@ -52,12 +62,14 @@ function kuramoto_sivashinsky(N, L, alpha)
 end;
 ```
 
-Reference solution using an adaptive timestepping method with high precision:
+### Reference Solution
+
+Using an adaptive timestepping method to solve the system of ordinary differential equations with high precision.
 
 ```julia
 N = 128  # Number of grid points
 L = 16.0  # Domain length
-alpha = 30.0 # Lipschitz constant scaling factor
+alpha = 30.0 # Time scaling factor
 xs, prob = kuramoto_sivashinsky(N, L, alpha)
 @time sol = solve(prob, RadauIIA5(autodiff=false); dt = 1e-4, abstol=1e-14, reltol=1e-14, adaptive=true)
 
@@ -122,7 +134,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Explicit Methods
@@ -169,7 +181,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 
