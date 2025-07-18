@@ -4,20 +4,22 @@ author: Arjit Seth
 ---
 
 
-### Problem Description
+## Problem Description
 
-The following initial-boundary-value problem is considered for the Allen-Cahn equation in one dimension:
+The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
 ```math
 \begin{aligned}
-    \frac{\partial}{\partial t} u(x,t) & = \epsilon^2 \frac{\partial^2}{\partial x^2} u(x,t) + u(x,t) - u^3(x,t) \\
-    u(x,0) & = \cos(2\pi x), \quad x \in [-1, 1] \end{aligned}
+    \partial_t u(t,x) & = u(t,x) - u^3(t,x) + \epsilon \partial_x^2 u(t,x), \\
+    u(0,x) & = \cos(2\pi x), \\
+    u(t,-L) & = u(t,L) = 1.
+\end{aligned}
 ```
-The equations are discretized in space via pseudospectral methods. Specifically, the Chebyshev basis is used to represent the solution in space:
+The spatial derivative operators are represented via Chebyshev pseudospectral approximations. Here, the domain is discretized by projecting on a cosine-spaced grid of points $x_s \in [-1, 1]$; the solution is approximated on this grid via linear combinations of Chebyshev polynomial basis functions in space. The coefficient $p = 3,~\epsilon = 10^{-3}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
 ```math
 \begin{aligned}
-    u(x,t) & = \sum_{k=0}^{n-1} c_k(t) T_k(x) \\
-    \frac{\partial^2}{\partial x^2} u(x,t) & = \sum_{k=0}^{n-1} c_k(t) \frac{d^2}{dx^2} T_k(x) \\
-    \frac{\partial}{\partial t} u(x,t) & = \sum_{k=0}^{n-1} \dot{c}_k(t) T_k(x)
+    \frac{du}{dt} & = p(u(t,x) - u^3(t,x)) + \epsilon D_x^2 u(t,x),  \\
+    u(0,x_s) & = \cos(2\pi x_s), \\
+    u(t,-L) & = u(t,L) = 1.
 \end{aligned}
 ```
 
@@ -44,7 +46,7 @@ function f_nonlinear!(du, u, p, t)
     ldiv!(du, M, tmp) # Solve the linear system M * du = tmp
 end
 
-function make_allen_cahn(n, eps)
+function allen_cahn(n, eps)
     T = ChebyshevT() # Chebyshev basis
     x1 = reverse(ChebyshevGrid{1}(n - 2)) # 1st kind points, sorted
     x2 = reverse(ChebyshevGrid{2}(n)) # 2nd kind points, sorted
@@ -57,7 +59,7 @@ function make_allen_cahn(n, eps)
     B_r = [zeros(n-1); 1]'  # Right Dirichlet
     M = lu([B_l; D0; B_r]) # Mass matrix for the problem
     u0 = cos.(2π * x2)  # Initial condition
-    alpha = 3.0 # Lipschitz constant scaling factor
+    alpha = 3.0 # Time scaling factor
     D2_bc = [zeros(1, n); D2; zeros(1, n)] # 2nd derivative with Dirichlet conditions
 
     # Problem setup
@@ -72,12 +74,12 @@ function make_allen_cahn(n, eps)
 end
 ```
 
-## Reference Solution
+### Reference Solution
 
 ```julia
 N = 128
-ε = 1e-3
-xs, prob = make_allen_cahn(N, ε);
+eps = 1e-3
+xs, prob = allen_cahn(N, eps);
 
 @time sol = solve(prob, Rodas5(autodiff=false); dt=1e-4, reltol=1e-12, abstol=1e-12);
 
@@ -141,7 +143,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, low order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
 ```
 
 ### Explicit Methods
@@ -188,7 +190,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
 ```
 
 
