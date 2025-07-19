@@ -26,6 +26,7 @@ using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
+using StatsBase: countmap
 ```
 
 # Benchmarks
@@ -87,8 +88,8 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 
                 for optimizer in optimizers
                     try
-                        # Set aggressive time and iteration limits
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 5.0)
+                        # Generous limits for 100GB memory
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
 
                         @info "✓ Solved $(prob_name) with $(optimizer)"
                         vars, time, alg, code = get_stats(sol, optimizer)
@@ -158,6 +159,15 @@ eq_unb_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_
 # Analysis
 eq_unb_results =  run_benchmarks(eq_unb_problems, optimizers)
 
+# Calculate and display success rates for equality constrained
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, eq_unb_results)
+total_attempts = nrow(eq_unb_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "EQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+
 @df eq_unb_results scatter(:n_vars, :secs,
         group = :solver,
         xlabel = "n. variables",
@@ -174,6 +184,15 @@ neq_unb_problems = CUTEst.select_sif_problems(min_con=1, only_ineq_con=true, onl
 
 # Analysis
 neq_unb_results =  run_benchmarks(neq_unb_problems, optimizers)
+
+# Calculate and display success rates for inequality constrained
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, neq_unb_results)
+total_attempts = nrow(neq_unb_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "INEQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
 
 @df neq_unb_results scatter(:n_vars, :secs,
         group = :solver,

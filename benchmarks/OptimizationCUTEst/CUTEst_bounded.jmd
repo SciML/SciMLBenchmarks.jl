@@ -26,6 +26,7 @@ using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
+using StatsBase: countmap
 ```
 
 # Benchmarks
@@ -48,7 +49,7 @@ function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
         "Ipopt", Symbol(sol.retcode))
 end
 
-function run_benchmarks(problems, optimizers; chunk_size=3)
+function run_benchmarks(problems, optimizers; chunk_size=1)
     problem = String[]
     n_vars = Int64[]
     secs = Float64[]
@@ -77,7 +78,7 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
             try
                 nlp_prob = CUTEstModel(prob_name)
                 
-                # Skip extremely large problems to prevent memory issues
+                # Generous memory limits for 100GB systems - include 5000 var problems
                 if nlp_prob.meta.nvar > 10000
                     @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
                     finalize(nlp_prob)
@@ -88,8 +89,8 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 
                 for optimizer in optimizers
                     try
-                        # Set aggressive time and iteration limits
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 5.0)
+                        # Generous limits for 100GB memory
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
 
                         @info "✓ Solved $(prob_name) with $(optimizer)"
                         vars, time, alg, code = get_stats(sol, optimizer)
@@ -121,7 +122,7 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                     push!(retcode, :LOAD_FAILED)
                 end
             finally
-                # Clean up resources
+                # Aggressive cleanup to prevent memory accumulation
                 if nlp_prob !== nothing
                     try
                         finalize(nlp_prob)
@@ -129,6 +130,8 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                         @warn "Failed to finalize $(prob_name): $(e)"
                     end
                 end
+                # Force garbage collection after each problem
+                GC.gc()
             end
         end
         
@@ -155,8 +158,25 @@ problems on this section.
 eq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_free_var=false)
 @info "after1 - testing $(length(eq_bou_problems)) equality-constrained problems"
 
+# Limit to first 50 problems for 100GB memory systems
+eq_bou_problems = eq_bou_problems[1:min(50, length(eq_bou_problems))]
+@info "Limited to $(length(eq_bou_problems)) problems for comprehensive testing"
+
 # Analysis
 eq_bou_results =  run_benchmarks(eq_bou_problems, optimizers)
+
+# Calculate and display success rates
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, eq_bou_results)
+total_attempts = nrow(eq_bou_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "SUCCESS RATE ANALYSIS:"
+@info "Total attempts: $(total_attempts)"
+@info "Successful attempts: $(successful_attempts)"
+@info "Success rate: $(success_rate)%"
+
 @info "after2"
 
 @df eq_bou_results scatter(:n_vars, :secs,
@@ -175,8 +195,22 @@ Next, we examine the same relationship for inequality-constrained problems.
 neq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_ineq_con=true, only_free_var=false)
 @info "after5 - testing $(length(neq_bou_problems)) inequality-constrained problems"
 
+# Limit to first 50 problems for 100GB memory systems
+neq_bou_problems = neq_bou_problems[1:min(50, length(neq_bou_problems))]
+@info "Limited to $(length(neq_bou_problems)) problems for comprehensive testing"
+
 # Analysis
 neq_bou_results =  run_benchmarks(neq_bou_problems, optimizers)
+
+# Calculate and display success rates  
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, neq_bou_results)
+total_attempts = nrow(neq_bou_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "INEQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+
 @info "after6"
 
 @df neq_bou_results scatter(:n_vars, :secs,
