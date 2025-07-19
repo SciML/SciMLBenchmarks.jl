@@ -26,6 +26,7 @@ using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
+using StatsBase: countmap
 ```
 
 # Benchmarks
@@ -48,7 +49,7 @@ function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
         "Ipopt", Symbol(sol.retcode))
 end
 
-function run_benchmarks(problems, optimizers; chunk_size=3)
+function run_benchmarks(problems, optimizers; chunk_size=1)
     problem = String[]
     n_vars = Int64[]
     secs = Float64[]
@@ -77,7 +78,7 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
             try
                 nlp_prob = CUTEstModel(prob_name)
                 
-                # Skip extremely large problems to prevent memory issues
+                # Generous memory limits for 100GB systems - include 5000 var problems
                 if nlp_prob.meta.nvar > 10000
                     @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
                     finalize(nlp_prob)
@@ -88,10 +89,10 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 
                 for optimizer in optimizers
                     try
-                        # Set aggressive time and iteration limits
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 5.0)
+                        # Generous limits for 100GB memory
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
 
-                        @info "✓ Solved $(prob_name) with $(optimizer)"
+                        @info "✓ Solved $(prob_name) with $(optimizer) - Status: $(sol.retcode)"
                         vars, time, alg, code = get_stats(sol, optimizer)
 
                         push!(problem, prob_name)
@@ -101,11 +102,11 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                         push!(retcode, code)
                     catch e
                         @warn "✗ Failed to solve $(prob_name) with $(optimizer): $(e)"
-                        # Add failure entry
+                        # Still add entry for failed attempts to maintain data consistency
                         push!(problem, prob_name)
-                        push!(n_vars, -1)
+                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
                         push!(secs, NaN)
-                        push!(solver, string(optimizer))
+                        push!(solver, string(typeof(optimizer)))
                         push!(retcode, :FAILED)
                     end
                 end
@@ -151,8 +152,34 @@ terms of the time to solution with respect to the number of variables.
 unc_problems = collect(CUTEst.select_sif_problems(contype="unc"))
 @info "Testing $(length(unc_problems)) unconstrained problems"
 
+# Limit to first 50 problems for 100GB memory systems
+unc_problems = unc_problems[1:min(50, length(unc_problems))]
+@info "Limited to $(length(unc_problems)) problems for comprehensive testing"
+
 # Analysis
 unc_results =  run_benchmarks(unc_problems, optimizers)
+
+# Calculate and display success rates
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, unc_results)
+total_attempts = nrow(unc_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "SUCCESS RATE ANALYSIS:"
+@info "Total attempts: $(total_attempts)"
+@info "Successful attempts: $(successful_attempts)" 
+@info "Success rate: $(success_rate)%"
+
+# Show distribution of return codes
+@info "Return code distribution:"
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(unc_results.retcode))), by=x->x[2], rev=true)
+        @info "  $(code): $(count) occurrences"
+    end
+else
+    @info "  No results to analyze"
+end
 
 @df unc_results scatter(:n_vars, :secs,
         group = :solver,
