@@ -1,0 +1,347 @@
+---
+title: NAND Gate Differential-Algebraic Equation (DAE) Work-Precision Diagrams
+author: Jayant Pranjal
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, ModelingToolkit, ODEInterfaceDiffEq,
+      Plots
+using LinearAlgebra
+using ModelingToolkit: t_nounits as t, D_nounits as D
+```
+
+## Problem Parameters
+
+```julia
+const RGS = 4.0
+const RGD = 4.0
+const RBS = 10.0
+const RBD = 10.0
+const CGS = 6e-5
+const CGD = 6e-5
+const CBD = 2.4e-5
+const CBS = 2.4e-5
+const C9 = 5e-5
+const DELTA = 0.02
+const CURIS = 1e-14
+const VTH = 25.85
+const VDD = 5.0
+const VBB = -2.5
+const VT0_DEPL = -2.43
+const CGAMMA_DEPL = 0.2
+const PHI_DEPL = 1.28
+const BETA_DEPL = 5.35e-4
+const VT0_ENH = 0.2
+const CGAMMA_ENH = 0.035
+const PHI_ENH = 1.01
+const BETA_ENH = 1.748e-3
+```
+
+## Input Signal Functions
+
+```julia
+function pulse(t, t_start, v_low, t_rise, v_high, t_high, t_fall, t_period)
+    t_mod = mod(t, t_period)
+    
+    if t_mod < t_start
+        return v_low
+    elseif t_mod < t_start + t_rise
+        return v_low + (v_high - v_low) * (t_mod - t_start) / t_rise
+    elseif t_mod < t_start + t_rise + t_high
+        return v_high
+    elseif t_mod < t_start + t_rise + t_high + t_fall
+        return v_high - (v_high - v_low) * (t_mod - t_start - t_rise - t_high) / t_fall
+    else
+        return v_low
+    end
+end
+
+V1(t) = pulse(t, 0.0, 0.0, 5.0, 5.0, 5.0, 5.0, 20.0)
+V2(t) = pulse(t, 0.0, 0.0, 15.0, 5.0, 15.0, 5.0, 40.0)
+
+function V1_derivative(t)
+    t_mod = mod(t, 20.0)
+    if 0.0 < t_mod < 5.0
+        return 1.0
+    elseif 10.0 < t_mod < 15.0
+        return -1.0
+    else
+        return 0.0
+    end
+end
+function V2_derivative(t)
+    t_mod = mod(t, 40.0)
+    if 0.0 < t_mod < 15.0
+        return 1.0/15.0
+    elseif 20.0 < t_mod < 35.0
+        return -1.0/15.0
+    else
+        return 0.0
+    end
+end
+```
+
+## MOSFET Model Functions
+
+```julia
+function gdsp(ned, vds, vgs, vbs)
+    if ned == 1
+        vt0, cgamma, phi, beta = VT0_DEPL, CGAMMA_DEPL, PHI_DEPL, BETA_DEPL
+    else
+        vt0, cgamma, phi, beta = VT0_ENH, CGAMMA_ENH, PHI_ENH, BETA_ENH
+    end
+    phi_vbs = max(phi - vbs, 1e-12)
+    phi_safe = max(phi, 1e-12)
+    vte = vt0 + cgamma * (sqrt(phi_vbs) - sqrt(phi_safe))
+    if vgs - vte <= 0.0
+        return 0.0
+    elseif 0.0 < vgs - vte <= vds
+        return -beta * (vgs - vte)^2 * (1.0 + DELTA * vds)
+    elseif 0.0 < vds < vgs - vte
+        return -beta * vds * (2.0 * (vgs - vte) - vds) * (1.0 + DELTA * vds)
+    else
+        return 0.0
+    end
+end
+
+function gdsm(ned, vds, vgd, vbd)
+    if ned == 1
+        vt0, cgamma, phi, beta = VT0_DEPL, CGAMMA_DEPL, PHI_DEPL, BETA_DEPL
+    else
+        vt0, cgamma, phi, beta = VT0_ENH, CGAMMA_ENH, PHI_ENH, BETA_ENH
+    end
+    phi_vbd = max(phi - vbd, 1e-12)
+    phi_safe = max(phi, 1e-12)
+    vte = vt0 + cgamma * (sqrt(phi_vbd) - sqrt(phi_safe))
+    if vgd - vte <= 0.0
+        return 0.0
+    elseif 0.0 < vgd - vte <= -vds
+        return beta * (vgd - vte)^2 * (1.0 - DELTA * vds)
+    elseif 0.0 < -vds < vgd - vte
+        return -beta * vds * (2.0 * (vgd - vte) + vds) * (1.0 - DELTA * vds)
+    else
+        return 0.0
+    end
+end
+
+function ids(ned, vds, vgs, vbs, vgd, vbd)
+    if vds > 0.0
+        return gdsp(ned, vds, vgs, vbs)
+    elseif vds == 0.0
+        return 0.0
+    else
+        return gdsm(ned, vds, vgd, vbd)
+    end
+end
+
+function ibs(vbs)
+    if vbs <= 0.0
+        return -CURIS * (exp(vbs / VTH) - 1.0)
+    else
+        return 0.0
+    end
+end
+
+function ibd(vbd)
+    if vbd <= 0.0
+        return -CURIS * (exp(vbd / VTH) - 1.0)
+    else
+        return 0.0
+    end
+end
+```
+
+## Capacitance Matrix Function
+
+```julia
+function capacitance_matrix!(C, y, t)
+    fill!(C, 0.0)
+    
+    C[1,1] = CGS
+    C[2,2] = CGD
+    C[3,3] = CBS
+    C[4,4] = CBD
+    C[5,5] = 0.0
+    C[6,6] = CGS
+    C[7,7] = CGD
+    C[8,8] = CBS
+    C[9,9] = CBD
+    C[10,10] = 0.0
+    C[11,11] = CGS
+    C[12,12] = CGD
+    C[13,13] = CBS
+    C[14,14] = CBD
+    
+    return C
+end
+```
+
+## DAE System Definition
+
+```julia
+function nand_rhs!(f, y, p, t)
+    v1 = V1(t)
+    v2 = V2(t)
+    v1d = V1_derivative(t)
+    v2d = V2_derivative(t)
+    
+    y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14 = y
+    
+    f[1] = -(y1 - y5) / RGS - ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
+    f[2] = -(y2 - VDD) / RGD + ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
+    f[3] = -(y3 - VBB) / RBS + ibs(y3 - y5)
+    f[4] = -(y4 - VBB) / RBD + ibd(y4 - VDD)
+    f[5] = -(y5 - y1) / RGS - ibs(y3 - y5) - (y5 - y7) / RGD - ibd(y9 - y5)
+    
+    f[6] = CGS * v1d - (y6 - y10) / RGS - ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
+    f[7] = CGD * v1d - (y7 - y5) / RGD + ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
+    f[8] = -(y8 - VBB) / RBS + ibs(y8 - y10)
+    f[9] = -(y9 - VBB) / RBD + ibd(y9 - y5)
+    f[10] = -(y10 - y6) / RGS - ibs(y8 - y10) - (y10 - y12) / RGD - ibd(y14 - y10)
+    
+    f[11] = CGS * v2d - y11 / RGS - ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
+    f[12] = CGD * v2d - (y12 - y10) / RGD + ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
+    f[13] = -(y13 - VBB) / RBS + ibs(y13)
+    f[14] = -(y14 - VBB) / RBD + ibd(y14 - y10)
+    
+    return nothing
+end
+
+function nand_mass_matrix!(M, y, p, t)
+    capacitance_matrix!(M, y, t)
+    return nothing
+end
+
+function create_nand_problem()
+    y0 = [5.0, 5.0, VBB, VBB, 5.0, 3.62385, 5.0, VBB, VBB, 3.62385, 0.0, 3.62385, VBB, VBB]
+    dy0 = zeros(14)
+    tspan = (0.0, 80.0)
+    M = zeros(14, 14)
+    capacitance_matrix!(M, y0, 0.0)
+    f = ODEFunction(nand_rhs!, mass_matrix=M)
+    prob = ODEProblem(f, y0, tspan)
+    return prob
+end
+nand_prob = create_nand_problem()
+```
+
+## Generate Reference Solution
+
+```julia
+ref_sol = solve(nand_prob, Rodas5P(), abstol=1e-12, reltol=1e-12, 
+                tstops=0.0:5.0:80.0)  # Include discontinuity points
+
+plot(ref_sol, title="NAND Gate Circuit - Node Potentials", 
+     xlabel="Time", ylabel="Voltage (V)", legend=:outertopright)
+```
+
+## Work-Precision Benchmarks
+
+### High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [
+    Dict(:alg=>Rosenbrock23()),
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+
+
+]
+
+wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
+                      save_everystep=false, appxsol=[ref_sol], 
+                      maxiters=Int(1e6), numruns=5,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Work-Precision (High Tolerances)")
+```
+
+### Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+
+
+]
+
+wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
+                      save_everystep=false, appxsol=[ref_sol], 
+                      maxiters=Int(1e6), numruns=5,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Work-Precision (Medium Tolerances)")
+```
+
+### Low Tolerances (High Accuracy)
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+
+
+]
+
+wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
+                      save_everystep=false, appxsol=[ref_sol], 
+                      maxiters=Int(1e6), numruns=5,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Work-Precision (Low Tolerances)")
+```
+
+### Timeseries Error Analysis
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (2:5)
+
+setups = [
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>FBDF()),
+
+
+]
+
+wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
+                      error_estimate=:l2, save_everystep=false, 
+                      appxsol=[ref_sol], maxiters=Int(1e6), numruns=5,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Timeseries Error Analysis")
+```
+
+## Analysis of Key Nodes
+
+```julia
+key_nodes = [1, 5, 6, 10, 11, 12]  # Representative nodes from different parts of the circuit
+node_names = ["Node 1", "Node 5", "Node 6", "Node 10", "Node 11", "Node 12"]
+
+p_nodes = plot()
+for (i, node) in enumerate(key_nodes)
+    plot!(ref_sol.t, [u[node] for u in ref_sol.u], 
+          label=node_names[i], linewidth=2)
+end
+plot!(p_nodes, title="NAND Gate - Key Node Potentials", 
+      xlabel="Time (s)", ylabel="Voltage (V)", legend=:outertopright)
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
