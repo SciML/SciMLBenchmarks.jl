@@ -31,6 +31,7 @@ using SciMLOperators
 using LinearSolve
 using LinearAlgebra
 using SparseArrays
+using Sundials
 using SummationByPartsOperators
 const SBP = SummationByPartsOperators
 using Plots
@@ -53,7 +54,7 @@ function kortwrieg_de_vries(N, L, alpha)
     p = (; D1, alpha)
 
     tspan = (0.0, 1.0)
-    prob = SplitODEProblem(MatrixOperator(-p.alpha * Matrix(D3)),
+    prob = SplitODEProblem(MatrixOperator(-p.alpha * sparse(D3)),
                            nonlinear_convection!, 
                            u0, tspan, p);
 
@@ -68,7 +69,7 @@ Using an adaptive timestepping method to solve the system of ordinary differenti
 ```julia
 N = 128 # Number of grid points
 L = 16.0  # Domain length
-alpha = 20.0 # Time scaling factor
+alpha = 5.0 # Time scaling factor
 xs, prob = kortwrieg_de_vries(N, L, alpha)
 
 @time sol = solve(prob, AutoVern7(RadauIIA5(autodiff=false)); 
@@ -83,20 +84,129 @@ plt = heatmap(xs, tslices, ys', xlabel="x", ylabel="t")
 
 ## Work-Precision Diagrams
 
-### Implicit-Explicit Methods
+### Low Tolerances
+
+#### Implicit-Explicit Methods
+
+Dense/banded linear solvers.
+
+```julia
+abstols = 0.1 .^ (7:13)
+reltols = 0.1 .^ (4:10)
+multipliers = 0.5 .^ (0:6)
+setups = [
+    # KenCarp methods take forever with adaptive timestepping for some reason
+    # Dict(:alg => KenCarp3(), :dts => 1e-3 * multipliers),
+    # Dict(:alg => KenCarp4(), :dts => 1e-3 * multipliers),
+    # Dict(:alg => KenCarp5(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Band, jac_upper=1, jac_lower=1)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Band, jac_upper=1, jac_lower=1)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1))
+]
+labels = hcat(
+    # "KenCarp3",
+    # "KenCarp4",
+    # "KenCarp5",
+    "ARKODE3",
+    "ARKODE4",
+    "ARKODE5",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(2e5));
+
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Band Linsolve, Low Tolerances")
+```
+
+Krylov linear solvers.
+```julia
+abstols = 0.1 .^ (7:13)
+reltols = 0.1 .^ (4:10)
+setups = [
+    # KenCarp methods take forever with adaptive timestepping for some reason
+    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+    # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
+    # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
+]
+labels = hcat(
+    # "KenCarp3",
+    # "KenCarp4",
+    # "KenCarp5",
+    "ARKODE3",
+    "ARKODE4",
+    "ARKODE5",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
+```
+
+#### Exponential Integrators
+
+```julia
+abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (4:8)
+multipliers = 0.5 .^ (0:4)
+setups = [Dict(:alg => ETDRK3(), :dts => 1e-3 * multipliers),
+          Dict(:alg => ETDRK4(), :dts => 1e-3 * multipliers),
+          Dict(:alg => HochOst4(), :dts => 1e-3 * multipliers)]
+labels = hcat(
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)",
+    "HochOst4 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, Low Tolerances")
+```
+
+#### Comparisons Between Families
+
+```julia
+abstols = 0.1 .^ (7:11)
+reltols = 0.1 .^ (4:8)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1)),
+    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+]
+labels = hcat(
+    "ARKODE (Band linsolve)",
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
+```
+
+
+### High Tolerances
+
+#### Implicit-Explicit Methods
 
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:4)
+multipliers = 0.5 .^ (0:3)
 setups = [
-    # Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers), # Taking forever due to the accuracy order of the derivative
+    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers)
+    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers),
 ]
 labels = hcat(
-    # "IMEXEuler",
+    "IMEXEuler",
     "CNAB2",
     "CNLF2",
     "SBDF2",
@@ -108,12 +218,12 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
 ```
 
-### Exponential Integrators
+#### Exponential Integrators
 
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:4)
+multipliers = 0.5 .^ (0:3)
 setups = [
     Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
     Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
@@ -134,34 +244,11 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK methods, High Tolerance")
-```
-
-### Explicit Methods
-
-```julia
-abstols = 0.1 .^ (5:7) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:3)
-multipliers = 0.5 .^ (0:4)
-setups = [
-    Dict(:alg => RK4(), :dts => 1e-4 * multipliers),
-    Dict(:alg => Tsit5(), :dts => 1e-4 * multipliers),
-    Dict(:alg => Vern7(), :dts => 1e-4 * multipliers)
-]
-labels = hcat(
-    "RK4",
-    "Tsit5",
-    "Vern7",
-)
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
 
 
-### Between Family Comparisons
+#### Comparisons Between Families
 
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
@@ -181,7 +268,7 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between family, High Tolerances")
+plot(wp, label=labels, markershape=:auto, title="Between Families, High Tolerances")
 ```
 
 ```julia, echo = false
