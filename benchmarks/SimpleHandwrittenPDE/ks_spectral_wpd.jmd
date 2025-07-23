@@ -5,10 +5,10 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
+The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 10$, with the following initial and periodic boundary conditions:
 ```math
 \begin{align}
-    \partial_t u & =  -\kappa \partial_x \left[u(t,x) \partial_x u(t,x)\right] - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x) \\
+    \partial_t u & =  -\kappa u(t,x) \partial_x u(t,x) - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x) \\
     u(0,x) & = \cos\left(\frac{2\pi}{L} x\right), \\
     u(t,-L) & = u(t,L) = 1.
 \end{align}
@@ -16,7 +16,7 @@ The Kuramoto-Sivashinsky partial differential equation is solved on the domain $
 The spatial derivative operators are represented via Fourier pseudospectral approximations. Here, the domain is discretized by projecting on an equispaced grid of points $x_s \in [-L, L]$; the solution is approximated on this grid via linear combinations of sinusoidal functions in space. The coefficients $\kappa = 1, \beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
 ```math
 \begin{align}
-    \frac{du}{dt} & =  -\kappa D_x (u D_x u) - \beta D_x^2 u - \gamma D_x^4 u \\
+    \frac{du}{dt} & =  -\kappa u D_x u - \beta D_x^2 u - \gamma D_x^4 u \\
     u(0,x_s) & = \cos\left(\frac{2\pi}{L} x_s\right), \\
     u(t,-L) & = u(t,L) = 1.
 \end{align}
@@ -65,7 +65,7 @@ Using an adaptive timestepping method to solve the system of ordinary differenti
 ```julia
 N = 128  # Number of grid points
 L = 16.0  # Domain length
-alpha = 30.0 # Time scaling factor
+alpha = 10.0 # Time scaling factor
 xs, prob = kuramoto_sivashinsky(N, L, alpha)
 
 sol = solve(prob, Rodas5(autodiff=false); dt = 1e-4, reltol = 1e-12, abstol = 1e-12)
@@ -79,111 +79,6 @@ heatmap(xs, tslices, ys', xlabel = "x", ylabel = "t")
 
 ## Work-Precision Diagrams
 
-### Low Tolerances
-
-#### Implicit-Explicit Methods
-
-Dense/banded linear solvers.
-
-```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [
-    # KenCarp methods take forever with adaptive timestepping for some reason
-    # Dict(:alg => KenCarp3()),
-    # Dict(:alg => KenCarp4()),
-    # Dict(:alg => KenCarp5()),
-    # ARKODE with banded linear solves fail with adaptive timestepping for some reason
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Band, jac_upper=1, jac_lower=1)),
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Band, jac_upper=1, jac_lower=1)),
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1))
-]
-labels = hcat(
-    # "KenCarp3",
-    # "KenCarp4",
-    # "KenCarp5",
-    # "ARKODE3",
-    # "ARKODE4",
-    # "ARKODE5",
-)
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Band Linsolve, Low Tolerances")
-```
-
-Krylov linear solvers.
-```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [
-    # KenCarp methods take forever with adaptive timestepping for some reason
-    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
-    # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
-    # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
-]
-labels = hcat(
-    # "KenCarp3",
-    # "KenCarp4",
-    # "KenCarp5",
-    "ARKODE3",
-    "ARKODE4",
-    "ARKODE5",
-)
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
-```
-
-#### Exponential Integrators
-
-```julia
-abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [
-    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
-    Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
-]
-labels = hcat(
-    "ETDRK3 (caching)",
-    "ETDRK4 (caching)",
-    "HochOst4 (caching)",
-)
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, Low Tolerances")
-```
-
-#### Comparisons Between Families
-
-```julia
-abstols = 0.1 .^ (7:11)
-reltols = 0.1 .^ (4:8)
-multipliers = 0.5 .^ (0:4)
-setups = [
-    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
-    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
-]
-labels = hcat("ARKODE (Krylov linsolve)", "ETDRK3 ()", "ETDRK4 ()")
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
-```
-
-
 ### High Tolerances
 
 #### Implicit-Explicit Methods
@@ -191,7 +86,6 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerance
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
 setups = [
     Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
@@ -263,6 +157,87 @@ labels = hcat(
 
 plot(wp, label=labels, markershape=:auto, title="Between Families, High Tolerances")
 ```
+
+
+### Low Tolerances
+
+#### Implicit-Explicit Methods
+
+```julia
+abstols = 0.1 .^ (7:10)
+reltols = 0.1 .^ (4:7)
+setups = [
+    Dict(:alg => KenCarp3()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => KenCarp5()),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
+    # ARKODE with banded linear solvers fail.
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
+]
+labels = hcat(
+    "KenCarp3",
+    "KenCarp4",
+    "KenCarp5",
+    "KenCarp3 (Krylov)",
+    "KenCarp4 (Krylov)",
+    "KenCarp5 (Krylov)",
+    "ARKODE3 (Krylov)",
+    "ARKODE4 (Krylov)",
+    "ARKODE5 (Krylov)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
+```
+
+#### Exponential Integrators
+
+```julia
+abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (4:8)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
+]
+labels = hcat(
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)",
+    "HochOst4 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, Low Tolerances")
+```
+
+#### Comparisons Between Families
+
+```julia
+abstols = 0.1 .^ (7:11)
+reltols = 0.1 .^ (4:8)
+multipliers = 0.5 .^ (0:4)
+setups = [
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
+    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+]
+labels = hcat("ARKODE (Krylov linsolve)", "ETDRK3 ()", "ETDRK4 ()")
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
+```
+
 
 ```julia, echo = false
 using SciMLBenchmarks
