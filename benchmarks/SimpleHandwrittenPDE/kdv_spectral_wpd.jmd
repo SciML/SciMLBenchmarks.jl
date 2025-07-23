@@ -84,43 +84,15 @@ plt = heatmap(xs, tslices, ys', xlabel = "x", ylabel = "t")
 
 #### Implicit-Explicit Methods
 
-Dense/banded linear solvers.
 
 ```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
+abstols = 0.1 .^ (7:10)
+reltols = 0.1 .^ (4:7)
 setups = [
-    # KenCarp methods take forever with adaptive timestepping for some reason
-    # Dict(:alg => KenCarp3()),
+    Dict(:alg => KenCarp3()),
     # Dict(:alg => KenCarp4()),
     # Dict(:alg => KenCarp5()),
-    # ARKODE with banded linear solves fail with adaptive timestepping for some reason
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Band, jac_upper=1, jac_lower=1)),
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Band, jac_upper=1, jac_lower=1)),
-    # Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1))
-]
-labels = hcat(
-    # "KenCarp3",
-    # "KenCarp4",
-    # "KenCarp5",
-    # "ARKODE3",
-    # "ARKODE4",
-    # "ARKODE5",
-)
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Band Linsolve, Low Tolerances")
-```
-
-Krylov linear solvers.
-```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
-setups = [
-    # KenCarp methods take forever with adaptive timestepping for some reason
-    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
     # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
     # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
     Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
@@ -128,12 +100,15 @@ setups = [
     Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
 ]
 labels = hcat(
-    # "KenCarp3",
+    "KenCarp3",
     # "KenCarp4",
     # "KenCarp5",
-    "ARKODE3",
-    "ARKODE4",
-    "ARKODE5",
+    "KenCarp3 (Krylov)",
+    # "KenCarp4 (Krylov)",
+    # "KenCarp5 (Krylov)",
+    "ARKODE3 (Krylov)",
+    "ARKODE4 (Krylov)",
+    "ARKODE5 (Krylov)",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
@@ -224,16 +199,16 @@ reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
 setups = [
     Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
-    # Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
-    # Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
 ]
 labels = hcat(
     "NorsettEuler (caching)", 
-    # "NorsettEuler (m=5)",
-    # "NorsettEuler (m=20)",
+    "NorsettEuler (m=5)",
+    "NorsettEuler (m=20)",
     "ETDRK2 (caching)", 
     "ETDRK2 (m=5)", 
     "ETDRK2 (m=20)"
