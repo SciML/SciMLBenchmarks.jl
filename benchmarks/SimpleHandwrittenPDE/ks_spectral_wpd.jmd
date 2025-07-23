@@ -13,7 +13,7 @@ The Kuramoto-Sivashinsky partial differential equation is solved on the domain $
     u(t,-L) & = u(t,L) = 1.
 \end{align}
 ```
-The spatial derivative operators are represented via Fourier pseudospectral approximations. Here, the domain is discretized by projecting on an equispaced grid of points $x_s \in [-L, L]$; the solution is approximated on this grid via linear combinations of sinusoidal functions in space. The coefficients $\kappa = 1, \beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via Fourier pseudospectral approximations. Here, the domain is discretized by projecting on an equispaced grid of points $x_s \in [-L, L]$; the solution is approximated on this grid via linear combinations of sinusoidal functions in space. The coefficients $\kappa = 1, \beta = 1/2,~\gamma = 1/16$ are chosen to produce `interesting' behavior as seen in the reference solution below.
 ```math
 \begin{align}
     \frac{du}{dt} & =  -\kappa u D_x u - \beta D_x^2 u - \gamma D_x^4 u \\
@@ -50,7 +50,7 @@ function kuramoto_sivashinsky(N, L, alpha)
     p = (; D1, alpha)
 
     tspan = (0.0, 1.0)
-    prob = SplitODEProblem(MatrixOperator(-p.alpha / 2 * (Matrix(D2) + 1/4 * Matrix(D4))),
+    prob = SplitODEProblem(MatrixOperator(-p.alpha / 2 * (Matrix(D2) + 1/8 * Matrix(D4))),
                            nonlinear_convection!,
                            u0, tspan, p);
 
@@ -86,6 +86,7 @@ heatmap(xs, tslices, ys', xlabel = "x", ylabel = "t")
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
 setups = [
     Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
     Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
