@@ -1,0 +1,129 @@
+---
+title: CUTEst Unbounded Constrained Nonlinear Optimization Benchmarks
+author: Alonso M. Cisneros
+---
+
+# Introduction
+
+CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
+collection of around 1500 problems for general nonlinear optimization used to test
+optimization routines. The wrapper
+[CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access
+to the problem collection, which we can leverage to test the optimizers made available by
+Optimization.jl.
+
+This benchmark uses the following packages:
+
+```julia
+using Optimization
+using OptimizationNLPModels
+using CUTEst
+using OptimizationOptimJL
+using Ipopt
+using OptimizationMOI
+using OptimizationMOI: MOI as MOI
+# Analysis and plotting
+using DataFrames
+using Plots
+using StatsPlots
+```
+
+# Benchmarks
+
+We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes of
+problems.
+
+```julia
+optimizers = [
+        MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)
+    ]
+
+function get_stats(sol, ::Optimization.LBFGS)
+    return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
+end
+
+function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
+    return (length(sol.u), MOI.get(sol.original.model, MOI.SolveTimeSec()),
+        "Ipopt", Symbol(sol.retcode))
+end
+
+function run_benchmarks(problems, optimizers)
+    problem = String[]
+    n_vars = Int64[]
+    secs = Float64[]
+    solver = String[]
+    retcode = Symbol[]
+
+    optz = length(optimizers)
+    n = length(problems)
+
+    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+
+    for prob_name in problems
+        nlp_prob = CUTEstModel(prob_name)
+        prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+        for optimizer in optimizers
+            sol = solve(prob, optimizer; maxiters = 1e7)
+
+            @info "Solved $(prob_name) with $(optimizer)"
+            vars, time, alg, code = get_stats(sol, optimizer)
+
+            push!(problem, prob_name)
+            push!(n_vars, vars)
+            push!(secs, time)
+            push!(solver, alg)
+            push!(retcode, code)
+
+        end
+        finalize(nlp_prob)
+    end
+
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver,
+        retcode = retcode)
+end
+```
+
+## Equality/Inequality constrained problems with unbounded variables
+
+These problems have a constraint function that's subject to either equality or inequality
+constraints, but the variables themselves are free. CUTEst contains 285 problems with
+equality constraints and 114 with inequality constraints for a total of 299.
+
+We start by analyzing the equality-constrained problems, of which there are 285. The
+following figure shows the time to solution as a function of number of variables by
+optimizer.
+
+```julia
+eq_unb_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_free_var=true)
+
+# Analysis
+eq_unb_results =  run_benchmarks(eq_unb_problems, optimizers)
+
+@df eq_unb_results scatter(:n_vars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
+```
+
+Next, we examine the same relationship for problems with inequality-constrained problems.
+
+```julia
+neq_unb_problems = CUTEst.select(min_con=1, only_ineq_con=true, only_free_var=true)
+
+# Analysis
+neq_unb_results =  run_benchmarks(neq_unb_problems, optimizers)
+
+@df neq_unb_results scatter(:n_vars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
