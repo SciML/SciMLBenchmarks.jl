@@ -26,6 +26,7 @@ using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
+using StatsBase: countmap
 ```
 
 # Benchmarks
@@ -35,20 +36,24 @@ problems.
 
 ```julia
 optimizers = [
-        Optimization.LBFGS(),
-        MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)
-    ]
+    ("GradientDescent", Optimization.GradientDescent()),
+    ("LBFGS", Optimization.LBFGS()),
+    ("ConjugateGradient", Optimization.ConjugateGradient()),
+    ("NelderMead", Optimization.NelderMead()),
+    ("SimulatedAnnealing", Optimization.SimulatedAnnealing()),
+    ("ParticleSwarm", Optimization.ParticleSwarm()),
+]
 
-function get_stats(sol, ::Optimization.LBFGS)
-    return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
+function get_stats(sol, optimizer_name)
+    if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
+        solve_time = sol.stats.time
+    else
+        solve_time = NaN
+    end
+    return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
 
-function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
-    return (length(sol.u), MOI.get(sol.original.model, MOI.SolveTimeSec()),
-        "Ipopt", Symbol(sol.retcode))
-end
-
-function run_benchmarks(problems, optimizers)
+function run_benchmarks(problems, optimizers; chunk_size=1)
     problem = String[]
     n_vars = Int64[]
     secs = Float64[]
@@ -58,25 +63,79 @@ function run_benchmarks(problems, optimizers)
     optz = length(optimizers)
     n = length(problems)
 
+    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
+
     broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
 
-    for prob_name in problems
-        nlp_prob = CUTEstModel(prob_name)
-        prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
-        for optimizer in optimizers
-            sol = solve(prob, optimizer; maxiters = 1e7)
-
-            @info "Solved $(prob_name) with $(optimizer)"
-            vars, time, alg, code = get_stats(sol, optimizer)
-
-            push!(problem, prob_name)
-            push!(n_vars, vars)
-            push!(secs, time)
-            push!(solver, alg)
-            push!(retcode, code)
-
+    # Process problems in chunks to manage memory
+    for chunk_start in 1:chunk_size:n
+        chunk_end = min(chunk_start + chunk_size - 1, n)
+        chunk_problems = problems[chunk_start:chunk_end]
+        
+        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
+        
+        for (idx, prob_name) in enumerate(chunk_problems)
+            current_problem = chunk_start + idx - 1
+            @info "Problem $(current_problem)/$(n): $(prob_name)"
+            
+            nlp_prob = nothing
+            try
+                nlp_prob = CUTEstModel(prob_name)
+                
+                # Generous memory limits for 100GB systems - include 5000 var problems
+                if nlp_prob.meta.nvar > 10000
+                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
+                    finalize(nlp_prob)
+                    continue
+                end
+                
+                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
+                
+                for (optimizer_name, optimizer) in optimizers
+                    try
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
+                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
+                        push!(problem, prob_name)
+                        push!(n_vars, vars)
+                        push!(secs, time)
+                        push!(solver, alg)
+                        push!(retcode, code)
+                    catch e
+                        @warn "✗ Failed to solve $(prob_name) with $(optimizer_name): $(e)"
+                        push!(problem, prob_name)
+                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
+                        push!(secs, NaN)
+                        push!(solver, optimizer_name)
+                        push!(retcode, :FAILED)
+                    end
+                end
+                
+            catch e
+                @warn "✗ Failed to load problem $(prob_name): $(e)"
+                # Add failure entries for all optimizers
+                for (optimizer_name, optimizer) in optimizers
+                    push!(problem, prob_name)
+                    push!(n_vars, -1)
+                    push!(secs, NaN)
+                    push!(solver, optimizer_name)
+                    push!(retcode, :LOAD_FAILED)
+                end
+            finally
+                # Clean up resources
+                if nlp_prob !== nothing
+                    try
+                        finalize(nlp_prob)
+                    catch e
+                        @warn "Failed to finalize $(prob_name): $(e)"
+                    end
+                end
+            end
         end
-        finalize(nlp_prob)
+        
+        # Force garbage collection after each chunk
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
     end
 
     return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver,
@@ -90,10 +149,37 @@ CUTEst contains 286 unconstrained problems. We will compare how the optimizers b
 terms of the time to solution with respect to the number of variables.
 
 ```julia
-unc_problems = CUTEst.select(contype="unc")
+unc_problems = collect(CUTEst.select_sif_problems(contype="unc"))
+@info "Testing $(length(unc_problems)) unconstrained problems"
+
+# Limit to first 50 problems for 100GB memory systems
+unc_problems = unc_problems[1:min(50, length(unc_problems))]
+@info "Limited to $(length(unc_problems)) problems for comprehensive testing"
 
 # Analysis
 unc_results =  run_benchmarks(unc_problems, optimizers)
+
+# Calculate and display success rates
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, unc_results)
+total_attempts = nrow(unc_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "SUCCESS RATE ANALYSIS:"
+@info "Total attempts: $(total_attempts)"
+@info "Successful attempts: $(successful_attempts)" 
+@info "Success rate: $(success_rate)%"
+
+# Show distribution of return codes
+@info "Return code distribution:"
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(unc_results.retcode))), by=x->x[2], rev=true)
+        @info "  $(code): $(count) occurrences"
+    end
+else
+    @info "  No results to analyze"
+end
 
 @df unc_results scatter(:n_vars, :secs,
         group = :solver,
