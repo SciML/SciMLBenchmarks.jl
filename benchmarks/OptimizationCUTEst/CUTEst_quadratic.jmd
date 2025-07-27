@@ -36,16 +36,21 @@ problems.
 
 ```julia
 optimizers = [
-        MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)
-    ]
+    ("GradientDescent", Optimization.GradientDescent()),
+    ("LBFGS", Optimization.LBFGS()),
+    ("ConjugateGradient", Optimization.ConjugateGradient()),
+    ("NelderMead", Optimization.NelderMead()),
+    ("SimulatedAnnealing", Optimization.SimulatedAnnealing()),
+    ("ParticleSwarm", Optimization.ParticleSwarm()),
+]
 
-function get_stats(sol, ::Optimization.LBFGS)
-    return (length(sol.u), sol.stats.time, "LBFGS", Symbol(sol.retcode))
-end
-
-function get_stats(sol, ::OptimizationMOI.MOI.OptimizerWithAttributes)
-    return (length(sol.u), MOI.get(sol.original.model, MOI.SolveTimeSec()),
-        "Ipopt", Symbol(sol.retcode))
+function get_stats(sol, optimizer_name)
+    if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
+        solve_time = sol.stats.time
+    else
+        solve_time = NaN
+    end
+    return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
 
 function run_benchmarks(problems, optimizers; chunk_size=3)
@@ -86,26 +91,22 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 
                 prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
                 
-                for optimizer in optimizers
+                for (optimizer_name, optimizer) in optimizers
                     try
-                        # Generous limits for 100GB memory
                         sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
-
-                        @info "✓ Solved $(prob_name) with $(optimizer)"
-                        vars, time, alg, code = get_stats(sol, optimizer)
-
+                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
                         push!(problem, prob_name)
                         push!(n_vars, vars)
                         push!(secs, time)
                         push!(solver, alg)
                         push!(retcode, code)
                     catch e
-                        @warn "✗ Failed to solve $(prob_name) with $(optimizer): $(e)"
-                        # Add failure entry
+                        @warn "✗ Failed to solve $(prob_name) with $(optimizer_name): $(e)"
                         push!(problem, prob_name)
                         push!(n_vars, -1)
                         push!(secs, NaN)
-                        push!(solver, string(optimizer))
+                        push!(solver, optimizer_name)
                         push!(retcode, :FAILED)
                     end
                 end
@@ -113,11 +114,11 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
             catch e
                 @warn "✗ Failed to load problem $(prob_name): $(e)"
                 # Add failure entries for all optimizers
-                for optimizer in optimizers
+                for (optimizer_name, optimizer) in optimizers
                     push!(problem, prob_name)
                     push!(n_vars, -1)
                     push!(secs, NaN)
-                    push!(solver, string(optimizer))
+                    push!(solver, optimizer_name)
                     push!(retcode, :LOAD_FAILED)
                 end
             finally
