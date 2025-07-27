@@ -24,30 +24,26 @@ using Statistics
 using Printf
 ```
 
-# Verified Optimizer Set
+# Extended Optimizer Set
 
 This version includes the same optimizers as the original benchmark, demonstrating that the framework can be extended:
 
 ```julia
-# Carefully selected optimizers that are known to work reliably
 optimizers = [
-    # Core gradient-based methods (OptimizationOptimJL)
+    ("GradientDescent", Optimization.GradientDescent()),
     ("LBFGS", Optimization.LBFGS()),
-    
-    # Constrained optimization (OptimizationMOI)
-    ("Ipopt", MOI.OptimizerWithAttributes(Ipopt.Optimizer, "print_level" => 0)),
+    ("ConjugateGradient", Optimization.ConjugateGradient()),
+    ("NelderMead", Optimization.NelderMead()),
+    ("SimulatedAnnealing", Optimization.SimulatedAnnealing()),
+    ("ParticleSwarm", Optimization.ParticleSwarm()),
 ]
 
 function get_stats(sol, optimizer_name)
-    """Extract statistics from solution - unified for all optimizer types"""
     if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
         solve_time = sol.stats.time
-    elseif hasfield(typeof(sol), :original) && hasfield(typeof(sol.original), :model)
-        solve_time = MOI.get(sol.original.model, MOI.SolveTimeSec())
     else
         solve_time = NaN
     end
-    
     return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
 
@@ -95,28 +91,22 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                 
                 for (optimizer_name, optimizer) in optimizers
                     @printf("  Testing %-20s... ", optimizer_name)
-                    
                     try
                         sol = solve(prob, optimizer; 
                                    maxiters = 1000,
-                                   maxtime = 30.0,  # 30 seconds timeout for 100GB system
+                                   maxtime = 30.0,
                                    abstol = 1e-6,
                                    reltol = 1e-6)
-
                         vars, time, alg, code = get_stats(sol, optimizer_name)
-
                         push!(problem, prob_name)
                         push!(n_vars, vars)
                         push!(secs, time)
                         push!(solver, alg)
                         push!(retcode, code)
-                        
                         success = code == :Success
                         @printf("%s (%.3fs)\n", success ? "✓" : "✗", time)
-                        
                     catch e
                         @printf("ERROR: %s\n", string(e))
-                        # Still record failed attempts
                         push!(problem, prob_name)
                         push!(n_vars, nlp_prob.meta.nvar)
                         push!(secs, NaN)
@@ -301,6 +291,18 @@ end
 ```
 
 ```julia, echo = false
-using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+# Only add the footer if WEAVE_ARGS is defined and has the required keys
+try
+    if isdefined(Main, :WEAVE_ARGS) && haskey(WEAVE_ARGS, :folder) && haskey(WEAVE_ARGS, :file)
+        using SciMLBenchmarks
+        SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+    end
+catch e
+    @warn "Footer not added: $e"
+end
 ```
+# Introduction
+
+"""
+NOTE: Ensure all code chunks are evaluated in order. If running in a notebook or Weave, do not skip any chunks.
+"""
