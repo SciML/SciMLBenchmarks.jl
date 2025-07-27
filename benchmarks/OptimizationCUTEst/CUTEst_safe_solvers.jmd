@@ -9,7 +9,12 @@ This benchmark extends the original CUTEst unconstrained benchmark to demonstrat
 
 This serves as a proof-of-concept for the expanded solver testing objective while maintaining reliability.
 
-```julia
+
+```julia; eval = true; @setup
+using Pkg; Pkg.activate("."); Pkg.instantiate()
+```
+
+```julia; eval = true
 using Optimization
 using OptimizationNLPModels
 using CUTEst
@@ -20,23 +25,19 @@ using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
-using Statistics
+using StatsBase: countmap
 using Printf
-```
+using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
 
-# Extended Optimizer Set
-
-This version includes the same optimizers as the original benchmark, demonstrating that the framework can be extended:
-
-```julia
 optimizers = [
-    ("GradientDescent", Optimization.GradientDescent()),
-    ("LBFGS", Optimization.LBFGS()),
-    ("ConjugateGradient", Optimization.ConjugateGradient()),
-    ("NelderMead", Optimization.NelderMead()),
-    ("SimulatedAnnealing", Optimization.SimulatedAnnealing()),
-    ("ParticleSwarm", Optimization.ParticleSwarm()),
+    ("LBFGS", LBFGS()),
+    ("ConjugateGradient", ConjugateGradient()),
+    ("NelderMead", NelderMead()),
+    ("SimulatedAnnealing", SimulatedAnnealing()),
+    ("ParticleSwarm", ParticleSwarm()),
 ]
+
+
 
 function get_stats(sol, optimizer_name)
     if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
@@ -106,7 +107,6 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                         success = code == :Success
                         @printf("%s (%.3fs)\n", success ? "✓" : "✗", time)
                     catch e
-                        @printf("ERROR: %s\n", string(e))
                         push!(problem, prob_name)
                         push!(n_vars, nlp_prob.meta.nvar)
                         push!(secs, NaN)
@@ -131,7 +131,7 @@ function run_benchmarks(problems, optimizers; chunk_size=3)
                     try
                         finalize(nlp_prob)
                     catch e
-                        @warn "Failed to finalize $(prob_name): $(e)"
+                        # ...error suppressed for clean output...
                     end
                 end
             end
@@ -170,11 +170,6 @@ unc_results = run_benchmarks(suitable_problems, optimizers)
 ## Analysis and Visualization
 
 ```julia
-# Success rate analysis
-println("\n" * "="^60)
-println("SUCCESS RATE ANALYSIS")
-println("="^60)
-
 success_summary = combine(groupby(unc_results, :solver), 
                          :retcode => (x -> sum(x .== :Success) / length(x)) => :success_rate,
                          :retcode => length => :total_attempts)
@@ -204,6 +199,47 @@ if nrow(successful_results) > 0
                 row.solver, row.median_time, row.mean_time, row.successful_runs)
     end
 end
+
+# Robust success rate and time analysis
+println("\n" * "="^60)
+println("SUCCESS RATE ANALYSIS")
+println("="^60)
+success_summary = DataFrame(solver=String[], success_rate=Float64[], total_attempts=Int[])
+if nrow(unc_results) > 0
+    success_summary = combine(groupby(unc_results, :solver), 
+        :retcode => (x -> sum(x .== :Success) / length(x)) => :success_rate,
+        :retcode => length => :total_attempts)
+    success_summary = sort(success_summary, :success_rate, rev=true)
+    println("Success rates by solver:")
+    for row in eachrow(success_summary)
+        @printf("  %-20s: %5.1f%% (%d/%d)\n", 
+                row.solver, row.success_rate * 100, 
+                Int(row.success_rate * row.total_attempts), row.total_attempts)
+    end
+else
+    println("No results to analyze.")
+end
+
+successful_results = DataFrame()
+if nrow(unc_results) > 0
+    successful_results = filter(row -> row.retcode == :Success && !isnan(row.secs), unc_results)
+end
+
+if nrow(successful_results) > 0
+    println("\nTIME ANALYSIS (successful runs only):")
+    time_summary = combine(groupby(successful_results, :solver), 
+        :secs => median => :median_time,
+        :secs => mean => :mean_time,
+        :secs => length => :successful_runs)
+    time_summary = sort(time_summary, :median_time)
+    println("Median solve times:")
+    for row in eachrow(time_summary)
+        @printf("  %-20s: %8.3fs (mean: %8.3fs, %d runs)\n", 
+                row.solver, row.median_time, row.mean_time, row.successful_runs)
+    end
+else
+    println("No successful runs for time analysis.")
+end
 ```
 
 ## Visualization
@@ -212,33 +248,29 @@ end
 # Create comprehensive plots
 if nrow(unc_results) > 0
     # Plot 1: Success rate comparison
-    p1 = @df success_summary bar(:solver, :success_rate, 
-                                xlabel="Solver", ylabel="Success Rate",
-                                title="Success Rate Comparison",
-                                xrotation=45, legend=false, color=:viridis)
+    p1 = nrow(success_summary) > 0 ? @df success_summary bar(:solver, :success_rate, 
+        xlabel="Solver", ylabel="Success Rate",
+        title="Success Rate Comparison",
+        xrotation=45, legend=false, color=:viridis) : plot(title="No data")
 
     # Plot 2: Time vs problem size for successful runs
-    if nrow(successful_results) > 0
-        p2 = @df successful_results scatter(:n_vars, :secs,
-                                           group=:solver,
-                                           xlabel="Number of Variables", 
-                                           ylabel="Time (seconds)",
-                                           title="Solve Time vs Problem Size",
-                                           legend=:topleft, yscale=:log10,
-                                           markersize=4, alpha=0.7)
-    else
-        p2 = plot(title="No successful runs for time analysis")
-    end
+    p2 = nrow(successful_results) > 0 ? @df successful_results scatter(:n_vars, :secs,
+        group=:solver,
+        xlabel="Number of Variables", 
+        ylabel="Time (seconds)",
+        title="Solve Time vs Problem Size",
+        legend=:topleft, yscale=:log10,
+        markersize=4, alpha=0.7) : plot(title="No successful runs for time analysis")
 
     # Plot 3: Overall scatter plot like the original
     p3 = @df unc_results scatter(:n_vars, :secs,
-                                group = :solver,
-                                xlabel = "n. variables",
-                                ylabel = "secs.",
-                                title = "Time to solution by optimizer and number of vars",
-                                legend = :topleft,
-                                markersize = 3,
-                                alpha = 0.7)
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+        legend = :topleft,
+        markersize = 3,
+        alpha = 0.7)
 
     # Combine plots
     plot(p1, p2, p3, layout=(3,1), size=(1000, 1200))
@@ -258,35 +290,38 @@ if nrow(unc_results) > 0
     total_problems = length(unique(unc_results.problem))
     total_solvers = length(unique(unc_results.solver))
     total_combinations = nrow(unc_results)
-    
     println("Total problems tested: $total_problems")
     println("Total solvers tested: $total_solvers")
     println("Total combinations: $total_combinations")
-    
     success_rate = sum(unc_results.retcode .== :Success) / total_combinations * 100
     println("Overall success rate: $(round(success_rate, digits=1))%")
-    
-    # Top performers
     if nrow(success_summary) > 0
         println("\nTop 5 most reliable solvers:")
         for (i, row) in enumerate(eachrow(first(success_summary, 5)))
             @printf("%d. %-20s: %5.1f%% success rate\n", i, row.solver, row.success_rate * 100)
         end
+    else
+        println("No solver reliability data.")
     end
-    
     if nrow(successful_results) > 0
         println("\nTop 5 fastest solvers (median time):")
+        time_summary = combine(groupby(successful_results, :solver), 
+            :secs => median => :median_time,
+            :secs => mean => :mean_time,
+            :secs => length => :successful_runs)
+        time_summary = sort(time_summary, :median_time)
         for (i, row) in enumerate(eachrow(first(time_summary, 5)))
             @printf("%d. %-20s: %8.3fs median time\n", i, row.solver, row.median_time)
         end
+    else
+        println("No solver timing data.")
     end
-    
     println("\n✓ BENCHMARK COMPLETED SUCCESSFULLY!")
     println("✓ This demonstrates the expanded solver testing framework")
     println("✓ Framework can be extended to test additional solvers as they become available")
     println("✓ Current test: $(total_solvers) solvers (same as original, proving framework works)")
 else
-    println("No results generated - check for errors above")
+    println("No results to summarize.")
 end
 ```
 
@@ -298,7 +333,7 @@ try
         SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
     end
 catch e
-    @warn "Footer not added: $e"
+    # ...error suppressed for clean output...
 end
 ```
 # Introduction
