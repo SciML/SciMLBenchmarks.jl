@@ -196,23 +196,32 @@ function fetch_and_plot(bench_dict, domain_len)
         end
         len = length(medtimes[i])
         plot!(plt1, Nv[1:len], medtimes[i], marker = :hex, label = name, lw = 2)
-        plot!(plt2, (Nv.^3)[1:len], medtimes[i], marker = :hex, label = name, lw = 2)
+        plot!(plt2, num_channels.(Nv[1:len]), medtimes[i], marker = :hex, label = name, lw = 2)
     end
 
     plot!(plt1, xlabel = "number of sites per edge", ylabel = "median time in seconds",
                 xticks = Nv, legend = :bottomright)
-    plot!(plt2, xlabel = "total number of sites", ylabel = "median time in seconds",
-                xticks = (Nv.^3, string.(Nv.^3)), legend = :bottomright)
-    plot(plt1, plt2; size = (1200,800), legendtitle = "SSAs",
-                     plot_title="3D RDME, domain length = $domain_len", left_margin=5Plots.mm)
+    plot!(plt2, xlabel = "total number of channels", ylabel = "median time in seconds",
+                xticks = (num_channels.(Nv), string.(num_channels.(Nv))), legend = :bottomright)
+    plot(plt1, plt2; size = (1200,1200), legendtitle = "SSAs",
+                     plot_title="3D RDME, domain length = $domain_len", left_margin=5Plots.mm, layout = (2, 1))
 end
+
+function num_channels(N::Int) 
+    num_species = 8
+    num_sites = N^3
+    num_rxs = 12*num_sites
+    sum_outdegrees = (6*N^3 - 6*N^2)
+    num_species * sum_outdegrees + 12*num_rxs
+end
+
 ```
 We are now ready to run the benchmarks and plot the results. We start with a
 domain length of `12` μm, analogous to Fig. 6 in [^1]:
 ```julia
 bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
 algs = [NSM(), DirectCRDirect()]
-Nv = [20, 30, 40, 50, 60, 90, 120, 240, 360]
+Nv = 10:5:35
 end_times = 20000.0 * ones(length(Nv))
 domain_len = 12.0
 benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
@@ -223,6 +232,7 @@ plt=fetch_and_plot(bench_dict, domain_len)
 We next consider a domain of length `6` μm, analogous to Fig. 7 in [^1].
 ```julia
 bench_dict = Dict{Tuple{String, Int}, BenchmarkTools.Trial}()
+Nv = 10:5:60
 domain_len = 6.0
 benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
 ```
