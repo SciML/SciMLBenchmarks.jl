@@ -3,7 +3,7 @@ title: Simple Interval Rootfinding (NonlinearSolve.jl vs Roots.jl vs MATLAB)
 author: Chris Rackauckas
 ---
 
-This example comes from 
+This example comes from
 [MATLAB's documentation showing improved rootfinding performance](https://twitter.com/walkingrandomly/status/1544615360833507329),
 and thus can be assumed to be considered optimized from MATLAB's perspective. MATLAB's results are:
 
@@ -34,22 +34,28 @@ using NonlinearSolve, BenchmarkTools
 
 function f(out, levels, u0)
     for i in 1:N
-        out[i] = solve(IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
-                u0, levels[i]), ITP()).u
+        out[i] = solve(
+            IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
+                u0, levels[i]),
+            ITP()).u
     end
 end
 
 function f2(out, levels, u0)
     for i in 1:N
-        out[i] = solve(IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
-                u0, levels[i]), NonlinearSolve.Bisection()).u
+        out[i] = solve(
+            IntervalNonlinearProblem{false}(IntervalNonlinearFunction{false}(myfun),
+                u0, levels[i]),
+            NonlinearSolve.Bisection()).u
     end
 end
 
 function f3(out, levels, u0)
     for i in 1:N
-        out[i] = solve(NonlinearProblem{false}(NonlinearFunction{false}(myfun),
-                u0, levels[i]), SimpleNewtonRaphson()).u
+        out[i] = solve(
+            NonlinearProblem{false}(NonlinearFunction{false}(myfun),
+                u0, levels[i]),
+            SimpleNewtonRaphson()).u
     end
 end
 
@@ -62,5 +68,5 @@ MATLAB 2022a reportedly achieves 1.66s. Try this code yourself: we receive ~0.05
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

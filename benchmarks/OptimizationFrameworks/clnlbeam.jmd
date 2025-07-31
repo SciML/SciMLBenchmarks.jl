@@ -35,16 +35,18 @@ function run_optimization(N::Int, automatic_differentiation)
     u_offset = 2(N + 1)
     function objective_fn(x, p)
         return sum(
-            0.5 * h * (x[x_offset+i+1]^2 + x[x_offset+i]^2) +
-            0.5 * alpha * h * (cos(x[i+1]) + cos(x[i])) for i in 1:N
+            0.5 * h * (x[x_offset + i + 1]^2 + x[x_offset + i]^2) +
+            0.5 * alpha * h * (cos(x[i + 1]) + cos(x[i])) for i in 1:N
         )
     end
     function constraint_fn(res, x, p)
         for i in 1:N
-            res[i] = x[x_offset+i+1] - x[x_offset+i] - 0.5 * h * (sin(x[i+1]) + sin(x[i]))
+            res[i] = x[x_offset + i + 1] - x[x_offset + i] -
+                     0.5 * h * (sin(x[i + 1]) + sin(x[i]))
         end
         for i in 1:N
-            res[N+i] = x[i+1] - x[i] - 0.5 * h * x[u_offset+i+1] - 0.5 * h * x[u_offset+i]
+            res[N + i] = x[i + 1] - x[i] - 0.5 * h * x[u_offset + i + 1] -
+                         0.5 * h * x[u_offset + i]
         end
         return
     end
@@ -52,14 +54,14 @@ function run_optimization(N::Int, automatic_differentiation)
         Optimization.OptimizationFunction(
             objective_fn,
             automatic_differentiation;
-            cons = constraint_fn,
+            cons = constraint_fn
         ),
         zeros(3 * (N + 1)),
         nothing;
         lb = vcat(fill(-1.0, N+1), fill(-0.05, N+1), fill(-Inf, N+1)),
         ub = vcat(fill(1.0, N+1), fill(0.05, N+1), fill(Inf, N+1)),
         lcons = zeros(2 * N),
-        ucons = zeros(2 * N),
+        ucons = zeros(2 * N)
     )
     sol = Optimization.solve(prob, Ipopt.Optimizer(); print_level = 0)
     Test.@test ≈(sol.objective, 350.0; atol = 1e-6)
@@ -96,28 +98,22 @@ function run_jump(N::Int)
     model = JuMP.Model(Ipopt.Optimizer)
     JuMP.set_attribute(model, "print_level", 0)
     JuMP.@variables(model, begin
-        -1 <= t[1:(N+1)] <= 1
-        -0.05 <= x[1:(N+1)] <= 0.05
-        u[1:(N+1)]
+        -1 <= t[1:(N + 1)] <= 1
+        -0.05 <= x[1:(N + 1)] <= 0.05
+        u[1:(N + 1)]
     end)
-    JuMP.@objective(
-        model,
+    JuMP.@objective(model,
         Min,
         sum(
-            0.5 * h * (u[i+1]^2 + u[i]^2) +
-            0.5 * alpha * h * (cos(t[i+1]) + cos(t[i])) for i in 1:N
-        ),
-    )
-    JuMP.@constraint(
-        model,
+            0.5 * h * (u[i + 1]^2 + u[i]^2) +
+            0.5 * alpha * h * (cos(t[i + 1]) + cos(t[i])) for i in 1:N
+        ),)
+    JuMP.@constraint(model,
         [i = 1:N],
-        x[i+1] - x[i] - 0.5 * h * (sin(t[i+1]) + sin(t[i])) == 0,
-    )
-    JuMP.@constraint(
-        model,
+        x[i + 1] - x[i] - 0.5 * h * (sin(t[i + 1]) + sin(t[i])) == 0,)
+    JuMP.@constraint(model,
         [i = 1:N],
-        t[i+1] - t[i] - 0.5 * h * u[i+1] - 0.5 * h * u[i] == 0,
-    )
+        t[i + 1] - t[i] - 0.5 * h * u[i + 1] - 0.5 * h * u[i] == 0,)
     JuMP.optimize!(model)
     Test.@test ≈(JuMP.objective_value(model), 350.0; atol = 1e-6)
     Test.@test ≈(JuMP.value.(t), zeros((N + 1)); atol = 1e-6)
@@ -133,16 +129,16 @@ end
 function run_modelingtoolkit(N::Int, use_structural_simplify::Bool = true)
     h = 1 / N
     alpha = 350
-    MTK.@variables t[1:(N+1)] [bounds = (-1.0, 1.0)]
-    MTK.@variables x[1:(N+1)] [bounds = (-0.05, 0.05)]
-    MTK.@variables u[1:(N+1)]
+    MTK.@variables t[1:(N + 1)] [bounds = (-1.0, 1.0)]
+    MTK.@variables x[1:(N + 1)] [bounds = (-0.05, 0.05)]
+    MTK.@variables u[1:(N + 1)]
     loss = sum(
-        0.5 * h * (u[i+1]^2 + u[i]^2) +
-        0.5 * alpha * h * (cos(t[i+1]) + cos(t[i])) for i in 1:N
+        0.5 * h * (u[i + 1]^2 + u[i]^2) +
+        0.5 * alpha * h * (cos(t[i + 1]) + cos(t[i])) for i in 1:N
     )
     cons = vcat(
-        [x[i+1] - x[i] - 0.5 * h * (sin(t[i+1]) + sin(t[i])) ~ 0 for i in 1:N],
-        [t[i+1] - t[i] - 0.5 * h * u[i+1] - 0.5 * h * u[i] ~ 0 for i in 1:N],
+        [x[i + 1] - x[i] - 0.5 * h * (sin(t[i + 1]) + sin(t[i])) ~ 0 for i in 1:N],
+        [t[i + 1] - t[i] - 0.5 * h * u[i + 1] - 0.5 * h * u[i] ~ 0 for i in 1:N]
     )
     vars = vcat(t, x, u)
     system = MTK.complete(MTK.OptimizationSystem(
@@ -150,7 +146,7 @@ function run_modelingtoolkit(N::Int, use_structural_simplify::Bool = true)
         vars,
         [];
         constraints = cons,
-        name = :clnlbeam,
+        name = :clnlbeam
     ))
     if use_structural_simplify
         system = MTK.structural_simplify(system)
@@ -181,7 +177,7 @@ end
 
 ```julia
 function run_benchmark(N; time_limit::Float64 = 1.0)
-    function _elapsed(f::F, n::Int) where {F<:Function}
+    function _elapsed(f::F, n::Int) where {F <: Function}
         # We use the minimum of three runs here. We could also use
         # `return BenchmarkTools.@belapsed \$f(\$n)` but it took much longer to
         # run.
@@ -193,11 +189,12 @@ function run_benchmark(N; time_limit::Float64 = 1.0)
         run_reverse_diff,
         run_modelingtoolkit,
         run_modelingtoolkit_no_simplify,
-        run_jump,
+        run_jump
     )
     data = fill(NaN, length(N), length(benchmarks))
     for (i, n) in enumerate(N), (j, f) in enumerate(benchmarks)
-        if i == 1 || data[i-1, j] < time_limit
+
+        if i == 1 || data[i - 1, j] < time_limit
             @info "Running $f($n)"
             data[i, j] = _elapsed(f, n)
         end
@@ -208,7 +205,7 @@ function run_benchmark(N; time_limit::Float64 = 1.0)
         labels = ["Optimization(Enzyme)" "Optimization(ForwardDiff)" "Optimization(ReverseDiff)" "MTK(simplify)" "MTK(no simplify)" "JuMP"],
         xlabel = "N",
         ylabel = "Total time [seconds]",
-        ylims = (0, time_limit),
+        ylims = (0, time_limit)
     )
 end
 ```

@@ -9,8 +9,8 @@ Fetch required packages
 
 ```julia
 using NonlinearSolve, LinearAlgebra, SparseArrays, DiffEqDevTools,
-    CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
-    Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
+      CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
+      Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
 import NLsolve, MINPACK, PETSc, RecursiveFactorization
 
 const RUS = RadiusUpdateSchemes;
@@ -26,14 +26,15 @@ function timeout(f, timeout)
     timer = Timer(timeout) do tm
         close(tm)
         ex = ErrorException("timed out after $timeout seconds")
-        @lock cond notify(cond, ex; error=false)
+        @lock cond notify(cond, ex; error = false)
     end
     Threads.@spawn begin
         try
             ret = $f()
             isopen(timer) && @lock cond notify(cond, ret)
         catch e
-            isopen(timer) && @lock cond notify(cond, CapturedException(e, catch_backtrace()); error=true)
+            isopen(timer) &&
+                @lock cond notify(cond, CapturedException(e, catch_backtrace()); error = true)
         finally
             close(timer)
         end
@@ -100,13 +101,13 @@ function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
             jp1, jm1 = limit(j + 1, N), limit(j - 1, N)
 
             du[i, j, 1] = α * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
-                               4u[i, j, 1]) +
+                           4u[i, j, 1]) +
                           B + u[i, j, 1] ^ 2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
                           brusselator_f(x, y)
 
             du[i, j, 2] = α * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
-                               4u[i, j, 2]) +
-                            A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
+                           4u[i, j, 2]) +
+                          A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
         end
         return nothing
     end
@@ -119,7 +120,6 @@ function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
     )
 end
 ```
-
 
 # Jacobian-Free Newton / TR Krylov Methods
 
@@ -154,27 +154,67 @@ Ns = 2 .^ (2:7)
 krylov_dim = 1000
 
 solvers_scaling_jacobian_free = [
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov",                        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (ILU)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG)",                  alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "Newton Krylov (AMG Jacobi)",           alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-
-    (; pkg = :nonlinearsolve,  name = "TR Krylov",                            alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (ILU)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG)",                      alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    (; pkg = :nonlinearsolve,  name = "TR Krylov (AMG Jacobi)",               alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)),
-
-    (; pkg = :wrapper,         name = "Newton Krylov [Sundials]",             alg = KINSOL(; linear_solver = :GMRES, maxsetupcalls=1, krylov_dim)),
-
-    (; pkg = :wrapper,         name = "Newton Krylov [PETSc]",                alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", snes_mf = true, ksp_gmres_restart = krylov_dim)),
-    (; pkg = :wrapper,         name = "Newton Krylov (ILU) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = krylov_dim, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG) [PETSc]",          alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
-    (; pkg = :wrapper,         name = "Newton Krylov (AMG Jacobi) [PETSc]",   alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim)),
-
-    (; pkg = :wrapper,         name = "TR Krylov (Not Matrix Free) [PETSc]",  alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", ksp_gmres_restart = krylov_dim)),
-    (; pkg = :wrapper,         name = "TR Krylov (ILU) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = krylov_dim, pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG) [PETSc]",              alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
-    (; pkg = :wrapper,         name = "TR Krylov (AMG Jacobi) [PETSc]",       alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson", mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :nonlinearsolve, name = "Newton Krylov",
+        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,
+        name = "Newton Krylov (ILU)",
+        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,
+        name = "Newton Krylov (AMG)",
+        alg = NewtonRaphson(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,
+        name = "Newton Krylov (AMG Jacobi)",
+        alg = NewtonRaphson(;
+            linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi),
+            concrete_jac = true)), (; pkg = :nonlinearsolve, name = "TR Krylov",
+        alg = TrustRegion(; linsolve = KrylovJL_GMRES())),
+    (; pkg = :nonlinearsolve,
+        name = "TR Krylov (ILU)",
+        alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,
+        name = "TR Krylov (AMG)",
+        alg = TrustRegion(; linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    (; pkg = :nonlinearsolve,
+        name = "TR Krylov (AMG Jacobi)",
+        alg = TrustRegion(;
+            linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid_jacobi), concrete_jac = true)), (;
+        pkg = :wrapper, name = "Newton Krylov [Sundials]",
+        alg = KINSOL(; linear_solver = :GMRES, maxsetupcalls = 1, krylov_dim)),
+    (; pkg = :wrapper,
+        name = "Newton Krylov [PETSc]",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic",
+            ksp_type = "gmres", snes_mf = true, ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,
+        name = "Newton Krylov (ILU) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic",
+            ksp_type = "gmres", pc_type = "ilu", ksp_gmres_restart = krylov_dim,
+            pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
+    (; pkg = :wrapper,
+        name = "Newton Krylov (AMG) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic",
+            ksp_type = "gmres", pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,
+        name = "Newton Krylov (AMG Jacobi) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic",
+            ksp_type = "gmres", pc_type = "gamg", mg_levels_ksp_type = "richardson",
+            mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim)), (;
+        pkg = :wrapper,
+        name = "TR Krylov (Not Matrix Free) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,
+        name = "TR Krylov (ILU) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres",
+            pc_type = "ilu", ksp_gmres_restart = krylov_dim,
+            pc_factor_levels = 0, pc_factor_drop_tolerance = 50.0)),
+    (; pkg = :wrapper,
+        name = "TR Krylov (AMG) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres",
+            pc_type = "gamg", ksp_gmres_restart = krylov_dim)),
+    (; pkg = :wrapper,
+        name = "TR Krylov (AMG Jacobi) [PETSc]",
+        alg = PETScSNES(; snes_type = "newtontr", ksp_type = "gmres",
+            pc_type = "gamg", mg_levels_ksp_type = "richardson",
+            mg_levels_pc_type = "jacobi", ksp_gmres_restart = krylov_dim))
 ]
 
 gc_disabled = false
@@ -204,14 +244,14 @@ for (j, solver) in enumerate(solvers_scaling_jacobian_free)
                                         NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
                 # PETSc doesn't converge properly
                 tol = alg isa PETScSNES ? 1e-6 : 1e-4
-                sol = solve(prob, alg; abstol=tol, reltol=tol,
+                sol = solve(prob, alg; abstol = tol, reltol = tol,
                     linsolve_kwargs = (; abstol = 1e-8, reltol = 1e-8),
                     termination_condition)
                 if SciMLBase.successful_retcode(sol) || norm(sol.resid, Inf) ≤ 1e-4
                     runtimes_scaling[j, i] = @belapsed solve($prob, $alg;
-                        abstol=$tol, reltol=$tol,
+                        abstol = $tol, reltol = $tol,
                         linsolve_kwargs = (; abstol = 1e-8, reltol = 1e-8),
-                        termination_condition=$termination_condition)
+                        termination_condition = $termination_condition)
                 else
                     runtimes_scaling[j, i] = NaN
                 end
@@ -251,7 +291,7 @@ fig = begin
         :none => :solid,
         :amg => :dot,
         :amg_jacobi => :dash,
-        :ilu => :dashdot,
+        :ilu => :dashdot
     )
 
     Ns_ = Ns .^ 2 .* 2
@@ -269,7 +309,9 @@ fig = begin
         ls, scs, labels = [], [], []
         for (i, solver) in zip(idxs, solvers_scaling_jacobian_free[idxs])
             all(isnan, runtimes_scaling[i, :]) && continue
-            precon = occursin("AMG Jacobi", solver.name) ? :amg_jacobi : occursin("AMG", solver.name) ? :amg : occursin("ILU", solver.name) ? :ilu : :none
+            precon = occursin("AMG Jacobi", solver.name) ? :amg_jacobi :
+                     occursin("AMG", solver.name) ? :amg :
+                     occursin("ILU", solver.name) ? :ilu : :none
             linestyle = LINESTYLES[precon]
             l = lines!(Ns_, runtimes_scaling[i, :]; linewidth = 5, color = colors[i],
                 linestyle)
@@ -282,17 +324,19 @@ fig = begin
 
         axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)], labels,
             "Successful Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, orientation = :vertical,
+            framevisible = true, framewidth = STROKEWIDTH, orientation = :vertical,
             titlesize = 20, labelsize = 16, position = :lt, nbanks = 2,
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
-        axislegend(ax, [
+        axislegend(ax,
+            [
                 LineElement(; linestyle = :solid, linewidth = 5),
                 LineElement(; linestyle = :dot, linewidth = 5),
                 LineElement(; linestyle = :dash, linewidth = 5),
-                LineElement(; linestyle = :dashdot, linewidth = 5),
-            ], ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
-            "Preconditioning"; framevisible=true, framewidth = STROKEWIDTH,
+                LineElement(; linestyle = :dashdot, linewidth = 5)
+            ],
+            ["No Preconditioning", "AMG", "AMG Jacobi", "Incomplete LU"],
+            "Preconditioning"; framevisible = true, framewidth = STROKEWIDTH,
             orientation = :vertical, titlesize = 20, labelsize = 16,
             tellheight = true, tellwidth = true, patchsize = (40.0f0, 20.0f0),
             position = :rb)
