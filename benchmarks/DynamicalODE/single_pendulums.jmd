@@ -40,8 +40,10 @@ $$y(t) = \sin(q(t)/2) = k\,\mathrm{sn}(t,k), \quad y_{\max} = k.$$
 #
 using OrdinaryDiffEq, Elliptic, Printf, DiffEqPhysics, Statistics
 
-sol2q(sol) = [sol.u[i][j] for i in 1:length(sol.u), j in 1:length(sol.u[1])÷2]
-sol2p(sol) = [sol.u[i][j] for i in 1:length(sol.u), j in length(sol.u[1])÷2+1:length(sol.u[1])]
+sol2q(sol) = [sol.u[i][j] for i in 1:length(sol.u), j in 1:(length(sol.u[1]) ÷ 2)]
+function sol2p(sol)
+    [sol.u[i][j] for i in 1:length(sol.u), j in (length(sol.u[1]) ÷ 2 + 1):length(sol.u[1])]
+end
 sol2tqp(sol) = (sol.t, sol2q(sol), sol2p(sol))
 
 # The exact solutions of single pendulums can be expressed by the Jacobian elliptic functions.
@@ -55,7 +57,7 @@ using Plots
 # Define the color list
 colorlist = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
 ]
 cc(k) = colorlist[mod1(k, length(colorlist))]
 
@@ -64,11 +66,12 @@ function plotsol(sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local d = size(q)[2]
-    p1 = plot(title="Solution", xlabel="t", grid=:on)
+    p1 = plot(title = "Solution", xlabel = "t", grid = :on)
     for j in 1:d
         j_str = d > 1 ? "[$j]" : ""
-        plot!(p1, t, q[:, j], color=cc(2j-1), label="q$(j_str)", linewidth=1)
-        plot!(p1, t, p[:, j], color=cc(2j), label="p$(j_str)", linewidth=1, linestyle=:dash)
+        plot!(p1, t, q[:, j], color = cc(2j-1), label = "q$(j_str)", linewidth = 1)
+        plot!(p1, t, p[:, j], color = cc(2j), label = "p$(j_str)",
+            linewidth = 1, linestyle = :dash)
     end
     return p1
 end
@@ -78,10 +81,11 @@ function plotsol2(sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local d = size(q)[2]
-    p2 = plot(title="Phase Space", xlabel="q", ylabel="p", grid=:on)
+    p2 = plot(title = "Phase Space", xlabel = "q", ylabel = "p", grid = :on)
     for j in 1:d
         j_str = d > 1 ? "[$j]" : ""
-        plot!(p2, q[:, j], p[:, j], color=cc(j), label="(q$(j_str), p$(j_str))", linewidth=1)
+        plot!(p2, q[:, j], p[:, j], color = cc(j),
+            label = "(q$(j_str), p$(j_str))", linewidth = 1)
     end
     return p2
 end
@@ -90,10 +94,11 @@ end
 function plotenergy(H, sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
-    local energy = [H(q[i,:], p[i,:], nothing) for i in 1:size(q)[1]]
-    p3 = plot(t, energy, label="energy", color="red", linewidth=1, xlabel="t", title="Energy", grid=:on)
+    local energy = [H(q[i, :], p[i, :], nothing) for i in 1:size(q)[1]]
+    p3 = plot(t, energy, label = "energy", color = "red", linewidth = 1,
+        xlabel = "t", title = "Energy", grid = :on)
     stdenergy_str = @sprintf("%.3e", std(energy))
-    title!("std(energy) = $stdenergy_str", fontsize=10)
+    title!("std(energy) = $stdenergy_str", fontsize = 10)
     return p3
 end
 
@@ -104,10 +109,11 @@ function plotcomparison(k, sol::ODESolution)
     local y = sin.(q / 2)
     local y_exact = k * sn.(t, k) # the exact solution
 
-    p4 = plot(t, y, label="numerical", linewidth=1, grid=:on, xlabel="t", ylabel="y = sin(q(t)/2)", title="Comparison")
-    plot!(p4, t, y_exact, label="exact", linewidth=1, linestyle=:dash)
+    p4 = plot(t, y, label = "numerical", linewidth = 1, grid = :on,
+        xlabel = "t", ylabel = "y = sin(q(t)/2)", title = "Comparison")
+    plot!(p4, t, y_exact, label = "exact", linewidth = 1, linestyle = :dash)
     error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
-    title!("maximum(abs(numerical - exact)) = $error_str", fontsize=10)
+    title!("maximum(abs(numerical - exact)) = $error_str", fontsize = 10)
     return p4
 end
 
@@ -120,7 +126,7 @@ function plotsolenergy(H, integrator, Δt, sol::ODESolution)
     p3 = plotenergy(H, sol)
 
     suptitle = "===== $integrator_str, Δt = $Δt ====="
-    plot(p1, p2, p3, layout=(3, 1), title=suptitle)
+    plot(p1, p2, p3, layout = (3, 1), title = suptitle)
 end
 
 # Solve a single pendulum
@@ -132,18 +138,18 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
 
     integrator_str = replace("$integrator", r"^[^.]*\\." => "")
     @printf("%-25s", "$integrator_str:")
-    sol = solve(prob, integrator, dt=Δt)
-    @time sol = solve(prob, integrator, dt=Δt)
+    sol = solve(prob, integrator, dt = Δt)
+    @time sol = solve(prob, integrator, dt = Δt)
 
     sleep(0.1)
-    
+
     p1 = plotsol(sol)
     p2 = plotsol2(sol)
     p3 = plotenergy(H, sol)
     p4 = plotcomparison(k, sol)
 
     suptitle = "===== $integrator_str, Δt = $Δt ====="
-    plot(p1, p2, p3, p4, layout=(2, 2), title=suptitle)
+    plot(p1, p2, p3, p4, layout = (2, 2), title = suptitle)
 end
 ```
 
@@ -162,26 +168,27 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
 
     local integrator_str = replace("$integrator", r"^[^.]*\." => "")
     @printf("%-25s", "$integrator_str:")
-    sol = solve(prob, integrator, dt=Δt)
-    @time local sol = solve(prob, integrator, dt=Δt)
+    sol = solve(prob, integrator, dt = Δt)
+    @time local sol = solve(prob, integrator, dt = Δt)
 
     sleep(0.1)
 
     # Create plots using Plots.jl
-    p1 = plot(sol.t, map(x -> x[1], sol.u), label="Position", title="Position vs Time")
-    p2 = plot(sol.t, map(x -> x[2], sol.u), label="Momentum", title="Momentum vs Time")
-    p3 = plot(sol.t, map(p -> H(p[1], p[2], nothing), sol.u), label="Energy", title="Energy vs Time")
-    p4 = plot(sol.t, map(x -> x[1] - k, sol.u), label="Comparison", title="Comparison Plot")
+    p1 = plot(sol.t, map(x -> x[1], sol.u), label = "Position", title = "Position vs Time")
+    p2 = plot(sol.t, map(x -> x[2], sol.u), label = "Momentum", title = "Momentum vs Time")
+    p3 = plot(sol.t, map(p -> H(p[1], p[2], nothing), sol.u), label = "Energy", title = "Energy vs Time")
+    p4 = plot(sol.t, map(x -> x[1] - k, sol.u), label = "Comparison", title = "Comparison Plot")
 
     # Combine all plots in a layout
     layout = @layout [a b; c d]
-    plot(p1, p2, p3, p4, layout=layout, size=(1000, 800), title="===== $integrator_str, Δt = $Δt =====")
+    plot(p1, p2, p3, p4, layout = layout, size = (1000, 800),
+        title = "===== $integrator_str, Δt = $Δt =====")
 end
 
 k = rand()
 integrator = VelocityVerlet()
 Δt = 0.1
-singlependulum(k, integrator, Δt, t0=-20.0, t1=20.0)
+singlependulum(k, integrator, Δt, t0 = -20.0, t1 = 20.0)
 ```
 
 ```julia
@@ -194,16 +201,17 @@ function plotsolenergy(H, integrator, Δt, sol::ODESolution)
     local integrator_str = replace("$integrator", r"^[^.]*\." => "")
 
     # Create plots using Plots.jl
-    p1 = plot(sol, label="Position", title="Position vs Time")
-    p2 = plot(sol, label="Momentum", title="Momentum vs Time")
-    p3 = plot(sol.t, map(p -> H(p[2], p[3], nothing), sol.u), label="Energy", title="Energy vs Time")
+    p1 = plot(sol, label = "Position", title = "Position vs Time")
+    p2 = plot(sol, label = "Momentum", title = "Momentum vs Time")
+    p3 = plot(sol.t, map(p -> H(p[2], p[3], nothing), sol.u), label = "Energy", title = "Energy vs Time")
 
     # Combine all plots in a layout
     layout = @layout [a b; c]
-    plot(p1, p2, p3, layout=layout, size=(1000, 800), title="===== $integrator_str, Δt = $Δt =====")
+    plot(p1, p2, p3, layout = layout, size = (1000, 800),
+        title = "===== $integrator_str, Δt = $Δt =====")
 end
 
-H(q, p, param) = sum(p.^2 / 2 .- cos.(q) .+ 1)
+H(q, p, param) = sum(p .^ 2 / 2 .- cos.(q) .+ 1)
 q0 = pi * rand(2)
 p0 = zeros(2)
 t0, t1 = -20.0, 20.0
@@ -211,8 +219,8 @@ prob = HamiltonianProblem(H, q0, p0, (t0, t1))
 
 integrator = McAte4()
 Δt = 0.1
-sol = solve(prob, integrator, dt=Δt)
-@time sol = solve(prob, integrator, dt=Δt)
+sol = solve(prob, integrator, dt = Δt)
+@time sol = solve(prob, integrator, dt = Δt)
 
 sleep(0.1)
 plotsolenergy(H, integrator, Δt, sol)
@@ -238,7 +246,7 @@ SymplecticIntegrators = [
     KahanLi6(),
     McAte8(),
     KahanLi8(),
-    SofSpa10(),
+    SofSpa10()
 ]
 
 k = 0.999
@@ -270,5 +278,5 @@ singlependulum(k, SymplecticEuler(), Δt)
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
