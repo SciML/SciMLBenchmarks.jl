@@ -5,7 +5,7 @@ author: Jayant Pranjal
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, ModelingToolkit, ODEInterfaceDiffEq,
-      Plots
+      Plots, Sundials, DASSL, DASKR
 using LinearAlgebra
 using ModelingToolkit: t_nounits as t, D_nounits as D
 ```
@@ -151,31 +151,6 @@ function ibd(vbd)
 end
 ```
 
-## Capacitance Matrix Function
-
-```julia
-function capacitance_matrix!(C, y, t)
-    fill!(C, 0.0)
-    
-    C[1,1] = CGS
-    C[2,2] = CGD
-    C[3,3] = CBS
-    C[4,4] = CBD
-    C[5,5] = 0.0
-    C[6,6] = CGS
-    C[7,7] = CGD
-    C[8,8] = CBS
-    C[9,9] = CBD
-    C[10,10] = 0.0
-    C[11,11] = CGS
-    C[12,12] = CGD
-    C[13,13] = CBS
-    C[14,14] = CBD
-    
-    return C
-end
-```
-
 ## DAE System Definition
 
 ```julia
@@ -207,121 +182,201 @@ function nand_rhs!(f, y, p, t)
     return nothing
 end
 
-function nand_mass_matrix!(M, y, p, t)
-    capacitance_matrix!(M, y, t)
-    return nothing
-end
+# Capacitance matrix (mass matrix)
+dirMassMatrix = [
+    CGS 0   0   0   0   0   0   0   0   0   0   0   0   0
+    0   CGD 0   0   0   0   0   0   0   0   0   0   0   0
+    0   0   CBS 0   0   0   0   0   0   0   0   0   0   0
+    0   0   0   CBD 0   0   0   0   0   0   0   0   0   0
+    0   0   0   0   0   0   0   0   0   0   0   0   0   0
+    0   0   0   0   0   CGS 0   0   0   0   0   0   0   0
+    0   0   0   0   0   0   CGD 0   0   0   0   0   0   0
+    0   0   0   0   0   0   0   CBS 0   0   0   0   0   0
+    0   0   0   0   0   0   0   0   CBD 0   0   0   0   0
+    0   0   0   0   0   0   0   0   0   0   0   0   0   0
+    0   0   0   0   0   0   0   0   0   0   CGS 0   0   0
+    0   0   0   0   0   0   0   0   0   0   0   CGD 0   0
+    0   0   0   0   0   0   0   0   0   0   0   0   CBS 0
+    0   0   0   0   0   0   0   0   0   0   0   0   0   CBD
+]
 
-function create_nand_problem()
-    y0 = [5.0, 5.0, VBB, VBB, 5.0, 3.62385, 5.0, VBB, VBB, 3.62385, 0.0, 3.62385, VBB, VBB]
-    dy0 = zeros(14)
-    tspan = (0.0, 80.0)
-    M = zeros(14, 14)
-    capacitance_matrix!(M, y0, 0.0)
-    f = ODEFunction(nand_rhs!, mass_matrix=M)
-    prob = ODEProblem(f, y0, tspan)
-    return prob
-end
-nand_prob = create_nand_problem()
+# Initial conditions
+y0 = [5.0, 5.0, VBB, VBB, 5.0, 3.62385, 5.0, VBB, VBB, 3.62385, 0.0, 3.62385, VBB, VBB]
+tspan = (0.0, 80.0)
+
+# Create the three problem formulations
+mmf = ODEFunction(nand_rhs!, mass_matrix=dirMassMatrix)
+mmprob = ODEProblem(mmf, y0, tspan)
+
+# ModelingToolkit version via modelingtoolkitize
+mtk_sys = modelingtoolkitize(mmprob)
+mtk_simplified = structural_simplify(mtk_sys)
+u0_mtk = [mtk_simplified.states[i] => mmprob.u0[i] for i in 1:length(mmprob.u0)]
+mtkprob = ODEProblem(mtk_simplified, u0_mtk, mmprob.tspan)
+
+# DAEProblem version
+du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
+du0 = D.(unknowns(mtk_simplified)) .=> du
+daeprob = DAEProblem(mtk_simplified, du0, [], tspan)
+
+# Generate reference solutions
+ref_sol = solve(mtkprob, Rodas5P(), abstol=1e-12, reltol=1e-12, tstops=0.0:5.0:80.0)
+dae_ref_sol = solve(daeprob, IDA(), abstol=1e-10, reltol=1e-10, tstops=0.0:5.0:80.0)
+mm_ref_sol = solve(mmprob, Rodas5P(), abstol=1e-12, reltol=1e-12, tstops=0.0:5.0:80.0)
+
+probs = [mtkprob, daeprob, mmprob]
+refs = [ref_sol, ref_sol, mm_ref_sol]
 ```
 
-## Generate Reference Solution
+## Generate Reference Solution and Plot
 
 ```julia
-ref_sol = solve(nand_prob, Rodas5P(), abstol=1e-12, reltol=1e-12, 
-                tstops=0.0:5.0:80.0)  # Include discontinuity points
-
-plot(ref_sol, title="NAND Gate Circuit - Node Potentials", 
+plot(ref_sol, title="NAND Gate Circuit - Node Potentials (MTK)", 
      xlabel="Time", ylabel="Voltage (V)", legend=:outertopright)
 ```
+
+```julia
+plot(mm_ref_sol, title="NAND Gate Circuit - Node Potentials (Mass Matrix)", 
+     xlabel="Time", ylabel="Voltage (V)", legend=:outertopright)
+```
+
+## Omissions
+
+Some solvers are omitted due to performance or stability issues at certain tolerances.
 
 ## Work-Precision Benchmarks
 
 ### High Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (4:7)
+abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 
 setups = [
-    Dict(:alg=>Rosenbrock23()),
-    Dict(:alg=>Rodas4()),
-    Dict(:alg=>Rodas5P()),
-    Dict(:alg=>FBDF()),
-    Dict(:alg=>QNDF()),
-
-
+    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>radau()),
+    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+    Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF())
 ]
 
-wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
-                      save_everystep=false, appxsol=[ref_sol], 
-                      maxiters=Int(1e6), numruns=5,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Work-Precision (High Tolerances)")
 ```
 
-### Medium Tolerances
-
 ```julia
-abstols = 1.0 ./ 10.0 .^ (6:9)
-reltols = 1.0 ./ 10.0 .^ (3:6)
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4)
 
 setups = [
-    Dict(:alg=>Rodas4()),
-    Dict(:alg=>Rodas5P()),
-    Dict(:alg=>FBDF()),
-    Dict(:alg=>QNDF()),
-
-
+    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>Rodas4()),
+    Dict(:prob_choice => 3, :alg=>FBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
 ]
 
-wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
-                      save_everystep=false, appxsol=[ref_sol], 
-                      maxiters=Int(1e6), numruns=5,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Work-Precision (Medium Tolerances)")
 ```
 
-### Low Tolerances (High Accuracy)
+### Timeseries Errors
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (8:11)
-reltols = 1.0 ./ 10.0 .^ (5:8)
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
 
 setups = [
-    Dict(:alg=>Rodas5P()),
-    Dict(:alg=>FBDF()),
-    Dict(:alg=>QNDF()),
-
-
+    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>radau()),
+    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+    Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF())
 ]
 
-wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
-                      save_everystep=false, appxsol=[ref_sol], 
-                      maxiters=Int(1e6), numruns=5,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Timeseries Errors (High Tolerances)")
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4)
+
+setups = [
+    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 3, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>Rodas4()),
+    Dict(:prob_choice => 3, :alg=>FBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
+                      tstops=0.0:5.0:80.0)
+plot(wp, title="NAND Gate DAE - Timeseries Errors (Medium Tolerances)")
+```
+
+### Low Tolerances (High Accuracy)
+
+This measures performance when high accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    Dict(:prob_choice => 3, :alg=>Rodas5P()),
+    Dict(:prob_choice => 1, :alg=>Rodas4()),
+    Dict(:prob_choice => 3, :alg=>Rodas4()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>radau()),
+    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+    Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
+]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Work-Precision (Low Tolerances)")
 ```
 
-### Timeseries Error Analysis
-
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (2:5)
-
-setups = [
-    Dict(:alg=>Rodas4()),
-    Dict(:alg=>Rodas5P()),
-    Dict(:alg=>FBDF()),
-
-
-]
-
-wp = WorkPrecisionSet([nand_prob], abstols, reltols, setups;
-                      error_estimate=:l2, save_everystep=false, 
-                      appxsol=[ref_sol], maxiters=Int(1e6), numruns=5,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
+                      save_everystep=false, appxsol=refs, 
+                      maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
-plot(wp, title="NAND Gate DAE - Timeseries Error Analysis")
+plot(wp, title="NAND Gate DAE - Timeseries Errors (Low Tolerances)")
 ```
 
 ## Analysis of Key Nodes
