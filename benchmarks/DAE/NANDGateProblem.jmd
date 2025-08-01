@@ -215,7 +215,8 @@ u0_mtk = [mtk_simplified.states[i] => mmprob.u0[i] for i in 1:length(mmprob.u0)]
 mtkprob = ODEProblem(mtk_simplified, u0_mtk, mmprob.tspan)
 
 # DAEProblem version
-du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
+du = zeros(length(mmprob.u0))
+mmprob.f(du, mmprob.u0, mmprob.p, 0.0)
 du0 = D.(unknowns(mtk_simplified)) .=> du
 daeprob = DAEProblem(mtk_simplified, du0, [], tspan)
 
@@ -225,7 +226,7 @@ dae_ref_sol = solve(daeprob, IDA(), abstol=1e-10, reltol=1e-10, tstops=0.0:5.0:8
 mtk_ref_sol = solve(mtkprob, Rodas5P(), abstol=1e-12, reltol=1e-12, tstops=0.0:5.0:80.0)
 
 probs = [mmprob, daeprob, mtkprob]
-refs = [ref_sol, ref_sol, mtk_ref_sol]
+refs = [ref_sol, dae_ref_sol, mtk_ref_sol]
 ```
 
 ## Generate Reference Solution and Plot
@@ -258,7 +259,6 @@ setups = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>DFBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>CVODE_BDF())
 ]
@@ -306,7 +306,6 @@ setups = [
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>DFBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>CVODE_BDF())
 ]
