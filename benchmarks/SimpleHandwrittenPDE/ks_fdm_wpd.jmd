@@ -152,8 +152,8 @@ setups = [
     Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
 ]
 labels = hcat(
-    "CNAB2 (dense linsolve)",
-    "CNAB2 (Krylov linsolve)", 
+    "CNAB2 (dense)",
+    "CNAB2 (Krylov)", 
     "ETDRK2 (caching)",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
@@ -167,27 +167,31 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, High Toleranc
 
 #### Implicit-Explicit Methods
 
-
-Krylov linear solvers.
+Dense and Krylov linear solvers.
 ```julia
-abstols = 0.1 .^ (7:13)
-reltols = 0.1 .^ (4:10)
+abstols = 0.1 .^ (8:12)
+reltols = 0.1 .^ (5:9)
 setups = [
-    # KenCarp methods take forever with adaptive timestepping for some reason
-    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
-    # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
-    # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp3()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => KenCarp5()),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
     Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
     Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
     Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
 ]
 labels = hcat(
-    # "KenCarp3",
-    # "KenCarp4",
-    # "KenCarp5",
-    "ARKODE3",
-    "ARKODE4",
-    "ARKODE5",
+    "KenCarp3 (dense)",
+    "KenCarp4 (dense)",
+    "KenCarp5 (dense)",
+    "KenCarp3 (Krylov)",
+    "KenCarp4 (Krylov)",
+    "KenCarp5 (Krylov)",
+    "ARKODE3 (Krylov)",
+    "ARKODE4 (Krylov)",
+    "ARKODE5 (Krylov)",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
@@ -230,7 +234,11 @@ setups = [
     Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
     Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
 ]
-labels = hcat("ARKODE (Krylov linsolve)", "ETDRK3 ()", "ETDRK4 ()")
+labels = hcat(
+    "ARKODE5 (Krylov)",
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)"
+)
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
