@@ -211,11 +211,10 @@ mmprob = ODEProblem(mmf, y0, tspan)
 # ModelingToolkit version via modelingtoolkitize
 mtk_sys = modelingtoolkitize(mmprob)
 mtk_simplified = structural_simplify(mtk_sys)
-u0_mtk = [mtk_simplified.states[i] => mmprob.u0[i] for i in 1:length(mmprob.u0)]
-mtkprob = ODEProblem(mtk_simplified, u0_mtk, mmprob.tspan)
+mtkprob = ODEProblem(mtk_simplified, [], mmprob.tspan)
 
 # DAEProblem version
-du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
+du = mtkprob.f(mmprob.u0, mmprob.p, 0.0)
 du0 = D.(unknowns(mtk_simplified)) .=> du
 daeprob = DAEProblem(mtk_simplified, du0, [], tspan)
 
