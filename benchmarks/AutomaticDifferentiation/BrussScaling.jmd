@@ -7,7 +7,7 @@ From the paper [A Comparison of Automatic Differentiation and Continuous Sensiti
 
 ```julia
 using OrdinaryDiffEq, ReverseDiff, ForwardDiff, FiniteDiff, SciMLSensitivity
-using LinearAlgebra, Tracker, Plots, Mooncake
+using LinearAlgebra, Tracker, Plots
 ```
 
 ```julia
@@ -300,7 +300,6 @@ _adjoint_methods = ntuple(2) do ii
     advj1 = Alg(autodiff=true,autojacvec=EnzymeVJP()), # AD vJ
     advj2 = Alg(autodiff=true,autojacvec=ReverseDiffVJP(false)), # AD vJ
     advj3 = Alg(autodiff=true,autojacvec=ReverseDiffVJP(true)), # AD vJ
-    advj4 = Alg(autodiff=true,autojacvec=MooncakeVJP()), # AD vJ
   )
 end |> NamedTuple{(:interp, :quad)}
 adjoint_methods = mapreduce(collect, vcat, _adjoint_methods)
@@ -327,7 +326,6 @@ plot!(plt2, n_to_param.(csan), csadata[2+3], lab="AD-Jacobian", lw=lw, marksize=
 plot!(plt2, n_to_param.(csan), csacompare[1+3], lab=raw"EnzymeVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
 plot!(plt2, n_to_param.(csan), csacompare[2+3], lab=raw"ReverseDiffVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
 plot!(plt2, n_to_param.(csan), csacompare[3+3], lab=raw"Compiled ReverseDiffVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
-plot!(plt2, n_to_param.(csan), csacompare[4+3], lab=raw"MooncakeVJP", lw=lw, marksize=ms, linestyle=:auto, marker=:auto);
 xaxis!(plt2, "Number of Parameters", :log10);
 yaxis!(plt2, "Runtime (s)", :log10);
 plot!(plt2, legend=:outertopleft, size=(1200, 600))
