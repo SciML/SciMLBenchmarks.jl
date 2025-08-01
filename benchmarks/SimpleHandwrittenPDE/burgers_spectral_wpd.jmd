@@ -1,186 +1,279 @@
 ---
-title: Burgers Pseudospectral Methods Work-Precision Diagrams
-author: HAO HAO
+title: Burgers' Equation Pseudospectral Method Work-Precision Diagrams
+author: Arjit Seth
 ---
 
+### Problem Description
+
+The Burgers' partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
+```math
+\begin{aligned}
+    \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
+    u(0,x) & = \exp\left(\frac{x^2}{2 \times 0.01^2}\right), \\
+    u(t,-L) & = u(t,L) = 0.
+\end{aligned}
+```
+The spatial derivative operators are represented via Chebyshev pseudospectral approximations. Here, the domain is discretized by projecting on a cosine-spaced grid of points $x_s \in [-1, 1]$; the solution is approximated on this grid via linear combinations of Chebyshev polynomial basis functions in space. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
+```math
+\begin{aligned}
+    \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
+    u(0,x_s) & = \exp\left(\frac{x_s^2}{2 \times 0.01^2}\right), \\
+    u(t,-L) & = u(t,L) = 0.
+\end{aligned}
+```
+
+### Implementation
+
 ```julia
-using ApproxFun, OrdinaryDiffEq, Sundials, LinearSolve
+using OrdinaryDiffEq
 using DiffEqDevTools
-using LinearAlgebra, RecursiveFactorization
-using Plots;
-gr()
+using SciMLOperators
+using LinearSolve
+using LinearAlgebra
+using SparseArrays
+using Sundials
+using ClassicalOrthogonalPolynomials
+const COP = ClassicalOrthogonalPolynomials
+using Plots
+gr();
 ```
 
-Here is the Burgers equation using Fourier spectral methods.
-
 ```julia
-S = Fourier()
-n = 512
-x = points(S, n)
-D2 = Derivative(S, 2)[1:n, 1:n]
-D = (Derivative(S) → S)[1:n, 1:n]
-T = ApproxFun.plan_transform(S, n)
-Ti = ApproxFun.plan_itransform(S, n)
-
-û₀ = T*cos.(cos.(x .- 0.1))
-A = 0.03*D2
-tmp = similar(û₀)
-p = (D, D2, T, Ti, tmp, similar(tmp))
-function burgers_nl(dû, û, p, t)
-    D, D2, T, Ti, u, tmp = p
-    mul!(tmp, D, û)
-    mul!(u, Ti, tmp)
-    mul!(tmp, Ti, û)
-    @. tmp = tmp*u
-    mul!(u, T, tmp)
-    @. dû = - u
+# Nonlinear component of vector field
+function f_nonlinear!(du, u, p, t)
+    M, D0, D1, tmp = p
+    tmp[2:end-1] .= -(D0 * u) .* (D1 * u) # Nonlinear convection
+    ldiv!(du, M, tmp) # Solve the linear system M * du = tmp
 end
+
+# Constructor
+function burgers(n)
+    T = ChebyshevT() # Chebyshev basis
+    x1 = reverse(ChebyshevGrid{1}(n - 2)) # 1st kind points, sorted
+    x2 = reverse(ChebyshevGrid{2}(n)) # 2nd kind points, sorted
+    V = T[x2, 1:n] # Vandermonde matrix, its inverse is transform from values to coefficients
+    D0 = diff(T, 0)[x1, 1:n] / V # 0th derivative from x2 to x1 (identity)
+    D1 = diff(T, 1)[x1, 1:n] / V # 1st derivative from x2 to x1
+    D2 = diff(T, 2)[x1, 1:n] / V # 2nd derivative from x2 to x1
+
+
+    u0 = @. exp(-x2^2 / (2 * 0.1^2)) # Initial condition
+    B_l = [1 zeros(1, n-1)] # Left Dirichlet conditions
+    B_r = reverse(B_l) # Right Dirichlet
+    M = lu([B_l; D0; B_r]) # Mass matrix for the problem
+    nu = 1e-2 # Diffusion coefficient
+    D2_bc = [zeros(1, n); D2; zeros(1, n)] # 2nd derivative with boundary conditions
+    prob = SplitODEProblem(
+                MatrixOperator(nu * (M \ D2_bc)),
+                f_nonlinear!, 
+                u0, (0.0, 1.0),
+                (M, D0, D1, similar(u0))
+            )
+
+    return x2, prob
+end;
 ```
 
-Reference solution using Rodas5 is below:
+### Reference Solution
 
 ```julia
-prob = SplitODEProblem(DiffEqArrayOperator(Diagonal(A)), burgers_nl, û₀, (0.0, 5.0), p)
-sol = solve(prob, Rodas5(autodiff = false); reltol = 1e-12, abstol = 1e-12)
-test_sol = TestSolution(sol)
+n = 128 # Number of Chebyshev points
+xs, prob = burgers(n)
+@time sol = solve(prob, Rodas5(autodiff=false), reltol = 1e-12, abstol = 1e-12)
 
-tslices=[0.0 1.0 2.0 3.0 5.0]
-ys=hcat((Ti*sol(t) for t in tslices)...)
-labels=["t=$t" for t in tslices]
-plot(x, ys, label = labels)
+test_sol = TestSolution(sol) # Reference solution for error estimation
+
+tslices = LinRange(prob.tspan..., 50)
+ys = mapreduce(sol, hcat, tslices)
+heatmap(xs, tslices, ys')
 ```
 
-## High tolerances
+## Work-Precision Diagrams
 
-```julia
-diag_linsolve=LinSolveFactorize(W->let tmp = tmp
-    for i in 1:size(W, 1)
-        tmp[i] = W[i, i]
-    end
-    Diagonal(tmp)
-end)
-```
+### High Tolerances
 
-## In-family comparisons
-
-1.IMEX methods (diagonal linear solver)
-
-```julia
-abstols = 0.1 .^ (5:8)
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => IMEXEuler(linsolve = diag_linsolve), :dts => 1e-3 * multipliers),
-    Dict(:alg => CNAB2(linsolve = diag_linsolve), :dts => 5e-3 * multipliers),
-    Dict(:alg => CNLF2(linsolve = diag_linsolve), :dts => 5e-3 * multipliers),
-    Dict(:alg => SBDF2(linsolve = diag_linsolve), :dts => 1e-3 * multipliers)]
-labels = ["IMEXEuler" "CNAB2" "CNLF2" "SBDF2"]
-@time wp1 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5, seconds = 5,
-    save_everystop = false, appxsol = test_sol, maxiters = Int(1e5));
-
-plot(wp1, label = labels, markershape = :auto, title = "IMEX methods, diagonal linsolve, low order")
-```
-
- 2. ExpRK methods
-
-```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => NorsettEuler(), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK2(), :dts => 1e-2 * multipliers)]
-labels = hcat("NorsettEuler",
-    "ETDRK2 (caching)")
-@time wp2 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5,
-    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5));
-
-plot(wp2, label = labels, markershape = :auto, title = "ExpRK methods, low order")
-```
-
-## Between family comparisons
+#### Implicit-Explicit Methods
 
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
 multipliers = 0.5 .^ (0:3)
-setups = [Dict(:alg => CNAB2(linsolve = diag_linsolve), :dts => 5e-3 * multipliers),
-    Dict(:alg => ETDRK2(), :dts => 1e-2 * multipliers)]
-labels = ["CNAB2 (diagonal linsolve)" "ETDRK2"]
-@time wp3 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5, error_estimate = :l2,
-    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5));
+setups = [
+    Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers),
+]
+labels = hcat(
+    "IMEXEuler",
+    "CNAB2",
+    "CNLF2",
+    "SBDF2",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp3, label = labels, markershape = :auto, title = "Between family, low orders")
+plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
 ```
 
-## Low tolerances
+#### Exponential Integrators
 
-## In-family comparisons
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
+]
+labels = hcat(
+    "NorsettEuler (caching)", 
+    "NorsettEuler (m=5)",
+    "NorsettEuler (m=20)",
+    "ETDRK2 (caching)", 
+    "ETDRK2 (m=5)", 
+    "ETDRK2 (m=20)"
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-1.IMEX methods (band linear solver)
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
+```
+
+#### Comparisons Between Families
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+]
+labels = hcat(
+    "CNAB2 (dense linsolve)",
+    "CNAB2 (Krylov linsolve)", 
+    "ETDRK2 (m=5)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Between Families, High Tolerances")
+```
+
+### Low Tolerances
+
+#### Implicit-Explicit Methods
+
+Dense/banded linear solvers.
 
 ```julia
 abstols = 0.1 .^ (7:13)
 reltols = 0.1 .^ (4:10)
 setups = [
-    Dict(:alg => ARKODE(Sundials.Implicit(), order = 3, linear_solver = :Band,
-        jac_upper = 1, jac_lower = 1)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order = 4, linear_solver = :Band,
-        jac_upper = 1, jac_lower = 1)),
-    Dict(:alg => ARKODE(Sundials.Implicit(), order = 5, linear_solver = :Band,
-        jac_upper = 1, jac_lower = 1))]
-labels = hcat("ARKODE3", "ARKODE4", "ARKODE5")
-@time wp4 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5, error_estimate = :l2,
-    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5));
+    Dict(:alg => KenCarp3()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => KenCarp5()),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:Band, jac_upper=1, jac_lower=1)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:Band, jac_upper=1, jac_lower=1)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1))
+]
+labels = hcat(
+    "KenCarp3",
+    "KenCarp4",
+    "KenCarp5",
+    "ARKODE3",
+    "ARKODE4",
+    "ARKODE5",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp4, label = labels, markershape = :auto, title = "IMEX methods, band linsolve, medium order")
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Band Linsolve, Low Tolerances")
 ```
 
-2.ExpRK methods
+Krylov linear solvers.
+```julia
+abstols = 0.1 .^ (7:13)
+reltols = 0.1 .^ (4:10)
+setups = [
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES())),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=3, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=4, linear_solver=:GMRES)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
+]
+labels = hcat(
+    "KenCarp3",
+    "KenCarp4",
+    "KenCarp5",
+    "ARKODE3",
+    "ARKODE4",
+    "ARKODE5",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
+```
+
+#### Exponential Integrators
 
 ```julia
 abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (4:8)
 multipliers = 0.5 .^ (0:4)
-setups = [Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
+setups = [
+    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
     Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
-    Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers)]
-labels = hcat("ETDRK3 (caching)", "ETDRK4 (caching)",
-    "HochOst4 (caching)")
-@time wp5 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5, error_estimate = :l2,
-    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5));
+    Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
+]
+labels = hcat(
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)",
+    "HochOst4 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp5, label = labels, markershape = :auto, title = "ExpRK methods, medium order")
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, Low Tolerances")
 ```
 
-## Between family comparisons
+#### Comparisons Between Families
 
 ```julia
 abstols = 0.1 .^ (7:11)
 reltols = 0.1 .^ (4:8)
 multipliers = 0.5 .^ (0:4)
 setups = [
-    Dict(:alg => ARKODE(Sundials.Implicit(), order = 5, linear_solver = :Band,
-        jac_upper = 1, jac_lower = 1)),
+    Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:Band, jac_upper=1, jac_lower=1)),
     Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers)]
-labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
-#"ARKODE (Krylov linsolve)")
-@time wp6 = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names = true, names = labels,
-    numruns = 5, error_estimate = :l2,
-    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5));
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+]
+labels = hcat(
+    "ARKODE (Band linsolve)",
+    "ETDRK3 (caching)",
+    "ETDRK4 (caching)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp6, label = labels, markershape = :auto, title = "Between family, medium order")
+plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```
+
 
 ```julia, echo = false
 using SciMLBenchmarks
