@@ -9,11 +9,6 @@ This benchmark extends the original CUTEst unconstrained benchmark to demonstrat
 
 This serves as a proof-of-concept for the expanded solver testing objective while maintaining reliability.
 
-
-```julia; eval = true; @setup
-using Pkg; Pkg.activate("."); Pkg.instantiate()
-```
-
 ```julia; eval = true
 using Optimization
 using OptimizationNLPModels
@@ -27,17 +22,14 @@ using Plots
 using StatsPlots
 using StatsBase: countmap
 using Printf
-using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
-
-optimizers = [
+using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead
+# Only robust solvers (safe_solvers)
+safe_solvers = [
     ("LBFGS", LBFGS()),
     ("ConjugateGradient", ConjugateGradient()),
     ("NelderMead", NelderMead()),
-    ("SimulatedAnnealing", SimulatedAnnealing()),
-    ("ParticleSwarm", ParticleSwarm()),
 ]
-
-
+optimizers = safe_solvers
 
 function get_stats(sol, optimizer_name)
     if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
@@ -48,7 +40,7 @@ function get_stats(sol, optimizer_name)
     return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
 
-function run_benchmarks(problems, optimizers; chunk_size=3)
+function run_benchmarks(problems, optimizers; chunk_size=1)
     """Enhanced benchmark loop with chunked processing and better error handling"""
     problem = String[]
     n_vars = Int64[]

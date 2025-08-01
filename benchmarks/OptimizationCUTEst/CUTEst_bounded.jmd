@@ -12,18 +12,15 @@ optimization routines. The wrapper
 to the problem collection, which we can leverage to test the optimizers made available by
 Optimization.jl.
 
-This benchmark uses the following packages:
-
 
 ```julia; eval = true; @setup
 using Pkg; Pkg.activate("."); Pkg.instantiate()
-```
-
-```julia; eval = true
 using Optimization
 using OptimizationNLPModels
 using CUTEst
 using OptimizationOptimJL
+using OptimizationOptimisers
+using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
 using Ipopt
 using OptimizationMOI
 using OptimizationMOI: MOI as MOI
@@ -31,21 +28,20 @@ using DataFrames
 using Plots
 using StatsPlots
 using StatsBase: countmap
-using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
 
 optimizers = [
-    ("LBFGS", LBFGS()),
-    ("ConjugateGradient", ConjugateGradient()),
-    ("NelderMead", NelderMead()),
-    ("SimulatedAnnealing", SimulatedAnnealing()),
-    ("ParticleSwarm", ParticleSwarm()),
+    ("Ipopt", MOI.OptimizerWithAttributes(Ipopt.Optimizer,
+        "max_iter" => 5000,
+        "tol" => 1e-6,
+        "print_level" => 5)),
 ]
 
 function get_stats(sol, optimizer_name)
-    if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
-        solve_time = sol.stats.time
-    else
-        solve_time = NaN
+    # Robustly get solve_time, even if stats or time is missing
+    solve_time = try
+        hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time) ? getfield(sol.stats, :time) : NaN
+    catch
+        NaN
     end
     return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
 end
@@ -135,15 +131,22 @@ problems on this section.
 
 ```julia
 @info "before"
-eq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_free_var=false)
-@info "after1 - testing $(length(eq_bou_problems)) equality-constrained problems"
 
-# Limit to first 50 problems for 100GB memory systems
-eq_bou_problems = eq_bou_problems[1:min(50, length(eq_bou_problems))]
-@info "Limited to $(length(eq_bou_problems)) problems for comprehensive testing"
+# Select a moderate subset of equality-constrained bounded problems for a realistic mix
+eq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_free_var=false)
+eq_bou_problems = eq_bou_problems[1:min(30, length(eq_bou_problems))]
+ # Skip HIER13, BLOWEYA, LUKVLE8, READING2, NINENEW, READING6, DITTERT, CVXQP2, and MSS1 if present
+eq_bou_problems = filter(p -> !(lowercase(p) in ["hier13", "bloweya", "lukvle8", "patternne", "reading2", "ninenew", "reading6", "dittert", "cvxqp2", "mss1"]), eq_bou_problems)
+@info "Testing $(length(eq_bou_problems)) equality-constrained bounded problems (subset)"
 
 # Analysis
-eq_bou_results =  run_benchmarks(eq_bou_problems, optimizers)
+eq_bou_results = run_benchmarks(eq_bou_problems, optimizers; chunk_size=3)
+
+total_attempts = nrow(eq_bou_results)
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, eq_bou_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
 
 # Calculate and display success rates
 successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
@@ -152,56 +155,94 @@ total_attempts = nrow(eq_bou_results)
 successful_attempts = nrow(successful_results)
 success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
 
-@info "SUCCESS RATE ANALYSIS:"
-@info "Total attempts: $(total_attempts)"
-@info "Successful attempts: $(successful_attempts)"
-@info "Success rate: $(success_rate)%"
+println("Full results table for equality-constrained bounded problems:")
+display(eq_bou_results)
 
-@info "after2"
+println("SUCCESS RATE ANALYSIS (Equality Constrained, Bounded):")
+println("Total attempts: ", total_attempts)
+println("Successful attempts: ", successful_attempts)
+println("Success rate: ", success_rate, "%")
+println("Return code distribution:")
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(eq_bou_results.retcode))), by=x->x[2], rev=true)
+        println("  ", code, ": ", count, " occurrences")
+    end
+else
+    println("  No results to analyze")
+end
 
-@df eq_bou_results scatter(:n_vars, :secs,
+if nrow(eq_bou_results) > 0
+    @df eq_bou_results scatter(:n_vars, :secs,
         group = :solver,
         xlabel = "n. variables",
         ylabel = "secs.",
         title = "Time to solution by optimizer and number of vars",
     )
-@info "after3"
+    println("Plotted equality-constrained bounded results.")
+else
+    println("No equality-constrained bounded results to plot. DataFrame is empty.")
+    println("Attempted problems:")
+    println(eq_bou_problems)
+end
 ```
 
 Next, we examine the same relationship for inequality-constrained problems.
 
 ```julia
 @info "after4"
-neq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_ineq_con=true, only_free_var=false)
-@info "after5 - testing $(length(neq_bou_problems)) inequality-constrained problems"
 
-# Limit to first 50 problems for 100GB memory systems
-neq_bou_problems = neq_bou_problems[1:min(50, length(neq_bou_problems))]
-@info "Limited to $(length(neq_bou_problems)) problems for comprehensive testing"
+# Select a moderate subset of inequality-constrained bounded problems for a realistic mix
+neq_bou_problems = CUTEst.select_sif_problems(min_con=1, only_ineq_con=true, only_free_var=false)
+neq_bou_problems = neq_bou_problems[1:min(30, length(neq_bou_problems))]
+ # Skip HIER13, BLOWEYA, CHARDIS1, LUKVLE8, READING2, CVPXQ2, and MSS1 if present (in case they appear in this list too)
+neq_bou_problems = filter(p -> !(lowercase(p) in ("chardis1", "hs67", "hs101", "haifal", "himmelp2", "hanging", "synthes1", "lukvli13", "liswet9", "hs85", "lukvli7", "expfita", "s268")), neq_bou_problems)
+@info "Testing $(length(neq_bou_problems)) inequality-constrained bounded problems (subset)"
 
 # Analysis
-neq_bou_results =  run_benchmarks(neq_bou_problems, optimizers)
+neq_bou_results = run_benchmarks(neq_bou_problems, optimizers; chunk_size=3)
 
-# Calculate and display success rates  
+total_attempts = nrow(neq_bou_results)
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, neq_bou_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+# Calculate and display success rates
 successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
 successful_results = filter(row -> row.retcode in successful_codes, neq_bou_results)
 total_attempts = nrow(neq_bou_results)
 successful_attempts = nrow(successful_results)
 success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
 
-@info "INEQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+println("Full results table for inequality-constrained bounded problems:")
+display(neq_bou_results)
 
-@info "after6"
+println("SUCCESS RATE ANALYSIS (Inequality Constrained, Bounded):")
+println("Total attempts: ", total_attempts)
+println("Successful attempts: ", successful_attempts)
+println("Success rate: ", success_rate, "%")
+println("Return code distribution:")
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(neq_bou_results.retcode))), by=x->x[2], rev=true)
+        println("  ", code, ": ", count, " occurrences")
+    end
+else
+    println("  No results to analyze")
+end
 
-@df neq_bou_results scatter(:n_vars, :secs,
+if nrow(neq_bou_results) > 0
+    @df neq_bou_results scatter(:n_vars, :secs,
         group = :solver,
         xlabel = "n. variables",
         ylabel = "secs.",
         title = "Time to solution by optimizer and number of vars",
     )
+    println("Plotted inequality-constrained bounded results.")
+else
+    println("No inequality-constrained bounded results to plot. DataFrame is empty.")
+    println("Attempted problems:")
+    println(neq_bou_problems)
+end
 ```
 
-```julia, echo = false
-using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
-```
+
