@@ -16,7 +16,7 @@ using Plots, LinearAlgebra
 ```
 
 ```julia
-gr(fmt=:png)
+gr(fmt = :png)
 ```
 
 #### Initializing the problem
@@ -29,27 +29,27 @@ end a b c d
 ```
 
 ```julia
-u0 = [1.0,1.0]
-tspan = (0.0,10.0)
-p = [1.5,1.0,3.0,1,0]
+u0 = [1.0, 1.0]
+tspan = (0.0, 10.0)
+p = [1.5, 1.0, 3.0, 1, 0]
 ```
 
 ```julia
 prob = ODEProblem(f, u0, tspan, p)
-sol = solve(prob,Tsit5())
+sol = solve(prob, Tsit5())
 ```
 
 ```julia
-su0 = SA[1.0,1.0]
-sp = SA[1.5,1.0,3.0,1,0]
-sprob = ODEProblem{false,SciMLBase.FullSpecialize}(f, su0, tspan, sp)
-sol = solve(sprob,Tsit5())
+su0 = SA[1.0, 1.0]
+sp = SA[1.5, 1.0, 3.0, 1, 0]
+sprob = ODEProblem{false, SciMLBase.FullSpecialize}(f, su0, tspan, sp)
+sol = solve(sprob, Tsit5())
 ```
 
 #### We take the solution data obtained and add noise to it to obtain data for using in the Bayesian Inference of the parameters
 
 ```julia
-t = collect(range(1,stop=10,length=10))
+t = collect(range(1, stop = 10, length = 10))
 sig = 0.49
 data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(2)) for i in 1:length(t)]))
 ```
@@ -57,13 +57,14 @@ data = convert(Array, VectorOfArray([(sol(t[i]) + sig*randn(2)) for i in 1:lengt
 #### Plots of the actual data and generated data
 
 ```julia
-scatter(t, data[1,:], lab="#prey (data)")
-scatter!(t, data[2,:], lab="#predator (data)")
+scatter(t, data[1, :], lab = "#prey (data)")
+scatter!(t, data[2, :], lab = "#predator (data)")
 plot!(sol)
 ```
 
 ```julia
-priors = [truncated(Normal(1.5,0.5),0.5,2.5),truncated(Normal(1.2,0.5),0,2),truncated(Normal(3.0,0.5),1,4),truncated(Normal(1.0,0.5),0,2)]
+priors = [truncated(Normal(1.5, 0.5), 0.5, 2.5), truncated(Normal(1.2, 0.5), 0, 2),
+    truncated(Normal(3.0, 0.5), 1, 4), truncated(Normal(1.0, 0.5), 0, 2)]
 ```
 
 ### Stan.jl backend
@@ -71,7 +72,9 @@ priors = [truncated(Normal(1.5,0.5),0.5,2.5),truncated(Normal(1.2,0.5),0,2),trun
 The solution converges for tolerance values lower than 1e-3, lower tolerance leads to better accuracy in result but is accompanied by longer warmup and sampling time, truncated normal priors are used for preventing Stan from stepping into negative values.
 
 ```julia
-@btime bayesian_result_stan = stan_inference(prob,t,data,priors,num_samples=10_000,print_summary=false,delta = 0.65, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+@btime bayesian_result_stan = stan_inference(
+    prob, t, data, priors, num_samples = 10_000, print_summary = false,
+    delta = 0.65, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
 ### Direct Turing.jl
@@ -88,7 +91,7 @@ The solution converges for tolerance values lower than 1e-3, lower tolerance lea
     # Simulate Lotka-Volterra model. 
     p = SA[α, β, γ, δ]
     _prob = remake(prob, p = p)
-    predicted = solve(_prob, Tsit5(); saveat=t)
+    predicted = solve(_prob, Tsit5(); saveat = t)
 
     # Observations.
     for i in 1:length(predicted)
@@ -100,30 +103,29 @@ end
 
 model = fitlv(data, sprob)
 
-@time chain = sample(model, Turing.NUTS(0.65), 10000; progress=false)
+@time chain = sample(model, Turing.NUTS(0.65), 10000; progress = false)
 ```
 
 ### Turing.jl backend
 
 ```julia
-@btime bayesian_result_turing = turing_inference(prob, Tsit5(), t, data, priors, num_samples=10_000)
+@btime bayesian_result_turing = turing_inference(
+    prob, Tsit5(), t, data, priors, num_samples = 10_000)
 ```
 
 ### DynamicHMC.jl backend
 
 ```julia
-@btime bayesian_result_dynamichmc = dynamichmc_inference(prob,Tsit5(),t,data,priors,num_samples=10_000)
+@btime bayesian_result_dynamichmc = dynamichmc_inference(
+    prob, Tsit5(), t, data, priors, num_samples = 10_000)
 ```
-
 
 ## Conclusion
 
 Lotka-Volterra Equation is a "predator-prey" model, it models population of two species in which one is the predator (wolf) and the other is the prey (rabbit).
 It depicts a cyclic behaviour, which is also seen in its Uncertainty Quantification Plots. This behaviour makes it easy to estimate even at very high tolerance values (1e-3).
 
-
-
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

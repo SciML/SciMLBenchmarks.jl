@@ -7,7 +7,7 @@ This is a test of a simple small nonlinear rootfinding problem.
 
 ```julia
 using NonlinearSolve, StaticArrays, DiffEqDevTools, Sundials, CairoMakie, LinearSolve,
-    LinearAlgebra, StableRNGs, BenchmarkTools, Setfield, RecursiveFactorization
+      LinearAlgebra, StableRNGs, BenchmarkTools, Setfield, RecursiveFactorization
 import PolyesterForwardDiff, MINPACK, NLsolve, SpeedMapping
 
 const RUS = RadiusUpdateSchemes;
@@ -30,24 +30,39 @@ List of Solvers to Benchmark:
 
 ```julia
 solvers = [
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Default PolyAlgorithm",           solver = Dict(:alg => nothing)),
-
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Newton Raphson",           solver = Dict(:alg => SimpleNewtonRaphson())),
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple DFSane",                   solver = Dict(:alg => SimpleDFSane())),
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Trust Region",             solver = Dict(:alg => SimpleTrustRegion(; nlsolve_update_rule = Val(true)))),
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Broyden",                  solver = Dict(:alg => SimpleBroyden())),
-    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl", name = "Simple Klement",                  solver = Dict(:alg => SimpleKlement())),
-
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Newton Raphson",                  solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "DFSane",                          solver = Dict(:alg => DFSane())),
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Trust Region",                    solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Broyden",                         solver = Dict(:alg => Broyden())),
-    (; pkg = :nonlinearsolve,       full_pkgname = "NonlinearSolve.jl",       name = "Klement",                         solver = Dict(:alg => Klement(; linsolve = \))),
-
-    (; pkg = :wrapper,              full_pkgname = "NLsolve.jl",              name = "Newton Raphson (NLsolve.jl)",     solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,              full_pkgname = "NLsolve.jl",              name = "Trust Region (NLsolve.jl)",       solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-    (; pkg = :wrapper,              full_pkgname = "Sundials",                name = "Newton Raphson (Sundials)",       solver = Dict(:alg => KINSOL())),
-    (; pkg = :wrapper,              full_pkgname = "SpeedMapping.jl",         name = "Speed Mapping (SpeedMapping.jl)", solver = Dict(:alg => SpeedMappingJL())),
+    (; pkg = :nonlinearsolve, full_pkgname = "NonlinearSolve.jl",
+        name = "Default PolyAlgorithm", solver = Dict(:alg => nothing)), (;
+        pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl",
+        name = "Simple Newton Raphson", solver = Dict(:alg => SimpleNewtonRaphson())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl",
+        name = "Simple DFSane", solver = Dict(:alg => SimpleDFSane())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl",
+        name = "Simple Trust Region",
+        solver = Dict(:alg => SimpleTrustRegion(; nlsolve_update_rule = Val(true)))),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl",
+        name = "Simple Broyden", solver = Dict(:alg => SimpleBroyden())),
+    (; pkg = :simplenonlinearsolve, full_pkgname = "SimpleNonlinearSolve.jl",
+        name = "Simple Klement", solver = Dict(:alg => SimpleKlement())), (;
+        pkg = :nonlinearsolve, full_pkgname = "NonlinearSolve.jl",
+        name = "Newton Raphson", solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
+    (; pkg = :nonlinearsolve, full_pkgname = "NonlinearSolve.jl",
+        name = "DFSane", solver = Dict(:alg => DFSane())),
+    (; pkg = :nonlinearsolve,
+        full_pkgname = "NonlinearSolve.jl",
+        name = "Trust Region",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve, full_pkgname = "NonlinearSolve.jl",
+        name = "Broyden", solver = Dict(:alg => Broyden())),
+    (; pkg = :nonlinearsolve, full_pkgname = "NonlinearSolve.jl",
+        name = "Klement", solver = Dict(:alg => Klement(; linsolve = \))), (;
+        pkg = :wrapper, full_pkgname = "NLsolve.jl", name = "Newton Raphson (NLsolve.jl)",
+        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper, full_pkgname = "NLsolve.jl", name = "Trust Region (NLsolve.jl)",
+        solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
+    (; pkg = :wrapper, full_pkgname = "Sundials",
+        name = "Newton Raphson (Sundials)", solver = Dict(:alg => KINSOL())),
+    (; pkg = :wrapper, full_pkgname = "SpeedMapping.jl",
+        name = "Speed Mapping (SpeedMapping.jl)", solver = Dict(:alg => SpeedMappingJL()))
 ];
 ```
 
@@ -68,20 +83,23 @@ function check_solver(prob, solver)
             maxiters = 10000)
         err = norm(sol.resid)
         if !SciMLBase.successful_retcode(sol.retcode)
-            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) \
-                              with an residual norm = $(norm(sol.resid)).\n"; color = :red)
+            Base.printstyled(
+                "[Warn] Solver $(solver.name) returned retcode $(sol.retcode) \
+                 with an residual norm = $(norm(sol.resid)).\n"; color = :red)
             return false
         elseif err > 1e3
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm \
-                              = $(norm(sol.resid))).\n"; color = :red)
+            Base.printstyled(
+                "[Warn] Solver $(solver.name) had a very large residual (norm \
+                 = $(norm(sol.resid))).\n"; color = :red)
             return false
         elseif isinf(err) || isnan(err)
             Base.printstyled("[Warn] Solver $(solver.name) had a residual of $(err).\n";
                 color = :red)
             return false
         end
-        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem \
-                          (norm = $(norm(sol.resid))).\n"; color = :green)
+        Base.printstyled(
+            "[Info] Solver $(solver.name) successfully solved the problem \
+             (norm = $(norm(sol.resid))).\n"; color = :green)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
         return false
@@ -93,7 +111,8 @@ function generate_wpset(prob, solvers)
     successful_solvers = filter(solver -> check_solver(prob, solver), solvers)
     return WorkPrecisionSet(prob, abstols, reltols, getfield.(successful_solvers, :solver);
         numruns = 50, error_estimate = :l∞, names = getfield.(successful_solvers, :name),
-        maxiters = 10000), successful_solvers
+        maxiters = 10000),
+    successful_solvers
 end
 ```
 
@@ -114,18 +133,19 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
     cycle = Cycle([:marker], covary = true)
     plot_theme = Theme(Lines = (; cycle,), Scatter = (; cycle,))
 
-    fig = with_theme(plot_theme) do 
+    fig = with_theme(plot_theme) do
         fig = Figure(; size = (WIDTH, HEIGHT))
         # `textbf` doesn't work
         axs = Matrix{Any}(undef, 2, 2)
 
         for i in 1:2, j in 1:2
+
             ylabel = j == 1 ? L"$\mathrm{\mathbf{Time}}$ $\mathbf{(s)}$" : ""
             xlabel = i == 2 ? L"Error: $\mathbf{||f(u^\ast)||_\infty}$" : ""
             ax = Axis(fig[i, j]; ylabel = ylabel, title = titles[2 * (i - 1) + j],
                 titlegap = 10, titlesize = 22, xlabelsize = 22, ylabelsize = 22,
                 xticklabelsize = 20, yticklabelsize = 20,
-                xlabel = xlabel, xticksvisible =  i == 2, yticksvisible = j == 1,
+                xlabel = xlabel, xticksvisible = i == 2, yticksvisible = j == 1,
                 xticklabelsvisible = i == 2, yticklabelsvisible = j == 1,
                 xscale = log10, yscale = log10, xtickwidth = STROKEWIDTH,
                 ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH)
@@ -138,9 +158,11 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
         for (idx_solver, solver) in enumerate(reverse(solver_all))
             first_success = true
             for i in 1:2, j in 1:2
+
                 wpset, successful_solvers = wpset_list[2 * (i - 1) + j]
 
-                idx = findfirst(==(solver.name), [solver.name for solver in successful_solvers])
+                idx = findfirst(==(solver.name), [solver.name
+                                                  for solver in successful_solvers])
                 idx === nothing && continue
 
                 (; name, times, errors) = wpset.wps[idx]
@@ -164,12 +186,13 @@ function plot_all_wpsets(wpset_list, solver_all, titles, suptitle)
 
         Legend(fig[3, :], collect(reverse([[l, sc] for (l, sc) in zip(ls, scs)])),
             collect(reverse(label_list)),
-            "Successful Solvers"; framevisible=true, framewidth = STROKEWIDTH,
+            "Successful Solvers"; framevisible = true, framewidth = STROKEWIDTH,
             orientation = :horizontal,
             titlesize = 16, nbanks = 3, labelsize = 16,
             tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
-        fig[0, :] = Label(fig, "Quadratic Problem with $(suptitle): Work Precision Diagram", fontsize = 24, tellwidth = false, font = :bold)
+        fig[0, :] = Label(fig, "Quadratic Problem with $(suptitle): Work Precision Diagram",
+            fontsize = 24, tellwidth = false, font = :bold)
 
         fig
     end
@@ -196,7 +219,8 @@ save("static_arrays_quadratic.svg", fig)
 
 ```julia
 probs = [generate_prob(Val(N), Val(false)) for N in [4, 16, 128, 1024]]
-wpsets = [(@show length(prob.u0); generate_wpset(prob, solvers)) for prob in probs]
+wpsets = [(@show length(prob.u0); generate_wpset(prob, solvers))
+          for prob in probs]
 titles = ["N = 4", "N = 16", "N = 128", "N = 1024"]
 
 fig = plot_all_wpsets(wpsets, solvers, titles, "Regular Julia Arrays")
@@ -219,7 +243,7 @@ function benchmark_combinations(solvers, probs)
                 maxiters = 1000, termination_condition)
             @info "Solver $(solver.name) successfully solved the problem with norm = \
                 $(norm(sol.resid, Inf))."
-            
+
             if norm(sol.resid, Inf) ≤ 1e-10
                 tt = @belapsed solve($prob, $solver_concrete; abstol = 1e-10,
                     reltol = 1e-10, maxiters = 1000,
@@ -251,7 +275,7 @@ function create_structure_data(solve_timings)
             list = []
             for (j, other_solver) in enumerate(solvers)
                 if other_solver.pkg !== :simplenonlinearsolve &&
-                    contains(other_solver.name, alg_name)
+                   contains(other_solver.name, alg_name)
                     this_timings = solve_timings[j, :]
                     push!(list, other_solver.name => this_timings ./ timings)
                 end
@@ -329,7 +353,8 @@ fig = begin
         fontsize = 24, rotation = π / 2, tellheight = false)
     fig[2, 0] = Label(fig, "Regular Julia Arrays",
         fontsize = 24, rotation = π / 2, tellheight = false)
-    fig[1:2, end + 1] = Label(fig, "Relative to SimpleNonlinearSolve.jl (Higher is Better)",
+    fig[1:2, end + 1] = Label(
+        fig, "Relative to SimpleNonlinearSolve.jl (Higher is Better)",
         fontsize = 22, tellheight = false, rotation = π / 2)
 
     labels = ["NonlinearSolve.jl", "NLsolve.jl", "Sundials"]
@@ -348,5 +373,5 @@ save("summary_plot_simplenonlinearsolve.svg", fig)
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

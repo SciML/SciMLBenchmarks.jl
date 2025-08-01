@@ -7,7 +7,8 @@ weave_options:
 
 ```julia
 using PiecewiseDeterministicMarkovProcesses, JumpProcesses, OrdinaryDiffEq
-using Catalyst, Parameters, LazySets, StaticArrays, Distributions, LinearAlgebra, SparseArrays, RecursiveArrayTools
+using Catalyst, Parameters, LazySets, StaticArrays, Distributions, LinearAlgebra,
+      SparseArrays, RecursiveArrayTools
 using Plots
 using BenchmarkTools
 const PDMP = PiecewiseDeterministicMarkovProcesses
@@ -58,7 +59,6 @@ end
 
 ### Postsynpatic parameters
 
-
 ```julia
 # adapted from  SynapseElife/src/ParamsSynapse.jl
 @with_kw struct SynapseParams{Tp}
@@ -72,7 +72,7 @@ end
         [1.85, 11.327205882352938],
         [1.85, 23.25],
         [3.7650354609929075, 1.4],
-        [5.650675675675676, 29.5],
+        [5.650675675675676, 29.5]
     ]) # VPolygon([SVector(6.35,1.4),SVector(6.35,23.25),SVector(6.35,29.5),SVector(1.85,11.327205882352938),SVector(1.85,23.25),SVector(3.7650354609929075,1.4),SVector(5.650675675675676,29.5)])
     "activation rates for thresholds."
     a_D::Float64 = 0.1
@@ -119,8 +119,9 @@ end
     "biophysical and GHK parameters."
     gas::Float64 = 8.314e-6
     "biophysical and GHK parameters."
-    p_release::NTuple{4,Float64} =
-        (0.004225803293622208, 1708.4124496514878, 1.3499793762587964, 0.6540248201173222)
+    p_release::NTuple{4,
+        Float64} = (
+        0.004225803293622208, 1708.4124496514878, 1.3499793762587964, 0.6540248201173222)
     "backpropagation attenuation."
     trec::Float64 = 2000
     "backpropagation attenuation."
@@ -128,12 +129,12 @@ end
     "backpropagation attenuation."
     delta_decay::Float64 = 1.7279e-5
     "backpropagation attenuation."
-    p_age_decay_bap::NTuple{3,Float64} =
-        (0.13525468256031167, 16.482800452454164, 5.564691354645679)
+    p_age_decay_bap::NTuple{
+        3, Float64} = (0.13525468256031167, 16.482800452454164, 5.564691354645679)
     "backpropagation attenuation."
-    delta_soma::Float64 =
-        2.5e-5 *
-        (p_age_decay_bap[3] / (1 + exp(p_age_decay_bap[1] * (age - p_age_decay_bap[2]))))
+    delta_soma::Float64 = 2.5e-5 *
+                          (p_age_decay_bap[3] /
+                           (1 + exp(p_age_decay_bap[1] * (age - p_age_decay_bap[2]))))
     "backpropagation attenuation."
     delta_aux::Float64 = 2.304e-5
     "backpropagation attenuation."
@@ -141,11 +142,12 @@ end
     "backpropagation attenuation."
     soma_dist::Float64 = 200.0
     "backpropagation attenuation."
-    p_dist::NTuple{4,Float64} =
-        (0.019719018173341547, 230.3206470553394, 1.4313810030893268, 0.10406540965358434)
+    p_dist::NTuple{4,
+        Float64} = (
+        0.019719018173341547, 230.3206470553394, 1.4313810030893268, 0.10406540965358434)
     "backpropagation attenuation."
-    ϕ_dist::Float64 =
-        (p_dist[4] + p_dist[3] / (1 + exp(p_dist[1] * (soma_dist - p_dist[2]))))
+    ϕ_dist::Float64 = (p_dist[4] +
+                       p_dist[3] / (1 + exp(p_dist[1] * (soma_dist - p_dist[2]))))
     "backpropagation attenuation."
     I_clamp::Float64 = 0.0
     "Na and K."
@@ -157,16 +159,18 @@ end
     "Na and K."
     Erev_K::Float64 = -90.0
     "NMDAr temperature modification."
-    p_nmda_frwd::NTuple{4,Float64} =
-        (-0.09991802053299291, -37.63132907014948, 1239.0673283348326, -1230.6805720050966)
+    p_nmda_frwd::NTuple{4,
+        Float64} = (
+        -0.09991802053299291, -37.63132907014948, 1239.0673283348326, -1230.6805720050966)
     "NMDAr temperature modification."
     frwd_T_chng_NMDA::Float64 = (
         p_nmda_frwd[4] +
         p_nmda_frwd[3] / (1 + exp(p_nmda_frwd[1] * (temp_rates - p_nmda_frwd[2])))
     )
     "NMDAr temperature modification."
-    p_nmda_bcwd::NTuple{4,Float64} =
-        (-0.10605060141396823, 98.99939433046647, 1621.6168608608068, 3.0368551011554143)
+    p_nmda_bcwd::NTuple{4,
+        Float64} = (
+        -0.10605060141396823, 98.99939433046647, 1621.6168608608068, 3.0368551011554143)
     "NMDAr temperature modification."
     bcwd_T_chng_NMDA::Float64 = (
         p_nmda_bcwd[4] +
@@ -221,17 +225,19 @@ end
     "NMDAr kinetics (GluN2B type), ms-1."
     NMDA_N2B_s_a::Float64 = bcwd_T_chng_NMDA * 0.23 * 60.0 * 1e-3
     "NMDA details."
-    p_nmda::NTuple{4,Float64} =
-        (0.004477162852447629, 2701.3929349701334, 58.38819453272428, 33.949463268365555)
+    p_nmda::NTuple{4,
+        Float64} = (
+        0.004477162852447629, 2701.3929349701334, 58.38819453272428, 33.949463268365555)
     "NMDA details."
-    gamma_nmda::Float64 =
-        (p_nmda[4] + p_nmda[3] / (1 + exp(p_nmda[1] * (Ca_ext - p_nmda[2])))) * 1e-3
+    gamma_nmda::Float64 = (p_nmda[4] +
+                           p_nmda[3] / (1 + exp(p_nmda[1] * (Ca_ext - p_nmda[2])))) * 1e-3
     "NMDA details."
-    p_age::NTuple{4,Float64} =
-        (0.09993657672916968, 25.102347872464193, 0.9642137892004939, 0.5075183905839776)
+    p_age::NTuple{4,
+        Float64} = (
+        0.09993657672916968, 25.102347872464193, 0.9642137892004939, 0.5075183905839776)
     "ratio N2B/N2A."
-    r_NMDA_age::Float64 =
-        rand(Normal(0, 0.05)) + p_age[4] + p_age[3] / (1 + exp(p_age[1] * (age - p_age[2]))) # 0.5+1.6*exp(-age/16.66) + rand(Normal(0,.05))
+    r_NMDA_age::Float64 = rand(Normal(0, 0.05)) + p_age[4] +
+                          p_age[3] / (1 + exp(p_age[1] * (age - p_age[2]))) # 0.5+1.6*exp(-age/16.66) + rand(Normal(0,.05))
     "ratio N2B/N2A."
     N_NMDA::Int64 = 15
     "ratio N2B/N2A."
@@ -243,17 +249,17 @@ end
     "other NMDAr parameters."
     Mg::Float64 = 1.0
     "AMPAr temperature modification."
-    p_ampa_frwd::NTuple{3,Float64} =
-        (-0.4737773089201679, 31.7248285571622, 10.273135485873242)
+    p_ampa_frwd::NTuple{
+        3, Float64} = (-0.4737773089201679, 31.7248285571622, 10.273135485873242)
     "AMPAr temperature modification."
-    frwd_T_chng_AMPA::Float64 =
-        (p_ampa_frwd[3] / (1 + exp(p_ampa_frwd[1] * (temp_rates - p_ampa_frwd[2])))) # temp_rates*0.78-18.7
+    frwd_T_chng_AMPA::Float64 = (p_ampa_frwd[3] /
+                                 (1 + exp(p_ampa_frwd[1] * (temp_rates - p_ampa_frwd[2])))) # temp_rates*0.78-18.7
     "AMPAr temperature modification."
-    p_ampa_bcwd::NTuple{3,Float64} =
-        (-0.36705555170278986, 28.976662403966674, 5.134547217640794)
+    p_ampa_bcwd::NTuple{
+        3, Float64} = (-0.36705555170278986, 28.976662403966674, 5.134547217640794)
     "AMPAr temperature modification."
-    bcwd_T_chng_AMPA::Float64 =
-        (p_ampa_bcwd[3] / (1 + exp(p_ampa_bcwd[1] * (temp_rates - p_ampa_bcwd[2])))) # temp_rates*0.37-8.25
+    bcwd_T_chng_AMPA::Float64 = (p_ampa_bcwd[3] /
+                                 (1 + exp(p_ampa_bcwd[1] * (temp_rates - p_ampa_bcwd[2])))) # temp_rates*0.37-8.25
     "AMPAr kinetics, uM-1ms-1."
     AMPA_k1::Float64 = frwd_T_chng_AMPA * 1.6 * 1e7 * 1e-6 * 1e-3
     "AMPAr kinetics, ms-1."
@@ -289,8 +295,9 @@ end
     "GABAr."
     N_GABA::Int64 = 34
     "GABAr."
-    p_Cl::NTuple{4,Float64} =
-        (0.09151696057098718, 0.6919298240788684, 243.5159017060495, -92.6496083089155)
+    p_Cl::NTuple{4,
+        Float64} = (
+        0.09151696057098718, 0.6919298240788684, 243.5159017060495, -92.6496083089155)
     "GABAr, Cl reversal potential."
     Erev_Cl::Float64 = (p_Cl[4] + p_Cl[3] / (1 + exp(p_Cl[1] * (age - p_Cl[2]))))
     "GABAr, Cl reversal potential."
@@ -308,16 +315,18 @@ end
     "GABAr, Cl reversal potential."
     GABA_r_ro2::Float64 = 1e3 * 10.6e-3
     "GABAr, Cl reversal potential."
-    p_GABA::NTuple{4,Float64} =
-        (0.19127068198185954, 32.16771140618756, -1.2798050197287802, 1.470692263981145)
+    p_GABA::NTuple{4,
+        Float64} = (
+        0.19127068198185954, 32.16771140618756, -1.2798050197287802, 1.470692263981145)
     "GABAr, Cl reversal potential."
-    GABA_r_c1::Float64 =
-        (p_GABA[4] + p_GABA[3] / (1 + exp(p_GABA[1] * (temp_rates - p_GABA[2])))) *
-        1e3 *
-        9.8e-3
+    GABA_r_c1::Float64 = (p_GABA[4] +
+                          p_GABA[3] / (1 + exp(p_GABA[1] * (temp_rates - p_GABA[2])))) *
+                         1e3 *
+                         9.8e-3
     "GABAr, Cl reversal potential."
-    GABA_r_c2::Float64 =
-        (p_GABA[4] + p_GABA[3] / (1 + exp(p_GABA[1] * (temp_rates - p_GABA[2])))) * 400e-3
+    GABA_r_c2::Float64 = (p_GABA[4] +
+                          p_GABA[3] / (1 + exp(p_GABA[1] * (temp_rates - p_GABA[2])))) *
+                         400e-3
     "passive electrical properties."
     E_leak::Float64 = -70.0
     "passive electrical properties."
@@ -389,15 +398,17 @@ end
     "SK channels [mellor2016annex], ms."
     SK_hill::Float64 = 6
     "SK channels."
-    p_SK_bcwd::NTuple{4,Float64} =
-        (0.09391588258147192, 98.85165844770867, -147.61669527876904, 149.37767054612135)
+    p_SK_bcwd::NTuple{4,
+        Float64} = (
+        0.09391588258147192, 98.85165844770867, -147.61669527876904, 149.37767054612135)
     "SK channels."
     bcwd_SK::Float64 = (
         p_SK_bcwd[4] + p_SK_bcwd[3] / (1 + exp(p_SK_bcwd[1] * (temp_rates - p_SK_bcwd[2])))
     )
     "SK channels."
-    p_SK_frwd::NTuple{4,Float64} =
-        (-0.334167923607112, 25.590920461511878, 2.2052151559841193, 0.005904170174699533)
+    p_SK_frwd::NTuple{4,
+        Float64} = (
+        -0.334167923607112, 25.590920461511878, 2.2052151559841193, 0.005904170174699533)
     "SK channels."
     frwd_SK::Float64 = (
         p_SK_frwd[4] + p_SK_frwd[3] / (1 + exp(p_SK_frwd[1] * (temp_rates - p_SK_frwd[2])))
@@ -457,12 +468,13 @@ end
     "Chang Pepke model - CaMKII reactions."
     koff_K2N::Float64 = 20e-3
     "Chang Pepke model - autophosphorilation."
-    p_camkii_q10::NTuple{4,Float64} =
-        (0.5118207068695309, 45.47503600542303, -161.42634157226917, 162.1718925882677)
+    p_camkii_q10::NTuple{4,
+        Float64} = (
+        0.5118207068695309, 45.47503600542303, -161.42634157226917, 162.1718925882677)
     "Chang Pepke model - autophosphorilation."
-    q10::Float64 =
-        p_camkii_q10[4] +
-        p_camkii_q10[3] / (1 + exp(p_camkii_q10[1] * (temp_rates - p_camkii_q10[2]))) # change of temp to fit chang 35C
+    q10::Float64 = p_camkii_q10[4] +
+                   p_camkii_q10[3] /
+                   (1 + exp(p_camkii_q10[1] * (temp_rates - p_camkii_q10[2]))) # change of temp to fit chang 35C
     "Chang Pepke model - autophosphorilation."
     k1::Float64 = 12.6e-3
     "Chang Pepke model - autophosphorilation."
@@ -474,34 +486,36 @@ end
     "Chang Pepke model - autophosphorilation."
     k5::Float64 = 4 * q10 * 2 * 0.017e-3 # q10 * 2* 0.017e-3
     "CaM-CaN reactions."
-    p_CaN_frwd::NTuple{4,Float64} =
-        (-0.29481489145354556, 29.999999999999968, 0.15940019940354327, 0.870299900298228)
+    p_CaN_frwd::NTuple{4,
+        Float64} = (
+        -0.29481489145354556, 29.999999999999968, 0.15940019940354327, 0.870299900298228)
     "CaM-CaN reactions, 22C - 4.6e-2 [quintana2005]."
-    kcanf::Float64 =
-        (
-            p_CaN_frwd[4] +
-            p_CaN_frwd[3] / (1 + exp(p_CaN_frwd[1] * (temp_rates - p_CaN_frwd[2])))
-        ) * 1.75e-2
+    kcanf::Float64 = (
+        p_CaN_frwd[4] +
+        p_CaN_frwd[3] / (1 + exp(p_CaN_frwd[1] * (temp_rates - p_CaN_frwd[2])))
+    ) * 1.75e-2
     "CaM-CaN reactions."
-    p_CaN_bcwd::NTuple{4,Float64} =
-        (-0.6833299932488973, 26.277500129849113, 0.7114524682690591, 0.29037766196937326)
+    p_CaN_bcwd::NTuple{4,
+        Float64} = (
+        -0.6833299932488973, 26.277500129849113, 0.7114524682690591, 0.29037766196937326)
     "CaM-CaN reactions, 22C - 1.2e-6 [quintana2005]."
-    kcanb::Float64 =
-        (
-            p_CaN_bcwd[4] +
-            p_CaN_bcwd[3] / (1 + exp(p_CaN_bcwd[1] * (temp_rates - p_CaN_bcwd[2])))
-        ) * 2e-5
+    kcanb::Float64 = (
+        p_CaN_bcwd[4] +
+        p_CaN_bcwd[3] / (1 + exp(p_CaN_bcwd[1] * (temp_rates - p_CaN_bcwd[2])))
+    ) * 2e-5
     "VGCCs."
-    p_frwd_VGCC::NTuple{4,Float64} =
-        (1.0485098341579628, 30.66869198447378, -0.3040010721391852, 2.5032059559264357)
+    p_frwd_VGCC::NTuple{4,
+        Float64} = (
+        1.0485098341579628, 30.66869198447378, -0.3040010721391852, 2.5032059559264357)
     "VGCCs."
     frwd_VGCC::Float64 = (
         p_frwd_VGCC[4] +
         p_frwd_VGCC[3] / (1 + exp(p_frwd_VGCC[1] * (temp_rates - p_frwd_VGCC[2])))
     )
     "VGCCs."
-    p_bcwd_VGCC::NTuple{4,Float64} =
-        (-0.3302682317933842, 36.279019647221226, 3.2259761593440155, 0.7298285671937866)
+    p_bcwd_VGCC::NTuple{4,
+        Float64} = (
+        -0.3302682317933842, 36.279019647221226, 3.2259761593440155, 0.7298285671937866)
     "VGCCs."
     bcwd_VGCC::Float64 = (
         p_bcwd_VGCC[4] +
@@ -667,36 +681,34 @@ end
 NMDA_matrix() = get_stoichmatrix(nmda_model_v2)
 
 # adapted from SynapseElife/src/JumpMatrices.jl
-R_channel_matrix() = [
-    [-1 1 0 0] # CaR m0h0 -> m1h0
-    [1 -1 0 0] # CaR m1h0 -> m0h0
-    [-1 0 1 0] # CaR m0h0 -> m0h1
-    [1 0 -1 0] # CaR m0h1 -> m0h0
-    [0 -1 0 1] # CaR m1h0 -> O
-    [0 1 0 -1] # CaR    O -> m1h0
-    [0 0 -1 1] # CaR m0h1 -> O
-    [0 0 1 -1] # CaR    O -> m0h1
-]
+function R_channel_matrix()
+    [[-1 1 0 0] # CaR m0h0 -> m1h0
+     [1 -1 0 0] # CaR m1h0 -> m0h0
+     [-1 0 1 0] # CaR m0h0 -> m0h1
+     [1 0 -1 0] # CaR m0h1 -> m0h0
+     [0 -1 0 1] # CaR m1h0 -> O
+     [0 1 0 -1] # CaR    O -> m1h0
+     [0 0 -1 1] # CaR m0h1 -> O
+     [0 0 1 -1]]
+end
 
 # adapted from SynapseElife/src/JumpMatrices.jl
-T_channel_matrix() = [
-    [-1 1 0 0] # CaT m0h0 -> m1h0
-    [1 -1 0 0] # CaT m1h0 -> m0h0
-    [-1 0 1 0] # CaT m0h0 -> m0h1
-    [1 0 -1 0] # CaT m0h1 -> m0h0
-    [0 -1 0 1] # CaT m1h0 -> O
-    [0 1 0 -1] # CaT    O -> m1h0
-    [0 0 -1 1] # CaT m0h1 -> O
-    [0 0 1 -1] # CaT    O -> m0h
-]
+function T_channel_matrix()
+    [[-1 1 0 0] # CaT m0h0 -> m1h0
+     [1 -1 0 0] # CaT m1h0 -> m0h0
+     [-1 0 1 0] # CaT m0h0 -> m0h1
+     [1 0 -1 0] # CaT m0h1 -> m0h0
+     [0 -1 0 1] # CaT m1h0 -> O
+     [0 1 0 -1] # CaT    O -> m1h0
+     [0 0 -1 1] # CaT m0h1 -> O
+     [0 0 1 -1]]
+end
 
 # adapted from SynapseElife/src/JumpMatrices.jl
-L_channel_matrix() = [
-    [-1 1 0] # CaL C -> O1
-    [1 -1 0] # CaL O1 -> C
-    [-1 0 1] # CaL C -> O2
-    [1 0 -1] # CaL O2 -> C
-]
+L_channel_matrix() = [[-1 1 0] # CaL C -> O1
+                      [1 -1 0] # CaL O1 -> C
+                      [-1 0 1] # CaL C -> O2
+                      [1 0 -1]]
 
 # adapted from SynapseElife/src/JumpMatrices.jl
 const plasticity = @reaction_network begin
@@ -749,7 +761,7 @@ const p_synapse = SynapseParams(t_end = 1000.0);
 const glu = 0.0;
 const events_sorted_times = [500.0];
 const is_pre_or_post_event = [true];
-const events_bap = events_sorted_times[is_pre_or_post_event.==false];
+const events_bap = events_sorted_times[is_pre_or_post_event .== false];
 const bap_by_epsp = Float64[];
 const nu = buildTransitionMatrix();
 ```
@@ -762,122 +774,116 @@ function initial_conditions_continuous_temp(param_synapse)
     @unpack_SynapseParams param_synapse
     if temp_rates <= 25
         return vec(
-            [
-                -70.10245699808998
-                -70.02736715107497
-                -70.01992573979436
-                1.0
-                5.251484030952095
-                0.17942311304488254
-                0.0
-                18.422417385628144
-                0.061182835845181506
-                0.007491230194287401
-                2.5601235159798556e-5
-                18.60768149870139
-                1.3923185018623478
-                47.943467158481965
-                0.33484901412981444
-                0.00873078540237604
-                0.26160543666353603
-                0.006945031752908706
-                5.28369636945184
-                4.008117080305045
-                0.11294478061086997
-                0.09967594670655765
-                4.656494469862573
-                7.283473926518337
-                0.0
-                0.0
-                0.0
-                0.0
-                0.012283139643655655
-                0.9999998289470913
-                0.00010811866849049202
-                0.09878906052566663
-                1.0
-                1.0
-            ],
+            [-70.10245699808998
+             -70.02736715107497
+             -70.01992573979436
+             1.0
+             5.251484030952095
+             0.17942311304488254
+             0.0
+             18.422417385628144
+             0.061182835845181506
+             0.007491230194287401
+             2.5601235159798556e-5
+             18.60768149870139
+             1.3923185018623478
+             47.943467158481965
+             0.33484901412981444
+             0.00873078540237604
+             0.26160543666353603
+             0.006945031752908706
+             5.28369636945184
+             4.008117080305045
+             0.11294478061086997
+             0.09967594670655765
+             4.656494469862573
+             7.283473926518337
+             0.0
+             0.0
+             0.0
+             0.0
+             0.012283139643655655
+             0.9999998289470913
+             0.00010811866849049202
+             0.09878906052566663
+             1.0
+             1.0],
         )
     end
     if 25 < temp_rates <= 30.0
         return vec(
-            [
-                -70.0140727673961
-                -70.00177103943689
-                -70.00007589726667
-                1.0
-                3.48177628683147
-                0.11706193391209137
-                0.0
-                19.902059159951726
-                0.04813075789246737
-                0.0033156783870759324
-                1.3058864642411135e-5
-                19.473469645955362
-                0.5265303542539336
-                49.658388018645105
-                0.39979810740476907
-                0.005987535794514187
-                0.22114161049072126
-                0.003443459770906218
-                5.486877056572574
-                3.2429635679748126
-                0.0967411298498974
-                0.06299852278885718
-                4.315666798657558
-                6.505994192089851
-                0.0
-                0.0
-                0.0
-                0.0
-                0.0123167984282587
-                0.9999998268859568
-                0.00010833059621284
-                0.016112012029112062
-                1.0
-                1.0
-            ],
+            [-70.0140727673961
+             -70.00177103943689
+             -70.00007589726667
+             1.0
+             3.48177628683147
+             0.11706193391209137
+             0.0
+             19.902059159951726
+             0.04813075789246737
+             0.0033156783870759324
+             1.3058864642411135e-5
+             19.473469645955362
+             0.5265303542539336
+             49.658388018645105
+             0.39979810740476907
+             0.005987535794514187
+             0.22114161049072126
+             0.003443459770906218
+             5.486877056572574
+             3.2429635679748126
+             0.0967411298498974
+             0.06299852278885718
+             4.315666798657558
+             6.505994192089851
+             0.0
+             0.0
+             0.0
+             0.0
+             0.0123167984282587
+             0.9999998268859568
+             0.00010833059621284
+             0.016112012029112062
+             1.0
+             1.0],
         )
     end
     if temp_rates > 30
         return vec(
-            [
-                -70.02953996060384
-                -70.00364683510847
-                -70.0013995913228
-                1.0
-                3.3989773357494646
-                0.11430174346528181
-                0.0
-                25.14694054430742
-                0.048232611580821316
-                0.004340152415081933
-                6.8123069384392556e-6
-                19.865575695641734
-                0.13442430463415694
-                62.32357049746406
-                0.8459878113145832
-                0.009234347120412881
-                0.3607751119415231
-                0.003937688645035126
-                2.3440067259757305
-                1.0593952833042108
-                0.02913354160885602
-                0.013585064852268125
-                1.6677561415335218
-                1.3426177862569586
-                0.0
-                0.0
-                0.0
-                0.0
-                0.012314741437834478
-                0.999999826986425
-                0.00010831999489540837
-                0.03393795777123425
-                1.0
-                1.0
-            ],
+            [-70.02953996060384
+             -70.00364683510847
+             -70.0013995913228
+             1.0
+             3.3989773357494646
+             0.11430174346528181
+             0.0
+             25.14694054430742
+             0.048232611580821316
+             0.004340152415081933
+             6.8123069384392556e-6
+             19.865575695641734
+             0.13442430463415694
+             62.32357049746406
+             0.8459878113145832
+             0.009234347120412881
+             0.3607751119415231
+             0.003937688645035126
+             2.3440067259757305
+             1.0593952833042108
+             0.02913354160885602
+             0.013585064852268125
+             1.6677561415335218
+             1.3426177862569586
+             0.0
+             0.0
+             0.0
+             0.0
+             0.012314741437834478
+             0.999999826986425
+             0.00010831999489540837
+             0.03393795777123425
+             1.0
+             1.0],
         )
     end
 end
@@ -936,8 +942,8 @@ function initial_conditions_discrete(param_synapse)
         0,
         0,
         0,
-        0,
-    ])  
+        0
+    ])
 end
 ```
 
@@ -1079,7 +1085,6 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
     ∂h = alpha_h(Vsoma) * (1 - h) - beta_h(Vsoma) * h
     I_Na = gamma_Na * (m^3) * h * (Erev_Na - Vsoma)
 
-
     # K channel
     n_inf = 1 / (1 + alpha_n(Vsoma))
     n_tau = max(50 * beta_n(Vsoma) / (1 + alpha_n(Vsoma)), 2.0)
@@ -1091,9 +1096,8 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
     Inmda = (Erev_nmda - Vsp) * NMDA # current nmda
 
     # AMPA
-    Iampa =
-        (Erev_ampa - Vsp) *
-        (gamma_ampa1 * n1_ampa + gamma_ampa2 * n2_ampa + gamma_ampa3 * n3_ampa) # current ampa
+    Iampa = (Erev_ampa - Vsp) *
+            (gamma_ampa1 * n1_ampa + gamma_ampa2 * n2_ampa + gamma_ampa3 * n3_ampa) # current ampa
 
     # GABA
     Igaba = (n_gaba1 + n_gaba2) * (Erev_Cl - Vdend) * gamma_GABA
@@ -1111,8 +1115,8 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
 
     # Backpropgation
     # Post input - for experimentally induced BaPs and those induced by EPSPs
-    I_BaP =
-        inputBaP(t, bap_by_epsp, injbap, I_clamp) + inputBaP(t, events_bap, injbap, I_clamp)
+    I_BaP = inputBaP(t, bap_by_epsp, injbap, I_clamp) +
+            inputBaP(t, events_bap, injbap, I_clamp)
     # Bap decay/attenuation - two component for adaptation in the Bap
     ∂λ = (1 - λ) / trec - delta_decay * (1 / λ_aux) * λ * I_BaP
     ∂λ_aux = (1 - λ_aux) / trec - delta_aux * λ_aux * I_BaP
@@ -1123,34 +1127,30 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
 
     # Voltage
     # Spine
-    ∂Vsp =
-        (
-            Isk +
-            Inmda +
-            Iampa +
-            Icat +
-            Icar +
-            Ical +
-            g_neck * (Vdend - Vsp) +
-            g_leak * (E_leak - Vsp)
-        ) / (Csp)
+    ∂Vsp = (
+        Isk +
+        Inmda +
+        Iampa +
+        Icat +
+        Icar +
+        Ical +
+        g_neck * (Vdend - Vsp) +
+        g_leak * (E_leak - Vsp)
+    ) / (Csp)
     # Dendrite
-    ∂Vdend =
-        (
-            g_neck * (Vsp - Vdend) +
-            Igaba +
-            g_leakdend * (E_leak - Vdend) +
-            gadapt * (Vsoma - Vdend)
-        ) / Cdend
+    ∂Vdend = (
+        g_neck * (Vsp - Vdend) +
+        Igaba +
+        g_leakdend * (E_leak - Vdend) +
+        gadapt * (Vsoma - Vdend)
+    ) / Cdend
     # Soma
-    ∂Vsoma =
-        (
-            (I_BaP + I_Na) * λ_age +
-            I_K +
-            g_leaksoma * (E_leak - Vsoma) +
-            gadapt * (Vdend - Vsoma)
-        ) / Csoma
-
+    ∂Vsoma = (
+        (I_BaP + I_Na) * λ_age +
+        I_K +
+        g_leaksoma * (E_leak - Vsoma) +
+        gadapt * (Vdend - Vsoma)
+    ) / Csoma
 
     # Buffer and dye (spine only - no neck diffusion)
     ∂ImbufCa = Imbuf_k_on * (Imbuf_con - ImbufCa) * Ca - Imbuf_k_off * ImbufCa
@@ -1168,62 +1168,57 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
     kb_K2N = rates_adapt(koff_K1N, koff_K2N, koff_K1N, kon_K2N, Ca)
     F = CaMKII / mKCaM_con
 
-    ∂CaM0 =
-        k2 * PCaM0 +
-        kb_2C * CaM2C +
-        kb_2N * CaM2N +
-        kb_CaM0 * KCaM0 +
-        -(1 // 2) * kf_2C * (Ca^2) * CaM0 - (1 // 2) * kf_2N * (Ca^2) * CaM0 +
-        -kf_CaM0 * CaM0 * mKCaM
+    ∂CaM0 = k2 * PCaM0 +
+            kb_2C * CaM2C +
+            kb_2N * CaM2N +
+            kb_CaM0 * KCaM0 +
+            -(1 // 2) * kf_2C * (Ca^2) * CaM0 - (1 // 2) * kf_2N * (Ca^2) * CaM0 +
+            -kf_CaM0 * CaM0 * mKCaM
 
-    ∂CaM2C =
-        kb_2N * CaM4 + kb_CaM2C * KCaM2C + k2 * PCaM2C + +(1 // 2) * kf_2C * (Ca^2) * CaM0 -
-        kb_2C * CaM2C - (1 // 2) * kf_2N * (Ca^2) * CaM2C + -kf_CaM2C * CaM2C * mKCaM
+    ∂CaM2C = kb_2N * CaM4 + kb_CaM2C * KCaM2C + k2 * PCaM2C +
+             +(1 // 2) * kf_2C * (Ca^2) * CaM0 -
+             kb_2C * CaM2C - (1 // 2) * kf_2N * (Ca^2) * CaM2C + -kf_CaM2C * CaM2C * mKCaM
 
-    ∂CaM2N =
-        kb_2C * CaM4 + kb_CaM2N * KCaM2N + k2 * PCaM2N + +(1 // 2) * kf_2N * (Ca^2) * CaM0 -
-        kb_2N * CaM2N - (1 // 2) * kf_2C * (Ca^2) * CaM2N + -kf_CaM2N * CaM2N * mKCaM
+    ∂CaM2N = kb_2C * CaM4 + kb_CaM2N * KCaM2N + k2 * PCaM2N +
+             +(1 // 2) * kf_2N * (Ca^2) * CaM0 -
+             kb_2N * CaM2N - (1 // 2) * kf_2C * (Ca^2) * CaM2N + -kf_CaM2N * CaM2N * mKCaM
 
-    ∂CaM4 =
-        k2 * PCaM4 +
-        kcanb * CaN4 +
-        kb_CaM4 * KCaM4 +
-        +(1 // 2) * kf_2N * (Ca^2) * CaM2C +
-        (1 // 2) * kf_2C * (Ca^2) * CaM2N - kb_2C * CaM4 + -kb_2N * CaM4 -
-        kcanf * CaM4 * mCaN - kf_CaM4 * CaM4 * mKCaM
+    ∂CaM4 = k2 * PCaM4 +
+            kcanb * CaN4 +
+            kb_CaM4 * KCaM4 +
+            +(1 // 2) * kf_2N * (Ca^2) * CaM2C +
+            (1 // 2) * kf_2C * (Ca^2) * CaM2N - kb_2C * CaM4 + -kb_2N * CaM4 -
+            kcanf * CaM4 * mCaN - kf_CaM4 * CaM4 * mKCaM
 
     ∂mCaN = kcanb * CaN4 - kcanf * CaM4 * mCaN
 
     ∂CaN4 = kcanf * CaM4 * mCaN - kcanb * CaN4
 
-    ∂mKCaM =
-        kb_CaM0 * KCaM0 +
-        k3 * P +
-        kb_CaM2C * KCaM2C +
-        kb_CaM2N * KCaM2N +
-        +kb_CaM4 * KCaM4 - kf_CaM0 * CaM0 * mKCaM - kf_CaM2C * CaM2C * mKCaM +
-        -kf_CaM2N * CaM2N * mKCaM - kf_CaM4 * CaM4 * mKCaM
+    ∂mKCaM = kb_CaM0 * KCaM0 +
+             k3 * P +
+             kb_CaM2C * KCaM2C +
+             kb_CaM2N * KCaM2N +
+             +kb_CaM4 * KCaM4 - kf_CaM0 * CaM0 * mKCaM - kf_CaM2C * CaM2C * mKCaM +
+             -kf_CaM2N * CaM2N * mKCaM - kf_CaM4 * CaM4 * mKCaM
 
-    ∂KCaM0 =
-        kb_K2C * KCaM2C + kb_K2N * KCaM2N + kf_CaM0 * CaM0 * mKCaM + -kb_CaM0 * KCaM0 -
-        (1 // 2) * kf_K2C * (Ca^2) * KCaM0 - F * k1 * KCaM0 +
-        -(1 // 2) * kf_K2N * (Ca^2) * KCaM0
+    ∂KCaM0 = kb_K2C * KCaM2C + kb_K2N * KCaM2N + kf_CaM0 * CaM0 * mKCaM + -kb_CaM0 * KCaM0 -
+             (1 // 2) * kf_K2C * (Ca^2) * KCaM0 - F * k1 * KCaM0 +
+             -(1 // 2) * kf_K2N * (Ca^2) * KCaM0
 
-    ∂KCaM2N =
-        kb_K2C * KCaM4 + kf_CaM2N * CaM2N * mKCaM + +(1 // 2) * kf_K2N * (Ca^2) * KCaM0 -
-        kb_CaM2N * KCaM2N - kb_K2N * KCaM2N + -(1 // 2) * kf_K2C * (Ca^2) * KCaM2N -
-        F * k1 * KCaM2N
+    ∂KCaM2N = kb_K2C * KCaM4 + kf_CaM2N * CaM2N * mKCaM +
+              +(1 // 2) * kf_K2N * (Ca^2) * KCaM0 -
+              kb_CaM2N * KCaM2N - kb_K2N * KCaM2N + -(1 // 2) * kf_K2C * (Ca^2) * KCaM2N -
+              F * k1 * KCaM2N
 
-    ∂KCaM2C =
-        kb_K2N * KCaM4 + kf_CaM2C * CaM2C * mKCaM + +(1 // 2) * kf_K2C * (Ca^2) * KCaM0 -
-        kb_CaM2C * KCaM2C - kb_K2C * KCaM2C + -F * k1 * KCaM2C -
-        (1 // 2) * kf_K2N * (Ca^2) * KCaM2C
+    ∂KCaM2C = kb_K2N * KCaM4 + kf_CaM2C * CaM2C * mKCaM +
+              +(1 // 2) * kf_K2C * (Ca^2) * KCaM0 -
+              kb_CaM2C * KCaM2C - kb_K2C * KCaM2C + -F * k1 * KCaM2C -
+              (1 // 2) * kf_K2N * (Ca^2) * KCaM2C
 
-    ∂KCaM4 =
-        kf_CaM4 * CaM4 * mKCaM +
-        (1 // 2) * kf_K2C * (Ca^2) * KCaM2N +
-        +(1 // 2) * kf_K2N * (Ca^2) * KCaM2C - kb_CaM4 * KCaM4 - kb_K2C * KCaM4 +
-        -kb_K2N * KCaM4 - F * k1 * KCaM4
+    ∂KCaM4 = kf_CaM4 * CaM4 * mKCaM +
+             (1 // 2) * kf_K2C * (Ca^2) * KCaM2N +
+             +(1 // 2) * kf_K2N * (Ca^2) * KCaM2C - kb_CaM4 * KCaM4 - kb_K2C * KCaM4 +
+             -kb_K2N * KCaM4 - F * k1 * KCaM4
 
     ∂PCaM0 = F * k1 * KCaM0 - k2 * PCaM0
 
@@ -1238,23 +1233,22 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
     ∂P2 = k4 * P - k5 * P2
 
     # Postsynaptic Ca
-    ∂Ca =
-        (Ca_infty - Ca) / tau_ca +
-        +(Ica_nmda + Icar + Ical + Icat) / (2 * faraday * A_sp) +
-        +(max(Ca_infty, Ca / 3) - Ca) / tau_diff +
-        -∂ImbufCa +
-        -∂Dye +
-        +2kb_2C * CaM2C +
-        2kb_2C * CaM4 +
-        2kb_2N * CaM2N +
-        2kb_2N * CaM4 +
-        +2kb_K2C * KCaM2C +
-        2kb_K2N * KCaM2N +
-        2kb_K2C * KCaM4 +
-        2kb_K2N * KCaM4 +
-        -kf_2C * (Ca^2) * CaM0 - kf_2N * (Ca^2) * CaM0 - kf_2N * (Ca^2) * CaM2C +
-        -kf_2C * (Ca^2) * CaM2N - kf_K2C * (Ca^2) * KCaM0 - kf_K2C * (Ca^2) * KCaM2N +
-        -kf_K2N * (Ca^2) * KCaM0 - kf_K2N * (Ca^2) * KCaM2C
+    ∂Ca = (Ca_infty - Ca) / tau_ca +
+          +(Ica_nmda + Icar + Ical + Icat) / (2 * faraday * A_sp) +
+          +(max(Ca_infty, Ca / 3) - Ca) / tau_diff +
+          -∂ImbufCa +
+          -∂Dye +
+          +2kb_2C * CaM2C +
+          2kb_2C * CaM4 +
+          2kb_2N * CaM2N +
+          2kb_2N * CaM4 +
+          +2kb_K2C * KCaM2C +
+          2kb_K2N * KCaM2N +
+          2kb_K2C * KCaM4 +
+          2kb_K2N * KCaM4 +
+          -kf_2C * (Ca^2) * CaM0 - kf_2N * (Ca^2) * CaM0 - kf_2N * (Ca^2) * CaM2C +
+          -kf_2C * (Ca^2) * CaM2N - kf_K2C * (Ca^2) * KCaM0 - kf_K2C * (Ca^2) * KCaM2N +
+          -kf_K2N * (Ca^2) * KCaM0 - kf_K2N * (Ca^2) * KCaM2C
 
     # dxc update
     dxc[1] = ∂Vsp
@@ -1294,7 +1288,7 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
 end
 ```
 
-### Discrete jumps. 
+### Discrete jumps.
 
 For the PDMP package we need to define the rates in which the jumps occur.
 
@@ -1358,7 +1352,6 @@ The rate function.
 ```julia
 # adapted from SynapseElife/src/SynapseModel.jl
 function R_synapse(rate, xc, xd, p_synapse::SynapseParams, t, sum_rate, glu = 0)
-
     @unpack_SynapseParams p_synapse
 
     # Voltage
@@ -1527,21 +1520,20 @@ Alternatively, for the JumpProcesses packages we need to define the jumps. First
 Macro to help with defining the Synapse problem for the JumpProcesses package, used in the `J_synapse` function body.
 
 # Arguments
-- i : Jump index
-- p_synapse : Synapse parameters
-- rate_ex : Rate as Julia expression
-- urate_ex : Rate upper bound as a Julia expression 
-- rateinterval_ex : Rate interval as a Julia expression
+
+  - i : Jump index
+  - p_synapse : Synapse parameters
+  - rate_ex : Rate as Julia expression
+  - urate_ex : Rate upper bound as a Julia expression
+  - rateinterval_ex : Rate interval as a Julia expression
 """
 macro j_jump(i, p_synapse, nu, rate_ex, urate_ex = nothing, rateinterval_ex = nothing)
-
     assignments = Expr[]
 
     alpha_beta_regex = r"(alpha|beta)_(m_r|h_r|m_t|h_t|l|1_l|2_l)"
     alpha_beta_matches = Set([m.match for m in eachmatch(alpha_beta_regex, "$rate_ex")])
 
     if length(alpha_beta_matches) > 0
-
         for m in ("alpha_1_l", "alpha_2_l", "beta_l")
             if m in alpha_beta_matches
                 throw(DomainError(m, "this variable does not exist in the model."))
@@ -1571,7 +1563,6 @@ macro j_jump(i, p_synapse, nu, rate_ex, urate_ex = nothing, rateinterval_ex = no
            "beta_2_l" in alpha_beta_matches
             push!(assignments, :((alpha_l, beta_1_l, beta_2_l) = rates_l(Vsp)))
         end
-
     end
 
     if occursin("D_rate", "$rate_ex")
@@ -1597,7 +1588,7 @@ macro j_jump(i, p_synapse, nu, rate_ex, urate_ex = nothing, rateinterval_ex = no
                     integrator.p.xd[j] += a
                 end
             end
-        end,
+        end
     )
 
     if !isnothing(urate_ex)
@@ -1622,14 +1613,13 @@ macro j_jump(i, p_synapse, nu, rate_ex, urate_ex = nothing, rateinterval_ex = no
     else
         push!(
             ex,
-            :(VariableRateJump(rate, affect!; urate = urate, rateinterval = rateinterval)),
+            :(VariableRateJump(rate, affect!; urate = urate, rateinterval = rateinterval))
         )
     end
 
     quote
         $(ex...)
     end
-
 end
 ```
 
@@ -1739,181 +1729,141 @@ function J_synapse(p_synapse::SynapseParams, nu)
             @j_jump(96, p_synapse, nu, GABA_r_ro1 * p.xd[47]), # 96
             @j_jump(97, p_synapse, nu, GABA_r_c1 * p.xd[49]), # 97
             @j_jump(98, p_synapse, nu, GABA_r_ro2 * p.xd[48]), # 98
-            @j_jump(99, p_synapse, nu, GABA_r_c2 * p.xd[50]), # 99
+            @j_jump(99, p_synapse, nu, GABA_r_c2 * p.xd[50]) # 99
         ],
         variable_jumps = [
             # R-type VGCC
-            @j_jump(
-                56,
+            @j_jump(56,
                 p_synapse,
                 nu,
                 p.xd[25] * alpha_m_r * frwd_VGCC,
                 p.xd[25] * max_m_r * frwd_VGCC,
-                typemax(Float64)
-            ), # 56
-            @j_jump(
-                57,
+                typemax(Float64)), # 56
+            @j_jump(57,
                 p_synapse,
                 nu,
                 p.xd[26] * beta_m_r * bcwd_VGCC,
                 p.xd[26] * max_m_r * frwd_VGCC,
-                typemax(Float64)
-            ), # 57
-            @j_jump(
-                58,
+                typemax(Float64)), # 57
+            @j_jump(58,
                 p_synapse,
                 nu,
                 p.xd[25] * alpha_h_r * frwd_VGCC,
                 p.xd[25] * max_h_r * frwd_VGCC,
-                typemax(Float64)
-            ), # 58
-            @j_jump(
-                59,
+                typemax(Float64)), # 58
+            @j_jump(59,
                 p_synapse,
                 nu,
                 p.xd[27] * beta_h_r * bcwd_VGCC,
                 p.xd[27] * max_h_r * bcwd_VGCC,
-                typemax(Float64)
-            ), # 59
-            @j_jump(
-                60,
+                typemax(Float64)), # 59
+            @j_jump(60,
                 p_synapse,
                 nu,
                 p.xd[26] * alpha_h_r * frwd_VGCC,
                 p.xd[26] * max_h_r * frwd_VGCC,
-                typemax(Float64)
-            ), # 60
-            @j_jump(
-                61,
+                typemax(Float64)), # 60
+            @j_jump(61,
                 p_synapse,
                 nu,
                 p.xd[28] * beta_h_r * bcwd_VGCC,
                 p.xd[28] * max_h_r * bcwd_VGCC,
-                typemax(Float64)
-            ), # 61
-            @j_jump(
-                62,
+                typemax(Float64)), # 61
+            @j_jump(62,
                 p_synapse,
                 nu,
                 p.xd[27] * alpha_m_r * frwd_VGCC,
                 p.xd[27] * max_m_r * frwd_VGCC,
-                typemax(Float64)
-            ), # 62
-            @j_jump(
-                63,
+                typemax(Float64)), # 62
+            @j_jump(63,
                 p_synapse,
                 nu,
                 p.xd[28] * beta_m_r * bcwd_VGCC,
                 p.xd[28] * max_m_r * bcwd_VGCC,
-                typemax(Float64)
-            ), # 63
+                typemax(Float64)), # 63
 
             # T-type VGCC
-            @j_jump(
-                64,
+            @j_jump(64,
                 p_synapse,
                 nu,
                 p.xd[29] * alpha_m_t * frwd_VGCC,
                 p.xd[29] * max_m_t * frwd_VGCC,
-                typemax(Float64)
-            ), # 64
-            @j_jump(
-                65,
+                typemax(Float64)), # 64
+            @j_jump(65,
                 p_synapse,
                 nu,
                 p.xd[30] * beta_m_t * bcwd_VGCC,
                 p.xd[30] * max_m_t * bcwd_VGCC,
-                typemax(Float64)
-            ), # 65 this one can have a high rate
-            @j_jump(
-                66,
+                typemax(Float64)), # 65 this one can have a high rate
+            @j_jump(66,
                 p_synapse,
                 nu,
                 p.xd[29] * alpha_h_t * frwd_VGCC,
                 p.xd[29] * max_h_t * frwd_VGCC,
-                typemax(Float64)
-            ), # 66
-            @j_jump(
-                67,
+                typemax(Float64)), # 66
+            @j_jump(67,
                 p_synapse,
                 nu,
                 p.xd[31] * beta_h_t * bcwd_VGCC,
                 p.xd[31] * max_h_t * bcwd_VGCC,
-                typemax(Float64)
-            ), # 67
-            @j_jump(
-                68,
+                typemax(Float64)), # 67
+            @j_jump(68,
                 p_synapse,
                 nu,
                 p.xd[30] * alpha_h_t * frwd_VGCC,
                 p.xd[30] * max_h_t * frwd_VGCC,
-                typemax(Float64)
-            ), # 68
-            @j_jump(
-                69,
+                typemax(Float64)), # 68
+            @j_jump(69,
                 p_synapse,
                 nu,
                 p.xd[32] * beta_h_t * bcwd_VGCC,
                 p.xd[32] * max_h_t * bcwd_VGCC,
-                typemax(Float64)
-            ), # 69
-            @j_jump(
-                70,
+                typemax(Float64)), # 69
+            @j_jump(70,
                 p_synapse,
                 nu,
                 p.xd[31] * alpha_m_t * frwd_VGCC,
                 p.xd[31] * max_m_t * frwd_VGCC,
-                typemax(Float64)
-            ), # 70
-            @j_jump(
-                71,
+                typemax(Float64)), # 70
+            @j_jump(71,
                 p_synapse,
                 nu,
                 p.xd[32] * beta_m_t * bcwd_VGCC,
                 p.xd[32] * max_m_t * bcwd_VGCC,
-                typemax(Float64)
-            ), # 71, this one can have a high rate
+                typemax(Float64)), # 71, this one can have a high rate
 
             # L-type VGCC
-            @j_jump(
-                72,
+            @j_jump(72,
                 p_synapse,
                 nu,
                 p.xd[33] * alpha_l * frwd_VGCC,
                 p.xd[33] * max_alpha_l * frwd_VGCC,
-                typemax(Float64)
-            ), # 72
-            @j_jump(
-                73,
+                typemax(Float64)), # 72
+            @j_jump(73,
                 p_synapse,
                 nu,
                 p.xd[34] * beta_1_l * bcwd_VGCC,
                 p.xd[34] * max_beta_1_l * bcwd_VGCC,
-                typemax(Float64)
-            ), # 73
-            @j_jump(
-                74,
+                typemax(Float64)), # 73
+            @j_jump(74,
                 p_synapse,
                 nu,
                 p.xd[33] * alpha_l * frwd_VGCC,
                 p.xd[33] * max_alpha_l * frwd_VGCC,
-                typemax(Float64)
-            ), # 74
-            @j_jump(
-                75,
+                typemax(Float64)), # 74
+            @j_jump(75,
                 p_synapse,
                 nu,
                 p.xd[35] * beta_2_l * bcwd_VGCC,
                 p.xd[35] * max_beta_2_l * bcwd_VGCC,
-                typemax(Float64)
-            ), # 75
+                typemax(Float64)), # 75
 
             # LTD/LTP
             @j_jump(76, p_synapse, nu, p.xd[36] * D_rate, 1, typemax(Float64)), # 76
             @j_jump(77, p_synapse, nu, p.xd[37] * P_rate, 1, typemax(Float64)), # 77
             @j_jump(78, p_synapse, nu, p.xd[36] * P_rate, 1, typemax(Float64)), # 78
-            @j_jump(79, p_synapse, nu, p.xd[38] * D_rate, 1, typemax(Float64)), # 79
-        ],
+            @j_jump(79, p_synapse, nu, p.xd[38] * D_rate, 1, typemax(Float64)) # 79
+        ]
     )
 
     return jumps
@@ -1944,21 +1894,21 @@ First, we define the problem for the `PDMP` package.
 
 ```julia
 function SynapseProblem(
-    xc,
-    xd,
-    t1,
-    t2,
-    events_bap,
-    bap_by_epsp,
-    glu,
-    p_synapse,
-    nu,
-    algo::T,
-    agg = nothing;
-    saveat = [],
-    save_everystep = isempty(saveat),
-    kwargs...,
-) where {T<:CHV}
+        xc,
+        xd,
+        t1,
+        t2,
+        events_bap,
+        bap_by_epsp,
+        glu,
+        p_synapse,
+        nu,
+        algo::T,
+        agg = nothing;
+        saveat = [],
+        save_everystep = isempty(saveat),
+        kwargs...
+) where {T <: CHV}
     problem = PDMP.PDMPProblem(
         (dxc, xc, xd, p, t) -> F_synapse(dxc, xc, xd, p, t, events_bap, bap_by_epsp),
         (rate, xc, xd, p, t, sum_rate) -> R_synapse(rate, xc, xd, p, t, sum_rate, glu),
@@ -1967,7 +1917,7 @@ function SynapseProblem(
         xd,
         p_synapse,
         (t1, t2);
-        Ncache = 12, # this option is for AD in PreallocationTools
+        Ncache = 12 # this option is for AD in PreallocationTools
     )
     sol = solve(problem, algo; kwargs...)
     return sol
@@ -2026,7 +1976,7 @@ function (affect!::SavingAffect)(integrator, force_save = false)
             affect!.saved_values.saveval,
             affect!.saveiter,
             affect!.save_func(integrator.u, integrator.t, integrator),
-            Val{false},
+            Val{false}
         )
     end
     u_modified!(integrator, false)
@@ -2045,8 +1995,7 @@ end
 
 # adapted from DiffEqCallbacks.jl/src/saving.jl
 function SavingCallback(save_func, saved_values::SavedValues; save_modified = true)
-    saveat_internal =
-        DataStructures.BinaryHeap{eltype(saved_values.t)}(DataStructures.FasterForward())
+    saveat_internal = DataStructures.BinaryHeap{eltype(saved_values.t)}(DataStructures.FasterForward())
     affect! = SavingAffect(
         save_func,
         saved_values,
@@ -2055,7 +2004,7 @@ function SavingCallback(save_func, saved_values::SavedValues; save_modified = tr
         false,
         false,
         false,
-        0,
+        0
     )
     # only save when save_modified is true; SavingCallback from DiffEqCallbacks
     # saves every step regardless of save_modified
@@ -2076,7 +2025,7 @@ function SavingCallback(save_func, saved_values::SavedValues; save_modified = tr
         condition,
         affect!;
         initialize = saving_initialize!,
-        save_positions = (false, false),
+        save_positions = (false, false)
     )
 end
 ```
@@ -2086,8 +2035,8 @@ Next, we define our problem wrapper that uses our custom saving callback.
 ```julia
 function buildRxDependencyGraph(nu)
     numrxs, _ = size(nu)
-    dep_graph = [Vector{Int}() for n = 1:(numrxs-1)]
-    for rx = 1:numrxs
+    dep_graph = [Vector{Int}() for n in 1:(numrxs - 1)]
+    for rx in 1:numrxs
         if rx == 55  # no need to track the Poisson process
             continue
         end
@@ -2117,42 +2066,42 @@ function buildRxDependencyGraph(nu)
 end
 
 function SynapseProblem(
-    xc,
-    xd,
-    t1,
-    t2,
-    events_bap,
-    bap_by_epsp,
-    glu,
-    p_synapse,
-    nu,
-    algo,
-    agg;
-    jumps = nothing,
-    save_positions = (false, true),
-    saveat = [],
-    save_everystep = isempty(saveat),
-    kwargs...,
+        xc,
+        xd,
+        t1,
+        t2,
+        events_bap,
+        bap_by_epsp,
+        glu,
+        p_synapse,
+        nu,
+        algo,
+        agg;
+        jumps = nothing,
+        save_positions = (false, true),
+        saveat = [],
+        save_everystep = isempty(saveat),
+        kwargs...
 )
     p = (
         xd0 = copy(xd),
         xd = copy(xd),
         Glu = p_synapse.glu_amp * glu,
-        p_synapse = p_synapse,
+        p_synapse = p_synapse
     )
     oprob = ODEProblem(
-        (dxc, xc, p, t) ->
-            F_synapse(dxc, xc, p.xd, p.p_synapse, t, events_bap, bap_by_epsp),
+        (dxc, xc, p,
+            t) -> F_synapse(dxc, xc, p.xd, p.p_synapse, t, events_bap, bap_by_epsp),
         xc,
         (t1, t2),
-        p,
+        p
     )
     xdsol = SavedValues(typeof(t1), typeof(xd))
     dep_graph = buildRxDependencyGraph(nu)
     callback = SavingCallback(
         (u, t, integrator) -> copy(integrator.p.xd),
         xdsol;
-        save_modified = typeof(save_positions) <: Bool ? save_positions : save_positions[2],
+        save_modified = typeof(save_positions) <: Bool ? save_positions : save_positions[2]
     )
     jprob = JumpProblem(
         oprob,
@@ -2162,7 +2111,7 @@ function SynapseProblem(
         save_positions,
         saveat,
         save_everystep,
-        callback,
+        callback
     )
     sol = (xcsol = solve(jprob, algo; saveat, save_everystep, kwargs...), xdsol = xdsol)
     return sol
@@ -2176,25 +2125,25 @@ We define functions to run the evolution of the whole synapse. The evolution inc
 ```julia
 # adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse(
-    xc0::Vector{T},
-    xd0,
-    p_synapse::SynapseParams,
-    events_sorted_times,
-    is_pre_or_post_event,
-    bap_by_epsp,
-    is_glu_released,
-    nu,
-    algos,
-    agg = nothing;
-    progress = false,
-    abstol = 1e-8,
-    reltol = 1e-7,
-    save_positions = (false, true),
-    saveat = [],
-    kwargs...,
+        xc0::Vector{T},
+        xd0,
+        p_synapse::SynapseParams,
+        events_sorted_times,
+        is_pre_or_post_event,
+        bap_by_epsp,
+        is_glu_released,
+        nu,
+        algos,
+        agg = nothing;
+        progress = false,
+        abstol = 1e-8,
+        reltol = 1e-7,
+        save_positions = (false, true),
+        saveat = [],
+        kwargs...
 ) where {T}
-
-    tt, XC, XD = evolveSynapse_noformat(
+    tt, XC,
+    XD = evolveSynapse_noformat(
         xc0,
         xd0,
         p_synapse,
@@ -2210,7 +2159,7 @@ function evolveSynapse(
         reltol,
         save_positions,
         saveat,
-        kwargs...,
+        kwargs...
     )
 
     out = formatSynapseResult(tt, XC, XD)
@@ -2218,25 +2167,24 @@ end
 
 # adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse_noformat(
-    xc0::Vector{T},
-    xd0,
-    p_synapse::SynapseParams,
-    events_sorted_times,
-    is_pre_or_post_event,
-    bap_by_epsp,
-    is_glu_released,
-    nu,
-    algos,
-    agg = nothing;
-    progress = false,
-    abstol = 1e-8,
-    reltol = 1e-7,
-    save_positions = (false, true),
-    saveat = [],
-    kwargs...,
+        xc0::Vector{T},
+        xd0,
+        p_synapse::SynapseParams,
+        events_sorted_times,
+        is_pre_or_post_event,
+        bap_by_epsp,
+        is_glu_released,
+        nu,
+        algos,
+        agg = nothing;
+        progress = false,
+        abstol = 1e-8,
+        reltol = 1e-7,
+        save_positions = (false, true),
+        saveat = [],
+        kwargs...
 ) where {T}
-
-    if save_positions isa Tuple{Bool,Bool}
+    if save_positions isa Tuple{Bool, Bool}
         save_positionsON = save_positions
         save_positionsOFF = save_positions
     else
@@ -2258,51 +2206,56 @@ function evolveSynapse_noformat(
     tt = [0.0] # vector of times
 
     # we collect which external events correspond to BaPs
-    events_bap = events_sorted_times[is_pre_or_post_event.==false]
+    events_bap = events_sorted_times[is_pre_or_post_event .== false]
 
     # function to simulate the synapse when Glutamate is ON
-    SimGluON =
-        (xc, xd, t1, t2, glu) -> SynapseProblem(
-            xc,
-            xd,
-            t1,
-            t2,
-            events_bap,
-            bap_by_epsp,
-            glu,
-            p_synapse,
-            nu,
-            algos[1],
-            agg;
-            jumps,
-            reltol,
-            abstol,
-            saveat,
-            save_positions = save_positionsON,
-            kwargs...,
-        )
+    SimGluON = (xc,
+        xd,
+        t1,
+        t2,
+        glu) -> SynapseProblem(
+        xc,
+        xd,
+        t1,
+        t2,
+        events_bap,
+        bap_by_epsp,
+        glu,
+        p_synapse,
+        nu,
+        algos[1],
+        agg;
+        jumps,
+        reltol,
+        abstol,
+        saveat,
+        save_positions = save_positionsON,
+        kwargs...
+    )
 
     # function to simulate the synapse when Glutamate is OFF
-    SimGluOFF =
-        (xc, xd, t1, t2) -> SynapseProblem(
-            xc,
-            xd,
-            t1,
-            t2,
-            events_bap,
-            bap_by_epsp,
-            zero(T),
-            p_synapse,
-            nu,
-            algos[2],
-            agg;
-            jumps,
-            reltol,
-            abstol,
-            saveat,
-            save_positions = save_positionsOFF,
-            kwargs...,
-        )
+    SimGluOFF = (xc,
+        xd,
+        t1,
+        t2) -> SynapseProblem(
+        xc,
+        xd,
+        t1,
+        t2,
+        events_bap,
+        bap_by_epsp,
+        zero(T),
+        p_synapse,
+        nu,
+        algos[2],
+        agg;
+        jumps,
+        reltol,
+        abstol,
+        saveat,
+        save_positions = save_positionsOFF,
+        kwargs...
+    )
 
     # random variable for Glutamate concentration
     gluDist = Gamma(1 / p_synapse.glu_cv^2, p_synapse.glu_cv^2)
@@ -2325,7 +2278,7 @@ function evolveSynapse_noformat(
                 XD[:, end],
                 eve,
                 eve + p_synapse.glu_width,
-                ifelse(is_glu_released[eveindex], gluamp, zero(T)),
+                ifelse(is_glu_released[eveindex], gluamp, zero(T))
             )
             formatSimResult!(res, XC, XD, tt)
         end
@@ -2398,9 +2351,9 @@ function formatSynapseResult(tt, XC, XD)
         :n,
         :SK,
         :λ_age,
-        :λ_aux,
+        :λ_aux
     )
-    values = (XC[i, :] for i = 1:length(namesC))
+    values = (XC[i, :] for i in 1:length(namesC))
     return (t = tt, XD = XD, XC = XC, zip(namesC, values)...)
 end
 ```
@@ -2416,14 +2369,14 @@ const algorithms = (
         label = "PDMP",
         agg = nothing,
         solver = (CHV(solver), CHV(solver)),
-        saveat = [],
+        saveat = []
     ),
     (
         label = "Coevolve",
         agg = Coevolve(),
         solver = (solver, solver),
-        saveat = 1 / p_synapse.sampling_rate,
-    ),
+        saveat = 1 / p_synapse.sampling_rate
+    )
 );
 ```
 
@@ -2448,8 +2401,8 @@ for algo in algorithms
             algo.agg;
             save_positions = (false, true),
             saveat = algo.saveat,
-            save_everystep = false,
-        ),
+            save_everystep = false
+        )
     )
 end
 ```
@@ -2480,8 +2433,7 @@ bs = Vector{BenchmarkTools.Trial}()
 for algo in algorithms
     push!(
         bs,
-        @benchmark(
-            evolveSynapse(
+        @benchmark(evolveSynapse(
                 xc0,
                 xd0,
                 p_synapse,
@@ -2494,30 +2446,31 @@ for algo in algorithms
                 $(algo).agg;
                 save_positions = (false, true),
                 saveat = $(algo).saveat,
-                save_everystep = false,
+                save_everystep = false
             ),
-            samples = 50,
-            evals = 1,
-            seconds = 500,
-        )
+            samples=50,
+            evals=1,
+            seconds=500,)
     )
 end
 ```
 
 ```julia
 labels = [a.label for a in algorithms]
-medtimes = [text(string(round(median(b).time/1e9, digits=3),"s"), :center, 12) for b in bs]
+medtimes = [text(string(round(median(b).time/1e9, digits = 3), "s"), :center, 12)
+            for b in bs]
 relmedtimes = [median(b).time for b in bs]
 relmedtimes ./= relmedtimes[1]
-bar(labels, relmedtimes, markeralpha=0, series_annotation=medtimes, fmt=fmt)
+bar(labels, relmedtimes, markeralpha = 0, series_annotation = medtimes, fmt = fmt)
 title!("evolveSynapse (Median time)")
 ```
 
 ```julia
-medmem = [text(string(round(median(b).memory/1e6, digits=3),"Mb"), :center, 12) for b in bs]
+medmem = [text(string(round(median(b).memory/1e6, digits = 3), "Mb"), :center, 12)
+          for b in bs]
 relmedmem = Float64[median(b).memory for b in bs]
 relmedmem ./= relmedmem[1]
-bar(labels, relmedmem, markeralpha=0, series_annotation=medmem, fmt=fmt)
+bar(labels, relmedmem, markeralpha = 0, series_annotation = medmem, fmt = fmt)
 title!("evolveSynapse (Median memory)")
 ```
 

@@ -4,34 +4,35 @@ author: Chris Rackauckas
 ---
 
 ```julia
-using OrdinaryDiffEq, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA, DiffEqDevTools, Sundials
+using OrdinaryDiffEq, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA,
+      DiffEqDevTools, Sundials
 using LinearAlgebra, StaticArrays, RecursiveFactorization
 
 gr() #gr(fmt=:png)
 
 f = @ode_def Hires begin
-  dy1 = -1.71*y1 + 0.43*y2 + 8.32*y3 + 0.0007
-  dy2 = 1.71*y1 - 8.75*y2
-  dy3 = -10.03*y3 + 0.43*y4 + 0.035*y5
-  dy4 = 8.32*y2 + 1.71*y3 - 1.12*y4
-  dy5 = -1.745*y5 + 0.43*y6 + 0.43*y7
-  dy6 = -280.0*y6*y8 + 0.69*y4 + 1.71*y5 -
-           0.43*y6 + 0.69*y7
-  dy7 = 280.0*y6*y8 - 1.81*y7
-  dy8 = -280.0*y6*y8 + 1.81*y7
+    dy1 = -1.71*y1 + 0.43*y2 + 8.32*y3 + 0.0007
+    dy2 = 1.71*y1 - 8.75*y2
+    dy3 = -10.03*y3 + 0.43*y4 + 0.035*y5
+    dy4 = 8.32*y2 + 1.71*y3 - 1.12*y4
+    dy5 = -1.745*y5 + 0.43*y6 + 0.43*y7
+    dy6 = -280.0*y6*y8 + 0.69*y4 + 1.71*y5 -
+          0.43*y6 + 0.69*y7
+    dy7 = 280.0*y6*y8 - 1.81*y7
+    dy8 = -280.0*y6*y8 + 1.81*y7
 end
 
 u0 = zeros(8)
 u0[1] = 1
 u0[8] = 0.0057
 
-prob = ODEProblem{true, SciMLBase.FullSpecialize}(f,u0,(0.0,321.8122))
-probstatic = ODEProblem{false}(f,SVector{8}(u0),(0.0,321.8122))
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(f, u0, (0.0, 321.8122))
+probstatic = ODEProblem{false}(f, SVector{8}(u0), (0.0, 321.8122))
 
-sol = solve(prob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14)
-sol2 = solve(probstatic,Rodas5P(),abstol=1/10^14,reltol=1/10^14)
-probs = [prob,probstatic]
-test_sol = [sol,sol2];
+sol = solve(prob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
+sol2 = solve(probstatic, Rodas5P(), abstol = 1/10^14, reltol = 1/10^14)
+probs = [prob, probstatic]
+test_sol = [sol, sol2];
 
 abstols = 1.0 ./ 10.0 .^ (4:11)
 reltols = 1.0 ./ 10.0 .^ (1:8);
@@ -42,7 +43,7 @@ plot(sol)
 ```
 
 ```julia
-plot(sol,tspan=(0.0,5.0))
+plot(sol, tspan = (0.0, 5.0))
 ```
 
 ## Omissions
@@ -82,98 +83,98 @@ This is the speed when you just want the answer.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
-          Dict(:alg=>FBDF()),
-          Dict(:alg=>QNDF()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>RadauIIA5()),
-          Dict(:alg=>ROS34PW1a()),
-          Dict(:alg=>lsoda()),
-          ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;dense = false,verbose=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
-plot(wp)
-```
-
-```julia
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
-          Dict(:alg=>Kvaerno3()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>KenCarp3()),
-    # Dict(:alg=>SDIRK2()), # Removed because it's bad
-          Dict(:alg=>radau())]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;dense = false,verbose=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
-plot(wp)
-```
-
-```julia
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
-          Dict(:alg=>KenCarp5()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>KenCarp4(), :prob_choice => 2),
-          Dict(:alg=>KenCarp3()),
-          Dict(:alg=>ARKODE(order=5)),
-          Dict(:alg=>ARKODE()),
-          Dict(:alg=>ARKODE(order=3))]
-names = ["Rosenbrock23" "Rosenbrock23 Static" "KenCarp5" "KenCarp4" "KenCarp4 Static" "KenCarp3" "ARKODE5" "ARKODE4" "ARKODE3"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;dense = false,verbose=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
-plot(wp)
-```
-
-```julia
-setups = [Dict(:alg=>Rosenbrock23()),
-          Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
-          Dict(:alg=>TRBDF2()),
-          Dict(:alg=>ImplicitEulerExtrapolation()),
-          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
-          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
-          Dict(:alg=>ABDF2()),
-          Dict(:alg=>FBDF()),
-          Dict(:alg=>QNDF()),
-          Dict(:alg=>Exprb43()),
-          Dict(:alg=>Exprb32()),
+    Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+    Dict(:alg=>TRBDF2()),
+    Dict(:alg=>CVODE_BDF()),
+    Dict(:alg=>rodas()),
+    Dict(:alg=>radau()),
+    Dict(:alg=>RadauIIA5()),
+    Dict(:alg=>ROS34PW1a()),
+    Dict(:alg=>lsoda())
 ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; dense = false, verbose = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+    Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+    Dict(:alg=>Kvaerno3()),
+    Dict(:alg=>CVODE_BDF()),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>TRBDF2()),
+    Dict(:alg=>KenCarp3()),
+    # Dict(:alg=>SDIRK2()), # Removed because it's bad
+    Dict(:alg=>radau())]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; dense = false, verbose = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+    Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+    Dict(:alg=>KenCarp5()),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>KenCarp4(), :prob_choice => 2),
+    Dict(:alg=>KenCarp3()),
+    Dict(:alg=>ARKODE(order = 5)),
+    Dict(:alg=>ARKODE()),
+    Dict(:alg=>ARKODE(order = 3))]
+names = ["Rosenbrock23" "Rosenbrock23 Static" "KenCarp5" "KenCarp4" "KenCarp4 Static" "KenCarp3" "ARKODE5" "ARKODE4" "ARKODE3"]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    names = names, save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; dense = false, verbose = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+    Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
+    Dict(:alg=>TRBDF2()),
+    Dict(:alg=>ImplicitEulerExtrapolation()),
+    Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+    Dict(:alg=>ABDF2()),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+    Dict(:alg=>Exprb43()),
+    Dict(:alg=>Exprb32())
+]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
 plot(wp)
 ```
 
@@ -186,88 +187,88 @@ abstols = 1.0 ./ 10.0 .^ (7:13)
 reltols = 1.0 ./ 10.0 .^ (4:10)
 
 setups = [
-          Dict(:alg=>FBDF()),
-          Dict(:alg=>QNDF()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>Rodas4(), :prob_choice => 2),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>ddebdf()),
-          Dict(:alg=>Rodas5()),
-          Dict(:alg=>Rodas5P()),
-          Dict(:alg=>Rodas5P(), :prob_choice => 2),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>RadauIIA5()),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>QNDF()),
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>Rodas4(), :prob_choice => 2),
+    Dict(:alg=>CVODE_BDF()),
+    Dict(:alg=>ddebdf()),
+    Dict(:alg=>Rodas5()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>Rodas5P(), :prob_choice => 2),
+    Dict(:alg=>rodas()),
+    Dict(:alg=>radau()),
+    Dict(:alg=>lsoda()),
+    Dict(:alg=>RadauIIA5())
 ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false,
-                      dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false,
+    dense = false, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>GRK4A()),
-          Dict(:alg=>Rodas5()),
-          Dict(:alg=>Rodas5P()),
-          Dict(:alg=>Rodas5P(), :prob_choice => 2),
-          Dict(:alg=>Kvaerno5()),
-          Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>Rodas4()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>ImplicitEulerExtrapolation()),
-          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
-          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
-          ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+    Dict(:alg=>Rodas5()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>Rodas5P(), :prob_choice => 2),
+    Dict(:alg=>Kvaerno5()),
+    Dict(:alg=>CVODE_BDF()),
+    Dict(:alg=>lsoda()),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>radau()),
+    Dict(:alg=>ImplicitEulerExtrapolation()),
+    Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation())
+]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false,
-                      dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false,
+    dense = false, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>Rodas5()),
-          Dict(:alg=>Rodas5(), :prob_choice => 2),
-          Dict(:alg=>KenCarp5()),
-          Dict(:alg=>KenCarp4()),
-          Dict(:alg=>KenCarp4(), :prob_choice => 2),
-          Dict(:alg=>KenCarp3()),
-          Dict(:alg=>ARKODE(order=5)),
-          Dict(:alg=>ARKODE()),
-          Dict(:alg=>ARKODE(order=3))]
+    Dict(:alg=>Rodas5(), :prob_choice => 2),
+    Dict(:alg=>KenCarp5()),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>KenCarp4(), :prob_choice => 2),
+    Dict(:alg=>KenCarp3()),
+    Dict(:alg=>ARKODE(order = 5)),
+    Dict(:alg=>ARKODE()),
+    Dict(:alg=>ARKODE(order = 3))]
 names = ["Rodas5" "Rodas5 Static" "KenCarp5" "KenCarp4" "KenCarp4 Static" "KenCarp3" "ARKODE5" "ARKODE4" "ARKODE3"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                      names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    names = names, save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false,
-                      dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false,
+    dense = false, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
 plot(wp)
 ```
 
@@ -275,11 +276,11 @@ The following algorithms were removed since they failed.
 
 ```julia
 #setups = [#Dict(:alg=>Hairer4()),
-          #Dict(:alg=>Hairer42()),
-          #Dict(:alg=>Rodas3()),
-          #Dict(:alg=>Kvaerno4()),
-          #Dict(:alg=>KenCarp5()),
-          #Dict(:alg=>Cash4())
+#Dict(:alg=>Hairer42()),
+#Dict(:alg=>Rodas3()),
+#Dict(:alg=>Kvaerno4()),
+#Dict(:alg=>KenCarp5()),
+#Dict(:alg=>Cash4())
 #]
 #wp = WorkPrecisionSet(probs,abstols,reltols,setups;
 #                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
@@ -296,37 +297,43 @@ abstols = 1.0 ./ 10.0 .^ (10:12)
 reltols = 1.0 ./ 10.0 .^ (7:9)
 
 setups = [
-            Dict(:alg=>CVODE_BDF()),
-            Dict(:alg=>KenCarp4()),
-            Dict(:alg=>Rodas4()),
-            Dict(:alg=>Rodas4(), :prob_choice => 2),
-            Dict(:alg=>Rodas5P()),
-            Dict(:alg=>Rodas5P(), :prob_choice => 2),
-            Dict(:alg=>QNDF()),
-            Dict(:alg=>lsoda()),
-            Dict(:alg=>radau()),
-            Dict(:alg=>seulex()),
-            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, init_order = 7,threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, init_order = 7,threading = false)),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, init_order = 7, threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, init_order = 7, threading = false)),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 3, init_order = 6,threading = OrdinaryDiffEq.PolyesterThreads())),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 3, init_order = 6,threading = false)),
-            ]
+    Dict(:alg=>CVODE_BDF()),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>Rodas4()),
+    Dict(:alg=>Rodas4(), :prob_choice => 2),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>Rodas5P(), :prob_choice => 2),
+    Dict(:alg=>QNDF()),
+    Dict(:alg=>lsoda()),
+    Dict(:alg=>radau()),
+    Dict(:alg=>seulex()),
+    Dict(:alg=>ImplicitEulerExtrapolation(
+        min_order = 4, init_order = 7, threading = OrdinaryDiffEq.PolyesterThreads())),
+    Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, init_order = 7, threading = false)),
+    Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
+        min_order = 4, init_order = 7, threading = OrdinaryDiffEq.PolyesterThreads())),
+    Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, init_order = 7, threading = false)),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation(
+        min_order = 3, init_order = 6, threading = OrdinaryDiffEq.PolyesterThreads())),
+    Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 3, init_order = 6, threading = false))
+]
 
-solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas4 Static","Rodas5P","Rodas5P Static","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
-            "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "Rodas4 Static", "Rodas5P",
+    "Rodas5P Static", "QNDF", "lsoda", "radau", "seulex",
+    "ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+    "ImplEulerBaryExtpl (threaded)", "ImplEulerBaryExtpl (non-threaded)",
+    "ImplHWExtpl (threaded)", "ImplHWExtpl (non-threaded)"]
 
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=false, dense=false,
-                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = false, dense = false,
+    names = solnames, save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 
-plot(wp, title = "Implicit Methods: HIRES",legend=:outertopleft,size = (1000,500),
-     xticks = 10.0 .^ (-15:1:1),
-     yticks = 10.0 .^ (-6:0.3:5),
-     bottom_margin= 5Plots.mm)
+plot(wp, title = "Implicit Methods: HIRES", legend = :outertopleft, size = (1000, 500),
+    xticks = 10.0 .^ (-15:1:1),
+    yticks = 10.0 .^ (-6:0.3:5),
+    bottom_margin = 5Plots.mm)
 ```
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
