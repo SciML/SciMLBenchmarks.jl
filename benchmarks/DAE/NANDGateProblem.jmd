@@ -211,12 +211,42 @@ mmprob = ODEProblem(mmf, y0, tspan)
 # ModelingToolkit version via modelingtoolkitize
 mtk_sys = modelingtoolkitize(mmprob)
 mtk_simplified = structural_simplify(mtk_sys)
-u0_mtk = [mtk_simplified.states[i] => mmprob.u0[i] for i in 1:length(mmprob.u0)]
+
+# Properly map initial conditions by matching variable names
+original_vars = unknowns(mtk_sys)
+simplified_vars = unknowns(mtk_simplified)
+
+# Create mapping from original to simplified system
+u0_mtk = []
+for var in simplified_vars
+    # Find the corresponding variable in the original system
+    orig_idx = findfirst(v -> isequal(v, var), original_vars)
+    if orig_idx !== nothing
+        push!(u0_mtk, var => mmprob.u0[orig_idx])
+    else
+        # If variable not found, it might be a new auxiliary variable - use zero
+        push!(u0_mtk, var => 0.0)
+    end
+end
+
 mtkprob = ODEProblem(mtk_simplified, u0_mtk, mmprob.tspan)
 
 # DAEProblem version
-du = mmprob.f(mmprob.u0, mmprob.p, 0.0)
-du0 = D.(unknowns(mtk_simplified)) .=> du
+du_orig = mmprob.f(mmprob.u0, mmprob.p, 0.0)
+
+# Map derivatives to simplified system
+du0 = []
+for var in simplified_vars
+    # Find the corresponding variable in the original system
+    orig_idx = findfirst(v -> isequal(v, var), original_vars)
+    if orig_idx !== nothing
+        push!(du0, D(var) => du_orig[orig_idx])
+    else
+        # If variable not found, use zero derivative
+        push!(du0, D(var) => 0.0)
+    end
+end
+
 daeprob = DAEProblem(mtk_simplified, du0, [], tspan)
 
 # Generate reference solutions
