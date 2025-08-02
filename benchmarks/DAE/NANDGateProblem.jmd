@@ -208,25 +208,51 @@ tspan = (0.0, 80.0)
 mmf = ODEFunction(nand_rhs!, mass_matrix=dirMassMatrix)
 mmprob = ODEProblem(mmf, y0, tspan)
 
-# ModelingToolkit version via modelingtoolkitize
-mtk_sys = modelingtoolkitize(mmprob)
-mtk_simplified = structural_simplify(mtk_sys)
-u0_mtk = [mtk_simplified.states[i] => mmprob.u0[i] for i in 1:length(mmprob.u0)]
-mtkprob = ODEProblem(mtk_simplified, u0_mtk, mmprob.tspan)
+# DAEProblem version using direct DAE formulation
+function nand_dae!(out, du, u, p, t)
+    v1 = V1(t)
+    v2 = V2(t)
+    v1d = V1_derivative(t)
+    v2d = V2_derivative(t)
+    
+    y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14 = u
+    dy1, dy2, dy3, dy4, dy5, dy6, dy7, dy8, dy9, dy10, dy11, dy12, dy13, dy14 = du
+    
+    # Differential equations (with capacitors)
+    out[1] = CGS * dy1 + (y1 - y5) / RGS + ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
+    out[2] = CGD * dy2 + (y2 - VDD) / RGD - ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
+    out[3] = CBS * dy3 + (y3 - VBB) / RBS - ibs(y3 - y5)
+    out[4] = CBD * dy4 + (y4 - VBB) / RBD - ibd(y4 - VDD)
+    
+    # Algebraic equations (KCL at nodes)
+    out[5] = (y5 - y1) / RGS + ibs(y3 - y5) + (y5 - y7) / RGD + ibd(y9 - y5)
+    
+    out[6] = CGS * dy6 - CGS * v1d + (y6 - y10) / RGS + ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
+    out[7] = CGD * dy7 - CGD * v1d + (y7 - y5) / RGD - ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
+    out[8] = CBS * dy8 + (y8 - VBB) / RBS - ibs(y8 - y10)
+    out[9] = CBD * dy9 + (y9 - VBB) / RBD - ibd(y9 - y5)
+    
+    # Algebraic equation (KCL at node)
+    out[10] = (y10 - y6) / RGS + ibs(y8 - y10) + (y10 - y12) / RGD + ibd(y14 - y10)
+    
+    out[11] = CGS * dy11 - CGS * v2d + y11 / RGS + ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
+    out[12] = CGD * dy12 - CGD * v2d + (y12 - y10) / RGD - ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
+    out[13] = CBS * dy13 + (y13 - VBB) / RBS - ibs(y13)
+    out[14] = CBD * dy14 + (y14 - VBB) / RBD - ibd(y14 - y10)
+    
+    return nothing
+end
 
-# DAEProblem version
-du = zeros(length(mmprob.u0))
-mmprob.f(du, mmprob.u0, mmprob.p, 0.0)
-du0 = D.(unknowns(mtk_simplified)) .=> du
-daeprob = DAEProblem(mtk_simplified, du0, [], tspan)
+# Create DAE problem
+du0_dae = zeros(14)
+daeprob = DAEProblem(nand_dae!, du0_dae, y0, tspan)
 
 # Generate reference solutions
 ref_sol = solve(mmprob, Rodas5P(), abstol=1e-12, reltol=1e-12, tstops=0.0:5.0:80.0)
 dae_ref_sol = solve(daeprob, IDA(), abstol=1e-10, reltol=1e-10, tstops=0.0:5.0:80.0)
-mtk_ref_sol = solve(mtkprob, Rodas5P(), abstol=1e-12, reltol=1e-12, tstops=0.0:5.0:80.0)
 
-probs = [mmprob, daeprob, mtkprob]
-refs = [ref_sol, dae_ref_sol, mtk_ref_sol]
+probs = [mmprob, daeprob]
+refs = [ref_sol, dae_ref_sol]
 ```
 
 ## Generate Reference Solution and Plot
@@ -260,7 +286,8 @@ setups = [
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 2, :alg=>CVODE_BDF())
+    Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
+    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
@@ -277,10 +304,8 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 3, :alg=>Rodas5P()),
-    Dict(:prob_choice => 3, :alg=>Rodas4()),
-    Dict(:prob_choice => 3, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 2, :alg=>DASKR.daskr())
@@ -324,10 +349,8 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 3, :alg=>Rodas5P()),
-    Dict(:prob_choice => 3, :alg=>Rodas4()),
-    Dict(:prob_choice => 3, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>Rodas5P()),
+    Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 2, :alg=>DASKR.daskr())
@@ -350,14 +373,11 @@ reltols = 1.0 ./ 10.0 .^ (4:9)
 
 setups = [
     Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 3, :alg=>Rodas5P()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 3, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>DFBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>CVODE_BDF()),
     Dict(:prob_choice => 2, :alg=>DASKR.daskr())
