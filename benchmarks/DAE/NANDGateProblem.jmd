@@ -243,8 +243,29 @@ function nand_dae!(out, du, u, p, t)
     return nothing
 end
 
-# Create DAE problem
+# Create DAE problem with proper initial derivatives
+# Compute initial derivatives from mass matrix formulation
+f_eval = zeros(14)
+mmf(f_eval, y0, nothing, 0.0)
+
+# Initial derivatives: M⁻¹ * f for differential equations, 0 for algebraic
 du0_dae = zeros(14)
+# For differential equations (indices with non-zero mass matrix entries)
+du0_dae[1] = f_eval[1] / CGS   # y1 derivative
+du0_dae[2] = f_eval[2] / CGD   # y2 derivative  
+du0_dae[3] = f_eval[3] / CBS   # y3 derivative
+du0_dae[4] = f_eval[4] / CBD   # y4 derivative
+# du0_dae[5] = 0  (algebraic - y5)
+du0_dae[6] = f_eval[6] / CGS   # y6 derivative
+du0_dae[7] = f_eval[7] / CGD   # y7 derivative
+du0_dae[8] = f_eval[8] / CBS   # y8 derivative
+du0_dae[9] = f_eval[9] / CBD   # y9 derivative
+# du0_dae[10] = 0  (algebraic - y10)
+du0_dae[11] = f_eval[11] / CGS  # y11 derivative
+du0_dae[12] = f_eval[12] / CGD  # y12 derivative
+du0_dae[13] = f_eval[13] / CBS  # y13 derivative
+du0_dae[14] = f_eval[14] / CBD  # y14 derivative
+
 daeprob = DAEProblem(nand_dae!, du0_dae, y0, tspan)
 
 # Generate reference solutions
