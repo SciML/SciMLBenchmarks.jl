@@ -24,169 +24,13 @@ using Optimization
 using OptimizationNLPModels
 using CUTEst
 using OptimizationOptimJL
-using OptimizationOptimisers
-using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
 using Ipopt
 using OptimizationMOI
 using OptimizationMOI: MOI as MOI
-
-# Harmonized analysis block for equality-constrained unbounded problems
-function run_unbounded_benchmarks(problems, optimizers; chunk_size=3)
-    problem = String[]
-    n_vars = Int64[]
-    secs = Float64[]
-    solver = String[]
-    retcode = Symbol[]
-    optz = length(optimizers)
-    n = length(problems)
-    @info "Processing $(n) unbounded problems with $(optz) optimizers in chunks of $(chunk_size)"
-    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
-    for chunk_start in 1:chunk_size:n
-        chunk_end = min(chunk_start + chunk_size - 1, n)
-        chunk_problems = problems[chunk_start:chunk_end]
-        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
-        for (idx, prob_name) in enumerate(chunk_problems)
-            current_problem = chunk_start + idx - 1
-            # Removed stray reference to current_problem (only valid inside benchmark functions)
-            nlp_prob = nothing
-            try
-                nlp_prob = CUTEstModel(prob_name)
-                if nlp_prob.meta.nvar > 10000
-                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
-                    finalize(nlp_prob)
-                    continue
-                end
-                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
-                for (optimizer_name, optimizer) in optimizers
-                    try
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
-                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
-                        vars, time, alg, code = get_stats(sol, optimizer_name)
-                        push!(problem, prob_name)
-                        push!(n_vars, vars)
-                        push!(secs, time)
-                        push!(solver, alg)
-                        push!(retcode, code)
-                    catch e
-                        push!(problem, prob_name)
-                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
-                        push!(secs, NaN)
-                        push!(solver, optimizer_name)
-                        push!(retcode, :FAILED)
-                        println("ERROR: ", e)
-                        println("Stacktrace:")
-                        for (i, frame) in enumerate(stacktrace(e))
-                            println("  ", i, ": ", frame)
-                        end
-                    end
-                end
-            catch e
-                for (optimizer_name, optimizer) in optimizers
-                    push!(problem, prob_name)
-                    push!(n_vars, -1)
-                    push!(secs, NaN)
-                    push!(solver, optimizer_name)
-                    push!(retcode, :LOAD_FAILED)
-                end
-                println("LOAD ERROR: ", e)
-                println("Stacktrace:")
-                for (i, frame) in enumerate(stacktrace(e))
-                    println("  ", i, ": ", frame)
-                end
-            finally
-                if nlp_prob !== nothing
-                    try
-                        finalize(nlp_prob)
-                    catch e
-                    end
-                end
-            end
-        end
-        GC.gc()
-        @info "Completed chunk, memory usage cleaned up"
-    end
-    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
-end
-
-            @info "Problem $(current_problem)/$(n): $(prob_name)"
-println("Full results table for equality-constrained problems:")
-display(eq_unb_results)
-
-# Calculate and display success rates for equality constrained
-successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
-successful_results = filter(row -> row.retcode in successful_codes, eq_unb_results)
-total_attempts = nrow(eq_unb_results)
-successful_attempts = nrow(successful_results)
-success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
-
-@info "EQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
-
-if nrow(eq_unb_results) > 0
-    try
-        @df eq_unb_results scatter(:n_vars, :secs,
-            group = :solver,
-            xlabel = "n. variables",
-            ylabel = "secs.",
-            title = "Time to solution by optimizer and number of vars",
-        )
-        println("Plotted equality-constrained results.")
-    catch e
-        println("Plotting failed: ", e)
-    end
-else
-    println("Warning: equality-constrained results DataFrame is empty. No data to plot.")
-    println("Attempted problems:")
-    println(eq_unb_problems)
-end
-            nlp_prob = nothing
-            try
-                nlp_prob = CUTEstModel(prob_name)
-                if nlp_prob.meta.nvar > 10000
-                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
-                    finalize(nlp_prob)
-                    continue
-                end
-                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoForwardDiff())
-                for (optimizer_name, optimizer) in optimizers
-                    try
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
-                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
-                        vars, time, alg, code = get_stats(sol, optimizer_name)
-                        push!(problem, prob_name)
-                        push!(n_vars, vars)
-                        push!(secs, time)
-                        push!(solver, alg)
-                        push!(retcode, code)
-                    catch e
-                        push!(problem, prob_name)
-                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
-                        push!(secs, NaN)
-                        push!(solver, optimizer_name)
-                        push!(retcode, :FAILED)
-                    end
-                end
-            catch e
-                for (optimizer_name, optimizer) in optimizers
-                    push!(problem, prob_name)
-                    push!(n_vars, -1)
-                    push!(secs, NaN)
-                    push!(solver, optimizer_name)
-                    push!(retcode, :LOAD_FAILED)
-                end
-            finally
-                if nlp_prob !== nothing
-                    try
-                        finalize(nlp_prob)
-                    catch e
-                    end
-                end
-            end
-        end
-        GC.gc()
-        @info "Completed chunk, memory usage cleaned up"
-    end
-    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
-end
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
 ```
 
 # Benchmarks
@@ -426,4 +270,8 @@ if total_attempts_ineq > 0
 else
     println("  No results to analyze")
 end
+```
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```

@@ -7,15 +7,17 @@ author: Alonso M. Cisneros
 
 CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
 collection of around 1500 problems for general nonlinear optimization used to test
-
-```julia; eval = true; @setup
+optimization routines. The wrapper
+[CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access
+to the problem collection, which we can leverage to test the optimizers made available by
+Optimization.jl.
+```julia
 using Pkg; Pkg.activate("."); Pkg.instantiate()
 using Optimization
 using OptimizationNLPModels
 using CUTEst
 using OptimizationOptimJL
 using OptimizationOptimisers
-using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
 using Ipopt
 using OptimizationMOI
 using OptimizationMOI: MOI as MOI
@@ -48,6 +50,8 @@ function run_benchmarks(problems, optimizers; chunk_size=1)
     solver = String[]
     retcode = Symbol[]
     optz = length(optimizers)
+    n = length(problems)
+    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
     broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
     for chunk_start in 1:chunk_size:n
         chunk_end = min(chunk_start + chunk_size - 1, n)
@@ -128,6 +132,7 @@ constraints. There are 252 such problems in the suite.
 
 # Select a moderate subset of quadratic problems for a realistic mix of successes and failures
 quad_problems = CUTEst.select_sif_problems(objtype="quadratic", contype="linear")
+@info "Testing $(length(quad_problems)) quadratic problems with linear constraints"
 quad_problems = quad_problems[1:min(30, length(quad_problems))]
  # Skip HIER13, BLOWEYA, LUKVLE8, PATTERNNE, READING2, NINENEW, READING6, DITTERT, CVXQP2, and MSS1 if present
 quad_problems = filter(p -> !(lowercase(p) in ["hier13", "bloweya", "s268", "stcqp1", "cvxqp3", "avgasb", "lukvle8", "sosqp2", "patternne", "reading2", "ninenew", "reading6", "dittert", "liswet9", "cleuven4", "cvxqp2", "mss1", "mpc2", "cmpc10", "cmpc3"]), quad_problems)
@@ -261,3 +266,7 @@ else
 end
 ```
 
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
