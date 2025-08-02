@@ -218,27 +218,28 @@ function nand_dae!(out, du, u, p, t)
     y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14 = u
     dy1, dy2, dy3, dy4, dy5, dy6, dy7, dy8, dy9, dy10, dy11, dy12, dy13, dy14 = du
     
-    # Differential equations (with capacitors)
-    out[1] = CGS * dy1 + (y1 - y5) / RGS + ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
-    out[2] = CGD * dy2 + (y2 - VDD) / RGD - ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD)
-    out[3] = CBS * dy3 + (y3 - VBB) / RBS - ibs(y3 - y5)
-    out[4] = CBD * dy4 + (y4 - VBB) / RBD - ibd(y4 - VDD)
+    # Differential equations: M*dy/dt - f = 0
+    # Convert from mass matrix form: M*dy/dt = f  =>  M*dy/dt - f = 0
+    out[1] = CGS * dy1 - (-(y1 - y5) / RGS - ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD))
+    out[2] = CGD * dy2 - (-(y2 - VDD) / RGD + ids(1, y2 - y1, y5 - y1, y3 - y5, y5 - y2, y4 - VDD))
+    out[3] = CBS * dy3 - (-(y3 - VBB) / RBS + ibs(y3 - y5))
+    out[4] = CBD * dy4 - (-(y4 - VBB) / RBD + ibd(y4 - VDD))
     
-    # Algebraic equations (KCL at nodes)
-    out[5] = (y5 - y1) / RGS + ibs(y3 - y5) + (y5 - y7) / RGD + ibd(y9 - y5)
+    # Algebraic equations: g(y) = 0
+    out[5] = -(y5 - y1) / RGS - ibs(y3 - y5) - (y5 - y7) / RGD - ibd(y9 - y5)
     
-    out[6] = CGS * dy6 - CGS * v1d + (y6 - y10) / RGS + ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
-    out[7] = CGD * dy7 - CGD * v1d + (y7 - y5) / RGD - ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5)
-    out[8] = CBS * dy8 + (y8 - VBB) / RBS - ibs(y8 - y10)
-    out[9] = CBD * dy9 + (y9 - VBB) / RBD - ibd(y9 - y5)
+    out[6] = CGS * dy6 - (CGS * v1d - (y6 - y10) / RGS - ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5))
+    out[7] = CGD * dy7 - (CGD * v1d - (y7 - y5) / RGD + ids(2, y7 - y6, v1 - y6, y8 - y10, v1 - y7, y9 - y5))
+    out[8] = CBS * dy8 - (-(y8 - VBB) / RBS + ibs(y8 - y10))
+    out[9] = CBD * dy9 - (-(y9 - VBB) / RBD + ibd(y9 - y5))
     
-    # Algebraic equation (KCL at node)
-    out[10] = (y10 - y6) / RGS + ibs(y8 - y10) + (y10 - y12) / RGD + ibd(y14 - y10)
+    # Algebraic equation: g(y) = 0
+    out[10] = -(y10 - y6) / RGS - ibs(y8 - y10) - (y10 - y12) / RGD - ibd(y14 - y10)
     
-    out[11] = CGS * dy11 - CGS * v2d + y11 / RGS + ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
-    out[12] = CGD * dy12 - CGD * v2d + (y12 - y10) / RGD - ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10)
-    out[13] = CBS * dy13 + (y13 - VBB) / RBS - ibs(y13)
-    out[14] = CBD * dy14 + (y14 - VBB) / RBD - ibd(y14 - y10)
+    out[11] = CGS * dy11 - (CGS * v2d - y11 / RGS - ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10))
+    out[12] = CGD * dy12 - (CGD * v2d - (y12 - y10) / RGD + ids(2, y12 - y11, v2 - y11, y13, v2 - y12, y14 - y10))
+    out[13] = CBS * dy13 - (-(y13 - VBB) / RBS + ibs(y13))
+    out[14] = CBD * dy14 - (-(y14 - VBB) / RBD + ibd(y14 - y10))
     
     return nothing
 end
