@@ -58,7 +58,7 @@ for dir in readdir(benchpath)
             GitHub.create_pull_request("SciML/SciMLBenchmarks.jl"; params = params, auth = myauth)
         else
             @info("Updating the pull request numbered: ", prs[dir])
-            GitHub.update_pull_request("SciML/SciMLBenchmarks.jl", prs[dir]; auth=myauth)
+            GitHub.update_pull_request("SciML/SciMLBenchmarks.jl", prs[dir]; auth = myauth)
         end
     end
 end
