@@ -1,0 +1,271 @@
+---
+title: CUTEst Quadratic Programming with Linear Constraints Benchmarks 
+author: Alonso M. Cisneros
+---
+
+# Introduction
+
+CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
+collection of around 1500 problems for general nonlinear optimization used to test
+optimization routines. The wrapper
+[CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access
+to the problem collection, which we can leverage to test the optimizers made available by
+Optimization.jl.
+```julia
+using Optimization
+using OptimizationNLPModels
+using CUTEst
+using OptimizationOptimJL
+using OptimizationOptimisers
+using Ipopt
+using OptimizationMOI
+using OptimizationMOI: MOI as MOI
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
+
+optimizers = [
+    ("Ipopt", MOI.OptimizerWithAttributes(Ipopt.Optimizer,
+        "max_iter" => 5000,
+        "tol" => 1e-6,
+        "print_level" => 5)),
+]
+
+function get_stats(sol, optimizer_name)
+    # Robustly get solve_time, even if stats or time is missing
+    solve_time = try
+        hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time) ? getfield(sol.stats, :time) : NaN
+    catch
+        NaN
+    end
+    return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
+end
+
+function run_benchmarks(problems, optimizers; chunk_size=1)
+    problem = String[]
+    n_vars = Int64[]
+    secs = Float64[]
+    solver = String[]
+    retcode = Symbol[]
+    optz = length(optimizers)
+    n = length(problems)
+    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
+    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+    for chunk_start in 1:chunk_size:n
+        chunk_end = min(chunk_start + chunk_size - 1, n)
+        chunk_problems = problems[chunk_start:chunk_end]
+        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
+        for (idx, prob_name) in enumerate(chunk_problems)
+            current_problem = chunk_start + idx - 1
+            @info "Problem $(current_problem)/$(n): $(prob_name)"
+            nlp_prob = nothing
+            try
+                nlp_prob = CUTEstModel(prob_name)
+                if nlp_prob.meta.nvar > 10000
+                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
+                    finalize(nlp_prob)
+                    continue
+                end
+                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoFiniteDiff())
+                for (optimizer_name, optimizer) in optimizers
+                    try
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
+                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
+                        push!(problem, prob_name)
+                        push!(n_vars, vars)
+                        push!(secs, time)
+                        push!(solver, alg)
+                        push!(retcode, code)
+                    catch e
+                        push!(problem, prob_name)
+                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
+                        push!(secs, NaN)
+                        push!(solver, optimizer_name)
+                        push!(retcode, :FAILED)
+                    end
+                end
+            catch e
+                for (optimizer_name, optimizer) in optimizers
+                    push!(problem, prob_name)
+                    push!(n_vars, -1)
+                    push!(secs, NaN)
+                    push!(solver, optimizer_name)
+                    push!(retcode, :LOAD_FAILED)
+                end
+            finally
+                if nlp_prob !== nothing
+                    try
+                        finalize(nlp_prob)
+                    catch e
+                    end
+                end
+            end
+        end
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
+    end
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
+end
+```
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
+    end
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
+end
+```
+
+# Benchmarks
+
+We will be testing the [Ipopt]() and the [LBFGS]() optimizers on these classes of
+problems.
+
+
+# Quadratic programs with linear constraints
+
+Lastly, we examine the problems with a quadratic objective function and only linear
+constraints. There are 252 such problems in the suite.
+
+```julia
+
+# Select a moderate subset of quadratic problems for a realistic mix of successes and failures
+quad_problems = CUTEst.select_sif_problems(objtype="quadratic", contype="linear")
+@info "Testing $(length(quad_problems)) quadratic problems with linear constraints"
+quad_problems = quad_problems[1:min(30, length(quad_problems))]
+ # Skip HIER13, BLOWEYA, LUKVLE8, PATTERNNE, READING2, NINENEW, READING6, DITTERT, CVXQP2, and MSS1 if present
+quad_problems = filter(p -> !(lowercase(p) in ["hier13", "bloweya", "s268", "stcqp1", "cvxqp3", "avgasb", "lukvle8", "sosqp2", "patternne", "reading2", "ninenew", "reading6", "dittert", "liswet9", "cleuven4", "cvxqp2", "mss1", "mpc2", "cmpc10", "cmpc3"]), quad_problems)
+@info "Testing $(length(quad_problems)) quadratic problems with linear constraints (subset)"
+
+
+
+# Harmonized analysis block with robust error handling and chunked processing
+function run_quadratic_benchmarks(problems, optimizers; chunk_size=3)
+    problem = String[]
+    n_vars = Int64[]
+    secs = Float64[]
+    solver = String[]
+    retcode = Symbol[]
+    optz = length(optimizers)
+    n = length(problems)
+    @info "Processing $(n) quadratic problems with $(optz) optimizers in chunks of $(chunk_size)"
+    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+    for chunk_start in 1:chunk_size:n
+        chunk_end = min(chunk_start + chunk_size - 1, n)
+        chunk_problems = problems[chunk_start:chunk_end]
+        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
+        for (idx, prob_name) in enumerate(chunk_problems)
+            current_problem = chunk_start + idx - 1
+            @info "Problem $(current_problem)/$(n): $(prob_name)"
+            nlp_prob = nothing
+            try
+                nlp_prob = CUTEstModel(prob_name)
+                if nlp_prob.meta.nvar > 10000
+                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
+                    finalize(nlp_prob)
+                    continue
+                end
+                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoFiniteDiff())
+                for (optimizer_name, optimizer) in optimizers
+                    try
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
+                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
+                        push!(problem, prob_name)
+                        push!(n_vars, vars)
+                        push!(secs, time)
+                        push!(solver, alg)
+                        push!(retcode, code)
+                    catch e
+                        push!(problem, prob_name)
+                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
+                        push!(secs, NaN)
+                        push!(solver, optimizer_name)
+                        push!(retcode, :FAILED)
+                        println("ERROR: ", e)
+                        println("Stacktrace:")
+                        for (i, frame) in enumerate(stacktrace(e))
+                            println("  ", i, ": ", frame)
+                        end
+                    end
+                end
+            catch e
+                for (optimizer_name, optimizer) in optimizers
+                    push!(problem, prob_name)
+                    push!(n_vars, -1)
+                    push!(secs, NaN)
+                    push!(solver, optimizer_name)
+                    push!(retcode, :LOAD_FAILED)
+                end
+                println("LOAD ERROR: ", e)
+                println("Stacktrace:")
+                for (i, frame) in enumerate(stacktrace(e))
+                    println("  ", i, ": ", frame)
+                end
+            finally
+                if nlp_prob !== nothing
+                    try
+                        finalize(nlp_prob)
+                    catch e
+                    end
+                end
+            end
+        end
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
+    end
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
+end
+
+quad_results = run_quadratic_benchmarks(quad_problems, optimizers; chunk_size=3)
+
+# Calculate and display success rates for quadratic problems
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, quad_results)
+total_attempts = nrow(quad_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "QUADRATIC PROBLEMS SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+
+println("Full results table for quadratic problems:")
+display(quad_results)
+
+total_attempts = nrow(quad_results)
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, quad_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+println("SUCCESS RATE ANALYSIS (Quadratic Problems):")
+println("Total attempts: ", total_attempts)
+println("Successful attempts: ", successful_attempts)
+println("Success rate: ", success_rate, "%")
+println("Return code distribution:")
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(quad_results.retcode))), by=x->x[2], rev=true)
+        println("  ", code, ": ", count, " occurrences")
+    end
+else
+    println("  No results to analyze")
+end
+
+if nrow(quad_results) > 0
+    @df quad_results scatter(:n_vars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
+    println("Plotted quadratic problem results.")
+else
+    println("No quadratic problem results to plot. DataFrame is empty.")
+    println("Attempted problems:")
+    println(quad_problems)
+end
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
