@@ -9,11 +9,20 @@ using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
 import Pardiso
 using Plots
 using MatrixDepot
+using Dates
 
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
 
 # Why do I need to set this ?
 BenchmarkTools.DEFAULT_PARAMETERS.samples = 10
+
+# Set a reasonable timeout for each benchmark
+BenchmarkTools.DEFAULT_PARAMETERS.time_tolerance = 0.05
+BenchmarkTools.DEFAULT_PARAMETERS.memory_tolerance = 0.01
+
+# Start time for tracking
+start_time = now()
+last_heartbeat = now()
 
 algs = [
     UMFPACKFactorization(),
@@ -29,7 +38,14 @@ cols = [:red, :blue, :green, :magenta, :turqoise] # one color per alg
 # matrices = ["HB/1138_bus", "HB/494_bus", "HB/662_bus", "HB/685_bus", "HB/bcsstk01", "HB/bcsstk02", "HB/bcsstk03", "HB/bcsstk04",  "HB/bcsstk05", "HB/bcsstk06", "HB/bcsstk07", "HB/bcsstk08", "HB/bcsstk09", "HB/bcsstk10", "HB/bcsstk11", "HB/bcsstk12", "HB/bcsstk13", "HB/bcsstk14", "HB/bcsstk15", "HB/bcsstk16"]
 allmatrices_md = listnames("*/*")
 
-@info "Total number of matrices: $(allmatrices_md.content[1].rows)"
+total_matrices = length(allmatrices_md.content[1].rows)
+@info "Total number of matrices: $total_matrices"
+
+# Track progress and failures
+processed_count = 0
+failed_matrices = String[]
+successful_matrices = String[]
+skipped_large_matrices = String[]
 
 times = fill(NaN, length(allmatrices_md.content[1].rows), length(algs))
 percentage_sparsity = fill(NaN, length(allmatrices_md.content[1].rows))
@@ -62,7 +78,32 @@ end
 ```
 
 ```julia
-for z in 1:length(allmatrices_md.content[1].rows)
+for z in 1:total_matrices
+    # Early termination if too many consecutive failures
+    if length(failed_matrices) > 100
+        @warn "Too many failures (>100), terminating benchmark early to prevent CI timeout"
+        break
+    end
+    
+    # Heartbeat every 30 seconds to prevent CI timeout
+    current_time = now()
+    if current_time - last_heartbeat > Dates.Second(30)
+        elapsed = round((current_time - start_time) / Dates.Minute(1), digits=1)
+        @info "Heartbeat: Still running... ($(elapsed) minutes elapsed, matrix $z/$total_matrices)"
+        last_heartbeat = current_time
+        flush(stdout)
+        flush(stderr)
+    end
+    
+    # Progress tracking - print every 10 matrices or on first/last
+    if z == 1 || z == total_matrices || z % 10 == 0
+        @info "Progress: Processing matrix $z of $total_matrices ($(round(100*z/total_matrices, digits=1))%)"
+        @info "  - Successful: $(length(successful_matrices))"
+        @info "  - Failed: $(length(failed_matrices))"
+        @info "  - Skipped (too large): $(length(skipped_large_matrices))"
+        flush(stdout)
+        flush(stderr)
+    end
     try
         matrix = allmatrices_md.content[1].rows[z]
         matrix = string(matrix[1])
@@ -76,8 +117,15 @@ for z in 1:length(allmatrices_md.content[1].rows)
 
         mtx_copy = copy(A)
 
-        @info "$n × $n"
-        n > 100 && error("Skipping too large matrices")
+        # Check matrix size and skip if too large
+        if n > 1500
+            @info "Matrix $currMTX ($n × $n) is too large, skipping..."
+            push!(skipped_large_matrices, currMTX)
+            processed_count += 1
+            continue
+        end
+        
+        @info "Processing $currMTX: $n × $n matrix"
 
         ## COMPUTING SPACED OUT SPARSITY
         rows, cols = size(mtx_copy)
@@ -105,12 +153,18 @@ for z in 1:length(allmatrices_md.content[1].rows)
         u0 = rand(rng, n)
 
         for j in 1:length(algs)
-            bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
-                copy($b);
-                u0 = copy($u0),
-                alias_A = true,
-                alias_b = true))
-            times[z, j] = bt
+            try
+                bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
+                    copy($b);
+                    u0 = copy($u0),
+                    alias_A = true,
+                    alias_b = true))
+                times[z, j] = bt
+            catch alg_error
+                # Silently record NaN for failed algorithms
+                times[z, j] = NaN
+                @debug "Algorithm $(algnames[j]) failed on $currMTX: $(typeof(alg_error))"
+            end
         end
 
         bandedness_five[z] = compute_bandedness(A, 5)
@@ -130,16 +184,39 @@ for z in 1:length(allmatrices_md.content[1].rows)
         display(p)
         =#
 
-        println("successfully factorized $(currMTX)")
+        push!(successful_matrices, currMTX)
+        processed_count += 1
+        @debug "Successfully factorized $currMTX"
     catch e
         matrix = allmatrices_md.content[1].rows[z]
         matrix = string(matrix[1])
-
         currMTX = matrix
-
-        println("$(currMTX) failed to factorize.")
-        println(e)
+        
+        push!(failed_matrices, currMTX)
+        processed_count += 1
+        
+        # Only print brief error info, not full stacktrace
+        error_type = typeof(e)
+        @warn "Matrix $currMTX failed: $error_type"
     end
+end
+
+# Final summary
+total_elapsed = round((now() - start_time) / Dates.Minute(1), digits=1)
+@info "="^60
+@info "Benchmark Complete!"
+@info "Total runtime: $total_elapsed minutes"
+@info "Total matrices processed: $processed_count / $total_matrices"
+@info "Successful: $(length(successful_matrices))"
+@info "Failed: $(length(failed_matrices))"
+@info "Skipped (too large): $(length(skipped_large_matrices))"
+@info "="^60
+
+# Print failed matrices list if not too many
+if length(failed_matrices) > 0 && length(failed_matrices) <= 20
+    @info "Failed matrices: $(join(failed_matrices, ", "))"
+elseif length(failed_matrices) > 20
+    @info "Failed matrices (first 20): $(join(failed_matrices[1:20], ", "))..."
 end
 
 percentage_sparsity = percentage_sparsity[.!isnan.(percentage_sparsity)]
