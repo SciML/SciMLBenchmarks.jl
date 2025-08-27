@@ -1,0 +1,222 @@
+---
+title: Enright-Pryce Work-Precision Diagrams
+author: Utkarsh, Chris Rackauckas
+---
+
+## Enright-Pryce Suite
+
+The purpose of this benchmark is to test explicit Runge-Kutta methods on the Enright-Pryce test suite, a collection of non-stiff ODE problems designed for testing numerical integrators.
+
+```julia
+using OrdinaryDiffEq, ParameterizedFunctions, ODEInterface,
+      ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools,
+      StaticArrays
+using Plots
+gr()
+
+# Load the problems from the Enright-Pryce suite
+include(joinpath(@__DIR__, "enright_pryce.jl"))
+
+abstols = 1.0 ./ 10.0 .^ (6:13)
+reltols = 1.0 ./ 10.0 .^ (3:10)
+```
+
+### SIMD Algorithms (Currently Disabled)
+
+Note: The SIMD RK methods will be added once the OrdinaryDiffEqSIMDRK package is publicly available.
+
+```julia
+# simdrkalgs = [
+#     Dict(:alg=>MER5v2()),
+#     Dict(:alg=>MER6v2()),
+#     Dict(:alg=>RK6v4())
+# ]
+simdrkalgs = []
+```
+
+### Low Order Setup
+
+```julia
+setups = [
+    Dict(:alg=>Tsit5()),
+    Dict(:alg=>Vern6()),
+    Dict(:alg=>Vern7()),
+    Dict(:alg=>Vern9()),
+    simdrkalgs...
+]
+```
+
+## Non-Stiff NA Problems
+
+### NA1
+
+```julia
+prob = NA_PROBLEMS[1]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NA1")
+```
+
+### NA2
+
+```julia
+prob = NA_PROBLEMS[2]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NA2")
+```
+
+### NA4
+
+```julia
+prob = NA_PROBLEMS[4]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NA4")
+```
+
+### NA5
+
+```julia
+prob = NA_PROBLEMS[5]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NA5")
+```
+
+## Non-Stiff NB Problems
+
+### NB1
+
+```julia
+prob = NB_PROBLEMS[1]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NB1")
+```
+
+### NB2
+
+```julia
+prob = NB_PROBLEMS[2]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NB2")
+```
+
+### NB3
+
+```julia
+prob = NB_PROBLEMS[3]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NB3")
+```
+
+### NB5
+
+```julia
+prob = NB_PROBLEMS[5]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NB5")
+```
+
+## Non-Stiff NC Problems
+
+### NC1
+
+```julia
+prob = NC_PROBLEMS[1]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NC1")
+```
+
+### NC2
+
+```julia
+prob = NC_PROBLEMS[2]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NC2")
+```
+
+### NC3
+
+```julia
+prob = NC_PROBLEMS[3]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NC3")
+```
+
+### NC4
+
+```julia
+prob = NC_PROBLEMS[4]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NC4")
+```
+
+### NC5
+
+```julia
+prob = NC_PROBLEMS[5]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="NC5")
+```
+
+## Non-Stiff ND Problems
+
+### ND1
+
+```julia
+prob = ND_PROBLEMS[1]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="ND1")
+```
+
+### ND2
+
+```julia
+prob = ND_PROBLEMS[2]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="ND2")
+```
+
+### ND3
+
+```julia
+prob = ND_PROBLEMS[3]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="ND3")
+```
+
+### ND4
+
+```julia
+prob = ND_PROBLEMS[4]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="ND4")
+```
+
+### ND5
+
+```julia
+prob = ND_PROBLEMS[5]
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+plot(wp; title="ND5")
+```
+
+```julia{echo=false}
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
