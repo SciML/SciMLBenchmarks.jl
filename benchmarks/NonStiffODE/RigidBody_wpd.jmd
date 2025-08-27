@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, ParameterizedFunctions, ODEInterfaceDiffEq, LSODA,
-      Sundials, DiffEqDevTools, StaticArrays
+      Sundials, DiffEqDevTools, StaticArrays, OrdinaryDiffEqSIMDRK
 
 k(t) = 0.25*sin(t)^2
 
@@ -40,7 +40,10 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5())
           Dict(:alg=>Vern6())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)]
+          Dict(:alg=>Vern6(), :prob_choice => 2)
+          Dict(:alg=>MER5v2(), :prob_choice => 2)
+          Dict(:alg=>MER6v2(), :prob_choice => 2)
+          Dict(:alg=>RK6v4(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
     save_everystep = true, numruns = 100, maxiters = 10000)
 plot(wp)
