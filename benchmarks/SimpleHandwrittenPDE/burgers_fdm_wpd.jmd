@@ -223,6 +223,123 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
 ```
 
+Krylov solvers with preconditioners.
+```julia
+# Weighted diagonal preconditioner
+import LinearAlgebra as LA
+Base.@kwdef struct WeightedDiagonalPreconBuilder
+    w::Float64
+end
+
+(builder::WeightedDiagonalPreconBuilder)(A, du, u, p, t, newW, Plprev, Prprev, solverdata) = (builder.w * LA.Diagonal(convert(AbstractMatrix, A)), LA.I)
+
+# Incomplete LU factorization
+using IncompleteLU
+Base.@kwdef struct IncompleteLUPreconBuilder
+    τ::Float64
+end
+function (builder::IncompleteLUPreconBuilder)(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        Pl = ilu(convert(AbstractMatrix, W), τ = builder.τ)
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+# Algebraic multigrid
+using AlgebraicMultigrid
+function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+function algebraicmultigrid2(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    if newW === nothing || newW
+        A = convert(AbstractMatrix, W)
+        Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(A,
+            presmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
+                1))),
+            postsmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
+                1)))))
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+# Cholesky
+using Preconditioners
+function cholesky(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
+    W = convert(AbstractMatrix, W)
+    if newW === nothing || newW
+        Pl = CholeskyPreconditioner(W)
+    else
+        Pl = Plprev
+    end
+    Pl, nothing
+end
+
+# Aliases
+chol = cholesky
+inc_lu = IncompleteLUPreconBuilder(τ = 50.0)
+w_diag = WeightedDiagonalPreconBuilder(w = 0.9)
+amg = algebraicmultigrid
+amg2 = algebraicmultigrid2
+
+abstols = 0.1 .^ (8:13)
+reltols = 0.1 .^ (5:10)
+N = length(abstols)
+setups = [
+    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
+    # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
+    # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), precs = inc_lu, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), precs = inc_lu, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), precs = inc_lu, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), precs = w_diag, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), precs = w_diag, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), precs = w_diag, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), precs = amg, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), precs = amg, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), precs = amg, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),    
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), precs = amg2, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), precs = amg2, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), precs = amg2, concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES()), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES()), :dts => 1e-2 * ones(N), :adaptive => true),
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES()), :dts => 1e-2 * ones(N), :adaptive => true),
+]
+labels = hcat(
+    # "KenCarp3 (Cholesky)",
+    # "KenCarp4 (Cholesky)",
+    # "KenCarp5 (Cholesky)",
+    "KenCarp3 (ILU, τ = $(inc_lu.τ))",
+    "KenCarp4 (ILU, τ = $(inc_lu.τ))",
+    "KenCarp5 (ILU, τ = $(inc_lu.τ))",
+    "KenCarp3 (Diagonal, w = $(w_diag.w))",
+    "KenCarp4 (Diagonal, w = $(w_diag.w))",
+    "KenCarp5 (Diagonal, w = $(w_diag.w))",
+    "KenCarp3 (AMG)",
+    "KenCarp4 (AMG)",
+    "KenCarp5 (AMG)",
+    "KenCarp3 (AMG-Jacobi)",
+    "KenCarp4 (AMG-Jacobi)",
+    "KenCarp5 (AMG-Jacobi)",
+    "KenCarp3 (Identity)",
+    "KenCarp4 (Identity)",
+    "KenCarp5 (Identity)",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, Low Tolerances")
+```
+
 #### Exponential Integrators
 
 ```julia
