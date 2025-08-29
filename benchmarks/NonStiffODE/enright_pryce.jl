@@ -502,11 +502,14 @@ const NC_PROBLEMS = [nc1prob, nc2prob, nc3prob, nc4prob, nc5prob]
 y = collect(y)
 @parameters ε
 nd1sys = complete(let
-    r = sqrt(y[1]^2 + y[2]^2)^3
+    # Use intermediate variable to avoid complex symbolic expansion
+    # r_cubed = (x^2 + y^2)^(3/2) for the gravitational force law
+    r_squared = y[1]^2 + y[2]^2
+    r_cubed = r_squared * sqrt(r_squared)
     nd1eqs = [D(y[1]) ~ y[3],
         D(y[2]) ~ y[4],
-        D(y[3]) ~ (-y[1]) / r,
-        D(y[4]) ~ (-y[2]) / r
+        D(y[3]) ~ (-y[1]) / r_cubed,
+        D(y[4]) ~ (-y[2]) / r_cubed
     ]
     ODESystem(nd1eqs, t, name = :nd1)
 end)
