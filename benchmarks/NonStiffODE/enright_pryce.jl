@@ -1,5 +1,4 @@
 using ModelingToolkit
-using IfElse
 using Symbolics
 using Symbolics: unwrap
 using DiffEqBase, StaticArrays, LinearAlgebra
