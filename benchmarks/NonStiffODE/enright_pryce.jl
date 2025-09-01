@@ -9,69 +9,55 @@ y = collect(y)
 D = Differential(t)
 
 # Stiff
-@mtkcompile sa1sys = let
-    sa1eqs = [
-        D(y[1]) ~ -0.5 * y[1], D(y[2]) ~ -y[2], D(y[3]) ~ -100 * y[3], D(y[4]) ~ -90 * y[4]]
-    ODESystem(sa1eqs, t)
-end
+sa1eqs = [
+    D(y[1]) ~ -0.5 * y[1], D(y[2]) ~ -y[2], D(y[3]) ~ -100 * y[3], D(y[4]) ~ -90 * y[4]]
+@mtkcompile sa1sys = ODESystem(sa1eqs, t)
 
 sa1prob = ODEProblem{false}(sa1sys, y[1:4] .=> 1.0, (0, 20.0), dt = 1e-2; u0_constructor = x -> SVector(x...))
 
-@mtkcompile sa2sys = let
-    sa2eqs = [D(y[1]) ~ -1800 * y[1] + 900 * y[2]]
-    for i in 2:8
-        push!(sa2eqs, D(y[i]) ~ y[i - 1] - 2 * y[i] + y[i + 1])
-    end
-    push!(sa2eqs, D(y[9]) ~ 1000 * y[8] - 2000 * y[9] + 1000)
-    ODESystem(sa2eqs, t)
+sa2eqs = [D(y[1]) ~ -1800 * y[1] + 900 * y[2]]
+for i in 2:8
+    push!(sa2eqs, D(y[i]) ~ y[i - 1] - 2 * y[i] + y[i + 1])
 end
+push!(sa2eqs, D(y[9]) ~ 1000 * y[8] - 2000 * y[9] + 1000)
+@mtkcompile sa2sys = ODESystem(sa2eqs, t)
 
 sa2prob = ODEProblem{false}(sa2sys, y[1:9] .=> 0.0, (0, 120.0), dt = 5e-4; u0_constructor = x -> SVector(x...))
 
-@mtkcompile sa3sys = let
-    sa3eqs = [
-        D(y[1]) ~ -1e4 * y[1] + 100 * y[2] - 10 * y[3] + y[4],
-        D(y[2]) ~ -1e3 * y[2] + 10 * y[3] - 10 * y[4],
-        D(y[3]) ~ -y[3] + 10 * y[4],
-        D(y[4]) ~ -0.1 * y[4]
-    ]
-    ODESystem(sa3eqs, t)
-end
+sa3eqs = [
+    D(y[1]) ~ -1e4 * y[1] + 100 * y[2] - 10 * y[3] + y[4],
+    D(y[2]) ~ -1e3 * y[2] + 10 * y[3] - 10 * y[4],
+    D(y[3]) ~ -y[3] + 10 * y[4],
+    D(y[4]) ~ -0.1 * y[4]
+]
+@mtkcompile sa3sys = ODESystem(sa3eqs, t)
 
 sa3prob = ODEProblem{false}(sa3sys, y[1:4] .=> 1.0, (0, 20.0), dt = 1e-5; u0_constructor = x -> SVector(x...))
 
-@mtkcompile sa4sys = let
-    sa4eqs = [D(y[i]) ~ -i^5 * y[i] for i in 1:10]
-    ODESystem(sa4eqs, t)
-end
+sa4eqs = [D(y[i]) ~ -i^5 * y[i] for i in 1:10]
+@mtkcompile sa4sys = ODESystem(sa4eqs, t)
 
 sa4prob = ODEProblem{false}(sa4sys, y[1:10] .=> 1.0, (0, 1.0), dt = 1e-5; u0_constructor = x -> SVector(x...))
 
 const SA_PROBLEMS = [sa1prob, sa2prob, sa3prob, sa4prob]
 
-@mtkcompile sb1sys = let
-    sb1eqs = [D(y[1]) ~ -y[1] + y[2],
-        D(y[2]) ~ -100y[1] - y[2],
-        D(y[3]) ~ -100y[3] + y[4],
-        D(y[4]) ~ -10_000y[3] - 100y[4]]
-
-    ODESystem(sb1eqs, t)
-end
+sb1eqs = [D(y[1]) ~ -y[1] + y[2],
+    D(y[2]) ~ -100y[1] - y[2],
+    D(y[3]) ~ -100y[3] + y[4],
+    D(y[4]) ~ -10_000y[3] - 100y[4]]
+@mtkcompile sb1sys = ODESystem(sb1eqs, t)
 
 sb1prob = ODEProblem{false}(
     sb1sys, [y[[1, 3]] .=> 1.0; y[[2, 4]] .=> 0.0], (0, 20.0), dt = 7e-3; u0_constructor = x -> SVector(x...))
 
 @parameters α
-@mtkcompile sb2sys = let
-    sb2eqs = [D(y[1]) ~ -10y[1] + α * y[2],
-        D(y[2]) ~ -α * y[1] - 10 * y[2],
-        D(y[3]) ~ -4y[3],
-        D(y[4]) ~ -y[4],
-        D(y[5]) ~ -0.5y[5],
-        D(y[6]) ~ -0.1y[6]]
-
-    ODESystem(sb2eqs, t)
-end
+sb2eqs = [D(y[1]) ~ -10y[1] + α * y[2],
+    D(y[2]) ~ -α * y[1] - 10 * y[2],
+    D(y[3]) ~ -4y[3],
+    D(y[4]) ~ -y[4],
+    D(y[5]) ~ -0.5y[5],
+    D(y[6]) ~ -0.1y[6]]
+@mtkcompile sb2sys = ODESystem(sb2eqs, t)
 
 sb2prob = ODEProblem{false}(sb2sys, y .=> 1.0, (0, 20.0), [α => 3], dt = 1e-2)
 sb3prob = ODEProblem{false}(sb2sys, y .=> 1.0, (0, 20.0), [α => 8], dt = 1e-2)
@@ -310,19 +296,15 @@ sf5prob = ODEProblem{false}(
     (0, 100.0), dt = 1e-7, cse = true; u0_constructor = x -> SVector(x...))
 
 # Non-stiff
-@mtkcompile na1sys = let y = y[1]
-    na1eqs = D(y) ~ -y
-
-    ODESystem(na1eqs, t)
-end
+y1 = y[1]
+na1eqs = D(y1) ~ -y1
+@mtkcompile na1sys = ODESystem(na1eqs, t)
 
 na1prob = ODEProblem{false}(na1sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
 
-@mtkcompile na2sys = let y = y[1]
-    na2eqs = D(y) ~ -y^3 / 2
-
-    ODESystem(na2eqs, t)
-end
+y2 = y[1]
+na2eqs = D(y2) ~ -y2^3 / 2
+@mtkcompile na2sys = ODESystem(na2eqs, t)
 
 na2prob = ODEProblem{false}(na2sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
 
@@ -500,7 +482,6 @@ const NC_PROBLEMS = [nc1prob, nc2prob, nc3prob, nc4prob, nc5prob]
 @variables y(t)[1:4]
 y = collect(y)
 @parameters ε
-<<<<<<< HEAD
 # Use intermediate variable to avoid complex symbolic expansion
 # r_cubed = (x^2 + y^2)^(3/2) for the gravitational force law
 r_squared = y[1]^2 + y[2]^2
@@ -510,20 +491,6 @@ nd1eqs = [D(y[1]) ~ y[3],
     D(y[3]) ~ (-y[1]) / r_cubed,
     D(y[4]) ~ (-y[2]) / r_cubed]
 @mtkcompile nd1sys = ODESystem(nd1eqs, t)
-=======
-@mtkcompile nd1sys = let
-    # Use intermediate variable to avoid complex symbolic expansion
-    # r_cubed = (x^2 + y^2)^(3/2) for the gravitational force law
-    r_squared = y[1]^2 + y[2]^2
-    r_cubed = r_squared * sqrt(r_squared)
-    nd1eqs = [D(y[1]) ~ y[3],
-        D(y[2]) ~ y[4],
-        D(y[3]) ~ (-y[1]) / r_cubed,
-        D(y[4]) ~ (-y[2]) / r_cubed
-    ]
-    ODESystem(nd1eqs, t)
-end
->>>>>>> 181b39e6 (Use modern @mtkcompile syntax instead of complete())
 
 function make_ds(nd1sys, e)
     y = collect(@nonamespace nd1sys.y)
