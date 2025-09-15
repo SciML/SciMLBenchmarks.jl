@@ -1630,7 +1630,7 @@ function J_synapse(p_synapse::SynapseParams, nu)
 
     # we order the jumps in their order they appear in the dependency graph
     jumps = JumpSet(;
-        constant_jumps = [
+        constant_jumps = (
             # AMPA
             #2line-GO
             @j_jump(1, p_synapse, nu, 4 * AMPA_k1 * p.Glu * p.xd[1]), # 1
@@ -1729,9 +1729,9 @@ function J_synapse(p_synapse::SynapseParams, nu)
             @j_jump(96, p_synapse, nu, GABA_r_ro1 * p.xd[47]), # 96
             @j_jump(97, p_synapse, nu, GABA_r_c1 * p.xd[49]), # 97
             @j_jump(98, p_synapse, nu, GABA_r_ro2 * p.xd[48]), # 98
-            @j_jump(99, p_synapse, nu, GABA_r_c2 * p.xd[50]) # 99
-        ],
-        variable_jumps = [
+            @j_jump(99, p_synapse, nu, GABA_r_c2 * p.xd[50]), # 99
+        ),
+        variable_jumps = (
             # R-type VGCC
             @j_jump(56,
                 p_synapse,
@@ -1862,8 +1862,8 @@ function J_synapse(p_synapse::SynapseParams, nu)
             @j_jump(76, p_synapse, nu, p.xd[36] * D_rate, 1, typemax(Float64)), # 76
             @j_jump(77, p_synapse, nu, p.xd[37] * P_rate, 1, typemax(Float64)), # 77
             @j_jump(78, p_synapse, nu, p.xd[36] * P_rate, 1, typemax(Float64)), # 78
-            @j_jump(79, p_synapse, nu, p.xd[38] * D_rate, 1, typemax(Float64)) # 79
-        ]
+            @j_jump(79, p_synapse, nu, p.xd[38] * D_rate, 1, typemax(Float64)), # 79
+        ),
     )
 
     return jumps
@@ -1894,21 +1894,22 @@ First, we define the problem for the `PDMP` package.
 
 ```julia
 function SynapseProblem(
-        xc,
-        xd,
-        t1,
-        t2,
-        events_bap,
-        bap_by_epsp,
-        glu,
-        p_synapse,
-        nu,
-        algo::T,
-        agg = nothing;
-        saveat = [],
-        save_everystep = isempty(saveat),
-        kwargs...
-) where {T <: CHV}
+    xc,
+    xd,
+    t1,
+    t2,
+    events_bap,
+    bap_by_epsp,
+    glu,
+    p_synapse,
+    nu,
+    algo::T,
+    agg = nothing;
+    vr_agg = VR_FRM(),
+    saveat = [],
+    save_everystep = isempty(saveat),
+    kwargs...,
+) where {T<:CHV}
     problem = PDMP.PDMPProblem(
         (dxc, xc, xd, p, t) -> F_synapse(dxc, xc, xd, p, t, events_bap, bap_by_epsp),
         (rate, xc, xd, p, t, sum_rate) -> R_synapse(rate, xc, xd, p, t, sum_rate, glu),
@@ -2066,22 +2067,23 @@ function buildRxDependencyGraph(nu)
 end
 
 function SynapseProblem(
-        xc,
-        xd,
-        t1,
-        t2,
-        events_bap,
-        bap_by_epsp,
-        glu,
-        p_synapse,
-        nu,
-        algo,
-        agg;
-        jumps = nothing,
-        save_positions = (false, true),
-        saveat = [],
-        save_everystep = isempty(saveat),
-        kwargs...
+    xc,
+    xd,
+    t1,
+    t2,
+    events_bap,
+    bap_by_epsp,
+    glu,
+    p_synapse,
+    nu,
+    algo,
+    agg;
+    vr_agg = VR_FRM(),
+    jumps = nothing,
+    save_positions = (false, true),
+    saveat = [],
+    save_everystep = isempty(saveat),
+    kwargs...,
 )
     p = (
         xd0 = copy(xd),
@@ -2107,6 +2109,7 @@ function SynapseProblem(
         oprob,
         agg,
         jumps;
+        vr_aggregator = vr_agg,
         dep_graph,
         save_positions,
         saveat,
@@ -2125,22 +2128,23 @@ We define functions to run the evolution of the whole synapse. The evolution inc
 ```julia
 # adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse(
-        xc0::Vector{T},
-        xd0,
-        p_synapse::SynapseParams,
-        events_sorted_times,
-        is_pre_or_post_event,
-        bap_by_epsp,
-        is_glu_released,
-        nu,
-        algos,
-        agg = nothing;
-        progress = false,
-        abstol = 1e-8,
-        reltol = 1e-7,
-        save_positions = (false, true),
-        saveat = [],
-        kwargs...
+    xc0::Vector{T},
+    xd0,
+    p_synapse::SynapseParams,
+    events_sorted_times,
+    is_pre_or_post_event,
+    bap_by_epsp,
+    is_glu_released,
+    nu,
+    algos,
+    agg = nothing;
+    vr_agg,
+    progress = false,
+    abstol = 1e-8,
+    reltol = 1e-7,
+    save_positions = (false, true),
+    saveat = [],
+    kwargs...,
 ) where {T}
     tt, XC,
     XD = evolveSynapse_noformat(
@@ -2154,6 +2158,7 @@ function evolveSynapse(
         nu,
         algos,
         agg;
+        vr_agg,
         progress,
         abstol,
         reltol,
@@ -2167,22 +2172,23 @@ end
 
 # adapted from SynapseElife/src/SynapseModel.jl
 function evolveSynapse_noformat(
-        xc0::Vector{T},
-        xd0,
-        p_synapse::SynapseParams,
-        events_sorted_times,
-        is_pre_or_post_event,
-        bap_by_epsp,
-        is_glu_released,
-        nu,
-        algos,
-        agg = nothing;
-        progress = false,
-        abstol = 1e-8,
-        reltol = 1e-7,
-        save_positions = (false, true),
-        saveat = [],
-        kwargs...
+    xc0::Vector{T},
+    xd0,
+    p_synapse::SynapseParams,
+    events_sorted_times,
+    is_pre_or_post_event,
+    bap_by_epsp,
+    is_glu_released,
+    nu,
+    algos,
+    agg = nothing;
+    vr_agg,
+    progress = false,
+    abstol = 1e-8,
+    reltol = 1e-7,
+    save_positions = (false, true),
+    saveat = [],
+    kwargs...,
 ) where {T}
     if save_positions isa Tuple{Bool, Bool}
         save_positionsON = save_positions
@@ -2209,53 +2215,50 @@ function evolveSynapse_noformat(
     events_bap = events_sorted_times[is_pre_or_post_event .== false]
 
     # function to simulate the synapse when Glutamate is ON
-    SimGluON = (xc,
-        xd,
-        t1,
-        t2,
-        glu) -> SynapseProblem(
-        xc,
-        xd,
-        t1,
-        t2,
-        events_bap,
-        bap_by_epsp,
-        glu,
-        p_synapse,
-        nu,
-        algos[1],
-        agg;
-        jumps,
-        reltol,
-        abstol,
-        saveat,
-        save_positions = save_positionsON,
-        kwargs...
-    )
+    SimGluON =
+        (xc, xd, t1, t2, glu) -> SynapseProblem(
+            xc,
+            xd,
+            t1,
+            t2,
+            events_bap,
+            bap_by_epsp,
+            glu,
+            p_synapse,
+            nu,
+            algos[1],
+            agg;
+            vr_agg,
+            jumps,
+            reltol,
+            abstol,
+            saveat,
+            save_positions = save_positionsON,
+            kwargs...,
+        )
 
     # function to simulate the synapse when Glutamate is OFF
-    SimGluOFF = (xc,
-        xd,
-        t1,
-        t2) -> SynapseProblem(
-        xc,
-        xd,
-        t1,
-        t2,
-        events_bap,
-        bap_by_epsp,
-        zero(T),
-        p_synapse,
-        nu,
-        algos[2],
-        agg;
-        jumps,
-        reltol,
-        abstol,
-        saveat,
-        save_positions = save_positionsOFF,
-        kwargs...
-    )
+    SimGluOFF =
+        (xc, xd, t1, t2) -> SynapseProblem(
+            xc,
+            xd,
+            t1,
+            t2,
+            events_bap,
+            bap_by_epsp,
+            zero(T),
+            p_synapse,
+            nu,
+            algos[2],
+            agg;
+            vr_agg,
+            jumps,
+            reltol,
+            abstol,
+            saveat,
+            save_positions = save_positionsOFF,
+            kwargs...,
+        )
 
     # random variable for Glutamate concentration
     gluDist = Gamma(1 / p_synapse.glu_cv^2, p_synapse.glu_cv^2)
@@ -2368,15 +2371,38 @@ const algorithms = (
     (
         label = "PDMP",
         agg = nothing,
+        vr_agg = VR_FRM(),
         solver = (CHV(solver), CHV(solver)),
-        saveat = []
+        saveat = [],
     ),
     (
         label = "Coevolve",
         agg = Coevolve(),
+        vr_agg = VR_FRM(),
         solver = (solver, solver),
-        saveat = 1 / p_synapse.sampling_rate
-    )
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "Direct(VR_FRM)",
+        agg = Direct(),
+        vr_agg = VR_FRM(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "Direct(VR_Direct)",
+        agg = Direct(),
+        vr_agg = VR_Direct(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
+    (
+        label = "Direct(VR_DirectFW)",
+        agg = Direct(),
+        vr_agg = VR_DirectFW(),
+        solver = (solver, solver),
+        saveat = 1 / p_synapse.sampling_rate,
+    ),
 );
 ```
 
@@ -2399,6 +2425,7 @@ for algo in algorithms
             nu,
             algo.solver,
             algo.agg;
+            algo.vr_agg,
             save_positions = (false, true),
             saveat = algo.saveat,
             save_everystep = false
@@ -2444,6 +2471,7 @@ for algo in algorithms
                 nu,
                 $(algo).solver,
                 $(algo).agg;
+                $(algo).vr_agg,
                 save_positions = (false, true),
                 saveat = $(algo).saveat,
                 save_everystep = false

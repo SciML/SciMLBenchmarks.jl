@@ -117,17 +117,18 @@ function f!(du, u, p, t)
 end
 
 function hawkes_problem(
-        p,
-        agg;
-        u = [0.0],
-        tspan = (0.0, 50.0),
-        save_positions = (false, true),
-        g = [[1]],
-        use_recursion = false
+    p,
+    agg;
+    vr_agg = VR_FRM(),
+    u = [0.0],
+    tspan = (0.0, 50.0),
+    save_positions = (false, true),
+    g = [[1]],
+    use_recursion = false,
 )
     oprob = ODEProblem(f!, u, tspan, p)
     jumps = hawkes_jump(u, g; use_recursion)
-    jprob = JumpProblem(oprob, agg, jumps...; save_positions = save_positions)
+    jprob = JumpProblem(oprob, agg, jumps...; vr_aggregator = vr_agg, save_positions = save_positions)
     return jprob
 end
 ```
@@ -842,6 +843,100 @@ let fig = plot(
         plot!(_Vs, _bs, label = label)
     end
     title!("Simulations, 50 samples: nodes × time")
+end
+```
+
+# Benchmarking Variable Rate Aggregators
+
+We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from `1` to `50` nodes, `tspan=(0.0, 25.0)`, `\lambda=0.5`, `\alpha=0.1`, `\beta=5.0`, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations.
+
+```julia
+vr_aggs = [
+    (VR_Direct(), Tsit5(), false, "VR_Direct (brute-force)"),
+    (VR_DirectFW(), Tsit5(), false, "VR_DirectFW (brute-force)"),
+    (VR_FRM(), Tsit5(), false, "VR_FRM (brute-force)"),
+    (VR_Direct(), Tsit5(), true, "VR_Direct (recursive)"),
+    (VR_DirectFW(), Tsit5(), true, "VR_DirectFW (recursive)"),
+    (VR_FRM(), Tsit5(), true, "VR_FRM (recursive)"),
+]
+
+tspan = (0.0, 25.0)
+p = (0.5, 0.1, 5.0)
+Vs = append!([1], 5:5:95)
+Gs = [erdos_renyi(V, 0.2, seed = 6221) for V in Vs]
+
+vr_bs = Vector{Vector{BenchmarkTools.Trial}}()
+
+for (vr_agg, stepper, use_recursion, label) in vr_aggs
+    @info label
+    global _stepper = stepper
+    push!(vr_bs, Vector{BenchmarkTools.Trial}())
+    _vr_bs = vr_bs[end]
+    for (i, G) in enumerate(Gs)
+        local g = [neighbors(G, i) for i in 1:nv(G)]
+        local u = [0.0 for i in 1:nv(G)]
+        if use_recursion
+            global h = zeros(eltype(tspan), nv(G))
+            global urate = zeros(eltype(u), nv(G))
+            global ϕ = zeros(eltype(tspan), nv(G))
+            _p = (p[1], p[2], p[3], h, urate, ϕ)
+        else
+            global h = [eltype(tspan)[] for _ in 1:nv(G)]
+            global urate = zeros(eltype(u), nv(G))
+            _p = (p[1], p[2], p[3], h, urate)
+        end
+        global jump_prob = hawkes_problem(_p, Direct(); vr_agg, u, tspan, g, use_recursion)
+        trial = try
+            if use_recursion
+                @benchmark(
+                    solve(jump_prob, _stepper),
+                    setup = (h .= 0; urate .= 0; ϕ .= 0),
+                    samples = 50,
+                    evals = 1,
+                    seconds = 10,
+                )
+            else
+                @benchmark(
+                    solve(jump_prob, _stepper),
+                    setup = ([empty!(_h) for _h in h]; urate .= 0),
+                    samples = 50,
+                    evals = 1,
+                    seconds = 10,
+                )
+            end
+        catch e
+            BenchmarkTools.Trial(
+                BenchmarkTools.Parameters(samples=50, evals=1, seconds=10),
+            )
+        end
+        push!(_vr_bs, trial)
+        if (nv(G) == 1 || nv(G) % 10 == 0)
+            median_time =
+                length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" : "nan"
+            println("algo=$label, V=$(nv(G)), length=$(length(trial.times)), median time=$median_time")
+        end
+    end
+end
+```
+
+```julia
+let fig = plot(
+    yscale = :log10,
+    xlabel = "V",
+    ylabel = "Time (ns)",
+    legend_position = :outertopright,
+)
+    for (i, (vr_agg, _, use_recursion, label)) in enumerate(vr_aggs)
+        _bs, _Vs = [], []
+        for (j, b) in enumerate(vr_bs[i])
+            if length(b) == 50
+                push!(_bs, median(b.times))
+                push!(_Vs, Vs[j])
+            end
+        end
+        plot!(_Vs, _bs, label=label)
+    end
+    title!("Variable Rate Simulations, 50 samples: nodes × time")
 end
 ```
 
