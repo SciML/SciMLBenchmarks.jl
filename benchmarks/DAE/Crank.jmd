@@ -1,0 +1,584 @@
+---
+title: Slider Crank, DAE format
+author: Jameson Nash
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
+      Plots, DASSL, DASKR
+using LinearAlgebra
+
+## Setup parameter space:
+
+@parameters(
+    m₁ = 0.36,
+    m₂ = 0.151104,
+    m₃ = 0.075552,
+    l₁ = 0.15,
+    l₂ = 0.30,
+    J₁ = 0.002727,
+    J₂ = 0.0045339259,
+    π  = 3.1415927,
+    EE = 0.20e12,
+    NUE= 0.30,
+    BB = 0.0080,
+    HH = 0.0080,
+    ρ  = 7870.0,
+    γ = 0.0,
+    Ω  = 150.,
+    )
+
+FACM = ρ*BB*HH*l₂
+FACK = EE*BB*HH/l₂
+FACB = BB*HH*l₂
+
+MQ = zeros(Num, 4, 4)
+MQ[1,1] = FACM*.5
+MQ[2,2] = FACM*.5
+MQ[3,3] = FACM*8.0
+MQ[3,4] = FACM*1.0
+MQ[4,3] = FACM*1.0
+MQ[4,4] = FACM*2.0
+
+KQ = zeros(Num, 4, 4)
+KQ[1,1] = FACK*π^4/24.0*(HH/l₂)^2
+KQ[2,2] = FACK*π^4*2.0/3.0*(HH/l₂)^2
+KQ[3,3] = FACK*16.0/3.0
+KQ[3,4] = -FACK*8.0/3.0
+KQ[4,3] = -FACK*8.0/3.0
+KQ[4,4] = FACK*7.0/3.0
+
+BQ = zeros(Num, 4, 4)
+BQ[1,3] = -FACB*16.0/π^3
+BQ[1,4] = FACB*(8.0/π^3-1.0/π)
+BQ[2,4] = FACB*0.5/π
+BQ[3,1] = FACB*16.0/π^3
+BQ[4,1] = -FACB*(8.0/π^3-1.0/π)
+BQ[4,2] = -FACB*0.5/π
+
+c1 = zeros(Num, 4)
+c2 = zeros(Num, 4)
+c12 = zeros(Num, 4)
+c21 = zeros(Num, 4)
+c1[3]  = FACB*2.0/3.0
+c1[4]  = FACB*1.0/6.0
+c2[1]  = FACB*2.0/π
+c12[3] = l₂*FACB*1.0/3.0
+c12[4] = l₂*FACB*1.0/6.0
+c21[1] = l₂*FACB*1.0/π
+c21[2] = -l₂*FACB*0.5/π
+
+DQ = zeros(Num, 4, 4)
+# OPTIONAL DAMPING
+# DQ[1,1] = 5.0
+# DQ[2,2] = 25.0
+# DQ[3,3] = 0.5*2.308375455264791e2
+# DQ[3,4] = -0.5*2.62688487992052e2
+# DQ[4,3] = -0.5*2.626884879920526e2
+# DQ[4,4] = 0.5*4.217421837156818e2
+
+## Setup variables and initial conditions:
+
+# init
+#     Initial values: 'Close' to smooth motion,
+#     accelerations and multipliers consistent
+#     for linear stiffness term and no damping
+#     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)=0.0,
+#    ϕ₂(t)=0.0,
+#    x₃(t)=4.500169330000000e-1,
+#    q₁(t)=0.0,
+#    q₂(t)=0.0,
+#    q₃(t)=1.033398630000000e-5,
+#    q₄(t)=1.693279690000000e-5,
+#    dϕ₁(t)= 1.500000000000000e2,
+#    dϕ₂(t)=-7.499576703969453e1,
+#    dx₃(t)=-2.689386719979040e-6,
+#    dq₁(t)= 4.448961125815990e-1,
+#    dq₂(t)= 4.634339319238670e-3,
+#    dq₃(t)=-1.785910760000550e-6,
+#    dq₄(t)=-2.689386719979040e-6,
+#    ddϕ₁(t)= 0.000000000000000e0,
+#    ddϕ₂(t)=-1.344541576709835e-3,
+#    ddx₃(t)=-5.062194924490193e+3,
+#    ddq₁(t)=-6.829725665986310e-5,
+#    ddq₂(t)= 1.813207639590617e-20,
+#    ddq₃(t)=-4.268463266810281e+0,
+#    ddq₄(t)= 2.098339029337557e-1,
+#    λ₁(t) = -6.552727150584648e-8,
+#    λ₂(t) =  3.824589509350831e+2,
+#    λ₃(t) = -4.635908708561371e-9,
+#    )
+
+
+# init1
+#     Initial values: 'Close' to smooth motion,
+#     accelerations and multipliers consistent
+#     for linear stiffness term and no damping
+#     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)   = 0.0,
+#    ϕ₂(t)   = 0.0,
+#    x₃(t)   = .450016933,
+#    q₁(t)   = 0.0,
+#    q₂(t)   = 0.0,
+#    q₃(t)   =  .103339863e-4,
+#    q₄(t)   =  .169327969e-4,
+#    dϕ₁(t)  =  .150000000e+3,
+#    dϕ₂(t)  = -.749957670e+2,
+#    dx₃(t)  = -.268938672e-5,
+#    dq₁(t)  =  .444896105e0,
+#    dq₂(t)  =  .463434311e-2,
+#    dq₃(t)  = -.178591076e-5,
+#    dq₄(t)  = -.268938672e-5,
+#    ddϕ₁(t) = 0.0,
+#    ddϕ₂(t) = -1.344541576008661e-3,
+#    ddx₃(t) = -5.062194923138079e+3,
+#    ddq₁(t) = -6.833142732779555e-5,
+#    ddq₂(t) =  1.449382650173157e-8,
+#    ddq₃(t) = -4.268463211410861e+0,
+#    ddq₄(t) =  2.098334687947376e-1,
+#    λ₁(t)   = -6.397251492537153e-8,
+#    λ₂(t)   =  3.824589508329281e+2,
+#    λ₃(t)   = -4.376060460948886e-9,
+#    )
+
+# init2
+#     Initial values: On rigid motion trajectory,
+#     leading to strong oscillations.
+#     accelerations and multipliers consistent
+#     for linear stiffness term and no damping
+#     (ipar(1) = 0, ipar(2) = 0).
+#@variables(
+#    t,
+#    ϕ₁(t)   = 0.0,
+#    ϕ₂(t)   = 0.0,
+#    x₃(t)   = .4500e0,
+#    q₁(t)   = 0.0,
+#    q₂(t)   = 0.0,
+#    q₃(t)   = 0.0,
+#    q₄(t)   = 0.0,
+#    dϕ₁(t)  =  .150e+3,
+#    dϕ₂(t)  = -.750e+2,
+#    dx₃(t)  = 0.0,
+#    dq₁(t)  = 0.0,
+#    dq₂(t)  = 0.0,
+#    dq₃(t)  = 0.0,
+#    dq₄(t)  = 0.0,
+#    ddϕ₁(t) = 0.0,
+#    ddϕ₂(t) = 0.0,
+#    ddx₃(t) = -3.789473684210526e+3,
+#    ddq₁(t) = 0.0,
+#    ddq₂(t) = 0.0,
+#    ddq₃(t) = 1.924342105263158e+2,
+#    ddq₄(t) = 1.273026315789474e+3,
+#    λ₁(t)   = 0.0,
+#    λ₂(t)   = 2.863023157894737e+2,
+#    λ₃(t)   = 0.0,
+#    )
+
+
+# Define problem equations:
+
+cosp1  = cos(ϕ₁)
+cosp2  = cos(ϕ₂)
+sinp1  = sin(ϕ₁)
+sinp2  = sin(ϕ₂)
+cosp12 = cos(ϕ₁-ϕ₂)
+sinp12 = sin(ϕ₁-ϕ₂)
+
+D = Differential(t)
+P = [ϕ₁, ϕ₂, x₃]
+Q = [q₁, q₂, q₃, q₄]
+X = [P..., Q...]
+# V = D.(P)
+V = [dϕ₁, dϕ₂, dx₃]
+# QD = D.(Q)
+QD = [dq₁, dq₂, dq₃, dq₄]
+DX = [V..., QD...]
+# DDX = D.(DX)
+DDX = [ddϕ₁, ddϕ₂, ddx₃, ddq₁, ddq₂, ddq₃, ddq₄]
+
+ivs = [
+     # Initial values velocity variables
+     D(ϕ₁) => Symbolics.getdefaultval(dϕ₁),
+     D(ϕ₂) => Symbolics.getdefaultval(dϕ₂),
+     D(x₃) => Symbolics.getdefaultval(dx₃),
+     D(q₁) => Symbolics.getdefaultval(q₁),
+     D(q₂) => Symbolics.getdefaultval(q₂),
+     D(q₃) => Symbolics.getdefaultval(q₃),
+     D(q₄) => Symbolics.getdefaultval(q₄),
+     # Initial values acceleration variables
+     D(DX[1]) => Symbolics.getdefaultval(ddϕ₁),
+     D(DX[2]) => Symbolics.getdefaultval(ddϕ₂),
+     D(DX[3]) => Symbolics.getdefaultval(ddx₃),
+     D(DX[4]) => Symbolics.getdefaultval(dq₁),
+     D(DX[5]) => Symbolics.getdefaultval(dq₂),
+     D(DX[6]) => Symbolics.getdefaultval(dq₃),
+     D(DX[7]) => Symbolics.getdefaultval(dq₄),
+     D(λ₁) => 0.0,
+     D(λ₂) => 0.0,
+     D(λ₃) => 0.0,
+     ]
+for I = 1:7
+    push!(ivs, D(DDX[I]) => 0.0)
+end
+
+# Evaluate scalar products and quadratic forms.
+c1TQ  = dot(c1, Q)
+c1TQD = dot(c1, QD)
+c2TQ  = dot(c2, Q)
+c2TQD = dot(c2, QD)
+c12TQ = dot(c12, Q)
+c12TQD= dot(c12, QD)
+MQQ = zeros(Num, length(Q))
+KQQ = zeros(Num, length(Q))
+DQQD = zeros(Num, length(Q))
+QTBQ = zeros(Num, length(Q))
+BQQD = zeros(Num, length(Q))
+for I = 1:length(Q)
+    MQQ(I) = dot(MQ[:, I], Q)
+    KQQ(I) = dot(KQ[:, I], Q)
+    DQQD(I)= dot(DQ[:, I], QD)
+    QTBQ(I)= dot(Q, BQ[:, I])
+    BQQD(I)= dot(BQ[I, :], QD)
+end
+QTMQQ   = dot(Q, MQQ)
+QDTMQQ  = dot(QD, MQQ)
+QDTBQQD = dot(QD, BQQD)
+
+# Compute mass matrix.
+AM = zeros(Num, 7, 7) # NP×NP
+AM[1,1] = J₁ + m₂*l₁^2
+AM[1,2] = .5*l₁*l₂*m₂*cosp12
+AM[2,2] = J₂
+AM[1,3] = 0.0
+AM[2,3] = 0.0
+AM[3,1] = 0.0
+AM[3,2] = 0.0
+AM[3,3] = m₃
+AM[1,2] = AM[1,2] + ρ*l₁*(sinp12*c2TQ+cosp12*c1TQ)
+AM[2,2] = AM[2,2] + QTMQQ + 2.0*ρ*c12TQ
+for I = 1:length(Q)
+    AM[1,3+I] = ρ*l₁*(-sinp12*c1[I] + cosp12*c2[I])
+    AM[2,3+I] = ρ*c21[I] + ρ*QTBQ[I]
+    AM[3,3+I] = 0.0
+end
+for I = 1:length(Q)
+    for J = 1:I
+        AM[3+J,3+I] = MQ[J,I]
+    end
+end
+for I = 1:size(AM,1)
+    for J = I+1:size(AM,2)
+        AM[J,I] = AM[I,J]
+    end
+end
+
+KU = 4
+KV = 0
+
+# Compute constraint matrix.
+QKU = KU > 0 ? Q[KU] : Num(0)
+QKV = KV > 0 ? Q[KV] : Num(0)
+GP = zeros(Num, 3, 7)
+GP[1,1] = l₁*cosp1
+GP[1,2] = l₂*cosp2 + QKU*cosp2 - QKV*sinp2
+GP[1,3] = 0.0
+GP[2,1] = l₁*sinp1
+GP[2,2] = l₂*sinp2 + QKU*sinp2 + QKV*cosp2
+GP[2,3] = 1.0
+GP[3,1] = 1.0
+GP[3,2] = 0.0
+GP[3,3] = 0.0
+for I = 1:length(Q)
+    GP[1,3+I] = 0.0
+    GP[2,3+I] = 0.0
+    GP[3,3+I] = 0.0
+end
+if KU != 0
+    GP[1,3+KU] = sinp2
+    GP[2,3+KU] = -cosp2
+end
+if KV != 0
+    GP[1,3+KV] = cosp2
+    GP[2,3+KV] = sinp2
+end
+
+# Forces - rigid motion entries.
+F = zeros(Num, 7)
+F[1] = -.5*l₁*γ*(m₁+2.0*m₂)*cosp1 +
+       -.5*l₁*l₂*m₂*V[2]*V[2]*sinp12
+F[2] = -.5*l₂*γ*m₂*cosp2 +
+        .5*l₁*l₂*m₂*V[1]*V[1]*sinp12
+F[3] = 0.0
+# Superposition of flexible motion (term f^e).
+F[1] += ρ*l₁*V[2]*V[2]*(-sinp12*c1TQ+cosp12*c2TQ) +
+        - 2.0*ρ*l₁*V[2]*(cosp12*c1TQD+sinp12*c2TQD)
+F[2] += ρ*l₁*V[1]*V[1]*(sinp12*c1TQ-cosp12*c2TQ) +
+        - 2.0*ρ*V[2]*c12TQD - 2.0*V[2]*QDTMQQ +
+        - ρ*QDTBQQD - ρ*γ*(cosp2*c1TQ-sinp2*c2TQ)
+# Coriolis and gravity terms flexible motion (Gamma).
+for I = 1:length(Q)
+    F[3+I] = V[2]*V[2]*MQQ[I] +
+           + ρ*(V[2]*V[2]*c12[I] +
+                l₁*V[1]*V[1]*(cosp12*c1[I]+sinp12*c2[I]) +
+                2.0*V[2]*BQQD[I]) +
+           - ρ*γ*(sinp2*c1[I]+cosp2*c2[I])
+end
+# Stiffness + damping terms - K q - D q`.
+for I = 1:length(Q)
+    F[3+I] = F[3+I] - KQQ[I] - DQQD[I]
+end
+
+#if IPAR[1] == 1
+#    # Nonlinear stiffness term
+#    FACK = 0.5*EE*BB*HH/l₂^2*π^2
+#    FACB = 80.0/(π^2*9.0)
+#    F[4] -= FACK*(Q[1]*Q[4]-FACB*Q[2]*(-4*Q[3]+2*Q[4]))
+#    F[5] -= FACK*(4*Q[2]*Q[4]-FACB*Q[1]*(-4*Q[3]+2*Q[4]))
+#    F[6] -= FACK*4.0*FACB*Q[1]*Q[2]
+#    F[7] -= FACK*(0.5*Q[1]^2+2*Q[2]^2-2*FACB*Q[1]*Q[2])
+#end
+
+# Dynamics part II ( M*w - f + G(T)*lambda ).
+DELTA = zeros(Num, 7)
+for I = 1:7
+    DELTA[I] = dot(AM[:,I], DDX) +
+               - F[I] + GP[1,I]*λ₁+GP[2,I]*λ₂+GP[3,I]*λ₃
+end
+
+# Acceleration level constraints.
+#ALC = zeros(Num, 3)
+#QDKU = KU > 0 ? QD[KU] : Num(0)
+#QDKV = KV > 0 ? QD[KV] : Num(0)
+#ALC = zeros(Num, 3)
+#ALC[1] = -l₁*sinp1*V[1]^2 - (l₂+QKU)*sinp2*V[2]^2 +
+#    2.0*V[2]*(cosp2*QDKU-sinp2*QDKV) - cosp2*V[2]^2*QKV
+#ALC[2] =  l₁*cosp1*V[1]^2 + (l₂+QKU)*cosp2*V[2]^2 +
+#    2.0*V[2]*(sinp2*QDKU+cosp2*QDKV) - sinp2*V[2]^2*QKV
+#ALC[3] = 0.0
+#for I = 1:7
+#    ALC[1] += GP[1,I]*DDX[I]
+#    ALC[2] += GP[2,I]*DDX[I]
+#    ALC[3] += GP[3,I]*DDX[I]
+#end
+
+## Velocity level constraints.
+#VLC = zeros(Num, 3)
+#VLC[1] = 0.0
+#VLC[2] = 0.0
+#VLC[3] = -Ω
+#for I = 1:7
+#    VLC[1] += GP[1,I]*DX[I]
+#    VLC[2] += GP[2,I]*DX[I]
+#    VLC[3] += GP[3,I]*DX[I]
+#end
+
+## Position level constraints.
+PLC = zeros(Num, 3)
+PLC[1] = l₁*sinp1 + l₂*sinp2 + QKU*sinp2 + QKV*cosp2
+PLC[2] = x₃ - l₁*cosp1 - l₂*cosp2 + -QKU*cosp2 + QKV*sinp2
+PLC[3] = ϕ₁ - Ω*t
+
+eqs = Symbolics.Equation[]
+for D in DELTA
+    push!(eqs, 0 ~ D)
+end
+for P in PLC
+    push!(eqs, 0 ~ P)
+end
+for I = 1:7
+    push!(eqs, D(X[I]) ~ DX[I])
+    push!(eqs, D(DX[I]) ~ DDX[I])
+end
+eqs
+```
+
+Create the DAE solver:
+
+```julia
+@named sys = ODESystem(eqs, t)
+simpsys = structural_simplify(sys)
+odaeprob = ODAEProblem(simpsys,[],(0.0,0.1))
+# mmprob = ODEProblem(sys,[],(0.0,0.1))
+daeprob = DAEProblem(sys,ivs,[],(0.0,0.1))
+
+probs = Any[nothing, nothing, nothing]
+refs = Any[nothing, nothing, nothing]
+# mm_sol = solve(mmprob,?,abstol=1/10^14,reltol=1/10^14);
+# probs[1] = mmprob
+# refs[1] = mm_sol
+# dae_sol = solve(daeprob,IDA(),abstol=1/10^14,reltol=1/10^14);
+# probs[2] = daeprob
+# refs[2] = dae_sol
+odae_sol = solve(odaeprob,CVODE_BDF(),abstol=1/10^14,reltol=1/10^14);
+probs[3] = odaeprob
+refs[3] = odae_sol
+
+nothing
+```
+
+```julia
+plot(refs[3], vars = [ϕ₂,x₃])
+```
+```julia
+plot(refs[3], vars = [q₁,q₂])
+```
+```julia
+plot(refs[3], vars = [q₃,q₄])
+```
+```julia
+plot(refs[3], vars = [λ₁,λ₂,λ₃])
+```
+
+## High Tolerances
+
+```julia
+#abstols = 1.0 ./ 10.0 .^ (5:8)
+#reltols = 1.0 ./ 10.0 .^ (1:4);
+#setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+#          Dict(:prob_choice => 1, :alg=>Rodas4()),
+#          #Dict(:prob_choice => 1, :alg=>FBDF()),
+#          Dict(:prob_choice => 1, :alg=>QNDF()),
+#          Dict(:prob_choice => 1, :alg=>rodas()),
+#          Dict(:prob_choice => 1, :alg=>radau()),
+#          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+#          Dict(:prob_choice => 2, :alg=>DFBDF()),
+#          Dict(:prob_choice => 2, :alg=>IDA()),
+#]
+#
+#wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+#                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+#plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [#Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (3:5);
+setups = [Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          #Dict(:prob_choice => 2, :alg=>DASSL.dassl()),
+          #Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Timeseries Errors
+
+```julia
+#abstols = 1.0 ./ 10.0 .^ (5:8)
+#reltols = 1.0 ./ 10.0 .^ (1:4);
+#setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+#          Dict(:prob_choice => 1, :alg=>Rodas4()),
+#          #Dict(:prob_choice => 1, :alg=>FBDF()), # too slow
+#          Dict(:prob_choice => 1, :alg=>QNDF()),
+#          Dict(:prob_choice => 1, :alg=>rodas()),
+#          Dict(:prob_choice => 1, :alg=>radau()),
+#          Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+#          Dict(:prob_choice => 2, :alg=>DFBDF()),
+#          Dict(:prob_choice => 2, :alg=>IDA()),
+#          ]
+#wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+#                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+#plot(wp)
+```
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [#Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          Dict(:prob_choice => 3, :alg=>Rosenbrock23()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>CVODE_BDF()),
+          Dict(:prob_choice => 3, :alg=>TRBDF2()),
+          Dict(:prob_choice => 3, :alg=>KenCarp4()),
+          ]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [#Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          #Dict(:prob_choice => 1, :alg=>FBDF()),
+          #Dict(:prob_choice => 1, :alg=>QNDF()),
+          #Dict(:prob_choice => 1, :alg=>rodas()),
+          #Dict(:prob_choice => 1, :alg=>radau()),
+          #Dict(:prob_choice => 1, :alg=>RadauIIA5()),
+          #Dict(:prob_choice => 2, :alg=>DFBDF()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          ]
+
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate = :l2,
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+DASKR fails at too low of tolerances, so pull back for a comparison.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:9)
+reltols = 1.0 ./ 10.0 .^ (4:6)
+
+setups = [#Dict(:prob_choice => 1, :alg=>Rodas5()),
+          Dict(:prob_choice => 3, :alg=>Rodas5()),
+          #Dict(:prob_choice => 1, :alg=>Rodas4()),
+          Dict(:prob_choice => 3, :alg=>Rodas4()),
+          #Dict(:prob_choice => 2, :alg=>DFBDF()),
+          #Dict(:prob_choice => 2, :alg=>IDA()),
+          #Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
+          ]
+gr()
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;
+                      save_everystep=false,appxsol=refs,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
