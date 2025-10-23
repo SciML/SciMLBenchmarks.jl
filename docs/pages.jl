@@ -40,7 +40,7 @@ end
 # The result is in alphabetical order, change to the wanted order
 
 permute!(pages,
-    [1, 18, 15, 13, 24, 4, 5, 22, 33, 7, 3, 9, 20, 31, 17, 30, 8, 11, 19, 23, 34, 21, 32, 14, 12, 26, 10, 25, 29, 6, 16, 27, 28, 2, 35]
+    [1, 18, 15, 13, 24, 4, 5, 22, 33, 7, 3, 9, 20, 31, 17, 30, 8, 11, 19, 23, 34, 21, 32, 14, 12, 26, 10, 25, 29, 6, 16, 27, 28, 2, 35, 36]
 )
 
 names = [
@@ -78,7 +78,8 @@ names = [
     "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
     "SDE Adaptivity Benchmarks",
-    "Surrogate Benchmarks"]
+    "Surrogate Benchmarks",
+    "Symbolic Manipulation Benchmarks"]
 
 for i in 1:length(pages)
     pages[i] = names[i] => pages[i][2]

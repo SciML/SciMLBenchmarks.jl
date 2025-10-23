@@ -1,0 +1,276 @@
+---
+title: CUTEst Unbounded Constrained Nonlinear Optimization Benchmarks
+author: Alonso M. Cisneros
+---
+
+# Introduction
+
+CUTEst, the Constraind and Unconstrained Testing Environment is, as the name suggests is a
+collection of around 1500 problems for general nonlinear optimization used to test
+optimization routines. The wrapper
+[CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access
+to the problem collection, which we can leverage to test the optimizers made available by
+Optimization.jl.
+
+This benchmark uses the following packages:
+
+
+# Benchmarks
+
+
+```julia
+using Optimization
+using OptimizationNLPModels
+using CUTEst
+using OptimizationOptimJL
+using Ipopt
+using OptimizationMOI
+using OptimizationMOI: MOI as MOI
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
+```
+
+# Benchmarks
+
+```julia
+using DataFrames
+# Only Ipopt supports constraints; use only Ipopt for constrained problems
+optimizers = [
+    ("Ipopt", MOI.OptimizerWithAttributes(Ipopt.Optimizer,
+        "max_iter" => 5000,
+        "tol" => 1e-6,
+        "print_level" => 5)),
+]
+
+function get_stats(sol, optimizer_name)
+    if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
+        solve_time = sol.stats.time
+    else
+        solve_time = NaN
+    end
+    return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
+end
+
+function run_benchmarks(problems, optimizers; chunk_size=3)
+    problem = String[]
+    n_vars = Int64[]
+    secs = Float64[]
+    solver = String[]
+    retcode = Symbol[]
+    optz = length(optimizers)
+    n = length(problems)
+    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
+    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
+    for chunk_start in 1:chunk_size:n
+        chunk_end = min(chunk_start + chunk_size - 1, n)
+        chunk_problems = problems[chunk_start:chunk_end]
+        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
+        for (idx, prob_name) in enumerate(chunk_problems)
+            current_problem = chunk_start + idx - 1
+            @info "Problem $(current_problem)/$(n): $(prob_name)"
+            nlp_prob = nothing
+            try
+                nlp_prob = CUTEstModel(prob_name)
+                if nlp_prob.meta.nvar > 10000
+                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
+                    finalize(nlp_prob)
+                    continue
+                end
+                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoFiniteDiff())
+                for (optimizer_name, optimizer) in optimizers
+                    try
+                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
+                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
+                        vars, time, alg, code = get_stats(sol, optimizer_name)
+                        push!(problem, prob_name)
+                        push!(n_vars, vars)
+                        push!(secs, time)
+                        push!(solver, alg)
+                        push!(retcode, code)
+                    catch e
+                        push!(problem, prob_name)
+                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
+                        push!(secs, NaN)
+                        push!(solver, optimizer_name)
+                        push!(retcode, :FAILED)
+                    end
+                end
+            catch e
+                for (optimizer_name, optimizer) in optimizers
+                    push!(problem, prob_name)
+                    push!(n_vars, -1)
+                    push!(secs, NaN)
+                    push!(solver, optimizer_name)
+                    push!(retcode, :LOAD_FAILED)
+                end
+            finally
+                if nlp_prob !== nothing
+                    try
+                        finalize(nlp_prob)
+                    catch e
+                    end
+                end
+            end
+        end
+        GC.gc()
+        @info "Completed chunk, memory usage cleaned up"
+    end
+    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
+end
+```
+
+## Equality/Inequality constrained problems with unbounded variables
+
+These problems have a constraint function that's subject to either equality or inequality
+constraints, but the variables themselves are free. CUTEst contains 285 problems with
+equality constraints and 114 with inequality constraints for a total of 299.
+
+We start by analyzing the equality-constrained problems, of which there are 285. The
+following figure shows the time to solution as a function of number of variables by
+optimizer.
+
+```julia
+using DataFrames
+all_eq_unb_problems = CUTEst.select_sif_problems(min_con=1, only_equ_con=true, only_free_var=true)
+println("Available equality-constrained, unbounded problems:")
+println(all_eq_unb_problems)
+eq_unb_problems = all_eq_unb_problems[1:min(10, length(all_eq_unb_problems))]
+# Remove the 8th problem if it is 'luk' or 'lukvle8' (case-insensitive)
+if length(eq_unb_problems) >= 8 && (lowercase(eq_unb_problems[8]) == "luk" || lowercase(eq_unb_problems[8]) == "lukvle8")
+    eq_unb_problems = vcat(eq_unb_problems[1:7], eq_unb_problems[9:end])
+end
+@info "Testing $(length(eq_unb_problems)) equality-constrained unbounded problems"
+
+# Analysis
+eq_unb_results =  run_benchmarks(eq_unb_problems, optimizers)
+# Show full results table
+println("Full results table for equality-constrained problems:")
+display(eq_unb_results)
+
+# Calculate and display success rates for equality constrained
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, eq_unb_results)
+total_attempts = nrow(eq_unb_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "EQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+
+@df eq_unb_results scatter(:n_vars, :secs,
+        group = :solver,
+        xlabel = "n. variables",
+        ylabel = "secs.",
+        title = "Time to solution by optimizer and number of vars",
+    )
+if nrow(eq_unb_results) > 0
+    try
+        @df eq_unb_results scatter(:n_vars, :secs,
+            group = :solver,
+            xlabel = "n. variables",
+            ylabel = "secs.",
+            title = "Time to solution by optimizer and number of vars",
+        )
+        println("Plotted equality-constrained results.")
+    catch e
+        println("Plotting failed: ", e)
+    end
+else
+    println("Warning: equality-constrained results DataFrame is empty. No data to plot.")
+    println("Attempted problems:")
+    println(eq_unb_problems)
+end
+```
+
+Next, we examine the same relationship for problems with inequality-constrained problems.
+
+```julia
+using DataFrames
+all_ineq_unb_problems = CUTEst.select_sif_problems(min_con=1, only_ineq_con=true, only_free_var=true)
+# Restrict to a small, easy subset for demonstration/CI
+neq_unb_problems = filter(p -> p in ["HS21", "HS35", "HS38", "HS39", "HS41"], all_ineq_unb_problems)
+@info "Testing $(length(neq_unb_problems)) inequality-constrained unbounded problems"
+
+
+# Harmonized analysis block for inequality-constrained unbounded problems
+neq_unb_results = run_unbounded_benchmarks(neq_unb_problems, optimizers; chunk_size=3)
+println("Full results table for inequality-constrained problems:")
+if nrow(neq_unb_results) > 0
+    display(neq_unb_results)
+else
+    println("No inequality-constrained results to display. DataFrame is empty.")
+end
+
+# Calculate and display success rates for inequality constrained
+successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
+successful_results = filter(row -> row.retcode in successful_codes, neq_unb_results)
+total_attempts = nrow(neq_unb_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+@info "INEQUALITY CONSTRAINED SUCCESS RATE: $(success_rate)% ($(successful_attempts)/$(total_attempts))"
+
+if nrow(neq_unb_results) > 0
+    try
+        @df neq_unb_results scatter(:n_vars, :secs,
+            group = :solver,
+            xlabel = "n. variables",
+            ylabel = "secs.",
+            title = "Time to solution by optimizer and number of vars",
+        )
+        println("Plotted inequality-constrained results.")
+    catch e
+        println("Plotting failed: ", e)
+    end
+else
+    println("Warning: inequality-constrained results DataFrame is empty. No data to plot.")
+    println("Attempted problems:")
+    println(neq_unb_problems)
+end
+```
+
+## Success Rate Analysis (Equality Constrained)
+```julia
+using DataFrames
+total_attempts = nrow(eq_unb_results)
+successful_attempts = nrow(successful_results)
+success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
+
+println("SUCCESS RATE ANALYSIS (Equality Constrained):")
+println("Total attempts: ", total_attempts)
+println("Successful attempts: ", successful_attempts)
+println("Success rate: ", success_rate, "%")
+println("Return code distribution:")
+if total_attempts > 0
+    for (code, count) in sort(collect(pairs(countmap(eq_unb_results.retcode))), by=x->x[2], rev=true)
+        println("  ", code, ": ", count, " occurrences")
+    end
+else
+    println("  No results to analyze")
+end
+```
+
+## Success Rate Analysis (Inequality Constrained)
+```julia
+total_attempts_ineq = nrow(neq_unb_results)
+successful_attempts_ineq = nrow(successful_results)
+success_rate_ineq = total_attempts_ineq > 0 ? round(successful_attempts_ineq / total_attempts_ineq * 100, digits=1) : 0
+
+println("SUCCESS RATE ANALYSIS (Inequality Constrained):")
+println("Total attempts: ", total_attempts_ineq)
+println("Successful attempts: ", successful_attempts_ineq)
+println("Success rate: ", success_rate_ineq, "%")
+println("Return code distribution:")
+if total_attempts_ineq > 0
+    for (code, count) in sort(collect(pairs(countmap(neq_unb_results.retcode))), by=x->x[2], rev=true)
+        println("  ", code, ": ", count, " occurrences")
+    end
+else
+    println("  No results to analyze")
+end
+```
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

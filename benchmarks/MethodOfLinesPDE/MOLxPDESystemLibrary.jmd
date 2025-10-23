@@ -1,14 +1,14 @@
+* * *
 
----
-title: PDESystemLibrary.jl Work-Precision Diagrams with Various MethodOfLines.jl Methods
+## title: PDESystemLibrary.jl Work-Precision Diagrams with Various MethodOfLines.jl Methods
 author: Alex Jones
----
 
 This benchmark is for the MethodOfLines.jl package, which is an automatic PDE discretization package.
 It is concerned with comparing the performance of various discretization methods for the Burgers equation.
 
 ```julia
-using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools, LinearAlgebra,
+using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools,
+      LinearAlgebra,
       LinearSolve, Plots, RecursiveFactorization
 using PDESystemLibrary
 ```
@@ -49,40 +49,40 @@ end
 function uniformupwind1(ex, ivs, t, N)
     dxs = center_uniform_grid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme())
+    MOLFiniteDifference(dxs, t, advection_scheme = UpwindScheme())
 end
 
 function uniformupwind2(ex, ivs, t, N)
     dxs = edge_uniform_grid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme(), grid_align=edge_align)
+    MOLFiniteDifference(dxs, t, advection_scheme = UpwindScheme(), grid_align = edge_align)
 end
 
 function chebyupwind1(ex, ivs, t, N)
     dxs = center_chebygrid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme())
+    MOLFiniteDifference(dxs, t, advection_scheme = UpwindScheme())
 end
 
 function chebyupwind2(ex, ivs, t, N)
     dxs = edge_chebygrid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=UpwindScheme(), grid_align=edge_align)
+    MOLFiniteDifference(dxs, t, advection_scheme = UpwindScheme(), grid_align = edge_align)
 end
-
 
 function discweno1(ex, ivs, t, N)
     dxs = center_uniform_grid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=WENOScheme())
+    MOLFiniteDifference(dxs, t, advection_scheme = WENOScheme())
 end
 
 function discweno2(ex, ivs, t, N)
     dxs = edge_uniform_grid(ex, ivs, N)
 
-    MOLFiniteDifference(dxs, t, advection_scheme=WENOScheme(), grid_align=edge_align)
+    MOLFiniteDifference(dxs, t, advection_scheme = WENOScheme(), grid_align = edge_align)
 end
 ```
+
 This script tests all systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
 It then plots the work precision sets.
 
@@ -186,15 +186,15 @@ for ex in PSL.all_systems
                     Dict(:alg => solver, :prob_choice => 3),
                     Dict(:alg => solver, :prob_choice => 4),
                     Dict(:alg => solver, :prob_choice => 5),
-                    Dict(:alg => solver, :prob_choice => 6),]
+                    Dict(:alg => solver, :prob_choice => 6)]
                 names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-                         "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
-                         "Uniform WENO, center_align", "Uniform WENO, edge_align"];
+                    "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
+                    "Uniform WENO, center_align", "Uniform WENO, edge_align"];
 
-                wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
-                    save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-                    numruns=10, wrap=Val(false))
-                plot(wp, title=title)
+                wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
+                    save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
+                    numruns = 10, wrap = Val(false))
+                plot(wp, title = title)
             else
                 dummy_appxsol = [nothing for i in 1:length(probs)]
                 abstols = 1.0 ./ 10.0 .^ (5:8)
@@ -202,20 +202,19 @@ for ex in PSL.all_systems
                 setups = [Dict(:alg => solver, :prob_choice => 1),
                     Dict(:alg => solver, :prob_choice => 2),
                     Dict(:alg => solver, :prob_choice => 3),
-                    Dict(:alg => solver, :prob_choice => 4),]
+                    Dict(:alg => solver, :prob_choice => 4)]
                 names = ["Uniform, center_align", "Uniform, edge_align",
-                         "Chebyshev, center_align", "Chebyshev, edge_align"];
+                    "Chebyshev, center_align", "Chebyshev, edge_align"];
 
-                wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
-                    save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-                    numruns=10, wrap=Val(false))
-                plot(wp, title=title)
+                wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names = names,
+                    save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
+                    numruns = 10, wrap = Val(false))
+                plot(wp, title = title)
             end
-
         end
     catch e
         println("Failed on $(ex.name):")
         println(e)
     end
-end 
+end
 ```

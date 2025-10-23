@@ -15,12 +15,15 @@ width_px, height_px = default(:size);
 # Model and example solutions
 
 Let a graph with ``V`` nodes, then the multivariate Hawkes process is characterized by ``V`` point processes such that the conditional intensity rate of node ``i`` connected to a set of nodes ``E_i`` in the graph is given by:
+
 ```math
   \lambda_i^\ast (t) = \lambda + \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{n_j}) \right]
 ```
+
 This process is known as self-exciting, because the occurrence of an event ``j`` at ``t_{n_j}`` will increase the conditional intensity of all the processes connected to it by ``\alpha``. The excited intensity then decreases at a rate proportional to ``\beta``.
 
 The conditional intensity of this process has a recursive formulation which can significantly speed the simulation. The recursive formulation for the univariate case is derived in Laub et al. [2]. We derive the compound case here. Let ``t_{N_i} = \max \{ t_{n_j} < t \mid j \in E_i \}`` and
+
 ```math
 \begin{split}
   \phi_i^\ast (t)
@@ -29,7 +32,9 @@ The conditional intensity of this process has a recursive formulation which can 
     &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi^\ast (t_{N_i}) \right)
 \end{split}
 ```
+
 Then the conditional intensity can be re-written in terms of ``\phi_i^\ast (t_{N_i})``
+
 ```math
   \lambda_i^\ast (t) = \lambda + \phi_i^\ast (t) = \lambda + \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi_i^\ast (t_{N_i}) \right)
 ```
@@ -38,7 +43,6 @@ In Julia, we define a factory for the conditional intensity ``\lambda_i`` which 
 
 ```julia
 function hawkes_rate(i::Int, g; use_recursion = false)
-
     @inline @inbounds function rate_recursion(u, p, t)
         λ, α, β, h, urate, ϕ = p
         urate[i] = λ + exp(-β*(t - h[i]))*ϕ[i]
@@ -66,7 +70,6 @@ function hawkes_rate(i::Int, g; use_recursion = false)
     else
         return rate_brute
     end
-
 end
 ```
 
@@ -79,11 +82,11 @@ function hawkes_jump(i::Int, g; use_recursion = false)
     @inbounds rateinterval(u, p, t) = p[5][i] == p[1] ? typemax(t) : 2 / p[5][i]
     @inbounds lrate(u, p, t) = p[1]
     @inbounds function affect_recursion!(integrator)
-        λ, α, β, h, _, ϕ  = integrator.p
+        λ, α, β, h, _, ϕ = integrator.p
         for j in g[i]
-          ϕ[j] *= exp(-β*(integrator.t - h[j]))
-          ϕ[j] += α
-          h[j] = integrator.t
+            ϕ[j] *= exp(-β*(integrator.t - h[j]))
+            ϕ[j] += α
+            h[j] = integrator.t
         end
         integrator.u[i] += 1
     end
@@ -96,17 +99,16 @@ function hawkes_jump(i::Int, g; use_recursion = false)
         use_recursion ? affect_recursion! : affect_brute!;
         lrate,
         urate,
-        rateinterval,
+        rateinterval
     )
 end
 
 function hawkes_jump(u, g; use_recursion = false)
-    return [hawkes_jump(i, g; use_recursion) for i = 1:length(u)]
+    return [hawkes_jump(i, g; use_recursion) for i in 1:length(u)]
 end
 ```
 
 We can then create a factory for Multivariate Hawkes `JumpProblem`s. We can define two types of `JumpProblem`s depending on the aggregator. The `Direct()` aggregator expects an `ODEProblem` since it cannot handle the `SSAStepper` with `VariableRateJump`s.
-
 
 ```julia
 function f!(du, u, p, t)
@@ -117,6 +119,7 @@ end
 function hawkes_problem(
     p,
     agg;
+    vr_agg = VR_FRM(),
     u = [0.0],
     tspan = (0.0, 50.0),
     save_positions = (false, true),
@@ -125,7 +128,7 @@ function hawkes_problem(
 )
     oprob = ODEProblem(f!, u, tspan, p)
     jumps = hawkes_jump(u, g; use_recursion)
-    jprob = JumpProblem(oprob, agg, jumps...; save_positions = save_positions)
+    jprob = JumpProblem(oprob, agg, jumps...; vr_aggregator = vr_agg, save_positions = save_positions)
     return jprob
 end
 ```
@@ -134,18 +137,18 @@ The `Coevolve()` aggregator knows how to handle the `SSAStepper`, so it accepts 
 
 ```julia
 function hawkes_problem(
-    p,
-    agg::Coevolve;
-    u = [0.0],
-    tspan = (0.0, 50.0),
-    save_positions = (false, true),
-    g = [[1]],
-    use_recursion = false,
+        p,
+        agg::Coevolve;
+        u = [0.0],
+        tspan = (0.0, 50.0),
+        save_positions = (false, true),
+        g = [[1]],
+        use_recursion = false
 )
     dprob = DiscreteProblem(u, tspan, p)
     jumps = hawkes_jump(u, g; use_recursion)
-    jprob =
-        JumpProblem(dprob, agg, jumps...; dep_graph = g, save_positions = save_positions)
+    jprob = JumpProblem(
+        dprob, agg, jumps...; dep_graph = g, save_positions = save_positions)
     return jprob
 end
 ```
@@ -155,46 +158,49 @@ Lets solve the problems defined so far. We sample a random graph sampled from th
 ```julia
 V = 10
 G = erdos_renyi(V, 0.2, seed = 9103)
-g = [neighbors(G, i) for i = 1:nv(G)]
+g = [neighbors(G, i) for i in 1:nv(G)]
 ```
 
 We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 2.0`` which ensures the process does not explode.
 
 ```julia
 tspan = (0.0, 50.0)
-u = [0.0 for i = 1:nv(G)]
+u = [0.0 for i in 1:nv(G)]
 p = (0.5, 0.1, 2.0)
 ```
 
 Now, we instantiate the problems, find their solutions and plot the results.
 
-
 ```julia
 algorithms = Tuple{Any, Any, Bool, String}[
-  (Direct(), Tsit5(), false, "Direct (brute-force)"),
-  (Coevolve(), SSAStepper(), false, "Coevolve (brute-force)"),
-  (Direct(), Tsit5(), true, "Direct (recursive)"),
-  (Coevolve(), SSAStepper(), true, "Coevolve (recursive)"),
+(
+    Direct(), Tsit5(), false, "Direct (brute-force)"),
+(
+    Coevolve(), SSAStepper(), false, "Coevolve (brute-force)"),
+(
+    Direct(), Tsit5(), true, "Direct (recursive)"),
+(
+    Coevolve(), SSAStepper(), true, "Coevolve (recursive)")
 ]
 
 let fig = []
-  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
-    @info label
-    if use_recursion
-        h = zeros(eltype(tspan), nv(G))
-        urate = zeros(eltype(tspan), nv(G))
-        ϕ = zeros(eltype(tspan), nv(G))
-        _p = (p[1], p[2], p[3], h, ϕ, urate)
-    else
-        h = [eltype(tspan)[] for _ = 1:nv(G)]
-        urate = zeros(eltype(tspan), nv(G))
-        _p = (p[1], p[2], p[3], h, urate)
+    for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
+        @info label
+        if use_recursion
+            h = zeros(eltype(tspan), nv(G))
+            urate = zeros(eltype(tspan), nv(G))
+            ϕ = zeros(eltype(tspan), nv(G))
+            _p = (p[1], p[2], p[3], h, ϕ, urate)
+        else
+            h = [eltype(tspan)[] for _ in 1:nv(G)]
+            urate = zeros(eltype(tspan), nv(G))
+            _p = (p[1], p[2], p[3], h, urate)
+        end
+        jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
+        sol = solve(jump_prob, stepper)
+        push!(fig, plot(sol.t, sol[1:V, :]', title = label, legend = false, format = fmt))
     end
-    jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
-    sol = solve(jump_prob, stepper)
-    push!(fig, plot(sol.t, sol[1:V, :]', title=label, legend=false, format=fmt))
-  end
-  fig = plot(fig..., layout=(2,2), format=fmt, size=(width_px, 2*height_px/2))
+    fig = plot(fig..., layout = (2, 2), format = fmt, size = (width_px, 2*height_px/2))
 end
 ```
 
@@ -208,48 +214,48 @@ The simple version only requires the conditional intensity. Like above, we defin
 
 ```julia
 function hawkes_rate_simple_recursion(rate, xc, xd, p, t, issum::Bool)
-  λ, _, β, h, ϕ, g = p
-  for i in 1:length(g)
-    rate[i] = λ + exp(-β * (t - h[i])) * ϕ[i]
-  end
-  if issum
-    return sum(rate)
-  end
-  return 0.0
+    λ, _, β, h, ϕ, g = p
+    for i in 1:length(g)
+        rate[i] = λ + exp(-β * (t - h[i])) * ϕ[i]
+    end
+    if issum
+        return sum(rate)
+    end
+    return 0.0
 end
 
 function hawkes_rate_simple_brute(rate, xc, xd, p, t, issum::Bool)
-  λ, α, β, h, g = p
-  for i in 1:length(g)
-    x = zero(typeof(t))
-    for j in g[i]
-        for _t in reverse(h[j])
-            ϕij = α * exp(-β * (t - _t))
-            if ϕij ≈ 0
-                break
+    λ, α, β, h, g = p
+    for i in 1:length(g)
+        x = zero(typeof(t))
+        for j in g[i]
+            for _t in reverse(h[j])
+                ϕij = α * exp(-β * (t - _t))
+                if ϕij ≈ 0
+                    break
+                end
+                x += ϕij
             end
-            x += ϕij
         end
+        rate[i] = λ + x
     end
-    rate[i] = λ + x
-  end
-  if issum
-    return sum(rate)
-  end
-  return 0.0
+    if issum
+        return sum(rate)
+    end
+    return 0.0
 end
 
 function hawkes_affect_simple_recursion!(xc, xd, p, t, i::Int64)
-  _, α, β, h, ϕ, g = p
-  for j in g[i]
-      ϕ[j] *= exp(-β * (t - h[j]))
-      ϕ[j] += α
-      h[j] = t
-  end
+    _, α, β, h, ϕ, g = p
+    for j in g[i]
+        ϕ[j] *= exp(-β * (t - h[j]))
+        ϕ[j] += α
+        h[j] = t
+    end
 end
 
 function hawkes_affect_simple_brute!(xc, xd, p, t, i::Int64)
-  push!(p[4][i], t)
+    push!(p[4][i], t)
 end
 ```
 
@@ -272,21 +278,21 @@ const PDMP = PiecewiseDeterministicMarkovProcesses
 struct PDMPCHVSimple end
 
 function hawkes_problem(p,
-                        agg::PDMPCHVSimple;
-                        u = [0.0],
-                        tspan = (0.0, 50.0),
-                        save_positions = (false, true),
-                        g = [[1]],
-                        use_recursion = true)
+        agg::PDMPCHVSimple;
+        u = [0.0],
+        tspan = (0.0, 50.0),
+        save_positions = (false, true),
+        g = [[1]],
+        use_recursion = true)
     xd0 = Array{Int}(u)
     xc0 = copy(u)
     nu = one(eltype(xd0)) * I(length(xd0))
     if use_recursion
-      jprob = PDMPProblem(hawkes_drate_simple, hawkes_rate_simple_recursion,
-          hawkes_affect_simple_recursion!, nu, xc0, xd0, p, tspan)
+        jprob = PDMPProblem(hawkes_drate_simple, hawkes_rate_simple_recursion,
+            hawkes_affect_simple_recursion!, nu, xc0, xd0, p, tspan)
     else
-      jprob = PDMPProblem(hawkes_drate_simple, hawkes_rate_simple_brute,
-          hawkes_affect_simple_brute!, nu, xc0, xd0, p, tspan)
+        jprob = PDMPProblem(hawkes_drate_simple, hawkes_rate_simple_brute,
+            hawkes_affect_simple_brute!, nu, xc0, xd0, p, tspan)
     end
     return jprob
 end
@@ -296,6 +302,7 @@ push!(algorithms, (PDMPCHVSimple(), CHV(Tsit5()), true, "PDMPCHVSimple (recursiv
 ```
 
 The full version requires that we describe how the conditional intensity changes with time which we derive below:
+
 ```math
 \begin{split}
   \frac{d \lambda_i^\ast (t)}{d t}
@@ -307,7 +314,7 @@ The full version requires that we describe how the conditional intensity changes
 ```julia
 function hawkes_drate_full(dxc, xc, xd, p, t)
     λ, α, β, _, _, g = p
-    for i = 1:length(g)
+    for i in 1:length(g)
         dxc[i] = -β * (xc[i] - λ)
     end
 end
@@ -339,18 +346,19 @@ Finally, we create a factory for the Multivariate Hawkes `PDMPCHVFull` problem.
 struct PDMPCHVFull end
 
 function hawkes_problem(
-    p,
-    agg::PDMPCHVFull;
-    u = [0.0],
-    tspan = (0.0, 50.0),
-    save_positions = (false, true),
-    g = [[1]],
-    use_recursion = true,
+        p,
+        agg::PDMPCHVFull;
+        u = [0.0],
+        tspan = (0.0, 50.0),
+        save_positions = (false, true),
+        g = [[1]],
+        use_recursion = true
 )
     xd0 = Array{Int}(u)
-    xc0 = [p[1] for i = 1:length(u)]
+    xc0 = [p[1] for i in 1:length(u)]
     nu = one(eltype(xd0)) * I(length(xd0))
-    jprob = PDMPProblem(hawkes_drate_full, hawkes_rate_full, hawkes_affect_full!, nu, xc0, xd0, p, tspan)
+    jprob = PDMPProblem(
+        hawkes_drate_full, hawkes_rate_full, hawkes_affect_full!, nu, xc0, xd0, p, tspan)
     return jprob
 end
 
@@ -366,48 +374,48 @@ const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYC
 struct PyTick end
 
 if BENCHMARK_PYTHON
-  if REBUILD_PYCALL
-    using Pkg, Conda
+    if REBUILD_PYCALL
+        using Pkg, Conda
 
-    # PyCall only works with Conda.ROOTENV
-    # tick requires python=3.8
-    Conda.add("python=3.8", Conda.ROOTENV)
-    Conda.add("numpy", Conda.ROOTENV)
-    Conda.pip_interop(true, Conda.ROOTENV)
-    Conda.pip("install", "tick", Conda.ROOTENV)
+        # PyCall only works with Conda.ROOTENV
+        # tick requires python=3.8
+        Conda.add("python=3.8", Conda.ROOTENV)
+        Conda.add("numpy", Conda.ROOTENV)
+        Conda.pip_interop(true, Conda.ROOTENV)
+        Conda.pip("install", "tick", Conda.ROOTENV)
 
-    # rebuild PyCall to ensure it links to the python provided by Conda.jl
+        # rebuild PyCall to ensure it links to the python provided by Conda.jl
+        ENV["PYTHON"] = ""
+        Pkg.build("PyCall")
+    end
+
     ENV["PYTHON"] = ""
-    Pkg.build("PyCall")
-  end
+    using PyCall
+    @info "PyCall" PyCall.libpython PyCall.pyversion PyCall.conda
 
-  ENV["PYTHON"] = ""
-  using PyCall
-  @info "PyCall" PyCall.libpython PyCall.pyversion PyCall.conda
+    function hawkes_problem(
+            p,
+            agg::PyTick;
+            u = [0.0],
+            tspan = (0.0, 50.0),
+            save_positions = (false, true),
+            g = [[1]],
+            use_recursion = true
+    )
+        λ, α, β = p
+        SimuHawkesSumExpKernels = pyimport("tick.hawkes")[:SimuHawkesSumExpKernels]
+        jprob = SimuHawkesSumExpKernels(
+            baseline = fill(λ, length(u)),
+            adjacency = [i in j ? α / β : 0.0 for j in g, i in 1:length(u), u in 1:1],
+            decays = [β],
+            end_time = tspan[2],
+            verbose = false,
+            force_simulation = true
+        )
+        return jprob
+    end
 
-  function hawkes_problem(
-      p,
-      agg::PyTick;
-      u = [0.0],
-      tspan = (0.0, 50.0),
-      save_positions = (false, true),
-      g = [[1]],
-      use_recursion = true,
-  )
-      λ, α, β = p
-      SimuHawkesSumExpKernels = pyimport("tick.hawkes")[:SimuHawkesSumExpKernels]
-      jprob = SimuHawkesSumExpKernels(
-          baseline = fill(λ, length(u)),
-          adjacency = [i in j ? α / β : 0.0 for j in g, i = 1:length(u), u = 1:1],
-          decays = [β],
-          end_time = tspan[2],
-          verbose = false,
-          force_simulation = true,
-      )
-      return jprob
-  end
-
-  push!(algorithms, (PyTick(), nothing, true, "PyTick"));
+    push!(algorithms, (PyTick(), nothing, true, "PyTick"));
 end
 ```
 
@@ -415,36 +423,38 @@ Now, we instantiate the problems, find their solutions and plot the results.
 
 ```julia
 let fig = []
-  for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:end])
-    @info label
-    if algo isa PyTick
-        _p = (p[1], p[2], p[3])
-        jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
-        jump_prob.reset()
-        jump_prob.simulate()
-        t = tspan[1]:0.1:tspan[2]
-        N = [[sum(jumps .< _t) for _t in t] for jumps in jump_prob.timestamps]
-        push!(fig, plot(t, N, title=label, legend=false, format=fmt))
-    elseif algo isa PDMPCHVSimple
-        if use_recursion
-          h = zeros(eltype(tspan), nv(G))
-          ϕ = zeros(eltype(tspan), nv(G))
-          _p = (p[1], p[2], p[3], h, ϕ, g)
-        else
-          h = [eltype(tspan)[] for _ in 1:nv(G)]
-          _p = (p[1], p[2], p[3], h, g)
+    for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms[5:end])
+        @info label
+        if algo isa PyTick
+            _p = (p[1], p[2], p[3])
+            jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
+            jump_prob.reset()
+            jump_prob.simulate()
+            t = tspan[1]:0.1:tspan[2]
+            N = [[sum(jumps .< _t) for _t in t] for jumps in jump_prob.timestamps]
+            push!(fig, plot(t, N, title = label, legend = false, format = fmt))
+        elseif algo isa PDMPCHVSimple
+            if use_recursion
+                h = zeros(eltype(tspan), nv(G))
+                ϕ = zeros(eltype(tspan), nv(G))
+                _p = (p[1], p[2], p[3], h, ϕ, g)
+            else
+                h = [eltype(tspan)[] for _ in 1:nv(G)]
+                _p = (p[1], p[2], p[3], h, g)
+            end
+            jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
+            sol = solve(jump_prob, stepper)
+            push!(fig, plot(
+                sol.time, sol.xd[1:V, :]', title = label, legend = false, format = fmt))
+        elseif algo isa PDMPCHVFull
+            _p = (p[1], p[2], p[3], nothing, nothing, g)
+            jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
+            sol = solve(jump_prob, stepper)
+            push!(fig, plot(
+                sol.time, sol.xd[1:V, :]', title = label, legend = false, format = fmt))
         end
-        jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
-        sol = solve(jump_prob, stepper)
-        push!(fig, plot(sol.time, sol.xd[1:V, :]', title=label, legend=false, format=fmt))
-    elseif algo isa PDMPCHVFull
-        _p = (p[1], p[2], p[3], nothing, nothing, g)
-        jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
-        sol = solve(jump_prob, stepper)
-        push!(fig, plot(sol.time, sol.xd[1:V, :]', title=label, legend=false, format=fmt))
     end
-  end
-  fig = plot(fig..., layout=(2,2), format=fmt, size=(width_px, 2*height_px/2))
+    fig = plot(fig..., layout = (2, 2), format = fmt, size = (width_px, 2*height_px/2))
 end
 ```
 
@@ -453,6 +463,7 @@ end
 We check that the algorithms produce correct simulation by inspecting their QQ-plots. Point process theory says that transforming the simulated points using the compensator should produce points whose inter-arrival duration is distributed according to the exponential distribution (see Section 7.4 [1]).
 
 The compensator of any point process is the integral of the conditional intensity ``\Lambda_i^\ast(t) = \int_0^t \lambda_i^\ast(u) du``. The compensator for the Multivariate Hawkes process is defined below.
+
 ```math
     \Lambda_i^\ast(t) = \lambda t + \frac{\alpha}{\beta} \sum_{j \in E_i} \sum_{t_{n_j} < t} ( 1 - \exp \left[-\beta (t - t_{n_j}) \right])
 ```
@@ -476,7 +487,7 @@ function hawkes_Λ(i::Int, g, p)
 end
 
 function hawkes_Λ(g, p)
-    return [hawkes_Λ(i, g, p) for i = 1:length(g)]
+    return [hawkes_Λ(i, g, p) for i in 1:length(g)]
 end
 
 Λ = hawkes_Λ(g, p)
@@ -499,15 +510,15 @@ function histories(u, t)
     _u = permutedims(reduce(hcat, u))
     k = size(_u)[2]
     # computes a mask that show when total counts change
-    mask = cat(fill(0.0, 1, k), _u[2:end, :] .- _u[1:end-1, :], dims = 1) .≈ 1
+    mask = cat(fill(0.0, 1, k), _u[2:end, :] .- _u[1:(end - 1), :], dims = 1) .≈ 1
     h = Vector{typeof(t)}(undef, k)
-    @inbounds for i = 1:k
+    @inbounds for i in 1:k
         h[i] = t[mask[:, i]]
     end
     return h
 end
 
-function histories(sol::S) where {S<:ODESolution}
+function histories(sol::S) where {S <: ODESolution}
     # get u and permute the dimensions to get a matrix n x k with n obsevations and k processes.
     if sol.u[1] isa ExtendedJumpArray
         u = map((u) -> u.u, sol.u)
@@ -517,7 +528,7 @@ function histories(sol::S) where {S<:ODESolution}
     return histories(u, sol.t)
 end
 
-function histories(sol::S) where {S<:PDMP.PDMPResult}
+function histories(sol::S) where {S <: PDMP.PDMPResult}
     return histories(sol.xd.u, sol.time)
 end
 
@@ -547,10 +558,10 @@ function qq(hs, Λ, quant = 0.01:0.01:0.99)
     _hs = apply_Λ(hs, Λ)
     T = typeof(hs[1][1][1])
     Δs = Vector{Vector{T}}(undef, length(hs[1]))
-    for k = 1:length(Δs)
+    for k in 1:length(Δs)
         _Δs = Vector{Vector{T}}(undef, length(hs))
-        for i = 1:length(_Δs)
-            _Δs[i] = _hs[i][k][2:end] .- _hs[i][k][1:end-1]
+        for i in 1:length(_Δs)
+            _Δs[i] = _hs[i][k][2:end] .- _hs[i][k][1:(end - 1)]
         end
         Δs[k] = reduce(vcat, _Δs)
     end
@@ -570,41 +581,41 @@ The compensator `Λ` can either be an homogeneous compensator function that
 equally applies to all the processes in `hs`. Alternatively, it accepts a
 vector of compensator that applies to each process.
 """
-function apply_Λ(hs::V, Λ) where {V<:Vector{<:Number}}
+function apply_Λ(hs::V, Λ) where {V <: Vector{<:Number}}
     _hs = similar(hs)
-    @inbounds for n = 1:length(hs)
+    @inbounds for n in 1:length(hs)
         _hs[n] = Λ(hs[n], hs)
     end
     return _hs
 end
 
-function apply_Λ(k::Int, hs::V, Λ::A) where {V<:Vector{<:Vector{<:Number}},A<:Array}
+function apply_Λ(k::Int, hs::V, Λ::A) where {V <: Vector{<:Vector{<:Number}}, A <: Array}
     @inbounds hsk = hs[k]
     @inbounds Λk = Λ[k]
     _hs = similar(hsk)
-    @inbounds for n = 1:length(hsk)
+    @inbounds for n in 1:length(hsk)
         _hs[n] = Λk(hsk[n], hs)
     end
     return _hs
 end
 
-function apply_Λ(hs::V, Λ) where {V<:Vector{<:Vector{<:Number}}}
+function apply_Λ(hs::V, Λ) where {V <: Vector{<:Vector{<:Number}}}
     _hs = similar(hs)
-    @inbounds for k = 1:length(_hs)
+    @inbounds for k in 1:length(_hs)
         _hs[k] = apply_Λ(hs[k], Λ)
     end
     return _hs
 end
 
-function apply_Λ(hs::V, Λ::A) where {V<:Vector{<:Vector{<:Number}},A<:Array}
+function apply_Λ(hs::V, Λ::A) where {V <: Vector{<:Vector{<:Number}}, A <: Array}
     _hs = similar(hs)
-    @inbounds for k = 1:length(_hs)
+    @inbounds for k in 1:length(_hs)
         _hs[k] = apply_Λ(k, hs, Λ)
     end
     return _hs
 end
 
-function apply_Λ(hs::V, Λ) where {V<:Vector{<:Vector{<:Vector{<:Number}}}}
+function apply_Λ(hs::V, Λ) where {V <: Vector{<:Vector{<:Vector{<:Number}}}}
     return map((_hs) -> apply_Λ(_hs, Λ), hs)
 end
 ```
@@ -635,7 +646,7 @@ We can construct QQ-plots with a Plot recipe as following.
         markerstrokealpha --> 0
         markersize --> 1.5
         size --> (400, 500)
-        label --> permutedims(["quantiles $i" for i = 1:length(empirical_quant)])
+        label --> permutedims(["quantiles $i" for i in 1:length(empirical_quant)])
         expected_quant, empirical_quant
     end
 end
@@ -667,14 +678,14 @@ let fig = []
                 urate = zeros(eltype(tspan), nv(G))
                 _p = (p[1], p[2], p[3], h, urate, ϕ)
             else
-                h = [eltype(tspan)[] for _ = 1:nv(G)]
+                h = [eltype(tspan)[] for _ in 1:nv(G)]
                 urate = zeros(eltype(tspan), nv(G))
                 _p = (p[1], p[2], p[3], h, urate)
             end
         end
         jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         runs = Vector{Vector{Vector{Number}}}(undef, 250)
-        for n = 1:length(runs)
+        for n in 1:length(runs)
             if algo isa PyTick
                 jump_prob.reset()
                 jump_prob.simulate()
@@ -685,7 +696,9 @@ let fig = []
                         h .= 0
                         ϕ .= 0
                     else
-                        for _h in h empty!(_h) end
+                        for _h in h
+                            empty!(_h)
+                        end
                     end
                     if ~(algo isa PDMPCHVSimple)
                         urate .= 0
@@ -695,9 +708,10 @@ let fig = []
             end
         end
         qqs = qq(runs, Λ)
-        push!(fig, qqplot(qqs..., legend = false, aspect_ratio = :equal, title=label, fmt=fmt))
+        push!(fig, qqplot(
+            qqs..., legend = false, aspect_ratio = :equal, title = label, fmt = fmt))
     end
-    fig = plot(fig..., layout = (4, 2), fmt=fmt, size=(width_px, 4*height_px/2))
+    fig = plot(fig..., layout = (4, 2), fmt = fmt, size = (width_px, 4*height_px/2))
 end
 ```
 
@@ -707,7 +721,7 @@ In this Section we benchmark all the algorithms introduced in the first Section.
 
 We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process ``25`` units of time.
 
- and simulate models in the range from ``1`` to ``95`` nodes for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration.
+and simulate models in the range from ``1`` to ``95`` nodes for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration.
 
 ```julia
 tspan = (0.0, 25.0)
@@ -723,18 +737,18 @@ for (algo, stepper, use_recursion, label) in algorithms
     push!(bs, Vector{BenchmarkTools.Trial}())
     _bs = bs[end]
     for (i, G) in enumerate(Gs)
-        local g = [neighbors(G, i) for i = 1:nv(G)]
-        local u = [0.0 for i = 1:nv(G)]
+        local g = [neighbors(G, i) for i in 1:nv(G)]
+        local u = [0.0 for i in 1:nv(G)]
         if algo isa PyTick
             _p = (p[1], p[2], p[3])
         elseif algo isa PDMPCHVSimple
             if use_recursion
-              global h = zeros(eltype(tspan), nv(G))
-              global ϕ = zeros(eltype(tspan), nv(G))
-              _p = (p[1], p[2], p[3], h, ϕ, g)
+                global h = zeros(eltype(tspan), nv(G))
+                global ϕ = zeros(eltype(tspan), nv(G))
+                _p = (p[1], p[2], p[3], h, ϕ, g)
             else
-              global h = [eltype(tspan)[] for _ in 1:nv(G)]
-              _p = (p[1], p[2], p[3], h, g)
+                global h = [eltype(tspan)[] for _ in 1:nv(G)]
+                _p = (p[1], p[2], p[3], h, g)
             end
         elseif algo isa PDMPCHVFull
             _p = (p[1], p[2], p[3], nothing, nothing, g)
@@ -745,7 +759,7 @@ for (algo, stepper, use_recursion, label) in algorithms
                 global ϕ = zeros(eltype(tspan), nv(G))
                 _p = (p[1], p[2], p[3], h, urate, ϕ)
             else
-                global h = [eltype(tspan)[] for _ = 1:nv(G)]
+                global h = [eltype(tspan)[] for _ in 1:nv(G)]
                 global urate = zeros(eltype(tspan), nv(G))
                 _p = (p[1], p[2], p[3], h, urate)
             end
@@ -753,53 +767,45 @@ for (algo, stepper, use_recursion, label) in algorithms
         global jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         trial = try
             if algo isa PyTick
-                @benchmark(
-                    jump_prob.simulate(),
-                    setup = (jump_prob.reset()),
-                    samples = 50,
-                    evals = 1,
-                    seconds = 10,
-                )
+                @benchmark(jump_prob.simulate(),
+                    setup=(jump_prob.reset()),
+                    samples=50,
+                    evals=1,
+                    seconds=10,)
             else
                 if algo isa PDMPCHVFull
-                    @benchmark(
-                        solve(jump_prob, _stepper),
-                        setup = (),
-                        samples = 50,
-                        evals = 1,
-                        seconds = 10,
-                    )
+                    @benchmark(solve(jump_prob, _stepper),
+                        setup=(),
+                        samples=50,
+                        evals=1,
+                        seconds=10,)
                 elseif algo isa PDMPCHVSimple
                     if use_recursion
                         @benchmark(solve(jump_prob, _stepper),
-                                   setup=(h .= 0; ϕ .= 0),
-                                   samples=50,
-                                   evals=1,
-                                   seconds=10,)
+                            setup=(h .= 0; ϕ .= 0),
+                            samples=50,
+                            evals=1,
+                            seconds=10,)
                     else
                         @benchmark(solve(jump_prob, _stepper),
-                                   setup=([empty!(_h) for _h in h]),
-                                   samples=50,
-                                   evals=1,
-                                   seconds=10,)
+                            setup=([empty!(_h) for _h in h]),
+                            samples=50,
+                            evals=1,
+                            seconds=10,)
                     end
                 else
                     if use_recursion
-                        @benchmark(
-                            solve(jump_prob, _stepper),
-                            setup = (h .= 0; urate .= 0; ϕ .= 0),
-                            samples = 50,
-                            evals = 1,
-                            seconds = 10,
-                        )
+                        @benchmark(solve(jump_prob, _stepper),
+                            setup=(h .= 0; urate .= 0; ϕ .= 0),
+                            samples=50,
+                            evals=1,
+                            seconds=10,)
                     else
-                        @benchmark(
-                            solve(jump_prob, _stepper),
-                            setup = ([empty!(_h) for _h in h]; urate .= 0),
-                            samples = 50,
-                            evals = 1,
-                            seconds = 10,
-                        )
+                        @benchmark(solve(jump_prob, _stepper),
+                            setup=([empty!(_h) for _h in h]; urate .= 0),
+                            samples=50,
+                            evals=1,
+                            seconds=10,)
                     end
                 end
             end
@@ -810,9 +816,9 @@ for (algo, stepper, use_recursion, label) in algorithms
         end
         push!(_bs, trial)
         if (nv(G) == 1 || nv(G) % 10 == 0)
-            median_time =
-                length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" :
-                "nan"
+            median_time = length(trial) > 0 ?
+                          "$(BenchmarkTools.prettytime(median(trial.times)))" :
+                          "nan"
             println("algo=$(label), V = $(nv(G)), length = $(length(trial.times)), median time = $median_time")
         end
     end
@@ -824,8 +830,8 @@ let fig = plot(
         yscale = :log10,
         xlabel = "V",
         ylabel = "Time (ns)",
-        legend_position = :outertopright,
-)
+        legend_position = :outertopright
+    )
     for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
         _bs, _Vs = [], []
         for (j, b) in enumerate(bs[i])
@@ -834,9 +840,103 @@ let fig = plot(
                 push!(_Vs, Vs[j])
             end
         end
-        plot!(_Vs, _bs, label=label)
+        plot!(_Vs, _bs, label = label)
     end
     title!("Simulations, 50 samples: nodes × time")
+end
+```
+
+# Benchmarking Variable Rate Aggregators
+
+We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from `1` to `50` nodes, `tspan=(0.0, 25.0)`, `\lambda=0.5`, `\alpha=0.1`, `\beta=5.0`, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations.
+
+```julia
+vr_aggs = [
+    (VR_Direct(), Tsit5(), false, "VR_Direct (brute-force)"),
+    (VR_DirectFW(), Tsit5(), false, "VR_DirectFW (brute-force)"),
+    (VR_FRM(), Tsit5(), false, "VR_FRM (brute-force)"),
+    (VR_Direct(), Tsit5(), true, "VR_Direct (recursive)"),
+    (VR_DirectFW(), Tsit5(), true, "VR_DirectFW (recursive)"),
+    (VR_FRM(), Tsit5(), true, "VR_FRM (recursive)"),
+]
+
+tspan = (0.0, 25.0)
+p = (0.5, 0.1, 5.0)
+Vs = append!([1], 5:5:95)
+Gs = [erdos_renyi(V, 0.2, seed = 6221) for V in Vs]
+
+vr_bs = Vector{Vector{BenchmarkTools.Trial}}()
+
+for (vr_agg, stepper, use_recursion, label) in vr_aggs
+    @info label
+    global _stepper = stepper
+    push!(vr_bs, Vector{BenchmarkTools.Trial}())
+    _vr_bs = vr_bs[end]
+    for (i, G) in enumerate(Gs)
+        local g = [neighbors(G, i) for i in 1:nv(G)]
+        local u = [0.0 for i in 1:nv(G)]
+        if use_recursion
+            global h = zeros(eltype(tspan), nv(G))
+            global urate = zeros(eltype(u), nv(G))
+            global ϕ = zeros(eltype(tspan), nv(G))
+            _p = (p[1], p[2], p[3], h, urate, ϕ)
+        else
+            global h = [eltype(tspan)[] for _ in 1:nv(G)]
+            global urate = zeros(eltype(u), nv(G))
+            _p = (p[1], p[2], p[3], h, urate)
+        end
+        global jump_prob = hawkes_problem(_p, Direct(); vr_agg, u, tspan, g, use_recursion)
+        trial = try
+            if use_recursion
+                @benchmark(
+                    solve(jump_prob, _stepper),
+                    setup = (h .= 0; urate .= 0; ϕ .= 0),
+                    samples = 50,
+                    evals = 1,
+                    seconds = 10,
+                )
+            else
+                @benchmark(
+                    solve(jump_prob, _stepper),
+                    setup = ([empty!(_h) for _h in h]; urate .= 0),
+                    samples = 50,
+                    evals = 1,
+                    seconds = 10,
+                )
+            end
+        catch e
+            BenchmarkTools.Trial(
+                BenchmarkTools.Parameters(samples=50, evals=1, seconds=10),
+            )
+        end
+        push!(_vr_bs, trial)
+        if (nv(G) == 1 || nv(G) % 10 == 0)
+            median_time =
+                length(trial) > 0 ? "$(BenchmarkTools.prettytime(median(trial.times)))" : "nan"
+            println("algo=$label, V=$(nv(G)), length=$(length(trial.times)), median time=$median_time")
+        end
+    end
+end
+```
+
+```julia
+let fig = plot(
+    yscale = :log10,
+    xlabel = "V",
+    ylabel = "Time (ns)",
+    legend_position = :outertopright,
+)
+    for (i, (vr_agg, _, use_recursion, label)) in enumerate(vr_aggs)
+        _bs, _Vs = [], []
+        for (j, b) in enumerate(vr_bs[i])
+            if length(b) == 50
+                push!(_bs, median(b.times))
+                push!(_Vs, Vs[j])
+            end
+        end
+        plot!(_Vs, _bs, label=label)
+    end
+    title!("Variable Rate Simulations, 50 samples: nodes × time")
 end
 ```
 

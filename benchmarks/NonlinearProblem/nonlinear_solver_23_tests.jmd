@@ -3,30 +3,33 @@ title: Nonlinear Solver 23 Test Problems
 author: Torkel Loman & Avik Pal
 ---
 
-These benchmarks compares the runtime and error for a range of nonlinear solvers. The problems are a standard set of problems as described [here](https://people.sc.fsu.edu/~jburkardt/m_src/test_nonlin/test_nonlin.html). The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. For each problem we test the following solvers:
-- NonlinearSolve.jl's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) method (`NewtonRaphson()`).
-- NonlinearSolve.jl's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) method (`TrustRegion()`).
-- NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
-- MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
-- MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
-- NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
-- NLsolveJL's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
-- NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
-- Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
+These benchmarks compares the runtime and error for a range of nonlinear solvers. The problems are a standard set of problems as described [here](https://people.sc.fsu.edu/%7Ejburkardt/m_src/test_nonlin/test_nonlin.html). The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. For each problem we test the following solvers:
+
+  - NonlinearSolve.jl's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) method (`NewtonRaphson()`).
+  - NonlinearSolve.jl's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) method (`TrustRegion()`).
+  - NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
+  - MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
+  - MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
+  - NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
+  - NLsolveJL's [Trust Region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
+  - NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
+  - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
 
 Furthermore, for NonlinearSolve.jl's Newton Raphson method we try the following Line Search options (in addition to the default):
-- `HagerZhang`
-- `MoreThuente`
-- `BackTracking`
+
+  - `HagerZhang`
+  - `MoreThuente`
+  - `BackTracking`
 
 and for NonlinearSolve.jl's Trust Region we try the following Radius Update schemes (in addition to the default):
-- `NLsolve`
-- `NocedalWright`
-- `Hei`
-- `Yuan`
-- `Bastin`
-- `Fan`
-and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
+
+  - `NLsolve`
+  - `NocedalWright`
+  - `Hei`
+  - `Yuan`
+  - `Bastin`
+  - `Fan`
+    and finally for NonlinearSolve.jl's Levenberg-Marquardt method why try using both the default `α_geodesic` value (`0.75`) and a modified value (`0.5`), and also with and without setting the `CholeskyFactorization` linear solver.
 
 For each benchmarked problem, the second, third, and fourth plots compares the performance of NonlinearSolve's Newton Raphson, Trust Region, and Levenberg-Marquardt methods, respectively. The first plot compares the best methods from each of these categories to the various methods available from other packages. At the end of the benchmarks, we print a summary table of which solvers succeeded for which problems.
 
@@ -36,8 +39,8 @@ Fetch required packages.
 
 ```julia
 using NonlinearSolve, LinearSolve, StaticArrays, Sundials, Setfield,
-    BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, CairoMakie,
-    RecursiveFactorization, Enzyme
+      BenchmarkTools, LinearAlgebra, DiffEqDevTools, NonlinearProblemLibrary, CairoMakie,
+      RecursiveFactorization, Enzyme
 import PolyesterForwardDiff, MINPACK, NLsolve, LineSearches
 
 const RUS = RadiusUpdateSchemes;
@@ -50,31 +53,80 @@ HagerZhang() = LineSearchesJL(; method = LineSearches.HagerZhang())
 MoreThuente() = LineSearchesJL(; method = LineSearches.MoreThuente())
 
 solvers_all = [
-    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",          solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10, linsolve = \))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (HagerZhang)",           solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = HagerZhang()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (MoreThuente)",          solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = MoreThuente()))),
-    (; pkg = :nonlinearsolve, type = :NR,      name = "NR (BackTracking)",         solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = BackTracking()))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "Trust Region",              solver = Dict(:alg => TrustRegion(; linsolve = \))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (NLsolve Update)",       solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Nocedal Wright)",       solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NocedalWright))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Hei)",                  solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Hei))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Yuan)",                 solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Yuan))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Bastin)",               solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Bastin))),
-    (; pkg = :nonlinearsolve, type = :TR,      name = "TR (Fan)",                  solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Fan))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "Levenberg-Marquardt",       solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization()))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "LM with Cholesky",          solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5)",       solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), α_geodesic=0.5))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (α_geodesic=0.5) Chol.", solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic=0.5))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.)",            solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), disable_geodesic = Val(true)))),
-    (; pkg = :nonlinearsolve, type = :LM,      name = "LM (no Accln.) Chol.",      solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
-    (; pkg = :nonlinearsolve, type = :general, name = "Pseudo Transient",          solver = Dict(:alg => PseudoTransient(; linsolve = \, alpha_initial=10.0))),
-    (; pkg = :wrapper,        type = :general, name = "Powell [MINPACK]",          solver = Dict(:alg => CMINPACK(; method=:hybr))),
-    (; pkg = :wrapper,        type = :LM,      name = "LM [MINPACK]",              solver = Dict(:alg => CMINPACK(; method=:lm))),
-    (; pkg = :wrapper,        type = :NR,      name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method=:newton))),
-    (; pkg = :wrapper,        type = :TR,      name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL())),
-    (; pkg = :wrapper,        type = :NR,      name = "NR [Sundials]",             solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
-    (; pkg = :wrapper,        type = :NR,      name = "NR LineSearch [Sundials]",  solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, globalization_strategy=:LineSearch, maxsetupcalls=1)))
+    (; pkg = :nonlinearsolve, type = :general, name = "Default PolyAlg.",
+        solver = Dict(:alg => FastShortcutNonlinearPolyalg(; u0_len = 10, linsolve = \))),
+    (; pkg = :nonlinearsolve, type = :NR, name = "Newton Raphson",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = \))),
+    (; pkg = :nonlinearsolve, type = :NR, name = "NR (HagerZhang)",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = HagerZhang()))),
+    (; pkg = :nonlinearsolve, type = :NR, name = "NR (MoreThuente)",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = MoreThuente()))),
+    (; pkg = :nonlinearsolve, type = :NR, name = "NR (BackTracking)",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = \, linesearch = BackTracking()))),
+    (; pkg = :nonlinearsolve, type = :TR, name = "Trust Region",
+        solver = Dict(:alg => TrustRegion(; linsolve = \))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (NLsolve Update)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NLsolve))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (Nocedal Wright)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.NocedalWright))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (Hei)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Hei))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (Yuan)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Yuan))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (Bastin)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Bastin))),
+    (; pkg = :nonlinearsolve,
+        type = :TR,
+        name = "TR (Fan)",
+        solver = Dict(:alg => TrustRegion(; linsolve = \, radius_update_scheme = RUS.Fan))),
+    (; pkg = :nonlinearsolve, type = :LM, name = "Levenberg-Marquardt",
+        solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization()))),
+    (; pkg = :nonlinearsolve, type = :LM, name = "LM with Cholesky",
+        solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization()))),
+    (; pkg = :nonlinearsolve,
+        type = :LM,
+        name = "LM (α_geodesic=0.5)",
+        solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), α_geodesic = 0.5))),
+    (; pkg = :nonlinearsolve,
+        type = :LM,
+        name = "LM (α_geodesic=0.5) Chol.",
+        solver = Dict(:alg => LevenbergMarquardt(; linsolve = CholeskyFactorization(), α_geodesic = 0.5))),
+    (; pkg = :nonlinearsolve,
+        type = :LM,
+        name = "LM (no Accln.)",
+        solver = Dict(:alg => LevenbergMarquardt(; linsolve = QRFactorization(), disable_geodesic = Val(true)))),
+    (; pkg = :nonlinearsolve,
+        type = :LM,
+        name = "LM (no Accln.) Chol.",
+        solver = Dict(:alg => LevenbergMarquardt(;
+            linsolve = CholeskyFactorization(), disable_geodesic = Val(true)))),
+    (; pkg = :nonlinearsolve, type = :general, name = "Pseudo Transient",
+        solver = Dict(:alg => PseudoTransient(; linsolve = \, alpha_initial = 10.0))),
+    (; pkg = :wrapper, type = :general, name = "Powell [MINPACK]",
+        solver = Dict(:alg => CMINPACK(; method = :hybr))),
+    (; pkg = :wrapper, type = :LM, name = "LM [MINPACK]",
+        solver = Dict(:alg => CMINPACK(; method = :lm))),
+    (; pkg = :wrapper, type = :NR, name = "NR [NLsolve.jl]",
+        solver = Dict(:alg => NLsolveJL(; method = :newton))),
+    (; pkg = :wrapper, type = :TR, name = "TR [NLsolve.jl]",
+        solver = Dict(:alg => NLsolveJL())),
+    (; pkg = :wrapper, type = :NR, name = "NR [Sundials]",
+        solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls = 1))),
+    (; pkg = :wrapper,
+        type = :NR,
+        name = "NR LineSearch [Sundials]",
+        solver = Dict(:alg => KINSOL(;
+            linear_solver = :LapackDense, globalization_strategy = :LineSearch, maxsetupcalls = 1)))
 ];
 
 solver_tracker = [];
@@ -116,7 +168,7 @@ end
 __set_ad_chunksize(solver, ck, N) = solver
 
 # Benchmarks a specific problem, checks which solvers can solve it and their performance
-function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
+function benchmark_problem!(prob_name; solver_tracker = solver_tracker)
     # Finds the problem and the true solution.
     prob = nlprob_23_testcases[prob_name]
 
@@ -130,16 +182,16 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     solvers_TR = filter(s -> s.type==:TR, successful_solvers)
     solvers_LM = filter(s -> s.type==:LM, successful_solvers)
     wp_NR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_NR, :solver);
-        names=getfield.(solvers_NR, :name), numruns=100, error_estimate=:l∞,
-        maxiters=1000,
+        names = getfield.(solvers_NR, :name), numruns = 100, error_estimate = :l∞,
+        maxiters = 1000,
         termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
     wp_TR = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_TR, :solver);
-        names=getfield.(solvers_TR, :name), numruns=100, error_estimate=:l∞,
-        maxiters=1000,
+        names = getfield.(solvers_TR, :name), numruns = 100, error_estimate = :l∞,
+        maxiters = 1000,
         termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
     wp_LM = WorkPrecisionSet(prob.prob, abstols, reltols, getfield.(solvers_LM, :solver);
-        names=getfield.(solvers_LM, :name), numruns=100, error_estimate=:l∞,
-        maxiters=1000,
+        names = getfield.(solvers_LM, :name), numruns = 100, error_estimate = :l∞,
+        maxiters = 1000,
         termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
     # Handles the general case
@@ -149,8 +201,8 @@ function benchmark_problem!(prob_name; solver_tracker=solver_tracker)
     add_solver!(solvers_general, nothing, solvers_NR, wp_NR)
 
     wp_general = WorkPrecisionSet(prob.prob, abstols, reltols,
-        getfield.(solvers_general, :solver); names=getfield.(solvers_general, :name),
-        numruns=100, error_estimate=:l∞, maxiters=1000,
+        getfield.(solvers_general, :solver); names = getfield.(solvers_general, :name),
+        numruns = 100, error_estimate = :l∞, maxiters = 1000,
         termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
 
     push!(wp_general_tracker, prob_name => wp_general)
@@ -165,22 +217,25 @@ end
 # Checks if a solver can successfully solve a given problem.
 function check_solver(prob, solver)
     try
-        sol = solve(prob.prob, solver.solver[:alg]; abstol=1e-8, reltol=1e-8,
-            maxiters=1000000,
-            termination_condition=AbsNormTerminationMode(Base.Fix1(maximum, abs)))
+        sol = solve(prob.prob, solver.solver[:alg]; abstol = 1e-8, reltol = 1e-8,
+            maxiters = 1000000,
+            termination_condition = AbsNormTerminationMode(Base.Fix1(maximum, abs)))
         if norm(sol.resid, Inf) < 1e-6
-            Base.printstyled("[Info] Solver $(solver.name) returned retcode $(sol.retcode) \
-                with an residual norm = $(norm(sol.resid, Inf)).\n"; color=:green)
+            Base.printstyled(
+                "[Info] Solver $(solver.name) returned retcode $(sol.retcode) \
+   with an residual norm = $(norm(sol.resid, Inf)).\n";
+                color = :green)
             return true
         else
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual \
-                (norm = $(norm(sol.resid, Inf))).\n"; color=:red)
+            Base.printstyled(
+                "[Warn] Solver $(solver.name) had a very large residual \
+   (norm = $(norm(sol.resid, Inf))).\n"; color = :red)
             return false
         end
         WorkPrecisionSet(prob.prob, [1e-4, 1e-12], [1e-4, 1e-12], [solver.solver];
-            names=[solver.name], numruns=5, error_estimate=:l∞, maxiters=1000)
+            names = [solver.name], numruns = 5, error_estimate = :l∞, maxiters = 1000)
     catch e
-        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color=:red)
+        Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
         return false
     end
     return true
@@ -216,14 +271,15 @@ function Makie.get_minor_tickvalues(i::IntervalsBetween, scale::typeof(__log10_z
     return []
 end
 
-tickformatter(values) = map(values) do v
-    e = log10(v)
-    if isinteger(e) && e == -100
-        return rich("10", superscript("-∞"))
+tickformatter(values) =
+    map(values) do v
+        e = log10(v)
+        if isinteger(e) && e == -100
+            return rich("10", superscript("-∞"))
+        end
+        sup = isinteger(e) ? Int(e) : round(e; digits = 2)
+        return rich("10", superscript(string(sup)))
     end
-    sup = isinteger(e) ? Int(e) : round(e; digits=2)
-    return rich("10", superscript(string(sup)))
-end
 
 function __filter_nearzero((ticks, ticklabels))
     if first(ticks) ≈ 1e-100
@@ -253,6 +309,7 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
         xmin, xmax, ymin, ymax = Inf, -Inf, Inf, -Inf
 
         for i in 1:2, j in 1:2
+
             wp = (wp_general, wp_NR, wp_TR, wp_LM)[2 * (i - 1) + j]
 
             ax = Axis(fig[i + 1, j], ylabel = j == 1 ? L"Time $\mathbf{(s)}$" : "",
@@ -263,7 +320,7 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
                 ytickwidth = STROKEWIDTH, spinewidth = STROKEWIDTH,
                 xticklabelsize = 20, yticklabelsize = 20,
                 xticklabelsvisible = i == 2, yticklabelsvisible = j == 1,
-                xticksvisible = i == 2, yticksvisible = j == 1,)
+                xticksvisible = i == 2, yticksvisible = j == 1)
             push!(axs, ax)
 
             ls = []
@@ -294,7 +351,7 @@ function plot_collective_benchmark(prob_name, wp_general, wp_NR, wp_TR, wp_LM)
 
             Legend(fig[ifelse(i == 1, 1, 4), j], [[l, sc] for (l, sc) in zip(ls, scs)],
                 [wpᵢ.name for wpᵢ in wp.wps], legend_title;
-                framevisible=true, framewidth = STROKEWIDTH,
+                framevisible = true, framewidth = STROKEWIDTH,
                 nbanks = 3, labelsize = 16, titlesize = 16,
                 tellheight = true, tellwidth = false, patchsize = (40.0f0, 20.0f0))
         end
@@ -470,8 +527,9 @@ benchmark_problem!("Chandrasekhar function")
 Finally, we print a summary of which solvers successfully solved which problems.
 
 ```julia
-solver_successes = [(solver.name in getfield.(prob[2], :name)) ? "O" : "X" for prob in solver_tracker, solver in solvers_all]
-total_successes = [sum(solver_successes[:,i] .== "O") for i in 1:length(solvers_all)]
+solver_successes = [(solver.name in getfield.(prob[2], :name)) ? "O" : "X"
+                    for prob in solver_tracker, solver in solvers_all]
+total_successes = [sum(solver_successes[:, i] .== "O") for i in 1:length(solvers_all)]
 solver_outcomes = vcat(total_successes', solver_successes);
 ```
 
@@ -479,7 +537,8 @@ solver_outcomes = vcat(total_successes', solver_successes);
 using PrettyTables
 io = IOBuffer()
 println(io, "```@raw html")
-pretty_table(io, solver_outcomes; backend = Val(:html), header = getfield.(solvers_all, :name), alignment=:c)
+pretty_table(io, solver_outcomes; backend = Val(:html),
+    header = getfield.(solvers_all, :name), alignment = :c)
 println(io, "```")
 Base.Text(String(take!(io)))
 ```
@@ -510,6 +569,7 @@ fig = begin
         solver_times = []
 
         for i in 1:5, j in 1:5
+
             idx = 5 * (i - 1) + j
 
             idx > length(wp_general_tracker) && break
@@ -559,9 +619,11 @@ fig = begin
 
             xmin = max(xmin, 10^-100)
 
-            xticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
+            xticks = __filter_nearzero(Makie.get_ticks(
+                LogTicks(WilkinsonTicks(5; k_min = 3)),
                 __log10_zero, tickformatter, xmin, xmax))
-            yticks = __filter_nearzero(Makie.get_ticks(LogTicks(WilkinsonTicks(5; k_min = 3)),
+            yticks = __filter_nearzero(Makie.get_ticks(
+                LogTicks(WilkinsonTicks(5; k_min = 3)),
                 __log10_zero, tickformatter, ymin, ymax))
 
             ax.xticks = xticks
@@ -581,7 +643,7 @@ fig = begin
 
         Legend(fig[5, 4:5], [[l, sc] for (l, sc) in zip(ls[ordering], scs[ordering])],
             labels[ordering], "Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, orientation = :horizontal,
+            framevisible = true, framewidth = STROKEWIDTH, orientation = :horizontal,
             titlesize = 20, nbanks = 9, labelsize = 20, halign = :center,
             tellheight = false, tellwidth = false, patchsize = (40.0f0, 20.0f0))
 
@@ -596,5 +658,5 @@ save("summary_wp_23test_problems.svg", fig)
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

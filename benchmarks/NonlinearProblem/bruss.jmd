@@ -9,8 +9,8 @@ Fetch required packages
 
 ```julia
 using NonlinearSolve, LinearAlgebra, SparseArrays, DiffEqDevTools,
-    CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
-    Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
+      CairoMakie, Symbolics, BenchmarkTools, PolyesterForwardDiff, LinearSolve, Sundials,
+      Enzyme, SparseConnectivityTracer, DifferentiationInterface, SparseMatrixColorings
 import NLsolve, MINPACK, PETSc, RecursiveFactorization
 
 const RUS = RadiusUpdateSchemes;
@@ -26,14 +26,15 @@ function timeout(f, timeout)
     timer = Timer(timeout) do tm
         close(tm)
         ex = ErrorException("timed out after $timeout seconds")
-        @lock cond notify(cond, ex; error=false)
+        @lock cond notify(cond, ex; error = false)
     end
     Threads.@spawn begin
         try
             ret = $f()
             isopen(timer) && @lock cond notify(cond, ret)
         catch e
-            isopen(timer) && @lock cond notify(cond, CapturedException(e, catch_backtrace()); error=true)
+            isopen(timer) &&
+                @lock cond notify(cond, CapturedException(e, catch_backtrace()); error = true)
         finally
             close(timer)
         end
@@ -78,13 +79,13 @@ function generate_brusselator_problem(N::Int; sparsity = nothing, kwargs...)
             jp1, jm1 = limit(j + 1, N), limit(j - 1, N)
 
             du[i, j, 1] = α * (u[im1, j, 1] + u[ip1, j, 1] + u[i, jp1, 1] + u[i, jm1, 1] -
-                               4u[i, j, 1]) +
+                           4u[i, j, 1]) +
                           B + u[i, j, 1] ^ 2 * u[i, j, 2] - (A + 1) * u[i, j, 1] +
                           brusselator_f(x, y)
 
             du[i, j, 2] = α * (u[im1, j, 2] + u[ip1, j, 2] + u[i, jp1, 2] + u[i, jm1, 2] -
-                               4u[i, j, 2]) +
-                            A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
+                           4u[i, j, 2]) +
+                          A * u[i, j, 1] - u[i, j, 1] ^ 2 * u[i, j, 2]
         end
         return nothing
     end
@@ -161,59 +162,59 @@ adtypes = [
     (
         AutoSparse(
             AutoFiniteDiff();
-            sparsity_detector=TracerSparsityDetector(),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            sparsity_detector = TracerSparsityDetector(),
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:finitediff, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoPolyesterForwardDiff();
-            sparsity_detector=TracerSparsityDetector(),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            sparsity_detector = TracerSparsityDetector(),
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:polyester, :exact_sparse]
     ),
     (
         AutoSparse(
-            AutoEnzyme(; mode=Enzyme.Forward);
-            sparsity_detector=TracerSparsityDetector(),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            AutoEnzyme(; mode = Enzyme.Forward);
+            sparsity_detector = TracerSparsityDetector(),
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :exact_sparse]
     ),
     (
         AutoSparse(
             AutoFiniteDiff();
-            sparsity_detector=DenseSparsityDetector(AutoFiniteDiff(); atol=1e-5),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            sparsity_detector = DenseSparsityDetector(AutoFiniteDiff(); atol = 1e-5),
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:finitediff, :approx_sparse]
     ),
     (
         AutoSparse(
             AutoPolyesterForwardDiff();
-            sparsity_detector=DenseSparsityDetector(
-                AutoPolyesterForwardDiff(); atol=1e-5
+            sparsity_detector = DenseSparsityDetector(
+                AutoPolyesterForwardDiff(); atol = 1e-5
             ),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:polyester, :approx_sparse]
     ),
     (
         AutoSparse(
-            AutoEnzyme(; mode=Enzyme.Forward);
-            sparsity_detector=DenseSparsityDetector(
-                AutoEnzyme(; mode=Enzyme.Forward); atol=1e-5
+            AutoEnzyme(; mode = Enzyme.Forward);
+            sparsity_detector = DenseSparsityDetector(
+                AutoEnzyme(; mode = Enzyme.Forward); atol = 1e-5
             ),
-            coloring_algorithm=GreedyColoringAlgorithm(LargestFirst())
+            coloring_algorithm = GreedyColoringAlgorithm(LargestFirst())
         ),
         [:enzyme, :approx_sparse]
     ),
     (
         AutoPolyesterForwardDiff(),
         [:polyester, :none]
-    ),
+    )
 ];
 
 times = Matrix{Float64}(undef, length(Ns), length(adtypes));
@@ -245,33 +246,33 @@ symbol_to_adname = Dict(
     :finitediff => "Finite Diff",
     :forwarddiff => "Forward Mode AD",
     :polyester => "Threaded Forward Mode AD",
-    :enzyme => "Forward Mode AD (Enzyme)",
+    :enzyme => "Forward Mode AD (Enzyme)"
 )
 
 fig = begin
-    cycle = Cycle([:marker], covary=true)
-    plot_theme = Theme(Lines=(; cycle), Scatter=(; cycle))
+    cycle = Cycle([:marker], covary = true)
+    plot_theme = Theme(Lines = (; cycle), Scatter = (; cycle))
 
     with_theme(plot_theme) do
-        fig = Figure(; size=(1400, 1400 * 0.5))
+        fig = Figure(; size = (1400, 1400 * 0.5))
 
-        ax = Axis(fig[1, 1]; title="Sparsity Pattern for 2D Brusselator Jacobian",
-            titlesize=22, titlegap=10,
-            xticksize=20, yticksize=20, xticklabelsize=20, yticklabelsize=20,
-            xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5, yreversed=true)
+        ax = Axis(fig[1, 1]; title = "Sparsity Pattern for 2D Brusselator Jacobian",
+            titlesize = 22, titlegap = 10,
+            xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
+            xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5, yreversed = true)
 
-        spy!(ax, J_; markersize=1, marker=:circle, framecolor=:lightgray,
-            colormap=:tableau_20)
+        spy!(ax, J_; markersize = 1, marker = :circle, framecolor = :lightgray,
+            colormap = :tableau_20)
 
-        ax = Axis(fig[1, 2]; title="Scaling of Sparse Jacobian Computation",
-            titlesize=22, titlegap=10, xscale=log2, yscale=log2,
-            xticksize=20, yticksize=20, xticklabelsize=20, yticklabelsize=20,
-            xtickwidth=2.5, ytickwidth=2.5, spinewidth=2.5,
-            xlabel=L"Input Dimension ($\mathbf{N}$)",
-            ylabel=L"Time $\mathbf{(s)}$", xlabelsize=22,
-            ylabelsize=22, yaxisposition=:right)
+        ax = Axis(fig[1, 2]; title = "Scaling of Sparse Jacobian Computation",
+            titlesize = 22, titlegap = 10, xscale = log2, yscale = log2,
+            xticksize = 20, yticksize = 20, xticklabelsize = 20, yticklabelsize = 20,
+            xtickwidth = 2.5, ytickwidth = 2.5, spinewidth = 2.5,
+            xlabel = L"Input Dimension ($\mathbf{N}$)",
+            ylabel = L"Time $\mathbf{(s)}$", xlabelsize = 22,
+            ylabelsize = 22, yaxisposition = :right)
 
-        colors = cgrad(:tableau_20, length(adtypes); categorical=true)
+        colors = cgrad(:tableau_20, length(adtypes); categorical = true)
 
         line_list = []
         scatter_list = []
@@ -279,62 +280,59 @@ fig = begin
         linestyles = [:solid, :solid, :solid, :dash, :dash, :dash, :dot, :dot]
 
         for (i, times) in enumerate(eachcol(times))
-            l = lines!(Ns_, times; linewidth=5, color=colors[i], linestyle=linestyles[i])
+            l = lines!(
+                Ns_, times; linewidth = 5, color = colors[i], linestyle = linestyles[i])
             push!(line_list, l)
-            sc = scatter!(Ns_, times; markersize=16, strokewidth=2, color=colors[i])
+            sc = scatter!(Ns_, times; markersize = 16, strokewidth = 2, color = colors[i])
             push!(scatter_list, sc)
         end
 
         tracer_idxs = [idx for idx in 1:length(adtypes) if :exact_sparse ∈ adtypes[idx][2]]
-        group_tracer = [
-            [
-                LineElement(;
-                    color=line_list[idx].color,
-                    linestyle=line_list[idx].linestyle,
-                    linewidth=line_list[idx].linewidth,
-                ),
-                MarkerElement(;
-                    color=scatter_list[idx].color,
-                    marker=scatter_list[idx].marker,
-                    strokewidth=scatter_list[idx].strokewidth,
-                    markersize=scatter_list[idx].markersize,
-                ),
-            ] for idx in tracer_idxs
-        ]
+        group_tracer = [[
+                            LineElement(;
+                                color = line_list[idx].color,
+                                linestyle = line_list[idx].linestyle,
+                                linewidth = line_list[idx].linewidth
+                            ),
+                            MarkerElement(;
+                                color = scatter_list[idx].color,
+                                marker = scatter_list[idx].marker,
+                                strokewidth = scatter_list[idx].strokewidth,
+                                markersize = scatter_list[idx].markersize
+                            )
+                        ] for idx in tracer_idxs]
 
-        local_sparse_idxs = [idx for idx in 1:length(adtypes) if :approx_sparse ∈ adtypes[idx][2]]
-        group_local_sparse = [
-            [
-                LineElement(;
-                    color=line_list[idx].color,
-                    linestyle=line_list[idx].linestyle,
-                    linewidth=line_list[idx].linewidth,
-                ),
-                MarkerElement(;
-                    color=scatter_list[idx].color,
-                    marker=scatter_list[idx].marker,
-                    strokewidth=scatter_list[idx].strokewidth,
-                    markersize=scatter_list[idx].markersize,
-                ),
-            ] for idx in local_sparse_idxs
-        ]
+        local_sparse_idxs = [idx
+                             for idx in 1:length(adtypes)
+                             if :approx_sparse ∈ adtypes[idx][2]]
+        group_local_sparse = [[
+                                  LineElement(;
+                                      color = line_list[idx].color,
+                                      linestyle = line_list[idx].linestyle,
+                                      linewidth = line_list[idx].linewidth
+                                  ),
+                                  MarkerElement(;
+                                      color = scatter_list[idx].color,
+                                      marker = scatter_list[idx].marker,
+                                      strokewidth = scatter_list[idx].strokewidth,
+                                      markersize = scatter_list[idx].markersize
+                                  )
+                              ] for idx in local_sparse_idxs]
 
         non_sparse_idxs = [idx for idx in 1:length(adtypes) if :none ∈ adtypes[idx][2]]
-        group_nonsparse = [
-            [
-                LineElement(;
-                    color=line_list[idx].color,
-                    linestyle=line_list[idx].linestyle,
-                    linewidth=line_list[idx].linewidth,
-                ),
-                MarkerElement(;
-                    color=scatter_list[idx].color,
-                    marker=scatter_list[idx].marker,
-                    strokewidth=scatter_list[idx].strokewidth,
-                    markersize=scatter_list[idx].markersize,
-                ),
-            ] for idx in non_sparse_idxs
-        ]
+        group_nonsparse = [[
+                               LineElement(;
+                                   color = line_list[idx].color,
+                                   linestyle = line_list[idx].linestyle,
+                                   linewidth = line_list[idx].linewidth
+                               ),
+                               MarkerElement(;
+                                   color = scatter_list[idx].color,
+                                   marker = scatter_list[idx].marker,
+                                   strokewidth = scatter_list[idx].strokewidth,
+                                   markersize = scatter_list[idx].markersize
+                               )
+                           ] for idx in non_sparse_idxs]
 
         axislegend(
             ax,
@@ -342,11 +340,11 @@ fig = begin
             [
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in tracer_idxs],
                 [symbol_to_adname[adtypes[idx][2][1]] for idx in local_sparse_idxs],
-                [symbol_to_adname[adtypes[idx][2][1]] for idx in non_sparse_idxs],
+                [symbol_to_adname[adtypes[idx][2][1]] for idx in non_sparse_idxs]
             ],
             ["Exact Sparsity", "Approx. Local Sparsity", "Dense"];
-            position=:lt, framevisible=true, framewidth=2.5, titlesize=18,
-            labelsize=16, patchsize=(40.0f0, 20.0f0)
+            position = :lt, framevisible = true, framewidth = 2.5, titlesize = 18,
+            labelsize = 16, patchsize = (40.0f0, 20.0f0)
         )
 
         fig
@@ -366,20 +364,31 @@ First, let us experiment the scaling of each algorithm with the problem size.
 Ns = vcat(collect(2 .^ (2:7)), [150, 175, 200])
 
 solvers_scaling = [
-    (; pkg = :nonlinearsolve, sparsity = :none,   name = "NR (No Sparsity)",                    alg = NewtonRaphson()),
-    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "NR (Exact Sparsity)",                 alg = NewtonRaphson()),
-    (; pkg = :wrapper,        sparsity = :none,   name = "NR [NLsolve.jl]",                     alg = NLsolveJL(; method = :newton, autodiff = :forward)),
-    (; pkg = :wrapper,        sparsity = :none,   name = "NR [Sundials]",                       alg = KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1)),
-    (; pkg = :wrapper,        sparsity = :none,   name = "NR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing)),
-    (; pkg = :wrapper,        sparsity = :exact,  name = "NR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic")),
-
-    (; pkg = :nonlinearsolve, sparsity = :none,   name = "TR (No Sparsity)",                    alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :nonlinearsolve, sparsity = :exact,  name = "TR (Exact Sparsity)",                 alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
-    (; pkg = :wrapper,        sparsity = :none,   name = "TR [NLsolve.jl]",                     alg = NLsolveJL(; autodiff = :forward)),
-    (; pkg = :wrapper,        sparsity = :none,   name = "TR [PETSc] (No Sparsity)",            alg = PETScSNES(; snes_type = "newtontr", autodiff = missing)),
-    (; pkg = :wrapper,        sparsity = :exact,  name = "TR [PETSc] (Exact Sparsity)",         alg = PETScSNES(; snes_type = "newtontr")),
-
-    (; pkg = :wrapper,        sparsity = :none,   name = "Mod. Powell [MINPACK]",               alg = CMINPACK()),
+    (; pkg = :nonlinearsolve, sparsity = :none,
+        name = "NR (No Sparsity)", alg = NewtonRaphson()),
+    (; pkg = :nonlinearsolve, sparsity = :exact,
+        name = "NR (Exact Sparsity)", alg = NewtonRaphson()),
+    (; pkg = :wrapper, sparsity = :none, name = "NR [NLsolve.jl]",
+        alg = NLsolveJL(; method = :newton, autodiff = :forward)),
+    (; pkg = :wrapper, sparsity = :none, name = "NR [Sundials]",
+        alg = KINSOL(; linear_solver = :LapackDense, maxsetupcalls = 1)),
+    (; pkg = :wrapper,
+        sparsity = :none,
+        name = "NR [PETSc] (No Sparsity)",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing)),
+    (; pkg = :wrapper, sparsity = :exact, name = "NR [PETSc] (Exact Sparsity)",
+        alg = PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic")), (;
+        pkg = :nonlinearsolve, sparsity = :none, name = "TR (No Sparsity)",
+        alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :nonlinearsolve, sparsity = :exact, name = "TR (Exact Sparsity)",
+        alg = TrustRegion(; radius_update_scheme = RUS.NLsolve)),
+    (; pkg = :wrapper, sparsity = :none, name = "TR [NLsolve.jl]",
+        alg = NLsolveJL(; autodiff = :forward)),
+    (; pkg = :wrapper, sparsity = :none, name = "TR [PETSc] (No Sparsity)",
+        alg = PETScSNES(; snes_type = "newtontr", autodiff = missing)),
+    (; pkg = :wrapper, sparsity = :exact, name = "TR [PETSc] (Exact Sparsity)",
+        alg = PETScSNES(; snes_type = "newtontr")), (; pkg = :wrapper, sparsity = :none,
+        name = "Mod. Powell [MINPACK]", alg = CMINPACK())
 ]
 
 GC.enable(false) # for PETSc
@@ -409,13 +418,14 @@ for (i, N) in enumerate(Ns)
         end
 
         if (j > 1 && runtimes_scaling[j - 1, i] == -1) ||
-            (alg isa CMINPACK && N > 32) ||
-            (alg isa KINSOL && N > 64) ||
-            (alg isa NLsolveJL && N > 64 && alg.method == :trust_region) ||
-            (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :TrustRegion && N > 64) ||
-            (alg isa NLsolveJL && N > 128 && alg.method == :newton) ||
-            (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson && N > 128 && ptype == :none) ||
-            (alg isa PETScSNES && N > 64)
+           (alg isa CMINPACK && N > 32) ||
+           (alg isa KINSOL && N > 64) ||
+           (alg isa NLsolveJL && N > 64 && alg.method == :trust_region) ||
+           (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :TrustRegion && N > 64) ||
+           (alg isa NLsolveJL && N > 128 && alg.method == :newton) ||
+           (alg isa GeneralizedFirstOrderAlgorithm && alg.name == :NewtonRaphson &&
+            N > 128 && ptype == :none) ||
+           (alg isa PETScSNES && N > 64)
             # The last benchmark failed so skip this too
             runtimes_scaling[j, i] = NaN
             @warn "$(name): Would Have Timed out"
@@ -424,9 +434,9 @@ for (i, N) in enumerate(Ns)
                 termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
                                         nothing :
                                         NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
-                sol = solve(prob, alg; abstol=1e-6, reltol=1e-6, termination_condition)
-                runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol=1e-6,
-                    reltol=1e-6, termination_condition=$termination_condition)
+                sol = solve(prob, alg; abstol = 1e-6, reltol = 1e-6, termination_condition)
+                runtimes_scaling[j, i] = @belapsed solve($prob, $alg; abstol = 1e-6,
+                    reltol = 1e-6, termination_condition = $termination_condition)
                 @info "$(name): $(runtimes_scaling[j, i]) | $(norm(sol.resid, Inf)) | $(sol.retcode)"
             end
 
@@ -460,7 +470,7 @@ fig = begin
         (:nonlinearsolve, :exact) => :dashdot,
         # (:simplenonlinearsolve, :none) => :solid,
         (:wrapper, :exact) => :dash,
-        (:wrapper, :none) => :dot,
+        (:wrapper, :none) => :dot
     )
 
     Ns_ = Ns .^ 2 .* 2
@@ -486,25 +496,25 @@ fig = begin
             push!(scs, sc)
         end
 
-        main_legend = [
-            [
-                LineElement(; color = ls[idx].color, linestyle = ls[idx].linestyle,
-                    linewidth = ls[idx].linewidth),
-                MarkerElement(; color = scs[idx].color, marker = scs[idx].marker,
-                    markersize = scs[idx].markersize, strokewidth = scs[idx].strokewidth)
-            ]
-            for idx in 1:length(solvers_scaling)
-        ]
+        main_legend = [[
+                           LineElement(;
+                               color = ls[idx].color, linestyle = ls[idx].linestyle,
+                               linewidth = ls[idx].linewidth),
+                           MarkerElement(;
+                               color = scs[idx].color, marker = scs[idx].marker,
+                               markersize = scs[idx].markersize, strokewidth = scs[idx].strokewidth)
+                       ]
+                       for idx in 1:length(solvers_scaling)]
 
         sparsity_legend = [
             LineElement(; linestyle = :solid, linewidth = 5),
             # LineElement(; linestyle = :dash, linewidth = 5),
-            LineElement(; linestyle = :dashdot, linewidth = 5),
+            LineElement(; linestyle = :dashdot, linewidth = 5)
         ]
 
         axislegend(ax, main_legend, [s.name for s in solvers_scaling[idxs]],
             "Successful Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, orientation = :vertical,
+            framevisible = true, framewidth = STROKEWIDTH, orientation = :vertical,
             titlesize = 20, nbanks = 1, labelsize = 16,
             tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
             position = :rb)
@@ -515,7 +525,7 @@ fig = begin
                 # "Approx. Sparsity",
                 "Exact Sparsity"
             ],
-            "Sparsity Detection"; framevisible=true, framewidth = STROKEWIDTH,
+            "Sparsity Detection"; framevisible = true, framewidth = STROKEWIDTH,
             orientation = :vertical, titlesize = 20, nbanks = 1, labelsize = 16,
             tellheight = true, tellwidth = false, patchsize = (60.0f0, 20.0f0),
             position = :lt)
@@ -540,25 +550,38 @@ exploit sparsity will automatically do so.
 
 ```julia
 solvers_all = [
-    (; pkg = :nonlinearsolve, name = "Default PolyAlg",           solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
-    (; pkg = :nonlinearsolve, name = "RobustMultiNewton (GMRES)", solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))),
-
-    (; pkg = :nonlinearsolve, name = "Newton Raphson",            solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
-    (; pkg = :nonlinearsolve, name = "Newton Krylov",             solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
-    (; pkg = :nonlinearsolve, name = "Trust Region",              solver = Dict(:alg => TrustRegion())),
-    (; pkg = :nonlinearsolve, name = "TR Krylov",                 solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))),
-
-    (; pkg = :wrapper,        name = "NR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
-    (; pkg = :wrapper,        name = "TR [NLsolve.jl]",           solver = Dict(:alg => NLsolveJL(; autodiff = :forward))),
-
-    (; pkg = :wrapper,        name = "NR [Sundials]",             solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls=1))),
-    (; pkg = :wrapper,        name = "Newton Krylov [Sundials]",  solver = Dict(:alg => KINSOL(; linear_solver = :GMRES, maxsetupcalls=1, krylov_dim = 1000))),
-
-    (; pkg = :wrapper,        name = "Mod. Powell [MINPACK]",     solver = Dict(:alg => CMINPACK())),
-
-    (; pkg = :wrapper,        name = "NR [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing))),
-    (; pkg = :wrapper,        name = "TR [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtontr", autodiff = missing))),
-    (; pkg = :wrapper,        name = "Newton Krylov [PETSc]",  solver = Dict(:alg => PETScSNES(; snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres", autodiff = missing, snes_mf = true, ksp_gmres_restart = 1000))),
+    (; pkg = :nonlinearsolve, name = "Default PolyAlg",
+        solver = Dict(:alg => FastShortcutNonlinearPolyalg())),
+    (; pkg = :nonlinearsolve, name = "RobustMultiNewton (GMRES)",
+        solver = Dict(:alg => RobustMultiNewton(; linsolve = KrylovJL_GMRES()))), (;
+        pkg = :nonlinearsolve, name = "Newton Raphson",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = nothing))),
+    (; pkg = :nonlinearsolve, name = "Newton Krylov",
+        solver = Dict(:alg => NewtonRaphson(; linsolve = KrylovJL_GMRES()))),
+    (; pkg = :nonlinearsolve, name = "Trust Region", solver = Dict(:alg => TrustRegion())),
+    (; pkg = :nonlinearsolve, name = "TR Krylov",
+        solver = Dict(:alg => TrustRegion(; linsolve = KrylovJL_GMRES()))), (;
+        pkg = :wrapper, name = "NR [NLsolve.jl]",
+        solver = Dict(:alg => NLsolveJL(; method = :newton, autodiff = :forward))),
+    (; pkg = :wrapper, name = "TR [NLsolve.jl]",
+        solver = Dict(:alg => NLsolveJL(; autodiff = :forward))), (;
+        pkg = :wrapper, name = "NR [Sundials]",
+        solver = Dict(:alg => KINSOL(; linear_solver = :LapackDense, maxsetupcalls = 1))),
+    (; pkg = :wrapper,
+        name = "Newton Krylov [Sundials]",
+        solver = Dict(:alg => KINSOL(; linear_solver = :GMRES, maxsetupcalls = 1, krylov_dim = 1000))), (;
+        pkg = :wrapper, name = "Mod. Powell [MINPACK]", solver = Dict(:alg => CMINPACK())),
+    (; pkg = :wrapper,
+        name = "NR [PETSc]",
+        solver = Dict(:alg => PETScSNES(;
+            snes_type = "newtonls", snes_linesearch_type = "basic", autodiff = missing))),
+    (; pkg = :wrapper, name = "TR [PETSc]",
+        solver = Dict(:alg => PETScSNES(; snes_type = "newtontr", autodiff = missing))),
+    (; pkg = :wrapper,
+        name = "Newton Krylov [PETSc]",
+        solver = Dict(:alg => PETScSNES(;
+            snes_type = "newtonls", snes_linesearch_type = "basic", ksp_type = "gmres",
+            autodiff = missing, snes_mf = true, ksp_gmres_restart = 1000)))
 ];
 ```
 
@@ -574,11 +597,13 @@ function check_solver(prob, solver)
             maxiters = 10000)
         err = norm(sol.resid, Inf)
         if !SciMLBase.successful_retcode(sol.retcode)
-            Base.printstyled("[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
+            Base.printstyled(
+                "[Warn] Solver $(solver.name) returned retcode $(sol.retcode) with an residual norm = $(norm(sol.resid)).\n";
                 color = :red)
             return false
         elseif err > 1e3
-            Base.printstyled("[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
+            Base.printstyled(
+                "[Warn] Solver $(solver.name) had a very large residual (norm = $(norm(sol.resid))).\n";
                 color = :red)
             return false
         elseif isinf(err) || isnan(err)
@@ -586,7 +611,8 @@ function check_solver(prob, solver)
                 color = :red)
             return false
         end
-        Base.printstyled("[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
+        Base.printstyled(
+            "[Info] Solver $(solver.name) successfully solved the problem (norm = $(norm(sol.resid))).\n";
             color = :green)
     catch e
         Base.printstyled("[Warn] Solver $(solver.name) threw an error: $e.\n"; color = :red)
@@ -602,7 +628,8 @@ function generate_wpset(prob, solvers)
     return WorkPrecisionSet(prob, abstols, reltols,
         getfield.(successful_solvers, :solver);
         names = getfield.(successful_solvers, :name), numruns = 10, error_estimate = :l∞,
-        maxiters = 1000, verbose = true), successful_solvers
+        maxiters = 1000, verbose = true),
+    successful_solvers
 end
 ```
 
@@ -644,18 +671,19 @@ fig = begin
             errors = [err.l∞ for err in errors]
             l = lines!(ax, errors, times; linestyle = LINESTYLES[solver.pkg], label = name,
                 linewidth = 5, color = colors[i])
-            sc = scatter!(ax, errors, times; label = name, markersize = 16, strokewidth = 2,
+            sc = scatter!(
+                ax, errors, times; label = name, markersize = 16, strokewidth = 2,
                 color = colors[i])
             push!(ls, l)
             push!(scs, sc)
         end
 
-        xlims!(ax; high=1)
-        ylims!(ax; low=5e-3)
+        xlims!(ax; high = 1)
+        ylims!(ax; low = 5e-3)
 
         axislegend(ax, [[l, sc] for (l, sc) in zip(ls, scs)],
             [solver.name for solver in successful_solvers[idxs]], "Successful Solvers";
-            framevisible=true, framewidth = STROKEWIDTH, position = :rb,
+            framevisible = true, framewidth = STROKEWIDTH, position = :rb,
             titlesize = 20, labelsize = 16, patchsize = (40.0f0, 20.0f0))
 
         fig[0, :] = Label(fig, "Brusselator Steady State PDE: Work Precision Diagram",
@@ -670,8 +698,7 @@ end
 save("brusselator_wpd.svg", fig)
 ```
 
-
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
