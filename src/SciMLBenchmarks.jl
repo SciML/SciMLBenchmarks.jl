@@ -1,6 +1,7 @@
 module SciMLBenchmarks
 
 using Weave, Pkg, IJulia, InteractiveUtils, Markdown
+using PrecompileTools: @compile_workload, @setup_workload
 
 repo_directory = joinpath(@__DIR__,"..")
 
@@ -147,6 +148,37 @@ function open_notebooks()
     newpath = joinpath(pwd(),"generated_notebooks")
     mv(path, newpath)
     IJulia.notebook(;dir=newpath)
-  end
+end
+
+# Precompilation workload to improve TTFX for common operations
+@setup_workload begin
+    # Setup code - this runs at precompile time but is not precompiled
+    @compile_workload begin
+        # Precompile Markdown operations commonly used in bench_footer
+        md_text = md"""
+        ## Test Header
+        This is a test markdown string.
+        """
+
+        # Precompile Markdown.parse which is called in bench_footer
+        parsed_md = Markdown.parse("""
+        Test markdown content
+        ```
+        code block
+        ```
+        """)
+
+        # Precompile sprint with versioninfo (used in bench_footer)
+        vinfo = sprint(InteractiveUtils.versioninfo)
+
+        # Precompile Pkg.status operations (used in bench_footer)
+        proj_status = sprint(io -> Pkg.status(io = io))
+        manifest_status = sprint(io -> Pkg.status(io = io, mode = Pkg.PKGMODE_MANIFEST))
+
+        # Precompile string operations commonly used
+        chomp(proj_status)
+        chomp(manifest_status)
+    end
+end
 
 end # module SciMLBenchmarks
