@@ -1,5 +1,9 @@
 using SciMLBenchmarks, Test
 
+@testset "Explicit Imports" begin
+    include("explicit_imports.jl")
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
