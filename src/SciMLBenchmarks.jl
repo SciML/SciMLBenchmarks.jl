@@ -1,6 +1,10 @@
 module SciMLBenchmarks
 
-using Weave, Pkg, IJulia, InteractiveUtils, Markdown
+using IJulia: IJulia
+using InteractiveUtils: InteractiveUtils
+using Markdown: Markdown, @md_str
+using Pkg: Pkg
+using Weave: Weave, tangle, weave
 using PrecompileTools: @compile_workload, @setup_workload
 
 repo_directory = joinpath(@__DIR__,"..")
