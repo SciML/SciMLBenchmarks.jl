@@ -26,7 +26,7 @@ computational science and scientific computing all the way to AI for science.
 These benchmarks are meant to represent good optimized coding style. Benchmarks are preferred to be run on the provided open
 benchmarking hardware for full reproducibility (though in some cases, such as with language barriers, this can be difficult).
 Each benchmark is documented with the compute devices used along with package versions for necessary reproduction. These
-benchmarks attempt to measure in terms of work-precision efficiency, either timing with an approximately matching the error
+benchmarks attempt to measure in terms of work-precision efficiency, either timing with approximately matching error
 or building work-precision diagrams for direct comparison of speed at given error tolerances.
 
 **If any of the code from any of the languages can be improved, please open a pull request**.
