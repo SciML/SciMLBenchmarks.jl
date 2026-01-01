@@ -1,0 +1,168 @@
+---
+title: GPU Ensemble ODE Benchmark - Lorenz System
+author: SciMLBenchmarks
+---
+
+## Introduction
+
+This benchmark compares CPU vs GPU performance for solving many independent ODE trajectories using DiffEqGPU.jl's EnsembleGPUKernel approach. The Lorenz system is used as a canonical chaotic system benchmark.
+
+GPU acceleration is most effective for ensemble problems where thousands of independent trajectories need to be computed. The GPU kernel approach compiles the entire ODE solver to GPU, avoiding CPU-GPU synchronization overhead.
+
+```julia
+using OrdinaryDiffEq, DiffEqGPU, CUDA, StaticArrays, BenchmarkTools, Plots
+
+# Verify GPU availability
+@assert CUDA.functional() "CUDA not functional - GPU benchmarks require a CUDA-capable GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+CUDA.versioninfo()
+```
+
+## Problem Definition
+
+The Lorenz system is defined using StaticArrays for stack-allocated, non-allocating operations required for GPU execution:
+
+$$\frac{dx}{dt} = \sigma(y - x)$$
+$$\frac{dy}{dt} = x(\rho - z) - y$$
+$$\frac{dz}{dt} = xy - \beta z$$
+
+```julia
+function lorenz(u, p, t)
+    sigma, rho, beta = p
+    x, y, z = u
+    dx = sigma * (y - x)
+    dy = x * (rho - z) - y
+    dz = x * y - beta * z
+    SA[dx, dy, dz]
+end
+
+u0 = SA[1.0f0, 0.0f0, 0.0f0]
+tspan = (0.0f0, 10.0f0)
+p = SA[10.0f0, 28.0f0, 8.0f0/3.0f0]
+
+prob = ODEProblem{false}(lorenz, u0, tspan, p)
+```
+
+## Ensemble Problem Setup
+
+We create an ensemble with parameter variations to simulate many independent trajectories:
+
+```julia
+function prob_func(prob, i, repeat)
+    remake(prob, p = SA[10.0f0 + 0.01f0*i, 28.0f0, 8.0f0/3.0f0])
+end
+
+ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
+```
+
+## Single Trajectory Verification
+
+First, verify that GPU and CPU produce matching results:
+
+```julia
+# CPU solution
+sol_cpu = solve(prob, Tsit5(), saveat = 0.1f0)
+
+# GPU solution (single trajectory)
+sol_gpu = solve(ensemble_prob, GPUTsit5(), EnsembleGPUKernel(CUDA.CUDABackend()),
+                trajectories = 1, saveat = 0.1f0)
+
+println("CPU final state: ", sol_cpu.u[end])
+println("GPU final state: ", sol_gpu[1].u[end])
+```
+
+```julia
+plot(sol_cpu, idxs = (1, 2, 3), title = "Lorenz Attractor (CPU)", label = "")
+```
+
+## Benchmarking: CPU vs GPU
+
+We benchmark across different trajectory counts to find the crossover point where GPU becomes faster:
+
+```julia
+trajectory_counts = [100, 1000, 10000, 100000]
+cpu_times = Float64[]
+gpu_times = Float64[]
+
+for N in trajectory_counts
+    println("\n--- Benchmarking N = $N trajectories ---")
+
+    # CPU (threaded)
+    t_cpu = @belapsed solve($ensemble_prob, Tsit5(), EnsembleThreads(),
+                           trajectories = $N, saveat = 0.1f0) samples=3 evals=1
+    push!(cpu_times, t_cpu)
+    println("CPU (threaded): $(round(t_cpu, digits=4))s")
+
+    # GPU
+    t_gpu = @belapsed solve($ensemble_prob, GPUTsit5(),
+                           EnsembleGPUKernel(CUDA.CUDABackend()),
+                           trajectories = $N, saveat = 0.1f0) samples=3 evals=1
+    push!(gpu_times, t_gpu)
+    println("GPU (CUDA):     $(round(t_gpu, digits=4))s")
+
+    speedup = t_cpu / t_gpu
+    println("Speedup:        $(round(speedup, digits=1))x")
+end
+```
+
+## Results Visualization
+
+```julia
+p1 = plot(trajectory_counts, [cpu_times gpu_times],
+     label = ["CPU (Threads)" "GPU (CUDA)"],
+     xscale = :log10, yscale = :log10,
+     xlabel = "Number of Trajectories",
+     ylabel = "Time (s)",
+     title = "DiffEqGPU.jl Ensemble Performance",
+     marker = :circle,
+     legend = :topleft,
+     linewidth = 2)
+```
+
+```julia
+speedups = cpu_times ./ gpu_times
+p2 = plot(trajectory_counts, speedups,
+     xscale = :log10,
+     xlabel = "Number of Trajectories",
+     ylabel = "Speedup (CPU/GPU)",
+     title = "GPU Speedup vs CPU",
+     marker = :circle,
+     legend = false,
+     linewidth = 2,
+     color = :green)
+hline!([1.0], linestyle = :dash, color = :red, label = "Break-even")
+```
+
+```julia
+plot(p1, p2, layout = (1, 2), size = (1000, 400))
+```
+
+## Summary Table
+
+```julia
+using Printf
+
+println("\nSummary Results:")
+println("=" ^ 60)
+@printf("%-15s %12s %12s %12s\n", "Trajectories", "CPU (s)", "GPU (s)", "Speedup")
+println("-" ^ 60)
+for (N, t_cpu, t_gpu) in zip(trajectory_counts, cpu_times, gpu_times)
+    @printf("%-15d %12.4f %12.4f %12.1fx\n", N, t_cpu, t_gpu, t_cpu/t_gpu)
+end
+println("=" ^ 60)
+```
+
+## Conclusion
+
+GPU acceleration via DiffEqGPU.jl provides significant speedups for ensemble ODE problems when the number of trajectories is large (typically > 1000). The EnsembleGPUKernel approach compiles the entire solver to GPU code, maximizing throughput for embarrassingly parallel trajectory computations.
+
+Key observations:
+- GPU overhead is amortized over many trajectories
+- Float32 precision is recommended for GPU (faster memory bandwidth)
+- StaticArrays are required for GPU kernel compilation
+- The crossover point depends on problem complexity and GPU hardware
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
