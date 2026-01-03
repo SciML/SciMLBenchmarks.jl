@@ -12,10 +12,15 @@ GPU acceleration is most effective for ensemble problems where thousands of inde
 ```julia
 using OrdinaryDiffEq, DiffEqGPU, CUDA, StaticArrays, BenchmarkTools, Plots
 
-# Verify GPU availability
-@assert CUDA.functional() "CUDA not functional - GPU benchmarks require a CUDA-capable GPU"
-println("GPU: ", CUDA.name(CUDA.device()))
-CUDA.versioninfo()
+# Check GPU availability
+const CUDA_AVAILABLE = CUDA.functional()
+println("CUDA functional: ", CUDA_AVAILABLE)
+if CUDA_AVAILABLE
+    println("GPU: ", CUDA.name(CUDA.device()))
+    CUDA.versioninfo()
+else
+    @warn "CUDA not functional - GPU benchmarks will be skipped, showing CPU-only results"
+end
 ```
 
 ## Problem Definition
@@ -62,13 +67,14 @@ First, verify that GPU and CPU produce matching results:
 ```julia
 # CPU solution
 sol_cpu = solve(prob, Tsit5(), saveat = 0.1f0)
-
-# GPU solution (single trajectory)
-sol_gpu = solve(ensemble_prob, GPUTsit5(), EnsembleGPUKernel(CUDA.CUDABackend()),
-                trajectories = 1, saveat = 0.1f0)
-
 println("CPU final state: ", sol_cpu.u[end])
-println("GPU final state: ", sol_gpu[1].u[end])
+
+if CUDA_AVAILABLE
+    # GPU solution (single trajectory)
+    sol_gpu = solve(ensemble_prob, GPUTsit5(), EnsembleGPUKernel(CUDA.CUDABackend()),
+                    trajectories = 1, saveat = 0.1f0)
+    println("GPU final state: ", sol_gpu[1].u[end])
+end
 ```
 
 ```julia
@@ -93,48 +99,74 @@ for N in trajectory_counts
     push!(cpu_times, t_cpu)
     println("CPU (threaded): $(round(t_cpu, digits=4))s")
 
-    # GPU
-    t_gpu = @belapsed solve($ensemble_prob, GPUTsit5(),
-                           EnsembleGPUKernel(CUDA.CUDABackend()),
-                           trajectories = $N, saveat = 0.1f0) samples=3 evals=1
-    push!(gpu_times, t_gpu)
-    println("GPU (CUDA):     $(round(t_gpu, digits=4))s")
-
-    speedup = t_cpu / t_gpu
-    println("Speedup:        $(round(speedup, digits=1))x")
+    if CUDA_AVAILABLE
+        # GPU
+        t_gpu = @belapsed solve($ensemble_prob, GPUTsit5(),
+                               EnsembleGPUKernel(CUDA.CUDABackend()),
+                               trajectories = $N, saveat = 0.1f0) samples=3 evals=1
+        push!(gpu_times, t_gpu)
+        println("GPU (CUDA):     $(round(t_gpu, digits=4))s")
+        speedup = t_cpu / t_gpu
+        println("Speedup:        $(round(speedup, digits=1))x")
+    else
+        push!(gpu_times, NaN)
+        println("GPU (CUDA):     N/A (CUDA not available)")
+    end
 end
 ```
 
 ## Results Visualization
 
 ```julia
-p1 = plot(trajectory_counts, [cpu_times gpu_times],
-     label = ["CPU (Threads)" "GPU (CUDA)"],
-     xscale = :log10, yscale = :log10,
-     xlabel = "Number of Trajectories",
-     ylabel = "Time (s)",
-     title = "DiffEqGPU.jl Ensemble Performance",
-     marker = :circle,
-     legend = :topleft,
-     linewidth = 2)
+if CUDA_AVAILABLE && !any(isnan, gpu_times)
+    p1 = plot(trajectory_counts, [cpu_times gpu_times],
+         label = ["CPU (Threads)" "GPU (CUDA)"],
+         xscale = :log10, yscale = :log10,
+         xlabel = "Number of Trajectories",
+         ylabel = "Time (s)",
+         title = "DiffEqGPU.jl Ensemble Performance",
+         marker = :circle,
+         legend = :topleft,
+         linewidth = 2)
+else
+    p1 = plot(trajectory_counts, cpu_times,
+         label = "CPU (Threads)",
+         xscale = :log10, yscale = :log10,
+         xlabel = "Number of Trajectories",
+         ylabel = "Time (s)",
+         title = "CPU Ensemble Performance (GPU unavailable)",
+         marker = :circle,
+         linewidth = 2)
+end
+p1
 ```
 
 ```julia
-speedups = cpu_times ./ gpu_times
-p2 = plot(trajectory_counts, speedups,
-     xscale = :log10,
-     xlabel = "Number of Trajectories",
-     ylabel = "Speedup (CPU/GPU)",
-     title = "GPU Speedup vs CPU",
-     marker = :circle,
-     legend = false,
-     linewidth = 2,
-     color = :green)
-hline!([1.0], linestyle = :dash, color = :red, label = "Break-even")
+if CUDA_AVAILABLE && !any(isnan, gpu_times)
+    speedups = cpu_times ./ gpu_times
+    p2 = plot(trajectory_counts, speedups,
+         xscale = :log10,
+         xlabel = "Number of Trajectories",
+         ylabel = "Speedup (CPU/GPU)",
+         title = "GPU Speedup vs CPU",
+         marker = :circle,
+         legend = false,
+         linewidth = 2,
+         color = :green)
+    hline!([1.0], linestyle = :dash, color = :red, label = "Break-even")
+    p2
+else
+    println("GPU speedup plot skipped - CUDA not available")
+    nothing
+end
 ```
 
 ```julia
-plot(p1, p2, layout = (1, 2), size = (1000, 400))
+if CUDA_AVAILABLE && !any(isnan, gpu_times)
+    plot(p1, p2, layout = (1, 2), size = (1000, 400))
+else
+    p1
+end
 ```
 
 ## Summary Table
@@ -144,10 +176,19 @@ using Printf
 
 println("\nSummary Results:")
 println("=" ^ 60)
-@printf("%-15s %12s %12s %12s\n", "Trajectories", "CPU (s)", "GPU (s)", "Speedup")
-println("-" ^ 60)
-for (N, t_cpu, t_gpu) in zip(trajectory_counts, cpu_times, gpu_times)
-    @printf("%-15d %12.4f %12.4f %12.1fx\n", N, t_cpu, t_gpu, t_cpu/t_gpu)
+if CUDA_AVAILABLE && !any(isnan, gpu_times)
+    @printf("%-15s %12s %12s %12s\n", "Trajectories", "CPU (s)", "GPU (s)", "Speedup")
+    println("-" ^ 60)
+    for (N, t_cpu, t_gpu) in zip(trajectory_counts, cpu_times, gpu_times)
+        @printf("%-15d %12.4f %12.4f %12.1fx\n", N, t_cpu, t_gpu, t_cpu/t_gpu)
+    end
+else
+    @printf("%-15s %12s\n", "Trajectories", "CPU (s)")
+    println("-" ^ 60)
+    for (N, t_cpu) in zip(trajectory_counts, cpu_times)
+        @printf("%-15d %12.4f\n", N, t_cpu)
+    end
+    println("\nNote: GPU benchmarks skipped - CUDA not available on this system")
 end
 println("=" ^ 60)
 ```
