@@ -14,9 +14,23 @@ if [[ "${JULIAHUBREGISTRY_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	julia -e 'using Pkg; Pkg.Registry.add(); Pkg.Registry.status()'
 fi
 
+# GPU benchmark setup
+if [[ "${1}" == *GPU/* ]]; then
+	echo "--- :gpu: GPU benchmark setup"
+	# Disable CUDA memory pool for accurate benchmarking
+	export JULIA_CUDA_MEMORY_POOL='none'
+	echo "JULIA_CUDA_MEMORY_POOL=${JULIA_CUDA_MEMORY_POOL}"
+fi
+
 # Instantiate, to install the overall project dependencies, and `build()` for conda
 echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
+
+# Verify CUDA availability for GPU benchmarks
+if [[ "${1}" == *GPU/* ]]; then
+	echo "--- :gpu: Verify CUDA availability"
+	julia --project=. -e 'using CUDA; CUDA.functional() || error("CUDA not functional!"); println("GPU: ", CUDA.name(CUDA.device())); CUDA.versioninfo()'
+fi
 
 if [[ "${1}" == *BayesianInference* ]]; then
 	export CMDSTAN_HOME="$(pwd)/cmdstan-2.29.2/"
