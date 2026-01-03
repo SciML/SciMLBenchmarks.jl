@@ -1,21 +1,11 @@
 steps:
-  - label: ":julia: Run tests on LTS"
-    plugins:
-      - JuliaCI/julia#v1:
-          version: '1.10'
-      - JuliaCI/julia-test#v1:
-    timeout_in_minutes: 20
-    artifact_paths:
-       # Upload .html
-      - "html/Testing/*.html"
-      # Upload markdown
-      - "markdown/Testing/*.md"
-      # Upload notebook
-      - "notebook/Testing/*.ipynb"
-      # Upload .pdf files
-      - "pdf/Testing/*.pdf"
-      # Upload Julia script
-      - "script/Testing/*.jl"
+  - label: ":gear: Generate Dynamic Pipeline"
+    command: |
+      # Install required Julia packages
+      julia -e 'using Pkg; Pkg.add("YAML")'
+      
+      # Generate dynamic pipeline based on changed files and queue configuration
+      julia .buildkite/generate_pipeline.jl | buildkite-agent pipeline upload
     agents:
       queue: "juliaecosystem"
       arch: "x86_64"
