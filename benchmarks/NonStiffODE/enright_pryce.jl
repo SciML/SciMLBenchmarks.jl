@@ -480,7 +480,7 @@ ys′ = [-0.557160570446, 0.505696783289, 0.230578543901,
     -0.176860753121, -0.216393453025, -0.0148647893090]
 y0 = y .=> reshape(ys, 3, 5)
 y0′ = D.(y) .=> reshape(ys′, 3, 5)
-# The orginal paper has t_f = 20, but 1000 looks way better
+# The original paper has t_f = 20, but 1000 looks way better
 # nc5prob = ODEProblem{false}(nc5sys, [y0; y0′], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
 
 const NC_PROBLEMS = [nc1prob, nc2prob, nc3prob, nc4prob] # nc5prob temporarily disabled for MTK v10
