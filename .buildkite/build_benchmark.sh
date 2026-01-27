@@ -14,8 +14,8 @@ if [[ "${JULIAHUBREGISTRY_BENCHMARK_TARGETS[*]}" =~ "${1}" ]]; then
 	julia -e 'using Pkg; Pkg.Registry.add(); Pkg.Registry.status()'
 fi
 
-# GPU benchmark setup
-if [[ "${1}" == *GPU/* ]]; then
+# GPU benchmark setup - match both benchmarks/GPU/file.jmd and benchmarks/GPU
+if [[ "${1}" == *GPU/* ]] || [[ "${1}" == */GPU ]]; then
 	echo "--- :gpu: GPU benchmark setup"
 	# Disable CUDA memory pool for accurate benchmarking
 	export JULIA_CUDA_MEMORY_POOL='none'
@@ -27,9 +27,16 @@ echo "--- :julia: Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
 # Verify CUDA availability for GPU benchmarks
-if [[ "${1}" == *GPU/* ]]; then
+if [[ "${1}" == *GPU/* ]] || [[ "${1}" == */GPU ]]; then
 	echo "--- :gpu: Verify CUDA availability"
-	julia --project=. -e 'using CUDA; CUDA.functional() || error("CUDA not functional!"); println("GPU: ", CUDA.name(CUDA.device())); CUDA.versioninfo()'
+	# Use the benchmark's project directory which has CUDA as a dependency
+	# Handle both file paths (benchmarks/GPU/file.jmd) and directory paths (benchmarks/GPU)
+	if [[ -d "${1}" ]]; then
+		GPU_PROJECT_DIR="${1}"
+	else
+		GPU_PROJECT_DIR="$(dirname "${1}")"
+	fi
+	julia --project="${GPU_PROJECT_DIR}" -e 'using CUDA; CUDA.functional() || error("CUDA not functional!"); println("GPU: ", CUDA.name(CUDA.device())); CUDA.versioninfo()'
 fi
 
 if [[ "${1}" == *BayesianInference* ]]; then

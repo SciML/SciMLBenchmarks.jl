@@ -53,8 +53,11 @@ prob = ODEProblem{false}(lorenz, u0, tspan, p)
 We create an ensemble with parameter variations to simulate many independent trajectories:
 
 ```julia
+# Keep sigma variations within a bounded range to maintain comparable Lorenz dynamics
+# Using mod to keep sigma between 10.0 and ~20.0 even for large trajectory counts
 function prob_func(prob, i, repeat)
-    remake(prob, p = SA[10.0f0 + 0.01f0*i, 28.0f0, 8.0f0/3.0f0])
+    sigma = 10.0f0 + 0.01f0 * mod(i - 1, 1000)
+    remake(prob, p = SA[sigma, 28.0f0, 8.0f0/3.0f0])
 end
 
 ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
@@ -62,18 +65,31 @@ ensemble_prob = EnsembleProblem(prob, prob_func = prob_func)
 
 ## Single Trajectory Verification
 
-First, verify that GPU and CPU produce matching results:
+First, verify that GPU and CPU produce matching results for the same problem:
 
 ```julia
+# Create a verification ensemble that doesn't modify parameters
+# This ensures CPU and GPU solve identical problems
+verification_prob = EnsembleProblem(prob)
+
 # CPU solution
 sol_cpu = solve(prob, Tsit5(), saveat = 0.1f0)
 println("CPU final state: ", sol_cpu.u[end])
 
 if CUDA_AVAILABLE
-    # GPU solution (single trajectory)
-    sol_gpu = solve(ensemble_prob, GPUTsit5(), EnsembleGPUKernel(CUDA.CUDABackend()),
+    # GPU solution (single trajectory with identical parameters)
+    sol_gpu = solve(verification_prob, GPUTsit5(), EnsembleGPUKernel(CUDA.CUDABackend()),
                     trajectories = 1, saveat = 0.1f0)
     println("GPU final state: ", sol_gpu[1].u[end])
+
+    # Verify results match within floating point tolerance
+    max_diff = maximum(abs.(sol_cpu.u[end] .- sol_gpu[1].u[end]))
+    println("Max difference: ", max_diff)
+    if max_diff < 1e-4
+        println("✓ GPU and CPU results match!")
+    else
+        @warn "GPU and CPU results differ by $max_diff"
+    end
 end
 ```
 
