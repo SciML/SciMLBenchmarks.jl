@@ -1,0 +1,21 @@
+# GPU benchmark pipeline - simplified for juliagpu queue compatibility
+# Note: juliagpu runners don't support cryptic/sandbox, so we use basic artifacts
+# Coppermind memoization and auto-publishing can be added later with split architecture
+
+steps:
+  - label: ":hammer: :gpu: {PATH}"
+    key: "benchmark-{SANITIZED_PATH}"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: "1.10"
+    timeout_in_minutes: 240
+    commands: |
+      ./.buildkite/build_benchmark.sh "{PATH}"
+    agents:
+      queue: "juliagpu"
+      cuda: "*"
+    artifact_paths:
+      - "markdown/**/*"
+      - "notebook/**/*"
+      - "pdf/**/*"
+      - "script/**/*"
