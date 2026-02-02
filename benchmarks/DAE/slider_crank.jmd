@@ -5,424 +5,126 @@ author: Singh Harsh Rahulkumar
 
 ## Overview
 
-The slider-crank mechanism is a classical constrained mechanical system that naturally leads to differential-algebraic equations (DAEs) due to holonomic constraints. This benchmark implements the system from the [ARCHIMEDE Test Set](https://archimede.dm.uniba.it/~testset/problems/crank.php), which represents an index-2 DAE formulation of a flexible slider-crank mechanism with elastic connecting rod effects.
+The slider-crank mechanism is a classical constrained mechanical system that naturally leads to differential-algebraic equations (DAEs). This benchmark compares two distinct formulations of the standard index-2 rigid slider-crank:
 
-The system models a slider-crank mechanism where:
-- The crank rotates at constant angular velocity Ω
-- The connecting rod exhibits flexibility (elastic deformation)
-- Constraint equations maintain geometric relationships
-- The index-2 DAE structure requires consistent initialization
+1.  **Mass-Matrix ODE Form:** $M \dot{u} = f(u)$, where $M$ is singular. This is solved using Rosenbrock methods (`Rodas5P`) and implicit Runge-Kutta methods (`RadauIIA5`).
+2.  **Implicit DAE Form:** $F(\dot{u}, u, t) = 0$. This is solved using the BDF method (`IDA` from Sundials) as a reference.
+
+The system models a crank rotating at constant velocity driving a connecting rod and a slider, constrained by geometric algebraic equations.
 
 ## Problem Formulation
 
+
+
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
-      Plots, DASSL, DASKR
-using LinearAlgebra
-using ModelingToolkit: t_nounits as t, D_nounits as D
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra
 
-## Setup parameter space from ARCHIMEDE benchmark
-@parameters begin
-    m₁ = 0.36          # Mass of crank
-    m₂ = 0.151104      # Mass of connecting rod
-    m₃ = 0.075552      # Mass of slider
-    l₁ = 0.15          # Length of crank
-    l₂ = 0.30          # Length of connecting rod
-    J₁ = 0.002727      # Moment of inertia of crank
-    J₂ = 0.0045339259  # Moment of inertia of rod
-    π = 3.1415927
-    EE = 0.20e12       # Young's modulus
-    NUE = 0.30         # Poisson's ratio
-    BB = 0.0080        # Rod width
-    HH = 0.0080        # Rod height
-    ρ = 7870.0         # Material density
-    γ = 0.0            # Gravity (set to 0 for consistency with original)
-    Ω = 150.0          # Constant angular velocity
-end
+# --- 1. Physics Constants ---
+const m_crank = 0.36
+const m_rod = 0.151104
+const m_slider = 0.075552
+const l_crank = 0.15
+const l_rod = 0.30
+const J_crank = 0.002727
+const J_rod = 0.0045339259
+const g = 9.81
 
-# Derived parameters for flexibility matrices
-FACM = ρ * BB * HH * l₂
-FACK = EE * BB * HH / l₂
-FACB = BB * HH * l₂
+# --- 2. Mass Matrix Formulation (M * du = f) ---
+# State vector u has 8 components:
+# u[1:3] : Positions (theta, phi, x)
+# u[4:6] : Velocities (dtheta, dphi, dx)
+# u[7:8] : Lagrange Multipliers (lambda1, lambda2)
 
-# Mass matrix for flexible degrees of freedom (4×4)
-MQ = [FACM*0.5    0         0          0
-      0          FACM*0.5   0          0
-      0          0         FACM*8.0   FACM*1.0
-      0          0         FACM*1.0   FACM*2.0]
-
-# Stiffness matrix (4×4)
-KQ = [FACK*π^4/24.0*(HH/l₂)^2    0                           0            0
-      0                          FACK*π^4*2.0/3.0*(HH/l₂)^2  0            0
-      0                          0                           FACK*16.0/3.0 -FACK*8.0/3.0
-      0                          0                          -FACK*8.0/3.0  FACK*7.0/3.0]
-
-# Coupling matrix for gyroscopic effects (4×4)
-BQ = [0              0           -FACB*16.0/π^3   FACB*(8.0/π^3-1.0/π)
-      0              0            0               FACB*0.5/π
-      FACB*16.0/π^3  0            0               0
-     -FACB*(8.0/π^3-1.0/π)  -FACB*0.5/π  0       0]
-
-# Coupling vectors
-c1 = [0.0, 0.0, FACB*2.0/3.0, FACB*1.0/6.0]
-c2 = [FACB*2.0/π, 0.0, 0.0, 0.0]
-c12 = [0.0, 0.0, l₂*FACB*1.0/3.0, l₂*FACB*1.0/6.0]
-c21 = [l₂*FACB*1.0/π, -l₂*FACB*0.5/π, 0.0, 0.0]
-
-# Optional damping matrix (set to zero for undamped system)
-DQ = zeros(4, 4)
-
-## Setup variables with consistent initial conditions (init1)
-# These values are from the ARCHIMEDE test set and provide
-# accelerations and multipliers consistent with the constraints
-@variables begin
-    ϕ₁(t) = 0.0                    # Crank angle
-    ϕ₂(t) = 0.0                    # Rod angle
-    x₃(t) = 0.450016933            # Slider position
-    q₁(t) = 0.0                    # Flexible coordinate 1
-    q₂(t) = 0.0                    # Flexible coordinate 2
-    q₃(t) = 0.103339863e-4         # Flexible coordinate 3
-    q₄(t) = 0.169327969e-4         # Flexible coordinate 4
-    dϕ₁(t) = 150.0                 # Crank angular velocity
-    dϕ₂(t) = -74.9957670           # Rod angular velocity
-    dx₃(t) = -0.268938672e-5       # Slider velocity
-    dq₁(t) = 0.444896105           # Flexible velocity 1
-    dq₂(t) = 0.463434311e-2        # Flexible velocity 2
-    dq₃(t) = -0.178591076e-5       # Flexible velocity 3
-    dq₄(t) = -0.268938672e-5       # Flexible velocity 4
-    λ₁(t) = -6.397251492537153e-8  # Lagrange multiplier 1
-    λ₂(t) = 3.824589508329281e+2   # Lagrange multiplier 2
-    λ₃(t) = -4.376060460948886e-9  # Lagrange multiplier 3
-end
-
-# State vectors
-P = [ϕ₁, ϕ₂, x₃]  # Rigid body coordinates
-Q = [q₁, q₂, q₃, q₄]  # Flexible coordinates
-X = [P..., Q...]
-V = [dϕ₁, dϕ₂, dx₃]  # Velocities
-QD = [dq₁, dq₂, dq₃, dq₄]  # Flexible velocities
-DX = [V..., QD...]
-
-# Trigonometric functions for constraint equations
-cosp1 = cos(ϕ₁)
-cosp2 = cos(ϕ₂)
-sinp1 = sin(ϕ₁)
-sinp2 = sin(ϕ₂)
-cosp12 = cos(ϕ₁ - ϕ₂)
-sinp12 = sin(ϕ₁ - ϕ₂)
-
-## Evaluate scalar products and quadratic forms
-# These represent coupling between rigid and flexible motion
-c1TQ = sum(c1[i] * Q[i] for i in 1:4)
-c1TQD = sum(c1[i] * QD[i] for i in 1:4)
-c2TQ = sum(c2[i] * Q[i] for i in 1:4)
-c2TQD = sum(c2[i] * QD[i] for i in 1:4)
-c12TQ = sum(c12[i] * Q[i] for i in 1:4)
-c12TQD = sum(c12[i] * QD[i] for i in 1:4)
-
-# Quadratic forms
-MQQ = [sum(MQ[j, i] * Q[i] for i in 1:4) for j in 1:4]
-KQQ = [sum(KQ[j, i] * Q[i] for i in 1:4) for j in 1:4]
-DQQD = [sum(DQ[j, i] * QD[i] for i in 1:4) for j in 1:4]
-QTBQ = [sum(Q[j] * BQ[j, i] for j in 1:4) for i in 1:4]
-BQQD = [sum(BQ[i, j] * QD[j] for j in 1:4) for i in 1:4]
-
-QTMQQ = sum(Q[i] * MQQ[i] for i in 1:4)
-QDTMQQ = sum(QD[i] * MQQ[i] for i in 1:4)
-QDTBQQD = sum(QD[i] * BQQD[i] for i in 1:4)
-
-## Compute state-dependent mass matrix (7×7)
-# This represents inertia including rigid-flexible coupling
-AM11 = J₁ + m₂*l₁^2
-AM12 = 0.5*l₁*l₂*m₂*cosp12 + ρ*l₁*(sinp12*c2TQ + cosp12*c1TQ)
-AM13 = 0.0
-
-AM21 = AM12
-AM22 = J₂ + QTMQQ + 2.0*ρ*c12TQ
-AM23 = 0.0
-
-AM31 = 0.0
-AM32 = 0.0
-AM33 = m₃
-
-# Coupling with flexible coordinates
-AM1Q = [ρ*l₁*(-sinp12*c1[i] + cosp12*c2[i]) for i in 1:4]
-AM2Q = [ρ*c21[i] + ρ*QTBQ[i] for i in 1:4]
-AM3Q = [0.0 for i in 1:4]
-
-# Build complete mass matrix
-AM = vcat(
-    hcat(AM11, AM12, AM13, AM1Q'...),
-    hcat(AM21, AM22, AM23, AM2Q'...),
-    hcat(AM31, AM32, AM33, AM3Q'...),
-    hcat([AM1Q[i] for i in 1:4], [AM2Q[i] for i in 1:4], [AM3Q[i] for i in 1:4], Matrix(MQ))
-)
-
-## Constraint Jacobian matrix GP (3×7)
-# These are the gradients of position-level constraints
-GP = zeros(Num, 3, 7)
-
-# ∂g/∂ϕ₁
-GP[1, 1] = l₁ * cosp1
-GP[2, 1] = l₁ * sinp1
-GP[3, 1] = 1.0
-
-# ∂g/∂ϕ₂
-GP[1, 2] = l₂ * cosp2
-GP[2, 2] = l₂ * sinp2
-GP[3, 2] = 0.0
-
-# ∂g/∂x₃
-GP[1, 3] = 0.0
-GP[2, 3] = 1.0
-GP[3, 3] = 0.0
-
-# ∂g/∂q (all zeros as constraints don't depend on flexible coordinates)
-for i in 1:4
-    GP[1, 3+i] = 0.0
-    GP[2, 3+i] = 0.0
-    GP[3, 3+i] = 0.0
-end
-
-## Right-hand side forces (7×1)
-F = zeros(Num, 7)
-
-# Forces on rigid coordinates
-F[1] = -0.5*l₁*γ*(m₁ + 2.0*m₂)*cosp1 - 0.5*l₁*l₂*m₂*dϕ₂^2*sinp12
-F[2] = -0.5*l₂*γ*m₂*cosp2 + 0.5*l₁*l₂*m₂*dϕ₁^2*sinp12
-F[3] = 0.0
-
-# Coupling terms from flexible motion
-F[1] += ρ*l₁*dϕ₂^2*(-sinp12*c1TQ + cosp12*c2TQ) - 
-        2.0*ρ*l₁*dϕ₂*(cosp12*c1TQD + sinp12*c2TQD)
-
-F[2] += ρ*l₁*dϕ₁^2*(sinp12*c1TQ - cosp12*c2TQ) - 
-        2.0*ρ*dϕ₂*c12TQD - 2.0*dϕ₂*QDTMQQ - ρ*QDTBQQD - 
-        ρ*γ*(cosp2*c1TQ - sinp2*c2TQ)
-
-# Forces on flexible coordinates (including Coriolis, centrifugal, and elastic)
-for i in 1:4
-    F[3+i] = dϕ₂^2*MQQ[i] + 
-             ρ*(dϕ₂^2*c12[i] + 
-                l₁*dϕ₁^2*(cosp12*c1[i] + sinp12*c2[i]) + 
-                2.0*dϕ₂*BQQD[i]) - 
-             ρ*γ*(sinp2*c1[i] + cosp2*c2[i]) - 
-             KQQ[i] - DQQD[i]
-end
-
-## Position-level constraints (3 equations)
-# These maintain the geometric relationships
-PLC = [
-    l₁*sinp1 + l₂*sinp2,           # Horizontal constraint
-    x₃ - l₁*cosp1 - l₂*cosp2,      # Vertical constraint
-    ϕ₁ - Ω*t                       # Prescribed crank motion
-]
-
-## Build DAE system: M(y)*dy/dt = f(y,t) subject to g(y,t) = 0
-# The system has:
-# - 7 differential equations: AM * [D(dϕ₁), D(dϕ₂), D(dx₃), D(dq₁), D(dq₂), D(dq₃), D(dq₄)]' = F - GP' * λ
-# - 3 algebraic constraint equations: PLC = 0
-# - 7 velocity definition equations: D(X) = DX
-
-eqs = []
-
-# Differential equations with Lagrange multipliers
-for i in 1:7
-    lhs = sum(AM[i, j] * D(DX[j]) for j in 1:7)
-    rhs = F[i] - sum(GP[k, i] * [λ₁, λ₂, λ₃][k] for k in 1:3)
-    push!(eqs, lhs ~ rhs)
-end
-
-# Algebraic constraint equations
-for i in 1:3
-    push!(eqs, 0 ~ PLC[i])
-end
-
-# Velocity definition equations
-for i in 1:7
-    push!(eqs, D(X[i]) ~ DX[i])
-end
-
-@mtkbuild sys = ODESystem(eqs, t)
-
-## Problem setup
-tspan = (0.0, 0.1)
-
-# MTK ODEProblem (uses structural simplification with dummy derivatives)
-mtkprob = ODEProblem(sys, [], tspan)
-
-# Compute consistent initial derivatives for DAE formulation
-du = mtkprob.f(mtkprob.u0, mtkprob.p, 0.0)
-du0 = D.(unknowns(sys)) .=> du
-daeprob = DAEProblem(sys, du0, [], tspan)
-
-# ODAEProblem (alternative formulation)
-odaeprob = ODAEProblem(sys, [], tspan)
-
-## Generate high-accuracy reference solutions
-println("Computing reference solutions...")
-ref_sol = solve(mtkprob, Rodas5P(), abstol=1e-12, reltol=1e-12)
-dae_ref_sol = solve(daeprob, IDA(), abstol=1e-12, reltol=1e-12)
-odae_ref_sol = solve(odaeprob, CVODE_BDF(), abstol=1e-12, reltol=1e-12)
-
-probs = [mtkprob, daeprob, odaeprob]
-refs = [ref_sol, dae_ref_sol, odae_ref_sol]
-println("Reference solutions computed successfully")
-# Plot rigid body motion
-p_rigid = plot(ref_sol, idxs=[ϕ₁, ϕ₂, x₃],
-               label=["Crank angle ϕ₁" "Rod angle ϕ₂" "Slider position x₃"],
-               linewidth=2, xlabel="Time (s)", ylabel="Position",
-               title="Slider-Crank Rigid Body Motion",
-               legend=:topright)
-
-# Plot flexible deformation modes
-p_flex = plot(ref_sol, idxs=[q₁, q₂, q₃, q₄],
-              label=["q₁" "q₂" "q₃" "q₄"],
-              linewidth=2, xlabel="Time (s)", ylabel="Amplitude",
-              title="Flexible Deformation Modes",
-              legend=:topright)
-
-plot(p_rigid, p_flex, layout=(2,1), size=(800, 600))
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 1, :alg=>FBDF()),
-    Dict(:prob_choice => 1, :alg=>QNDF()),
-    Dict(:prob_choice => 1, :alg=>radau()),
-    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Work-Precision (High Tolerances)")
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 3, :alg=>Rodas5P()),
-    Dict(:prob_choice => 3, :alg=>Rodas4()),
-    Dict(:prob_choice => 3, :alg=>CVODE_BDF())
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Work-Precision (Medium Tolerances)")
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 1, :alg=>FBDF()),
-    Dict(:prob_choice => 1, :alg=>QNDF()),
-    Dict(:prob_choice => 1, :alg=>radau()),
-    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>IDA())
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; 
-                      error_estimate=:l2,
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Timeseries Errors (High Tolerances)")
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 2, :alg=>DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg=>CVODE_BDF())
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; 
-                      error_estimate=:l2,
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Timeseries Errors (Medium Tolerances)")
-abstols = 1.0 ./ 10.0 .^ (7:12)
-reltols = 1.0 ./ 10.0 .^ (4:9)
-
-setups = [
-    Dict(:prob_choice => 1, :alg=>Rodas5P()),
-    Dict(:prob_choice => 3, :alg=>Rodas5P()),
-    Dict(:prob_choice => 1, :alg=>Rodas4()),
-    Dict(:prob_choice => 3, :alg=>Rodas4()),
-    Dict(:prob_choice => 1, :alg=>FBDF()),
-    Dict(:prob_choice => 1, :alg=>QNDF()),
-    Dict(:prob_choice => 1, :alg=>radau()),
-    Dict(:prob_choice => 1, :alg=>RadauIIA5()),
-    Dict(:prob_choice => 2, :alg=>IDA()),
-    Dict(:prob_choice => 2, :alg=>DASKR.daskr())
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Work-Precision (Low Tolerances)")
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; 
-                      error_estimate=:l2,
-                      save_everystep=false, appxsol=refs,
-                      maxiters=Int(1e5), numruns=10)
-plot(wp, title="Slider-Crank DAE - Timeseries Errors (Low Tolerances)")
-# Plot phase portraits for rigid coordinates
-p1 = plot(ref_sol, idxs=(ϕ₁, dϕ₁), label="Crank", 
-         xlabel="ϕ₁", ylabel="dϕ₁/dt", title="Phase Portrait - Crank")
-         
-p2 = plot(ref_sol, idxs=(ϕ₂, dϕ₂), label="Rod",
-         xlabel="ϕ₂", ylabel="dϕ₂/dt", title="Phase Portrait - Rod")
-         
-p3 = plot(ref_sol, idxs=(x₃, dx₃), label="Slider",
-         xlabel="x₃", ylabel="dx₃/dt", title="Phase Portrait - Slider")
-
-plot(p1, p2, p3, layout=(1,3), size=(1200, 400))
-# Compute constraint violations over time
-function constraint_violations(sol)
-    t_vals = sol.t
-    g1_vals = []  # Horizontal constraint
-    g2_vals = []  # Vertical constraint
-    g3_vals = []  # Crank motion constraint
+function slider_crank_mm_f!(du, u, p, t)
+    theta, phi, x = u[1], u[2], u[3]
+    dtheta, dphi, dx = u[4], u[5], u[6]
+    lam1, lam2 = u[7], u[8]
     
-    for i in 1:length(t_vals)
-        u = sol.u[i]
-        ϕ₁_val = u[findfirst(x -> isequal(x, ϕ₁), unknowns(sys))]
-        ϕ₂_val = u[findfirst(x -> isequal(x, ϕ₂), unknowns(sys))]
-        x₃_val = u[findfirst(x -> isequal(x, x₃), unknowns(sys))]
-        
-        l₁_val = 0.15
-        l₂_val = 0.30
-        Ω_val = 150.0
-        
-        push!(g1_vals, l₁_val*sin(ϕ₁_val) + l₂_val*sin(ϕ₂_val))
-        push!(g2_vals, x₃_val - l₁_val*cos(ϕ₁_val) - l₂_val*cos(ϕ₂_val))
-        push!(g3_vals, ϕ₁_val - Ω_val*t_vals[i])
-    end
+    # 1. Kinematics: d(pos) = vel
+    du[1] = dtheta
+    du[2] = dphi
+    du[3] = dx
     
-    return t_vals, g1_vals, g2_vals, g3_vals
+    # 2. Dynamics: Inertia * acc = Forces + Constraints
+    # Crank (driven by torque/constraints)
+    du[4] = - (lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)) 
+    
+    # Rod
+    du[5] = - (lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
+    
+    # Slider (no friction, driven by rod)
+    du[6] = -lam2
+    
+    # 3. Constraints (Position Level)
+    # Vertical constraint: crank_y = rod_y
+    du[7] = l_crank * sin(theta) - l_rod * sin(phi)
+    # Horizontal constraint: x = crank_x + rod_x
+    du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
 end
 
-t_vals, g1, g2, g3 = constraint_violations(ref_sol)
+# Define Mass Matrix M
+# Diagonals are 1 for kinematics, Inertia for dynamics, 0 for algebraic constraints
+M = zeros(8, 8)
+M[1,1] = 1.0; M[2,2] = 1.0; M[3,3] = 1.0
+M[4,4] = J_crank; M[5,5] = J_rod; M[6,6] = m_slider
+# M[7,7] and M[8,8] are 0, enforcing the algebraic constraints
 
-plot([t_vals, t_vals, t_vals], [abs.(g1), abs.(g2), abs.(g3)],
-     label=["Horizontal" "Vertical" "Crank Motion"],
-     xlabel="Time (s)", ylabel="Absolute Constraint Violation",
-     title="Constraint Violations (Log Scale)", yscale=:log10,
-     linewidth=2)
+# --- 3. DAE Formulation (Residual Form for IDA) ---
+# F(du, u, p, t) = M*du - f(u) = 0
+function slider_crank_dae_f!(res, du, u, p, t)
+    rhs = similar(u)
+    slider_crank_mm_f!(rhs, u, p, t)
+    mul!(res, M, du)
+    res .-= rhs
+end
 
+# --- 4. Initialization ---
+# Consistent initial conditions (Crank at 90 degrees)
+u0 = zeros(8)
+u0[1] = pi/2                                # Theta
+u0[2] = asin((l_crank/l_rod)*sin(u0[1]))    # Phi (geometry)
+u0[3] = l_crank*cos(u0[1]) + l_rod*cos(u0[2]) # x (geometry)
+# Velocities start at 0 (system falls from rest)
+du0 = zeros(8)
+
+tspan = (0.0, 0.5)
+
+# Define Problems
+# Form A: Mass Matrix ODE (for Rodas, Radau)
+prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
+
+# Form B: DAE (for IDA)
+prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan, differential_vars=[true, true, true, true, true, true, false, false])
+
+# --- 5. Reference Solutions ---
+println("Computing IDA Reference (DAE)...")
+sol_ida = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
+
+println("Computing Rodas5P Reference (Mass Matrix)...")
+sol_rodas = solve(prob_mm, Rodas5P(), abstol=1e-12, reltol=1e-12)
+
+# --- 6. Side-by-Side Verification Plot ---
+p_verify = plot(sol_ida, idxs=3, label="Reference (IDA)", lw=5, color=:grey, alpha=0.5,
+                title="Slider Position Verification", xlabel="Time (s)", ylabel="Position (m)")
+plot!(p_verify, sol_rodas, idxs=3, label="Mass Matrix (Rodas5P)", linestyle=:dash, color=:red, lw=2)
+
+display(p_verify)
+
+# --- 7. Work-Precision Benchmarks ---
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+
+setups = [
+    Dict(:alg => Rodas5P(), :dts => 1e-5, :prob_choice => 1, :label => "Rodas5P (MM)"),
+    Dict(:alg => RadauIIA5(), :dts => 1e-5, :prob_choice => 1, :label => "RadauIIA5 (MM)"),
+    Dict(:alg => IDA(), :dts => 1e-5, :prob_choice => 2, :label => "IDA (DAE)")
+]
+
+wp = WorkPrecisionSet([prob_mm, prob_dae], abstols, reltols, setups;
+                      save_everystep=false, appxsol=[sol_rodas, sol_ida],
+                      maxiters=Int(1e5), numruns=5)
+
+plot(wp, title="Rigid Slider-Crank (Mass Matrix vs DAE)")
 if @isdefined(WEAVE_ARGS)
     using SciMLBenchmarks
     SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
