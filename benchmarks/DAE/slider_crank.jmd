@@ -1,25 +1,27 @@
 ---
-title: Slider-Crank Mechanism (DAE) Work-Precision Diagrams
+title: Slider-Crank Mechanism (Rigid, Mass Matrix vs DAE)
 author: Singh Harsh Rahulkumar
 ---
 
 ## Overview
 
-The slider-crank mechanism is a classical constrained mechanical system that naturally leads to differential-algebraic equations (DAEs). This benchmark compares two distinct formulations of the standard index-2 rigid slider-crank:
+The slider-crank mechanism is a classical constrained mechanical system that naturally leads to differential-algebraic equations (DAEs). This benchmark compares two formulations of the rigid slider-crank:
 
-1.  **Mass-Matrix ODE Form:** $M \dot{u} = f(u)$, where $M$ is singular. This is solved using Rosenbrock methods (`Rodas5P`) and implicit Runge-Kutta methods (`RadauIIA5`).
-2.  **Implicit DAE Form:** $F(\dot{u}, u, t) = 0$. This is solved using the BDF method (`IDA` from Sundials) as a reference.
+1. Mass-Matrix ODE Form: M * du = f(u)
+2. Implicit DAE Form: F(du, u, t) = 0
 
-The system models a crank rotating at constant velocity driving a connecting rod and a slider, constrained by geometric algebraic equations.
+The system models a crank driving a connecting rod and slider with geometric constraints.
+
+---
 
 ## Problem Formulation
-
-
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra
 
-# --- 1. Physics Constants ---
+# -----------------------------
+# Physics Constants
+# -----------------------------
 const m_crank = 0.36
 const m_rod = 0.151104
 const m_slider = 0.075552
@@ -27,104 +29,109 @@ const l_crank = 0.15
 const l_rod = 0.30
 const J_crank = 0.002727
 const J_rod = 0.0045339259
-const g = 9.81
 
-# --- 2. Mass Matrix Formulation (M * du = f) ---
-# State vector u has 8 components:
-# u[1:3] : Positions (theta, phi, x)
-# u[4:6] : Velocities (dtheta, dphi, dx)
-# u[7:8] : Lagrange Multipliers (lambda1, lambda2)
-
+# -----------------------------
+# Mass Matrix Formulation
+# -----------------------------
 function slider_crank_mm_f!(du, u, p, t)
     theta, phi, x = u[1], u[2], u[3]
     dtheta, dphi, dx = u[4], u[5], u[6]
     lam1, lam2 = u[7], u[8]
-    
-    # 1. Kinematics: d(pos) = vel
+
+    # Kinematics
     du[1] = dtheta
     du[2] = dphi
     du[3] = dx
-    
-    # 2. Dynamics: Inertia * acc = Forces + Constraints
-    # Crank (driven by torque/constraints)
-    du[4] = - (lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)) 
-    
-    # Rod
-    du[5] = - (lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
-    
-    # Slider (no friction, driven by rod)
+
+    # Dynamics
+    du[4] = -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta))
+    du[5] = -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
     du[6] = -lam2
-    
-    # 3. Constraints (Position Level)
-    # Vertical constraint: crank_y = rod_y
+
+    # Algebraic constraints
     du[7] = l_crank * sin(theta) - l_rod * sin(phi)
-    # Horizontal constraint: x = crank_x + rod_x
     du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
 end
 
-# Define Mass Matrix M
-# Diagonals are 1 for kinematics, Inertia for dynamics, 0 for algebraic constraints
-M = zeros(8, 8)
-M[1,1] = 1.0; M[2,2] = 1.0; M[3,3] = 1.0
-M[4,4] = J_crank; M[5,5] = J_rod; M[6,6] = m_slider
-# M[7,7] and M[8,8] are 0, enforcing the algebraic constraints
+# Singular Mass Matrix
+M = zeros(8,8)
+M[1,1] = 1.0
+M[2,2] = 1.0
+M[3,3] = 1.0
+M[4,4] = J_crank
+M[5,5] = J_rod
+M[6,6] = m_slider
 
-# --- 3. DAE Formulation (Residual Form for IDA) ---
-# F(du, u, p, t) = M*du - f(u) = 0
+# -----------------------------
+# DAE Residual Form
+# -----------------------------
 function slider_crank_dae_f!(res, du, u, p, t)
-    rhs = similar(u)
-    slider_crank_mm_f!(rhs, u, p, t)
-    mul!(res, M, du)
-    res .-= rhs
+    slider_crank_mm_f!(res, u, p, t)
+    mul!(res, M, du, 1.0, -1.0)   # res = M*du - f(u)
 end
 
-# --- 4. Initialization ---
-# Consistent initial conditions (Crank at 90 degrees)
+# -----------------------------
+# Initialization
+# -----------------------------
 u0 = zeros(8)
-u0[1] = pi/2                                # Theta
-u0[2] = asin((l_crank/l_rod)*sin(u0[1]))    # Phi (geometry)
-u0[3] = l_crank*cos(u0[1]) + l_rod*cos(u0[2]) # x (geometry)
-# Velocities start at 0 (system falls from rest)
+u0[1] = π/2
+u0[2] = asin((l_crank/l_rod)*sin(u0[1]))
+u0[3] = l_crank*cos(u0[1]) + l_rod*cos(u0[2])
 du0 = zeros(8)
 
 tspan = (0.0, 0.5)
 
-# Define Problems
-# Form A: Mass Matrix ODE (for Rodas, Radau)
 prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
+prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan,
+                      differential_vars=[true,true,true,true,true,true,false,false])
 
-# Form B: DAE (for IDA)
-prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan, differential_vars=[true, true, true, true, true, true, false, false])
+# -----------------------------
+# Reference Solutions
+# -----------------------------
+println("Computing reference solutions...")
+sol_ida   = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
+sol_rodas = solve(prob_mm,  Rodas5P(), abstol=1e-12, reltol=1e-12)
 
-# --- 5. Reference Solutions ---
-println("Computing IDA Reference (DAE)...")
-sol_ida = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
+# -----------------------------
+# Verification Plot
+# -----------------------------
+p_verify = plot(sol_ida, idxs=3,
+                label="IDA (DAE)", lw=4, alpha=0.6,
+                title="Slider Position",
+                xlabel="Time (s)", ylabel="x (m)")
+plot!(p_verify, sol_rodas, idxs=3,
+      label="Rodas5P (MM)", linestyle=:dash, lw=2)
 
-println("Computing Rodas5P Reference (Mass Matrix)...")
-sol_rodas = solve(prob_mm, Rodas5P(), abstol=1e-12, reltol=1e-12)
+p_verify
+probs = [prob_mm, prob_dae]
+refs  = [sol_rodas, sol_ida]
 
-# --- 6. Side-by-Side Verification Plot ---
-p_verify = plot(sol_ida, idxs=3, label="Reference (IDA)", lw=5, color=:grey, alpha=0.5,
-                title="Slider Position Verification", xlabel="Time (s)", ylabel="Position (m)")
-plot!(p_verify, sol_rodas, idxs=3, label="Mass Matrix (Rodas5P)", linestyle=:dash, color=:red, lw=2)
-
-display(p_verify)
-
-# --- 7. Work-Precision Benchmarks ---
 abstols = 1.0 ./ 10.0 .^ (6:9)
 reltols = 1.0 ./ 10.0 .^ (3:6)
 
 setups = [
-    Dict(:alg => Rodas5P(), :dts => 1e-5, :prob_choice => 1, :label => "Rodas5P (MM)"),
-    Dict(:alg => RadauIIA5(), :dts => 1e-5, :prob_choice => 1, :label => "RadauIIA5 (MM)"),
-    Dict(:alg => IDA(), :dts => 1e-5, :prob_choice => 2, :label => "IDA (DAE)")
+    Dict(:prob_choice=>1, :alg=>Rodas5P(),   :label=>"Rodas5P (MM)"),
+    Dict(:prob_choice=>1, :alg=>RadauIIA5(), :label=>"RadauIIA5 (MM)"),
+    Dict(:prob_choice=>2, :alg=>IDA(),       :label=>"IDA (DAE)")
 ]
 
-wp = WorkPrecisionSet([prob_mm, prob_dae], abstols, reltols, setups;
-                      save_everystep=false, appxsol=[sol_rodas, sol_ida],
-                      maxiters=Int(1e5), numruns=5)
+wp_high = WorkPrecisionSet(probs, abstols, reltols, setups;
+                           save_everystep=false,
+                           appxsol=refs,
+                           maxiters=Int(1e5),
+                           numruns=5)
 
-plot(wp, title="Rigid Slider-Crank (Mass Matrix vs DAE)")
+plot(wp_high, title="Slider-Crank: Mass Matrix vs DAE (High Tol)")
+abstols_low = 1.0 ./ 10.0 .^ (7:10)
+reltols_low = 1.0 ./ 10.0 .^ (4:7)
+
+wp_low = WorkPrecisionSet(probs, abstols_low, reltols_low, setups;
+                          save_everystep=false,
+                          appxsol=refs,
+                          maxiters=Int(1e5),
+                          numruns=5)
+
+plot(wp_low, title="Slider-Crank: Mass Matrix vs DAE (Low Tol)")
 if @isdefined(WEAVE_ARGS)
     using SciMLBenchmarks
     SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
