@@ -4,7 +4,7 @@ author: Fabian Gittins
 ---
 
 In this benchmark, we will examine how the interval root-finding algorithms
-provided in `NonlinearSolve.jl` and `SimpleNonlinearSolve.jl` fare against one another for a selection of
+provided in `BracketingNonlinearSolve.jl` and `SimpleNonlinearSolve.jl` fare against one another for a selection of
 challenging test functions from the literature.
 
 ## `Roots.jl` baseline
@@ -64,13 +64,14 @@ println("Mean absolute error: $(mean(abs.(f.(out, ps))))")
 For simplicity, we will assume the default tolerances of the methods, while
 noting that these can be set.
 
-## `NonlinearSolve.jl` algorithms
+## `BracketingNonlinearSolve.jl` algorithms
 
-With the preliminaries out of the way, let's see how the `NonlinearSolve.jl`
+With the preliminaries out of the way, let's see how the `BracketingNonlinearSolve.jl`
 solvers perform! We define a (non-allocating) function to benchmark,
 
 ```julia
-using NonlinearSolve
+using BracketingNonlinearSolve
+using BracketingNonlinearSolve: Bisection # Roots also exports Bisection leading to a name conflict
 
 function h!(out, ps, uspan, alg)
     for i in 1:N
@@ -85,8 +86,8 @@ end;
 and loop through the methods,
 
 ```julia
-for alg in (Alefeld, NonlinearSolve.Bisection, Brent, Falsi,
-    ITP, Muller, Ridder)
+for alg in (Alefeld, Bisection, Brent, Falsi,
+    ITP, Muller, Ridder, ModAB)
     println("Benchmark of $alg:")
     @btime h!($out, $ps, $uspan, $(alg()))
     println("Mean absolute error: $(mean(abs.(f.(out, ps))))\n")
@@ -126,7 +127,7 @@ uspan = (-100.0, 0.0)
 println("Mean absolute error: $(mean(abs.(g.(out))))")
 ```
 
-So, how do the `NonlinearSolve.jl` methods fare?
+So, how do the `BracketingNonlinearSolve.jl` methods fare?
 
 ```julia
 g(u, p) = g(u)
@@ -141,15 +142,15 @@ function j!(out, uspan, alg)
     out
 end
 
-for alg in (Alefeld, NonlinearSolve.Bisection, Brent, Falsi,
-    ITP, Muller, Ridder)
+for alg in (Alefeld, Bisection, Brent, Falsi,
+    ITP, Muller, Ridder, ModAB)
     println("Benchmark of $alg:")
     @btime j!($out, $uspan, $(alg()))
     println("Mean absolute error: $(mean(abs.(g.(out))))\n")
 end
 ```
 
-Again, we see that the `NonlinearSolve.jl` root-finding algorithms are fast.
+Again, we see that the `BracketingNonlinearSolve.jl` root-finding algorithms are fast.
 However, it is notable that some are able to resolve the root more accurately
 than others. This is entirely to be expected as some of the algorithms, like
 `Bisection`, bracket the root and thus will reliably converge to high accuracy.
@@ -198,10 +199,10 @@ test_functions = [
         p = 0.05),
 
     # Function 6: High oscillation function
-    (name = "sin(20x) + 0.1x",
-        f = (u, p) -> sin(20*u) + 0.1*u - p,
+    (name = "sin(20x) + sin(x) + x",
+        f = (u, p) -> sin(20*u) + sin(u) + u - p,
         interval = (-5.0, 5.0),
-        p = 0.1),
+        p = 2.0),
 
     # Function 7: Function with very flat region
     (name = "x³ - 2x² + x",
@@ -222,12 +223,12 @@ using SimpleNonlinearSolve
 # Combined algorithm list from both packages
 all_algorithms = [
     (name = "Alefeld (BNS)", alg = () -> Alefeld(), package = "BracketingNonlinearSolve"),
-    (name = "Bisection (BNS)", alg = () -> NonlinearSolve.Bisection(),
-        package = "BracketingNonlinearSolve"),
+    (name = "Bisection (BNS)", alg = () -> Bisection(), package = "BracketingNonlinearSolve"),
     (name = "Brent (BNS)", alg = () -> Brent(), package = "BracketingNonlinearSolve"),
     (name = "Falsi (BNS)", alg = () -> Falsi(), package = "BracketingNonlinearSolve"),
     (name = "ITP (BNS)", alg = () -> ITP(), package = "BracketingNonlinearSolve"),
     (name = "Ridder (BNS)", alg = () -> Ridder(), package = "BracketingNonlinearSolve"),
+    (name = "ModAB (BNS)", alg = () -> ModAB(), package = "BracketingNonlinearSolve"),
     (name = "Bisection (SNS)", alg = () -> SimpleNonlinearSolve.Bisection(),
         package = "SimpleNonlinearSolve"),
     (name = "Brent (SNS)", alg = () -> SimpleNonlinearSolve.Brent(),
