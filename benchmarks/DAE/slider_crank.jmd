@@ -20,9 +20,7 @@ The system models a crank driving a connecting rod and slider with geometric con
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra
 using ModelingToolkit
 
-# -----------------------------
 # Physics Constants
-# -----------------------------
 const m_crank = 0.36
 const m_rod = 0.151104
 const m_slider = 0.075552
@@ -31,10 +29,7 @@ const l_rod = 0.30
 const J_crank = 0.002727
 const J_rod = 0.0045339259
 
-# -----------------------------
 # MTK Structural Simplify Formulation
-# -----------------------------
-
 @parameters t
 @variables theta(t) phi(t) x(t)
 @variables dtheta(t) dphi(t) dx(t)
@@ -43,7 +38,6 @@ const J_rod = 0.0045339259
 D = Differential(t)
 
 eqs = [
-
     # Kinematics
     D(theta) ~ dtheta,
     D(phi)   ~ dphi,
@@ -60,12 +54,11 @@ eqs = [
 ]
 
 @named slider_sys = ODESystem(eqs, t)
-
 slider_sys_simplified = structural_simplify(slider_sys; dummy_derivative=false)
+```
 
-# -----------------------------
+```julia
 # Mass Matrix Formulation
-# -----------------------------
 function slider_crank_mm_f!(du, u, p, t)
     theta, phi, x = u[1], u[2], u[3]
     dtheta, dphi, dx = u[4], u[5], u[6]
@@ -95,17 +88,15 @@ M[4,4] = J_crank
 M[5,5] = J_rod
 M[6,6] = m_slider
 
-# -----------------------------
 # DAE Residual Form
-# -----------------------------
 function slider_crank_dae_f!(res, du, u, p, t)
     slider_crank_mm_f!(res, u, p, t)
     mul!(res, M, du, 1.0, -1.0)   # res = M*du - f(u)
 end
+```
 
-# -----------------------------
+```julia
 # Initialization
-# -----------------------------
 u0 = zeros(8)
 u0[1] = π/2
 u0[2] = asin((l_crank/l_rod)*sin(u0[1]))
@@ -118,10 +109,7 @@ prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
 prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan,
                       differential_vars=[true,true,true,true,true,true,false,false])
 
-
 # MTK Problem
-# -----------------------------
-
 phi0 = asin((l_crank/l_rod)*sin(π/2))
 x0   = l_crank*cos(π/2) + l_rod*cos(phi0)
 
@@ -137,19 +125,18 @@ u0_mtk = [
 ]
 
 prob_mtk = ODEProblem(slider_sys_simplified, u0_mtk, tspan)
+```
 
-
-# -----------------------------
+```julia
 # Reference Solutions
-# -----------------------------
 println("Computing reference solutions...")
 sol_ida   = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
 sol_rodas = solve(prob_mm,  Rodas5P(), abstol=1e-12, reltol=1e-12)
 sol_mtk   = solve(prob_mtk, Rodas5P(), abstol=1e-12, reltol=1e-12)
+```
 
-# -----------------------------
+```julia
 # Verification Plot
-# -----------------------------
 p_verify = plot(sol_ida, idxs=3,
                 label="IDA (DAE)", lw=4, alpha=0.6,
                 title="Slider Position",
@@ -159,8 +146,10 @@ plot!(p_verify, sol_rodas, idxs=3,
 
 plot!(p_verify, sol_mtk, idxs=3,
       label="Rodas5P (MTK)", linestyle=:dot, lw=2)
-
 p_verify
+```
+
+```julia
 probs = [prob_mm, prob_dae, prob_mtk]
 refs  = [sol_rodas, sol_ida, sol_mtk]
 
@@ -181,6 +170,9 @@ wp_high = WorkPrecisionSet(probs, abstols, reltols, setups;
                            numruns=5)
 
 plot(wp_high, title="Slider-Crank: Mass Matrix vs DAE (High Tol)")
+```
+
+```julia
 abstols_low = 1.0 ./ 10.0 .^ (7:10)
 reltols_low = 1.0 ./ 10.0 .^ (4:7)
 
@@ -191,7 +183,11 @@ wp_low = WorkPrecisionSet(probs, abstols_low, reltols_low, setups;
                           numruns=3)
 
 plot(wp_low, title="Slider-Crank: Mass Matrix vs DAE (Low Tol)")
+```
+
+```julia, echo = false
 if @isdefined(WEAVE_ARGS)
     using SciMLBenchmarks
     SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 end
+```
