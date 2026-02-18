@@ -177,9 +177,10 @@ environment, and then run `SciMLBenchmarks.open_notebooks()`. This looks as foll
 
 ```julia
 ]add SciMLBenchmarks#master
+]add IJulia
 ]activate SciMLBenchmarks
 ]instantiate
-using SciMLBenchmarks
+using SciMLBenchmarks, IJulia
 SciMLBenchmarks.open_notebooks()
 ```
 
