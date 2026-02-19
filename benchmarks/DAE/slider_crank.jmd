@@ -15,7 +15,7 @@ All formulations should produce equivalent solutions.
 
 ---
 
-## Problem Setup
+## Problem Setup, Formulations, and Solution
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, ModelingToolkit
@@ -30,48 +30,37 @@ const l_rod = 0.30        # m (rod length)
 const J_crank = 0.002727  # kg⋅m² (crank inertia)
 const J_rod = 0.0045339259 # kg⋅m² (rod inertia)
 
-# Holonomic Constraints:
-#  c₁(θ,φ) = l_crank⋅sin(θ) - l_rod⋅sin(φ) = 0
-#  c₂(θ,φ,x) = x - (l_crank⋅cos(θ) + l_rod⋅cos(φ)) = 0
-
-# Formulation 1: Mass-Matrix Form (Index-1 DAE)
+# Formulation 1: Mass-Matrix Form
 function slider_crank_mm_f!(du, u, p, t)
     theta, phi, x = u[1], u[2], u[3]
     dtheta, dphi, dx = u[4], u[5], u[6]
     lam1, lam2 = u[7], u[8]
-
     du[1] = dtheta
     du[2] = dphi
     du[3] = dx
-
     du[4] = -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)) / J_crank
     du[5] = -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)) / J_rod
     du[6] = -lam2 / m_slider
-
-    # Position constraints
     du[7] = l_crank * sin(theta) - l_rod * sin(phi)
     du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
 end
 
-# Formulation 2: Residual DAE Form (Index-1)
+# Formulation 2: Residual DAE Form
 function slider_crank_dae_f!(res, du, u, p, t)
     theta, phi, x = u[1], u[2], u[3]
     dtheta, dphi, dx = u[4], u[5], u[6]
     lam1, lam2 = u[7], u[8]
-
     res[1] = du[1] - dtheta
     res[2] = du[2] - dphi
     res[3] = du[3] - dx
-
     res[4] = J_crank * du[4] + (lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta))
     res[5] = J_rod * du[5] + (lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
     res[6] = m_slider * du[6] + lam2
-
     res[7] = l_crank * cos(theta) * dtheta - l_rod * cos(phi) * dphi
     res[8] = dx + l_crank * sin(theta) * dtheta + l_rod * sin(phi) * dphi
 end
 
-# Mass matrix for ODE form
+# Mass matrix for MM form
 M = zeros(8, 8)
 M[1, 1] = 1.0
 M[2, 2] = 1.0
@@ -79,13 +68,8 @@ M[3, 3] = 1.0
 M[4, 4] = J_crank
 M[5, 5] = J_rod
 M[6, 6] = m_slider
-```
 
----
-
-## Formulation 3: Symbolic Simplification (ModelingToolkit)
-
-```julia
+# Formulation 3: ModelingToolkit Symbolic
 @variables theta(t) phi(t) x(t)
 @variables dtheta(t) dphi(t) dx(t)
 @variables lam1(t) lam2(t)
@@ -110,13 +94,8 @@ try
 catch
     slider_sys_simplified = complete(slider_sys)
 end
-```
 
----
-
-## Initialization and Solution
-
-```julia
+# Initialize state
 u0 = zeros(8)
 u0[1] = π / 2
 u0[2] = asin((l_crank / l_rod) * sin(u0[1]))
@@ -125,6 +104,7 @@ du0 = zeros(8)
 
 tspan = (0.0, 0.5)
 
+# Define all three problems
 prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
 prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan,
                       differential_vars=[true, true, true, true, true, true, false, false])
@@ -142,20 +122,13 @@ u0_mtk = [
 
 prob_mtk = ODEProblem(slider_sys_simplified, u0_mtk, tspan)
 
+# Solve all three
 println("Computing reference solutions...")
-
 sol_mm = solve(prob_mm, Rodas5P(), abstol=1e-12, reltol=1e-12)
 sol_dae = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
 sol_mtk = solve(prob_mtk, Rodas5P(), abstol=1e-12, reltol=1e-12)
-
 println("✓ All three formulations solved successfully")
-```
 
----
-
-## Verification and Convergence Study
-
-```julia
 # Verification: Compare all three solutions
 p_slider = plot(sol_mm, idxs=3,
     label="MM (Rodas5P)", lw=3.5, alpha=0.7,
@@ -166,16 +139,9 @@ plot!(p_slider, sol_dae, idxs=3, label="DAE (IDA)", linestyle=:dash, lw=2.5)
 plot!(p_slider, sol_mtk, idxs=3, label="MTK (Rodas5P)", linestyle=:dot, lw=2.5)
 
 display(p_slider)
+println("✓ Verification plot generated successfully")
 
-println("\n✓ Verification plot generated successfully")
-```
-
----
-
-## High Tolerance Convergence Study
-
-```julia
-# Setup for convergence study
+# Setup convergence study with all problems and solutions
 probs = [prob_mm, prob_dae, prob_mtk]
 refs = [sol_mm, sol_dae, sol_mtk]
 
@@ -190,22 +156,16 @@ setups = [
     Dict(:prob_choice => 3, :alg => RadauIIA5(), :label => "MTK: RadauIIA5")
 ]
 
+# High tolerance regime
 println("Computing work-precision set (high tolerance)...")
 wp_high = WorkPrecisionSet(probs, abstols, reltols, setups;
     save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=5)
 
 p_wp_high = plot(wp_high, title="Slider-Crank: High Tolerance Regime")
 display(p_wp_high)
-
 println("✓ High tolerance convergence study complete")
-```
 
----
-
-## Low Tolerance Convergence Study
-
-```julia
-# Low tolerance regime
+# Low tolerance regime  
 abstols_low = 1.0 ./ 10.0 .^ (7:10)
 reltols_low = 1.0 ./ 10.0 .^ (4:7)
 
@@ -215,13 +175,7 @@ wp_low = WorkPrecisionSet(probs, abstols_low, reltols_low, setups;
 
 p_wp_low = plot(wp_low, title="Slider-Crank: Low Tolerance Regime")
 display(p_wp_low)
-
 println("✓ Low tolerance convergence study complete")
-```
-
----
-
-```julia, echo=false
 if @isdefined(WEAVE_ARGS)
     using SciMLBenchmarks
     SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
