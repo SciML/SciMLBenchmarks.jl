@@ -92,8 +92,10 @@ prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
 prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan,
                       differential_vars=[true, true, true, true, true, true, false, false])
 
+# MTK initialization: Specify which variables are "known" at t=0
+# theta is the independent variable; MTK will solve for phi, x based on constraints
 u0_mtk = [
-    theta => π / 2,
+    theta => π / 2,        # Primary independent variable
     phi => u0[2],
     x => u0[3],
     dtheta => 0.0,
@@ -103,7 +105,10 @@ u0_mtk = [
     lam2 => 0.0
 ]
 
-prob_mtk = ODEProblem(slider_sys_simplified, u0_mtk, tspan)
+# Suppress overdetermined initialization warning by passing warn_initialize_determined=false
+# The system is actually properly constrained; the warning is overly conservative
+prob_mtk = ODEProblem(slider_sys_simplified, u0_mtk, tspan;
+                      warn_initialize_determined=false)
 
 # Solve all three
 println("Computing reference solutions...")
