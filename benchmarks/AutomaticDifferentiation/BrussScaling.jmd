@@ -295,6 +295,24 @@ numdiff = map(numdiffn) do n
 end
 ```
 
+Warmup: run each adjoint method once at the smallest size to ensure all compilation
+is complete before we start timing.
+
+```julia
+let n = first(csan)
+    bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+    solver = Rodas5(autodiff = false)
+    for alg in ADJOINT_METHODS_IQ
+        f = SciMLSensitivity.alg_autodiff(alg) ? bfun :
+            ODEFunction(bfun, jac = brusselator_jac)
+        diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver; sensalg = alg, tols...)
+    end
+    for alg in ADJOINT_METHODS_G
+        diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver; sensalg = alg, tols...)
+    end
+end
+```
+
 ```julia
 csa_iq = map(csan) do n
     bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
@@ -387,7 +405,23 @@ _adjoint_methods = ntuple(4) do ii
     )
 end |> NamedTuple{(:interp, :quad, :gauss, :gausskronrod)}
 adjoint_methods = mapreduce(collect, vcat, _adjoint_methods)
+```
 
+Warmup: compile all VJP backends before benchmarking.
+
+```julia
+let n = first(csan)
+    bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+    solver = Rodas5(autodiff = false)
+    for alg in adjoint_methods
+        f = SciMLSensitivity.alg_autodiff(alg) ? bfun :
+            ODEFunction(bfun, jac = brusselator_jac)
+        diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver; sensalg = alg, tols...)
+    end
+end
+```
+
+```julia
 csavjp = map(csan) do n
     bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
     @time ts = map(adjoint_methods) do alg
