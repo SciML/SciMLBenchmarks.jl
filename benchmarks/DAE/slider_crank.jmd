@@ -19,7 +19,7 @@ All formulations should produce equivalent solutions.
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, ModelingToolkit
-using ModelingToolkit: t_nounits as t, D_nounits as D
+using ModelingToolkit: t_nounits as t, D_nounits
 
 # Physics Constants
 const m_crank = 0.36      # kg
@@ -90,15 +90,15 @@ M[6, 6] = m_slider
 @variables dtheta(t) dphi(t) dx(t)
 @variables lam1(t) lam2(t)
 
-D = Differential(t)
+D_op = D_nounits
 
 eqs = [
-    D(theta) ~ dtheta,
-    D(phi) ~ dphi,
-    D(x) ~ dx,
-    J_crank * D(dtheta) ~ -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)),
-    J_rod * D(dphi) ~ -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)),
-    m_slider * D(dx) ~ -lam2,
+    D_op(theta) ~ dtheta,
+    D_op(phi) ~ dphi,
+    D_op(x) ~ dx,
+    J_crank * D_op(dtheta) ~ -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)),
+    J_rod * D_op(dphi) ~ -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)),
+    m_slider * D_op(dx) ~ -lam2,
     0 ~ l_crank * sin(theta) - l_rod * sin(phi),
     0 ~ x - (l_crank * cos(theta) + l_rod * cos(phi))
 ]
