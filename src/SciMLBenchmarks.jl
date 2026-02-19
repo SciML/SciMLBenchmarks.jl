@@ -23,8 +23,11 @@ function weave_file(folder, file, build_list = (:script, :github))
     if isfile(joinpath(folder, "Project.toml")) && build_list != (:notebook,)
         @info("Instantiating", folder)
         Pkg.activate(folder)
-        Pkg.instantiate()
+        withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
+            Pkg.instantiate()
+        end
         Pkg.build()
+        Pkg.precompile()
     end
 
     args = Dict{Symbol, String}(:folder => folder, :file => file)
