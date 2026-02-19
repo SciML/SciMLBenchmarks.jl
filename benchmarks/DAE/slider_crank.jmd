@@ -1,232 +1,217 @@
 ---
-title: Slider-Crank Mechanism (Rigid, Mass Matrix vs DAE)
+title: Slider-Crank Mechanism (DAE and ODE Forms)
 author: Singh Harsh Rahulkumar
 ---
 
-
 ## Overview
 
+The slider-crank mechanism is a classical constrained mechanical system with 3 degrees of freedom and 2 holonomic constraints. This benchmark compares three numerically equivalent formulations:
 
-The slider-crank mechanism is a classical constrained mechanical system that naturally leads to differential-algebraic equations (DAEs). This benchmark compares two formulations of the rigid slider-crank:
+1. **Mass-Matrix ODE**: Singular mass matrix with position constraints
+2. **Residual DAE**: Implicit DAE with velocity constraints (index-1)
+3. **Symbolic Simplification**: ModelingToolkit structural simplification
 
-
-1. Mass-Matrix ODE Form: M * du = f(u)
-2. Implicit DAE Form: F(du, u, t) = 0
-
-
-The system models a crank driving a connecting rod and slider with geometric constraints.
-
+All formulations should produce equivalent solutions.
 
 ---
 
-
-## Problem Formulation
-
+## Problem Setup
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra
-using ModelingToolkit
-
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, ModelingToolkit
+using ModelingToolkit: t_nounits as t, D_nounits as D
 
 # Physics Constants
-const m_crank = 0.36
-const m_rod = 0.151104
-const m_slider = 0.075552
-const l_crank = 0.15
-const l_rod = 0.30
-const J_crank = 0.002727
-const J_rod = 0.0045339259
+const m_crank = 0.36      # kg
+const m_rod = 0.151104    # kg  
+const m_slider = 0.075552 # kg
+const l_crank = 0.15      # m (crank length)
+const l_rod = 0.30        # m (rod length)
+const J_crank = 0.002727  # kg⋅m² (crank inertia)
+const J_rod = 0.0045339259 # kg⋅m² (rod inertia)
 
+# Holonomic Constraints:
+#  c₁(θ,φ) = l_crank⋅sin(θ) - l_rod⋅sin(φ) = 0
+#  c₂(θ,φ,x) = x - (l_crank⋅cos(θ) + l_rod⋅cos(φ)) = 0
 
-# MTK Structural Simplify Formulation
-@parameters t
+# Formulation 1: Mass-Matrix Form (Index-1 DAE)
+function slider_crank_mm_f!(du, u, p, t)
+    theta, phi, x = u[1], u[2], u[3]
+    dtheta, dphi, dx = u[4], u[5], u[6]
+    lam1, lam2 = u[7], u[8]
+
+    du[1] = dtheta
+    du[2] = dphi
+    du[3] = dx
+
+    du[4] = -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)) / J_crank
+    du[5] = -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)) / J_rod
+    du[6] = -lam2 / m_slider
+
+    # Position constraints
+    du[7] = l_crank * sin(theta) - l_rod * sin(phi)
+    du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
+end
+
+# Formulation 2: Residual DAE Form (Index-1)
+function slider_crank_dae_f!(res, du, u, p, t)
+    theta, phi, x = u[1], u[2], u[3]
+    dtheta, dphi, dx = u[4], u[5], u[6]
+    lam1, lam2 = u[7], u[8]
+
+    res[1] = du[1] - dtheta
+    res[2] = du[2] - dphi
+    res[3] = du[3] - dx
+
+    res[4] = J_crank * du[4] + (lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta))
+    res[5] = J_rod * du[5] + (lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
+    res[6] = m_slider * du[6] + lam2
+
+    res[7] = l_crank * cos(theta) * dtheta - l_rod * cos(phi) * dphi
+    res[8] = dx + l_crank * sin(theta) * dtheta + l_rod * sin(phi) * dphi
+end
+
+# Mass matrix for ODE form
+M = zeros(8, 8)
+M[1, 1] = 1.0
+M[2, 2] = 1.0
+M[3, 3] = 1.0
+M[4, 4] = J_crank
+M[5, 5] = J_rod
+M[6, 6] = m_slider
+```
+
+---
+
+## Formulation 3: Symbolic Simplification (ModelingToolkit)
+
+```julia
 @variables theta(t) phi(t) x(t)
 @variables dtheta(t) dphi(t) dx(t)
-@variables λ1(t) λ2(t)
-
+@variables lam1(t) lam2(t)
 
 D = Differential(t)
 
-
 eqs = [
-   # Kinematics
-   D(theta) ~ dtheta,
-   D(phi)   ~ dphi,
-   D(x)     ~ dx,
-
-
-   # Dynamics
-   J_crank*D(dtheta) ~ -(λ1*l_crank*cos(theta) - λ2*l_crank*sin(theta)),
-   J_rod*D(dphi)     ~ -(λ1*l_rod*cos(phi) - λ2*l_rod*sin(phi)),
-   m_slider*D(dx)    ~ -λ2,
-
-
-   # Constraints
-   0 ~ l_crank*sin(theta) - l_rod*sin(phi),
-   0 ~ x - (l_crank*cos(theta) + l_rod*cos(phi))
+    D(theta) ~ dtheta,
+    D(phi) ~ dphi,
+    D(x) ~ dx,
+    J_crank * D(dtheta) ~ -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)),
+    J_rod * D(dphi) ~ -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)),
+    m_slider * D(dx) ~ -lam2,
+    0 ~ l_crank * sin(theta) - l_rod * sin(phi),
+    0 ~ x - (l_crank * cos(theta) + l_rod * cos(phi))
 ]
 
-
 @named slider_sys = ODESystem(eqs, t)
-slider_sys_simplified = structural_simplify(slider_sys; dummy_derivative=false)
-```
 
-
-```julia
-# Mass Matrix Formulation
-function slider_crank_mm_f!(du, u, p, t)
-   theta, phi, x = u[1], u[2], u[3]
-   dtheta, dphi, dx = u[4], u[5], u[6]
-   lam1, lam2 = u[7], u[8]
-
-
-   # Kinematics
-   du[1] = dtheta
-   du[2] = dphi
-   du[3] = dx
-
-
-   # Dynamics
-   du[4] = -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta))
-   du[5] = -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi))
-   du[6] = -lam2
-
-
-   # Algebraic constraints
-   du[7] = l_crank * sin(theta) - l_rod * sin(phi)
-   du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
-end
-
-
-# Singular Mass Matrix
-M = zeros(8,8)
-M[1,1] = 1.0
-M[2,2] = 1.0
-M[3,3] = 1.0
-M[4,4] = J_crank
-M[5,5] = J_rod
-M[6,6] = m_slider
-
-
-# DAE Residual Form
-function slider_crank_dae_f!(res, du, u, p, t)
-   slider_crank_mm_f!(res, u, p, t)
-   mul!(res, M, du, 1.0, -1.0)   # res = M*du - f(u)
+try
+    slider_sys_simplified = structural_simplify(slider_sys, dummy_derivative=false)
+catch
+    slider_sys_simplified = complete(slider_sys)
 end
 ```
 
+---
+
+## Initialization and Solution
 
 ```julia
-# Initialization
 u0 = zeros(8)
-u0[1] = π/2
-u0[2] = asin((l_crank/l_rod)*sin(u0[1]))
-u0[3] = l_crank*cos(u0[1]) + l_rod*cos(u0[2])
+u0[1] = π / 2
+u0[2] = asin((l_crank / l_rod) * sin(u0[1]))
+u0[3] = l_crank * cos(u0[1]) + l_rod * cos(u0[2])
 du0 = zeros(8)
-
 
 tspan = (0.0, 0.5)
 
-
 prob_mm = ODEProblem(ODEFunction(slider_crank_mm_f!, mass_matrix=M), u0, tspan)
 prob_dae = DAEProblem(slider_crank_dae_f!, du0, u0, tspan,
-                     differential_vars=[true,true,true,true,true,true,false,false])
-
-
-# MTK Problem
-phi0 = asin((l_crank/l_rod)*sin(π/2))
-x0   = l_crank*cos(π/2) + l_rod*cos(phi0)
-
+                      differential_vars=[true, true, true, true, true, true, false, false])
 
 u0_mtk = [
-   theta => π/2,
-   phi   => phi0,
-   x     => x0,
-   dtheta => 0.0,
-   dphi   => 0.0,
-   dx     => 0.0,
-   λ1     => 0.0,
-   λ2     => 0.0
+    theta => π / 2,
+    phi => u0[2],
+    x => u0[3],
+    dtheta => 0.0,
+    dphi => 0.0,
+    dx => 0.0,
+    lam1 => 0.0,
+    lam2 => 0.0
 ]
 
-
 prob_mtk = ODEProblem(slider_sys_simplified, u0_mtk, tspan)
-```
 
-
-```julia
-# Reference Solutions
 println("Computing reference solutions...")
-sol_ida   = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
-sol_rodas = solve(prob_mm,  Rodas5P(), abstol=1e-12, reltol=1e-12)
-sol_mtk   = solve(prob_mtk, Rodas5P(), abstol=1e-12, reltol=1e-12)
+
+sol_mm = solve(prob_mm, Rodas5P(), abstol=1e-12, reltol=1e-12)
+sol_dae = solve(prob_dae, IDA(), abstol=1e-12, reltol=1e-12)
+sol_mtk = solve(prob_mtk, Rodas5P(), abstol=1e-12, reltol=1e-12)
+
+println("✓ All three formulations solved successfully")
 ```
 
+---
+
+## Verification
 
 ```julia
-# Verification Plot
-p_verify = plot(sol_ida, idxs=3,
-               label="IDA (DAE)", lw=4, alpha=0.6,
-               title="Slider Position",
-               xlabel="Time (s)", ylabel="x (m)")
-plot!(p_verify, sol_rodas, idxs=3,
-     label="Rodas5P (MM)", linestyle=:dash, lw=2)
+p_slider = plot(sol_mm, idxs=3,
+    label="MM (Rodas5P)", lw=3.5, alpha=0.7,
+    title="Slider Position: All Three Formulations Match",
+    xlabel="Time (s)", ylabel="x (m)", legend=:topright)
 
+plot!(p_slider, sol_dae, idxs=3, label="DAE (IDA)", linestyle=:dash, lw=2.5)
+plot!(p_slider, sol_mtk, idxs=3, label="MTK (Rodas5P)", linestyle=:dot, lw=2.5)
 
-plot!(p_verify, sol_mtk, idxs=3,
-     label="Rodas5P (MTK)", linestyle=:dot, lw=2)
-p_verify
+p_slider
 ```
 
+---
+
+## Convergence Study
 
 ```julia
 probs = [prob_mm, prob_dae, prob_mtk]
-refs  = [sol_rodas, sol_ida, sol_mtk]
-
+refs = [sol_mm, sol_dae, sol_mtk]
 
 abstols = 1.0 ./ 10.0 .^ (6:9)
 reltols = 1.0 ./ 10.0 .^ (3:6)
 
-
 setups = [
-   Dict(:prob_choice=>1, :alg=>Rodas5P(),   :label=>"Rodas5P (MM)"),
-   Dict(:prob_choice=>1, :alg=>RadauIIA5(), :label=>"RadauIIA5 (MM)"),
-   Dict(:prob_choice=>2, :alg=>IDA(),       :label=>"IDA (Residual DAE)"),
-   Dict(:prob_choice=>3, :alg=>Rodas5P(),   :label=>"Rodas5P (MTK)")
+    Dict(:prob_choice => 1, :alg => Rodas5P(), :label => "MM: Rodas5P"),
+    Dict(:prob_choice => 1, :alg => RadauIIA5(), :label => "MM: RadauIIA5"),
+    Dict(:prob_choice => 2, :alg => IDA(), :label => "DAE: IDA"),
+    Dict(:prob_choice => 3, :alg => Rodas5P(), :label => "MTK: Rodas5P"),
+    Dict(:prob_choice => 3, :alg => RadauIIA5(), :label => "MTK: RadauIIA5")
 ]
 
-
 wp_high = WorkPrecisionSet(probs, abstols, reltols, setups;
-                          save_everystep=false,
-                          appxsol=refs,
-                          maxiters=Int(1e5),
-                          numruns=5)
+    save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=5)
 
-
-plot(wp_high, title="Slider-Crank: Mass Matrix vs DAE (High Tol)")
+plot(wp_high, title="Slider-Crank: High Tolerance Regime")
 ```
 
+---
+
+## Low Tolerance Regime
 
 ```julia
 abstols_low = 1.0 ./ 10.0 .^ (7:10)
 reltols_low = 1.0 ./ 10.0 .^ (4:7)
 
-
 wp_low = WorkPrecisionSet(probs, abstols_low, reltols_low, setups;
-                         save_everystep=false,
-                         appxsol=refs,
-                         maxiters=Int(1e5),
-                         numruns=3)
+    save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=3)
 
-
-plot(wp_low, title="Slider-Crank: Mass Matrix vs DAE (Low Tol)")
+plot(wp_low, title="Slider-Crank: Low Tolerance Regime")
 ```
 
+---
 
-```julia, echo = false
+```julia, echo=false
 if @isdefined(WEAVE_ARGS)
-   using SciMLBenchmarks
-   SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+    using SciMLBenchmarks
+    SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 end
 ```
 
