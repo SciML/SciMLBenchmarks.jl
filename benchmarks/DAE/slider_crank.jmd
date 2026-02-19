@@ -5,13 +5,13 @@ author: Singh Harsh Rahulkumar
 
 ## Overview
 
-The slider-crank mechanism is a classical constrained mechanical system with 3 degrees of freedom and 2 holonomic constraints. This benchmark compares three numerically equivalent formulations:
+The slider-crank mechanism is a classical constrained mechanical system with 3 degrees of freedom and 2 holonomic constraints. This benchmark compares three formulations:
 
-1. **Mass-Matrix ODE**: Singular mass matrix with position constraints
-2. **Residual DAE**: Implicit DAE with velocity constraints (index-1)
-3. **Symbolic Simplification**: ModelingToolkit structural simplification
+1. **Mass-Matrix ODE**: Singular mass matrix form (Index-3 DAE with position-level constraints)
+2. **Residual DAE**: Implicit DAE using velocity-level constraints (Index-1 equivalent)
+3. **Symbolic Simplification**: ModelingToolkit with structural simplification (reduced to Index-0/1)
 
-All formulations should produce equivalent solutions.
+The different index levels demonstrate how constraint formulation affects numerical stability.
 
 ---
 
@@ -19,7 +19,7 @@ All formulations should produce equivalent solutions.
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, ModelingToolkit
-using ModelingToolkit: t_nounits as t, D_nounits
+using ModelingToolkit: t_nounits as t, D_nounits as D
 
 # Physics Constants
 const m_crank = 0.36      # kg
@@ -30,11 +30,9 @@ const l_rod = 0.30        # m (rod length)
 const J_crank = 0.002727  # kg⋅m² (crank inertia)
 const J_rod = 0.0045339259 # kg⋅m² (rod inertia)
 
-# Formulation 1: Mass-Matrix Form
+# Formulation 1: Mass-Matrix Form (Index-3 with position constraints)
 function slider_crank_mm_f!(du, u, p, t)
-    theta, phi, x = u[1], u[2], u[3]
-    dtheta, dphi, dx = u[4], u[5], u[6]
-    lam1, lam2 = u[7], u[8]
+    theta, phi, x, dtheta, dphi, dx, lam1, lam2 = u
     du[1] = dtheta
     du[2] = dphi
     du[3] = dx
@@ -45,11 +43,12 @@ function slider_crank_mm_f!(du, u, p, t)
     du[8] = x - (l_crank * cos(theta) + l_rod * cos(phi))
 end
 
-# Formulation 2: Residual DAE Form
+# Mass matrix with zero rows for constraints (singular)
+M = diagm([1.0, 1.0, 1.0, J_crank, J_rod, m_slider, 0.0, 0.0])
+
+# Formulation 2: Residual DAE Form (Index-1 with velocity constraints)
 function slider_crank_dae_f!(res, du, u, p, t)
-    theta, phi, x = u[1], u[2], u[3]
-    dtheta, dphi, dx = u[4], u[5], u[6]
-    lam1, lam2 = u[7], u[8]
+    theta, phi, x, dtheta, dphi, dx, lam1, lam2 = u
     res[1] = du[1] - dtheta
     res[2] = du[2] - dphi
     res[3] = du[3] - dx
@@ -60,42 +59,26 @@ function slider_crank_dae_f!(res, du, u, p, t)
     res[8] = dx + l_crank * sin(theta) * dtheta + l_rod * sin(phi) * dphi
 end
 
-# Mass matrix for MM form
-M = zeros(8, 8)
-M[1, 1] = 1.0
-M[2, 2] = 1.0
-M[3, 3] = 1.0
-M[4, 4] = J_crank
-M[5, 5] = J_rod
-M[6, 6] = m_slider
-
-# Formulation 3: ModelingToolkit Symbolic
-@variables theta(t) phi(t) x(t)
-@variables dtheta(t) dphi(t) dx(t)
-@variables lam1(t) lam2(t)
-
-D_op = D_nounits
+# Formulation 3: ModelingToolkit with Structural Simplification
+@variables theta(t) phi(t) x(t) dtheta(t) dphi(t) dx(t) lam1(t) lam2(t)
 
 eqs = [
-    D_op(theta) ~ dtheta,
-    D_op(phi) ~ dphi,
-    D_op(x) ~ dx,
-    J_crank * D_op(dtheta) ~ -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)),
-    J_rod * D_op(dphi) ~ -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)),
-    m_slider * D_op(dx) ~ -lam2,
+    D(theta) ~ dtheta,
+    D(phi) ~ dphi,
+    D(x) ~ dx,
+    J_crank * D(dtheta) ~ -(lam1 * l_crank * cos(theta) - lam2 * l_crank * sin(theta)),
+    J_rod * D(dphi) ~ -(lam1 * l_rod * cos(phi) - lam2 * l_rod * sin(phi)),
+    m_slider * D(dx) ~ -lam2,
     0 ~ l_crank * sin(theta) - l_rod * sin(phi),
     0 ~ x - (l_crank * cos(theta) + l_rod * cos(phi))
 ]
 
 @named slider_sys = ODESystem(eqs, t)
 
-try
-    slider_sys_simplified = structural_simplify(slider_sys, dummy_derivative=false)
-catch
-    slider_sys_simplified = complete(slider_sys)
-end
+# Allow structural_simplify to perform automatic index reduction (no dummy_derivative restriction)
+slider_sys_simplified = structural_simplify(slider_sys)
 
-# Initialize state
+# Initialize state variables
 u0 = zeros(8)
 u0[1] = π / 2
 u0[2] = asin((l_crank / l_rod) * sin(u0[1]))
