@@ -7,7 +7,7 @@ From the paper [A Comparison of Automatic Differentiation and Continuous Sensiti
 
 ```julia
 using OrdinaryDiffEq, ReverseDiff, ForwardDiff, FiniteDiff, SciMLSensitivity
-using LinearAlgebra, Tracker, Plots
+using LinearAlgebra, Tracker, Mooncake, Plots
 ```
 
 ```julia
@@ -344,9 +344,10 @@ tols = (abstol = 1e-5, reltol = 1e-7)
 _adjoint_methods = ntuple(2) do ii
     Alg = (InterpolatingAdjoint, QuadratureAdjoint)[ii]
     (
-        advj1 = Alg(autodiff = true, autojacvec = EnzymeVJP()), # AD vJ
-        advj2 = Alg(autodiff = true, autojacvec = ReverseDiffVJP(false)), # AD vJ
-        advj3 = Alg(autodiff = true, autojacvec = ReverseDiffVJP(true)) # AD vJ
+        advj1 = Alg(autodiff = true, autojacvec = EnzymeVJP()), # AD vJ (Enzyme)
+        advj2 = Alg(autodiff = true, autojacvec = ReverseDiffVJP(false)), # AD vJ (ReverseDiff)
+        advj3 = Alg(autodiff = true, autojacvec = ReverseDiffVJP(true)), # AD vJ (Compiled ReverseDiff)
+        advj4 = Alg(autodiff = true, autojacvec = SciMLSensitivity.MooncakeVJP()) # AD vJ (Mooncake)
     )
 end |> NamedTuple{(:interp, :quad)}
 adjoint_methods = mapreduce(collect, vcat, _adjoint_methods)
@@ -372,11 +373,13 @@ plt2 = plot(title = "Brusselator quadrature adjoint scaling");
 csacompare = [[csavjp[j][i] for j in eachindex(csavjp)] for i in eachindex(csavjp[1])]
 plot!(plt2, n_to_param.(csan), csadata[2 + 3], lab = "AD-Jacobian",
     lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-plot!(plt2, n_to_param.(csan), csacompare[1 + 3], lab = raw"EnzymeVJP",
+plot!(plt2, n_to_param.(csan), csacompare[1 + 4], lab = raw"EnzymeVJP",
     lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-plot!(plt2, n_to_param.(csan), csacompare[2 + 3], lab = raw"ReverseDiffVJP",
+plot!(plt2, n_to_param.(csan), csacompare[2 + 4], lab = raw"ReverseDiffVJP",
     lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-plot!(plt2, n_to_param.(csan), csacompare[3 + 3], lab = raw"Compiled ReverseDiffVJP",
+plot!(plt2, n_to_param.(csan), csacompare[3 + 4], lab = raw"Compiled ReverseDiffVJP",
+    lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
+plot!(plt2, n_to_param.(csan), csacompare[4 + 4], lab = raw"MooncakeVJP",
     lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
 xaxis!(plt2, "Number of Parameters", :log10);
 yaxis!(plt2, "Runtime (s)", :log10);
