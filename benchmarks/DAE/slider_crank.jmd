@@ -153,9 +153,10 @@ println("✓ All three formulations solved successfully")
 
 ---
 
-## Verification
+## Verification and Convergence Study
 
 ```julia
+# Verification: Compare all three solutions
 p_slider = plot(sol_mm, idxs=3,
     label="MM (Rodas5P)", lw=3.5, alpha=0.7,
     title="Slider Position: All Three Formulations Match",
@@ -164,14 +165,17 @@ p_slider = plot(sol_mm, idxs=3,
 plot!(p_slider, sol_dae, idxs=3, label="DAE (IDA)", linestyle=:dash, lw=2.5)
 plot!(p_slider, sol_mtk, idxs=3, label="MTK (Rodas5P)", linestyle=:dot, lw=2.5)
 
-p_slider
+display(p_slider)
+
+println("\n✓ Verification plot generated successfully")
 ```
 
 ---
 
-## Convergence Study
+## High Tolerance Convergence Study
 
 ```julia
+# Setup for convergence study
 probs = [prob_mm, prob_dae, prob_mtk]
 refs = [sol_mm, sol_dae, sol_mtk]
 
@@ -186,24 +190,33 @@ setups = [
     Dict(:prob_choice => 3, :alg => RadauIIA5(), :label => "MTK: RadauIIA5")
 ]
 
+println("Computing work-precision set (high tolerance)...")
 wp_high = WorkPrecisionSet(probs, abstols, reltols, setups;
     save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=5)
 
-plot(wp_high, title="Slider-Crank: High Tolerance Regime")
+p_wp_high = plot(wp_high, title="Slider-Crank: High Tolerance Regime")
+display(p_wp_high)
+
+println("✓ High tolerance convergence study complete")
 ```
 
 ---
 
-## Low Tolerance Regime
+## Low Tolerance Convergence Study
 
 ```julia
+# Low tolerance regime
 abstols_low = 1.0 ./ 10.0 .^ (7:10)
 reltols_low = 1.0 ./ 10.0 .^ (4:7)
 
+println("Computing work-precision set (low tolerance)...")
 wp_low = WorkPrecisionSet(probs, abstols_low, reltols_low, setups;
     save_everystep=false, appxsol=refs, maxiters=Int(1e5), numruns=3)
 
-plot(wp_low, title="Slider-Crank: Low Tolerance Regime")
+p_wp_low = plot(wp_low, title="Slider-Crank: Low Tolerance Regime")
+display(p_wp_low)
+
+println("✓ Low tolerance convergence study complete")
 ```
 
 ---
