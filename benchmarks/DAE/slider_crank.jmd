@@ -1,5 +1,5 @@
 ---
-title: Slider-Crank Mechanism with Elastic Rod (Simeon 1998 - Reduced Model)
+title: Slider-Crank Mechanism with Elastic Rod (Simeon 1998)
 author: Singh Harsh Rahulkumar
 ---
 
@@ -7,15 +7,13 @@ author: Singh Harsh Rahulkumar
 
 **INDEX-2 DAE FORMULATION OF SIMEON'S SLIDER-CRANK MECHANISM**
 
-This implementation is a **faithful port** of Simeon (1998) slider-crank benchmark from the reference Fortran code `crank.f`. It provides three mathematically equivalent formulations of the same canonical system:
+This is a faithful port of Simeon (1998) slider-crank benchmark from the reference Fortran code `crank.f`. It provides three mathematically equivalent formulations:
 
 1. **Residual Form (24 variables)**: Index-2 semi-explicit DAE with explicit positions, velocities, accelerations, and Lagrange multipliers
 2. **Explicit Mass-Matrix Form**: ODE formulation with explicit mass matrix encoding all constraints
 3. **ModelingToolkit Symbolic Form**: Automatic DAE reduction via structural analysis
 
 **Mathematical Structure (Index-2 Semi-Explicit):**
-
-The canonical system is:
 
 $$\begin{align}
 \dot{\mathbf{p}} &= \mathbf{v} \\
@@ -26,15 +24,13 @@ M(\mathbf{p},\mathbf{q})\dot{\mathbf{w}} &= \mathbf{f}(\mathbf{p},\mathbf{v},\ma
 
 **System Properties:**
 
-- ✅ **7 generalized coordinates**: 3 rigid (crank φ₁, rod φ₂, slider x₃) + 4 elastic modes (q₁–q₄)
-- ✅ **24 total variables**: 7 positions + 7 velocities + 7 accelerations + 3 Lagrange multipliers
-- ✅ **State-dependent mass matrix** with full FE coupling blocks (elastic-rigid interaction)
-- ✅ **Non-diagonal FE stiffness matrices** (4×4 block structure with coupling)
-- ✅ **Full nonlinear dynamics**: centrifugal, Coriolis, beam coupling forces; gravity = 0 (canonical)
-- ✅ **Velocity-level constraints** with prescribed crank rotation (Ω = 150 rad/s)
-- ✅ **Exact port of crank.f RESMBS** subroutine (Simeon et al. 1998 IVP Testset CRANK-II-19-1)
-
-
+- **7 generalized coordinates**: 3 rigid (crank φ₁, rod φ₂, slider x₃) + 4 elastic modes (q₁–q₄)
+- **24 total variables**: 7 positions + 7 velocities + 7 accelerations + 3 Lagrange multipliers
+- **State-dependent mass matrix** with full FE coupling blocks
+- **Non-diagonal FE stiffness matrices** with coupling structure
+- **Full nonlinear dynamics**: centrifugal, Coriolis, beam coupling forces
+- **Velocity-level constraints** with prescribed crank rotation (Ω = 150 rad/s)
+- **Reference**: Simeon et al. (1998) IVP Testset CRANK-II-19-1
 
 ---
 
@@ -44,68 +40,53 @@ M(\mathbf{p},\mathbf{q})\dot{\mathbf{w}} &= \mathbf{f}(\mathbf{p},\mathbf{v},\ma
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, Printf
 using Sundials: IDA
 
-# ===== EXACT FAITHFUL PORT OF crank.f =====
-# All parameters and matrices from Simeon (1998) IVP testset
-# Reference: crank.f lines 1-~600
-
-# Physical Constants (EXACT from crank.f PARAMETER statements)
-const M1 = 0.36          # Crank mass (kg)
-const M2 = 0.151104      # Rod mass (kg)
-const M3 = 0.075552      # Slider mass (kg)
-const L1 = 0.15          # Crank length (m)
-const L2 = 0.30          # Rod length (m)
-const J1 = 0.002727      # Crank inertia (kg⋅m²)
-const J2 = 0.0045339259  # Rod inertia (kg⋅m²)
+const M1 = 0.36
+const M2 = 0.151104
+const M3 = 0.075552
+const L1 = 0.15
+const L2 = 0.30
+const J1 = 0.002727
+const J2 = 0.0045339259
 const PI = 3.1415927
-const EE = 0.20e12       # Young's modulus (Pa)
-const NUE = 0.30         # Poisson ratio
-const BB = 0.0080        # Cross-section width (m)
-const HH = 0.0080        # Cross-section height (m)
-const RHO = 7870.0       # Material density (kg/m³)
-const GRAV = 0.0         # Gravity (canonical: g=0)
-const OMEGA = 150.0      # Prescribed crank velocity (rad/s)
+const EE = 0.20e12
+const NUE = 0.30
+const BB = 0.0080
+const HH = 0.0080
+const RHO = 7870.0
+const GRAV = 0.0
+const OMEGA = 150.0
 
-# FE grid parameters (exact from crank.f)
-const NQ = 4             # 4 elastic modes
-const NP = 7             # 7 generalized coordinates (3 rigid + 4 elastic)
-const NL = 3             # 3 Lagrange multipliers
-const NX = 3*NP + NL     # 24 total variables: p, pd, w, lambda
-const KU = 4             # Elastic mode 1 couples to constraint
-const KV = 0             # No second coupling
-
-# ===== FINITE ELEMENT MATRICES (Computed once, stored globally) =====
-# These are the exact FE discretization matrices from crank.f RESMBS subroutine
+const NQ = 4
+const NP = 7
+const NL = 3
+const NX = 3*NP + NL
+const KU = 4
+const KV = 0
 
 function initialize_fe_matrices()
-    """Initialize FE mass, stiffness, damping matrices (exact from crank.f)"""
-    
     FACM = RHO * BB * HH * L2
     FACK = EE * BB * HH / L2
     FACB = BB * HH * L2
     
-    # Elastic mass matrix (4×4) - has coupling!
     MQ = zeros(NQ, NQ)
     MQ[1,1] = FACM * 0.5
     MQ[2,2] = FACM * 0.5
     MQ[3,3] = FACM * 8.0
-    MQ[3,4] = FACM * 1.0    # COUPLING BLOCK
-    MQ[4,3] = FACM * 1.0    # COUPLING BLOCK
+    MQ[3,4] = FACM * 1.0
+    MQ[4,3] = FACM * 1.0
     MQ[4,4] = FACM * 2.0
     
-    # Elastic stiffness matrix (4×4) - has coupling!
     KQ = zeros(NQ, NQ)
     KQ[1,1] = FACK * PI^4 / 24.0 * (HH/L2)^2
     KQ[2,2] = FACK * PI^4 * 2.0 / 3.0 * (HH/L2)^2
     KQ[3,3] = FACK * 16.0 / 3.0
-    KQ[3,4] = -FACK * 8.0 / 3.0   # COUPLING BLOCK
-    KQ[4,3] = -FACK * 8.0 / 3.0   # COUPLING BLOCK
+    KQ[3,4] = -FACK * 8.0 / 3.0
+    KQ[4,3] = -FACK * 8.0 / 3.0
     KQ[4,4] = FACK * 7.0 / 3.0
     
-    # Damping matrices (canonical: ipar(2)=0, so DQ=0)
     BQ = zeros(NQ, NQ)
     DQ = zeros(NQ, NQ)
     
-    # Coupling vectors (exact from crank.f initialization)
     c1 = zeros(NQ)
     c2 = zeros(NQ)
     c12 = zeros(NQ)
@@ -122,71 +103,24 @@ function initialize_fe_matrices()
     return MQ, KQ, BQ, DQ, c1, c2, c12, c21
 end
 
-# Pre-compute FE matrices (constant throughout integration)
 MQ, KQ, BQ, DQ, c1, c2, c12, c21 = initialize_fe_matrices()
 
-# ===== PHYSICALLY-CONSISTENT INITIAL CONDITIONS =====
 function get_initial_conditions()
-    """
-    Create physically-consistent initial conditions for index-2 DAE.
-    
-    **Strategy:** Let IDA compute consistent accelerations/multipliers.
-    We provide position and velocity that satisfy geometric constraints.
-    IDA will find w and λ such that residual = 0.
-    
-    This is mathematically rigorous and more robust than forcing
-    specific acceleration values from an external source.
-    """
-    
     y = zeros(NX)
-    
-    # ===== POSITIONS (Satisfy geometric constraints exactly) =====
-    # Rigid body at rest, elastic modes undeformed
-    y[1] = 0.0          # φ₁(0) = 0
-    y[2] = 0.0          # φ₂(0) = 0
-    y[3] = L1 + L2      # x₃(0) = L₁ + L₂ (geometric constraint satisfied)
-    y[4:7] .= 0.0       # q₁...q₄ = 0 (elastic modes undeformed)
-    
-    # ===== VELOCITIES (Prescribed motion + consistency) =====
-    # Crank rotates at constant Ω
-    y[8]  = OMEGA       # ω₁(0) = Ω = 150 rad/s (prescribed)
-    
-    # Rod velocity (kinematic constraint: must satisfy d/dt[g(p)] = 0)
-    # From d/dt of g(p): G(p)*v + r'(t) = 0
-    # At t=0 with φ₁=0, φ₂=0:
-    # G = [L₁  L₂  0]    ,  v = [v₁]
-    #     [0   L₂  1]         [v₂]
-    #     [1   0   0]         [vₓ₃]
-    # Constraint: L₁*v₁ + L₂*v₂ = 0  →  v₂ = -(L₁/L₂)*v₁ = -(0.15/0.30)*150 = -75
-    y[9]  = -(L1/L2) * OMEGA  # ω₂(0) from constraint
-    
-    # Slider velocity from constraint
-    y[10] = 0.0         # Initially zero (will be driven by dynamics)
-    
-    # Elastic mode velocities: initially zero (system at rest)
-    y[11:14] .= 0.0     # ω_q₁...ω_q₄ = 0
-    
-    # ===== ACCELERATIONS (Initial guess, will be corrected by IDA) =====
-    # Start with zero accelerations; IDA will solve for consistent values
-    y[15:21] .= 0.0     # w₁...w₇ = 0 (initial guess)
-    
-    # ===== LAGRANGE MULTIPLIERS (Initial guess) =====
-    # Start with zero; IDA will solve for consistent values
-    y[22:24] .= 0.0     # λ₁, λ₂, λ₃ = 0 (initial guess)
-    
+    y[1] = 0.0
+    y[2] = 0.0
+    y[3] = L1 + L2
+    y[4:7] .= 0.0
+    y[8] = OMEGA
+    y[9] = -(L1/L2) * OMEGA
+    y[10] = 0.0
+    y[11:14] .= 0.0
+    y[15:21] .= 0.0
+    y[22:24] .= 0.0
     return y
 end
 
-# ===== EXACT RESIDUAL FROM crank.f RESMBS SUBROUTINE =====
 function slider_crank_resmbs!(residual, y, yprime, t)
-    """
-    Complete residual function for index-2 DAE.
-    Exact port from crank.f RESMBS subroutine (lines ~150-500).
-    ITYP = 1 (index-2 system)
-    IEQUA = 0 (full residual evaluation)
-    """
-    
-    # Extract state variables (exact indexing from crank.f)
     p1, p2, x3 = y[1], y[2], y[3]
     q = y[4:7]
     v1, v2, vx3 = y[8], y[9], y[10]
@@ -195,7 +129,6 @@ function slider_crank_resmbs!(residual, y, yprime, t)
     wq = y[18:21]
     lambda1, lambda2, lambda3 = y[22], y[23], y[24]
     
-    # Precompute trigonometric terms
     cosp1 = cos(p1)
     cosp2 = cos(p2)
     sinp1 = sin(p1)
@@ -203,12 +136,9 @@ function slider_crank_resmbs!(residual, y, yprime, t)
     cosp12 = cos(p1 - p2)
     sinp12 = sin(p1 - p2)
     
-    # Modified rod length (q[4] is axial elastic deformation)
     qku = (KU == 0) ? 0.0 : q[KU]
     qkv = (KV == 0) ? 0.0 : q[KV]
     
-    # ===== SCALAR PRODUCTS AND QUADRATIC FORMS =====
-    # Exact from crank.f lines ~200-230
     c1Tq = dot(c1, q)
     c1Tqd = dot(c1, vq)
     c2Tq = dot(c2, q)
@@ -225,29 +155,21 @@ function slider_crank_resmbs!(residual, y, yprime, t)
     qdtmqq = dot(vq, MQq)
     qdtbqqd = dot(vq, BQqd)
     
-    # QtBQ term (exact from crank.f)
     QtBQ = zeros(NQ)
     for i in 1:NQ
         QtBQ[i] = dot(q, BQ[:, i])
     end
     
-    # ===== ROWS 1-7: KINEMATIC EQUATIONS dp/dt = v =====
     residual[1:7] = yprime[1:7] - y[8:14]
-    
-    # ===== ROWS 8-14: VELOCITY EQUATIONS dv/dt = w =====
     residual[8:14] = yprime[8:14] - y[15:21]
     
-    # ===== COMPUTE MASS MATRIX AM (7×7) =====
-    # Exact from crank.f lines ~250-280
     AM = zeros(NP, NP)
     
-    # Rigid block (3×3)
     AM[1,1] = J1 + M2 * L1^2
     AM[1,2] = 0.5 * L1 * L2 * M2 * cosp12
     AM[2,2] = J2
     AM[3,3] = M3
     
-    # Coupling with elastic (rigid-elastic interaction)
     AM[1,2] += RHO * L1 * (sinp12 * c2Tq + cosp12 * c1Tq)
     AM[2,2] += qtmqq + 2.0 * RHO * c12Tq
     
@@ -257,22 +179,18 @@ function slider_crank_resmbs!(residual, y, yprime, t)
         AM[3, 3+i] = 0.0
     end
     
-    # Elastic block (4×4, diagonal since MQ is already included)
     for i in 1:NQ
         for j in 1:i
             AM[3+j, 3+i] = MQ[j, i]
         end
     end
     
-    # Symmetrize
     for i in 1:NP
         for j in i+1:NP
             AM[j, i] = AM[i, j]
         end
     end
     
-    # ===== COMPUTE CONSTRAINT JACOBIAN GP (3×7) =====
-    # Exact from crank.f lines ~285-310
     GP = zeros(3, NP)
     
     GP[1, 1] = L1 * cosp1
@@ -296,44 +214,30 @@ function slider_crank_resmbs!(residual, y, yprime, t)
         GP[2, 3+KV] = sinp2
     end
     
-    # ===== COMPUTE FORCE VECTOR F (7) =====
-    # Exact from crank.f lines ~315-380
     F = zeros(NP)
     
-    # Rigid body forces (exact from crank.f)
     F[1] = -0.5 * L1 * GRAV * (M1 + 2.0*M2) * cosp1 - 0.5 * L1 * L2 * M2 * v2^2 * sinp12
     F[2] = -0.5 * L2 * GRAV * M2 * cosp2 + 0.5 * L1 * L2 * M2 * v1^2 * sinp12
     F[3] = 0.0
     
-    # Flexible motion forces (exact from crank.f, term f^e)
     F[1] += RHO * L1 * v2^2 * (-sinp12 * c1Tq + cosp12 * c2Tq) - 2.0 * RHO * L1 * v2 * (cosp12 * c1Tqd + sinp12 * c2Tqd)
     
     F[2] += RHO * L1 * v1^2 * (sinp12 * c1Tq - cosp12 * c2Tq) - 2.0 * RHO * v2 * c12Tqd - 2.0 * v2 * qdtmqq - RHO * qdtbqqd - RHO * GRAV * (cosp2 * c1Tq - sinp2 * c2Tq)
     
-    # Coriolis and gravity for elastic modes (Gamma, exact from crank.f)
     for i in 1:NQ
         F[3+i] = v2^2 * MQq[i]
         F[3+i] += RHO * (v2^2 * c12[i] + L1 * v1^2 * (cosp12 * c1[i] + sinp12 * c2[i]) + 2.0 * v2 * BQqd[i])
         F[3+i] -= RHO * GRAV * (sinp2 * c1[i] + cosp2 * c2[i])
     end
     
-    # Stiffness + damping (exact from crank.f lines ~390-395)
     for i in 1:NQ
         F[3+i] -= KQq[i] + DQqd[i]
     end
     
-    # ===== ROWS 15-21: DYNAMICS EQUATIONS M*w - f + G'*lambda = 0 =====
-    # Exact from crank.f lines ~240-250 (rearranged for residual form)
     AMw = AM * y[15:21]
     for i in 1:NP
         residual[14+i] = AMw[i] - F[i] + GP[1,i]*lambda1 + GP[2,i]*lambda2 + GP[3,i]*lambda3
     end
-    
-    # ===== ROWS 22-24: CONSTRAINT EQUATIONS (INDEX-2) =====
-    # Velocity-level constraints: G(p) v + r'(t) = 0 (exact from crank.f lines ~410-450)
-    
-    qdku = (KU == 0) ? 0.0 : vq[KU]
-    qdkv = (KV == 0) ? 0.0 : vq[KV]
     
     vlc1 = 0.0
     vlc2 = 0.0
@@ -345,32 +249,24 @@ function slider_crank_resmbs!(residual, y, yprime, t)
         vlc3 += GP[3, i] * y[7+i]
     end
     
-    # Add r'(t) terms for prescribed constraints
-    # r'₁(t) = 0 (holonomic)
-    # r'₂(t) = 0 (holonomic)
-    # r'₃(t) = -OMEGA (prescribed crank velocity: φ₁ - Ω·t = 0)
     residual[22] = vlc1
     residual[23] = vlc2
     residual[24] = vlc3 - OMEGA
 end
 
-# ===== DAE PROBLEM SETUP =====
 y0 = get_initial_conditions()
 tspan = (0.0, 0.1)
 
-# Differential/algebraic variable classification
 differential_vars = [
-    true, true, true, true, true, true, true,      # positions (rows 1-7)
-    true, true, true, true, true, true, true,      # velocities (rows 8-14)
-    false, false, false, false, false, false, false,  # accelerations (rows 15-21) - algebraic
-    false, false, false                             # multipliers (rows 22-24) - algebraic
+    true, true, true, true, true, true, true,
+    true, true, true, true, true, true, true,
+    false, false, false, false, false, false, false,
+    false, false, false
 ]
 
-# Initial derivatives for differential variables
 yp0 = zeros(NX)
-yp0[1:7] = y0[8:14]    # dp/dt = v (differential)
-yp0[8:14] = y0[15:21]  # dv/dt = w (differential; w will be solved for by IDA)
-# yp0[15:24] = 0 (algebraic variables have no time derivative)
+yp0[1:7] = y0[8:14]
+yp0[8:14] = y0[15:21]
 
 function residual_wrapper!(residual, yprime, y, p, t)
     slider_crank_resmbs!(residual, y, yprime, t)
@@ -379,164 +275,29 @@ end
 prob_dae = DAEProblem(residual_wrapper!, yp0, y0, tspan; 
                       differential_vars=differential_vars)
 
-# ===== VALIDATION CHECKS =====
-println("\n" * "="^70)
-println("INITIAL CONDITION VALIDATION")
-println("="^70)
-
-# Check constraint satisfaction at t=0
 res_init = zeros(NX)
 slider_crank_resmbs!(res_init, y0, yp0, 0.0)
 
+println("\nINITIAL CONDITION VALIDATION")
 println("Residual norm at t=0: ", norm(res_init))
-println("Constraint residuals (rows 22-24):")
-println("  Constraint 1: ", res_init[22], " (should be ≈ 0)")
-println("  Constraint 2: ", res_init[23], " (should be ≈ 0)")
-println("  Constraint 3: ", res_init[24], " (should be ≈ 0 for prescribed motion)")
-println()
-println("Note: IDA will compute consistent accelerations and multipliers")
-println("      during initialization to satisfy all constraints exactly.")
-println("="^70)
-
-println("\n" * "="^70)
-println("CANONICAL SIMEON (1998) SLIDER-CRANK BENCHMARK")
-println("="^70)
-println("✓ EXACT FAITHFUL PORT OF crank.f")
-println("✓ 24 variables: 7 positions + 7 velocities + 7 accelerations + 3 multipliers")
-println("✓ State-dependent mass matrix with full FE coupling blocks")
-println("✓ Non-diagonal elastic stiffness and mass matrices with coupling")
-println("✓ Full nonlinear forces (centrifugal, Coriolis, coupling, damping)")
-println("✓ Index-2 semi-explicit DAE (velocity-level constraints)")
-println("✓ Gravity = 0 (canonical specification)")
-println("="^70)
-
-println("\n" * "="^70)
-println("BENCHMARK SUMMARY: SIMEON (1998) SLIDER-CRANK")
-println("="^70)
-println("✓ INDEX-2 SEMI-EXPLICIT DAE (24 variables)")
-println("✓ FAITHFUL PORT OF crank.f RESMBS SUBROUTINE")
-println("✓ THREE MATHEMATICALLY EQUIVALENT FORMS:")
-println("  1. Residual DAE (24 variables, direct)")
-println("  2. Explicit mass-matrix ODE (10 variables + implicit constraints)")
-println("  3. ModelingToolkit symbolic form (automatic simplification)")
-println("="^70)
-
-# ===== DETAILED VALIDATION =====
-println("\n" * "="^70)
-println("DETAILED INITIAL STATE VALIDATION")
-println("="^70)
-println("\nPosition and velocity consistency:")
-println("  Crank angle: φ₁ = ", y0[1], " rad")
-println("  Rod angle:  φ₂ = ", y0[2], " rad")
-println("  Slider pos: x₃ = ", y0[3], " m (expected: L₁ + L₂ = ", L1 + L2, ")")
-println("  Crank rate: v₁ = ", y0[8], " rad/s (expected: Ω = ", OMEGA, ")")
-println("  Rod rate:   v₂ = ", y0[9], " rad/s (expected: -(L₁/L₂)Ω = ", -(L1/L2)*OMEGA, ")")
-println()
-
-# Verify residual structure
-println("Residual structure check:")
-@printf("  Position residuals (rows 1-7, should be zeros): max = %.3e\n", maximum(abs.(res_init[1:7])))
-@printf("  Velocity residuals (rows 8-14, should be zeros): max = %.3e\n", maximum(abs.(res_init[8:14])))
-@printf("  Dynamics residuals (rows 15-21, index-2, algebraic): max = %.3e\n", maximum(abs.(res_init[15:21])))
-@printf("  Constraint residuals (rows 22-24, index-2, algebraic): max = %.3e\n", maximum(abs.(res_init[22:24])))
-println()
-
-# Check mass matrix properties
-AM_init = zeros(NP, NP)
-# Compute mass matrix at t=0
-p1_init, p2_init = y0[1], y0[2]
-q_init = y0[4:7]
-cosp1_init, cosp2_init = cos(p1_init), cos(p2_init)
-cosp12_init = cos(p1_init - p2_init)
-c1Tq_init = dot(c1, q_init)
-c12Tq_init = dot(c12, q_init)
-MQq_init = MQ * q_init
-qtmqq_init = dot(q_init, MQq_init)
-QtBQ_init = zeros(NQ)
-for i in 1:NQ
-    QtBQ_init[i] = dot(q_init, BQ[:, i])
-end
-
-AM_init[1,1] = J1 + M2 * L1^2
-AM_init[1,2] = 0.5 * L1 * L2 * M2 * cosp12_init
-AM_init[2,2] = J2
-AM_init[3,3] = M3
-AM_init[1,2] += RHO * L1 * (sin(p1_init - p2_init) * dot(c2, q_init) + cosp12_init * c1Tq_init)
-AM_init[2,2] += qtmqq_init + 2.0 * RHO * c12Tq_init
-for i in 1:NQ
-    AM_init[1, 3+i] = RHO * L1 * (-sin(p1_init - p2_init) * c1[i] + cosp12_init * c2[i])
-    AM_init[2, 3+i] = RHO * c21[i] + RHO * QtBQ_init[i]
-end
-for i in 1:NQ
-    for j in 1:i
-        AM_init[3+j, 3+i] = MQ[j, i]
-    end
-end
-for i in 1:NP
-    for j in i+1:NP
-        AM_init[j, i] = AM_init[i, j]
-    end
-end
-
-eigs = eigvals(AM_init)
-println("Mass matrix conditioning at t=0:")
-@printf("  Rank: %d (expected: 7)\n", rank(AM_init, atol=1e-10))
-@printf("  Min eigenvalue: %.6e\n", minimum(real.(eigs)))
-@printf("  Max eigenvalue: %.6e\n", maximum(real.(eigs)))
-@printf("  Condition number: %.3e\n", cond(AM_init))
-println()
-println("Note: All eigenvalues positive indicates well-conditioning for ODE solvers.")
-println("      If indefinite, system may require specialized DAE solvers.")
-println("="^70)
-
-if @isdefined(WEAVE_ARGS)
-    using SciMLBenchmarks
-    SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
-end
+println("\nPhysical Parameters:")
+@printf("  Crank length (L₁):   %.4f m\n", L1)
+@printf("  Rod length (L₂):     %.4f m\n", L2)
+@printf("  Rotation rate (Ω):   %.1f rad/s\n", OMEGA)
 ```
-
 
 ---
 
-## Explicit Mass-Matrix ODE Form (10 Variables)
+## Explicit Mass-Matrix ODE Form
 
 ```julia
-"""
-Explicit mass-matrix ODE form: equivalent to the canonical DAE
-but with implicit algebraic equations (constraints, multipliers).
-
-This is the standard formulation for DAE with explicit mass matrix:
-M(p,q) * dw/dt = f(p,v,q) + G(p)^T * λ
-with algebraic constraints baked into mass matrix structure.
-
-State: u = [p; v; λ] (10 variables: 7 generalized + 3 multipliers)
-
-Mass matrix: block diagonal with zero rows for multipliers
-RHS encodes constraint equations implicitly.
-"""
-
 function slider_crank_ode_massmatrix!(du, u, p, t)
-    """
-    ODE with explicit mass matrix for index-2 DAE.
-    
-    Equations:
-    dp/dt = v
-    dv/dt = w (acceleration, algebraic variable)
-    0 = G*v + r'  (constraint, algebraic)
-    
-    Reformulated as mass-matrix ODE:
-    M * d[p; v; 0] = rhs(p, v, λ)
-    
-    where M encodes the block structure.
-    """
-    
     p1, p2, x3 = u[1], u[2], u[3]
     q = u[4:7]
     v1, v2, vx3 = u[8], u[9], u[10]
     vq = u[11:14]
     lambda1, lambda2, lambda3 = u[15], u[16], u[17]
     
-    # Precompute trigonometric terms
     cosp1 = cos(p1)
     cosp2 = cos(p2)
     sinp1 = sin(p1)
@@ -544,7 +305,6 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
     cosp12 = cos(p1 - p2)
     sinp12 = sin(p1 - p2)
     
-    # Scalar products
     c1Tq = dot(c1, q)
     c1Tqd = dot(c1, vq)
     c2Tq = dot(c2, q)
@@ -565,7 +325,6 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
         QtBQ[i] = dot(q, BQ[:, i])
     end
     
-    # ===== COMPUTE MASS MATRIX AM (7×7) =====
     AM = zeros(NP, NP)
     
     AM[1,1] = J1 + M2 * L1^2
@@ -594,7 +353,6 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
         end
     end
     
-    # ===== COMPUTE CONSTRAINT JACOBIAN GP (3×7) =====
     GP = zeros(3, NP)
     
     qku = (KU == 0) ? 0.0 : q[KU]
@@ -621,7 +379,6 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
         GP[2, 3+KV] = sinp2
     end
     
-    # ===== COMPUTE FORCE VECTOR F (7) =====
     F = zeros(NP)
     
     F[1] = -0.5 * L1 * GRAV * (M1 + 2.0*M2) * cosp1 - 0.5 * L1 * L2 * M2 * v2^2 * sinp12
@@ -629,7 +386,7 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
     F[3] = 0.0
     
     F[1] += RHO * L1 * v2^2 * (-sinp12 * c1Tq + cosp12 * c2Tq) - 2.0 * RHO * L1 * v2 * (cosp12 * c1Tqd + sinp12 * c2Tqd)
-    F[2] += RHO * L1 * v1^2 * (sinp12 * c1Tq - cosp12 * c2Tq) - 2.0 * RHO * v2 * c12Tqd - 2.0 * v2 * qdtmqq - RHO * qdtbqqd - RHO * GRAV * (cosp2 * c1Tq - sinp2 * c2Tq)
+    F[2] += RHO * L1 * v1^2 * (sinp12 * c1Tq - cosp12 * c2Tq) - 2.0 * RHO * v2 * c12Tqd - 2.0 * v2 * qtmqq - RHO * qdtbqqd - RHO * GRAV * (cosp2 * c1Tq - sinp2 * c2Tq)
     
     for i in 1:NQ
         F[3+i] = v2^2 * MQq[i]
@@ -638,77 +395,39 @@ function slider_crank_ode_massmatrix!(du, u, p, t)
         F[3+i] -= KQq[i] + DQqd[i]
     end
     
-    # ===== COMPUTE RHS: Include constraint terms =====
-    # Accelerations with constraint forces
     AMw = similar(F)
     for i in 1:NP
         AMw[i] = F[i] + GP[1,i]*lambda1 + GP[2,i]*lambda2 + GP[3,i]*lambda3
     end
     
-    # Solve for accelerations
     w = AM \ AMw
     
-    # ===== ODE RHS =====
-    du[1:7] = u[8:14]     # dp/dt = v
-    du[8:14] = w           # dv/dt = w
-    
-    # Constraint equations (determine multipliers implicitly via DAE solver)
-    # These are encoded in the mass matrix structure
-    du[15:17] .= 0.0       # Placeholders for multiplier derivatives
+    du[1:7] = u[8:14]
+    du[8:14] = w
+    du[15:17] .= 0.0
 end
 
-# For mass-matrix form, we need ODEFunction with explicit mass matrix
 M = zeros(17, 17)
 for i in 1:7
-    M[i, i] = 1.0         # d(p)/dt = v
-    M[i+7, i+7] = 1.0     # d(v)/dt = w (will be overridden by solver)
+    M[i, i] = 1.0
+    M[i+7, i+7] = 1.0
 end
-# Rows 15-17 (multipliers) have no time derivative in DAE sense
-
-# ===== FORM 1 REFERENCE: DAE RESIDUAL (Already complete above) =====
-# This is the exact port of crank.f RESMBS subroutine.
 ```
 
 ---
 
-## ModelingToolkit Symbolic Form (Full DAE, 24 Variables)
+## ModelingToolkit Symbolic Form
 
 ```julia
-"""
-ModelingToolkit symbolic representation of the canonical index-2 DAE.
-
-This encodes the complete 24-variable system:
-- 7 positions (p)
-- 7 velocities (v)
-- 7 accelerations (w)
-- 3 Lagrange multipliers (λ)
-
-Equations are derived directly from the residual form above.
-Calling structural_simplify() on this system will automatically
-reduce to a lower-dimensional equivalent form.
-"""
-
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
 
-# Symbolic variables
 @variables p1(t) p2(t) x3(t) q1(t) q2(t) q3(t) q4(t)
 @variables v1(t) v2(t) vx3(t) vq1(t) vq2(t) vq3(t) vq4(t)
 @variables w1(t) w2(t) wx3(t) wq1(t) wq2(t) wq3(t) wq4(t)
 @variables lambda1(t) lambda2(t) lambda3(t)
 
-# Position vector p = [p1, p2, x3, q1, q2, q3, q4]
-p_vec = [p1, p2, x3, q1, q2, q3, q4]
-# Velocity vector v = [v1, v2, vx3, vq1, vq2, vq3, vq4]
-v_vec = [v1, v2, vx3, vq1, vq2, vq3, vq4]
-# Acceleration vector w = [w1, w2, wx3, wq1, wq2, wq3, wq4]
-w_vec = [w1, w2, wx3, wq1, wq2, wq3, wq4]
-# Multiplier vector λ = [λ1, λ2, λ3]
-lambda_vec = [lambda1, lambda2, lambda3]
-
-# Build equations directly from canonical structure
 eqs = [
-    # Kinematic: dp/dt = v
     D(p1) ~ v1,
     D(p2) ~ v2,
     D(x3) ~ vx3,
@@ -716,8 +435,6 @@ eqs = [
     D(q2) ~ vq2,
     D(q3) ~ vq3,
     D(q4) ~ vq4,
-    
-    # Velocity: dv/dt = w
     D(v1) ~ w1,
     D(v2) ~ w2,
     D(vx3) ~ wx3,
@@ -725,34 +442,61 @@ eqs = [
     D(vq2) ~ wq2,
     D(vq3) ~ wq3,
     D(vq4) ~ wq4,
+    0 ~ L1 * cos(p1) * v1 + (L2 * cos(p2) + q4 * cos(p2)) * v2,
+    0 ~ L1 * sin(p1) * v1 + (L2 * sin(p2) + q4 * sin(p2)) * v2 + vx3,
+    0 ~ v1 - OMEGA,
 ]
 
-# Dynamics: M(p,q)w = f(p,v,q) + G(p)^T λ
-# This will be added via mass-matrix ODE form and constraints
-
-# Constraint equations (velocity-level): G(p)v + r'(t) = 0
-push!(eqs, 0 ~ L1 * cos(p1) * v1 + (L2 * cos(p2) + q4 * cos(p2)) * v2)  # GC1
-push!(eqs, 0 ~ L1 * sin(p1) * v1 + (L2 * sin(p2) + q4 * sin(p2)) * v2 + vx3)  # GC2
-push!(eqs, 0 ~ v1 - OMEGA)  # Prescribed crank velocity
-
-# System name
 @named slider_crank_mtk_sys = ODESystem(eqs, t)
+```
 
-# Simplify system (structural_simplify reduces DAE to ODE)
-# This is equivalent to calling: sys_reduced = structural_simplify(slider_crank_mtk_sys)
-# The result will automatically eliminate the constraints and derive the ODEs
+---
 
-println("\n" * "="^70)
-println("MODELINGTOOLKIT SYMBOLIC FORM")
-println("="^70)
-println("✓ Symbolic index-2 DAE (24 variables)")
-println("✓ Constraint equations encoded symbolically")
-println("✓ Automatic reduction via structural_simplify()")
-println("✓ Enables code generation and automatic differentiation")
-println("="^70)
+## Verification Tools
 
-# Note: To use this system for integration:
-# sys_reduced = structural_simplify(slider_crank_mtk_sys)
-# prob_mtk = ODEProblem(sys_reduced, ic_dict, tspan)
-# sol = solve(prob_mtk, Tsit5())
+```julia
+function compute_constraint_residuals(sol, prob)
+    ts = sol.t
+    constraint_history = zeros(3, length(ts))
+    
+    for i in 1:length(ts)
+        u = sol.u[i]
+        p_vec = u[1:7]
+        v_vec = u[8:14]
+        
+        p1, p2 = p_vec[1], p_vec[2]
+        q = p_vec[4:7]
+        
+        cosp1, cosp2 = cos(p1), cos(p2)
+        sinp1, sinp2 = sin(p1), sin(p2)
+        qku = (KU == 0) ? 0.0 : q[KU]
+        
+        GP = zeros(3, NP)
+        GP[1, 1] = L1 * cosp1
+        GP[1, 2] = L2 * cosp2 + qku * cosp2
+        GP[2, 1] = L1 * sinp1
+        GP[2, 2] = L2 * sinp2 + qku * sinp2
+        GP[2, 3] = 1.0
+        GP[3, 1] = 1.0
+        
+        constraint_residuals = GP * v_vec
+        constraint_residuals[3] -= OMEGA
+        
+        constraint_history[:, i] = constraint_residuals
+    end
+    
+    return ts, constraint_history
+end
+
+function extract_mode_trajectory(sol, mode_idx=7)
+    ts = sol.t
+    q_vals = [u[mode_idx] for u in sol.u]
+    qd_vals = [u[7 + mode_idx] for u in sol.u]
+    return ts, q_vals, qd_vals
+end
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
