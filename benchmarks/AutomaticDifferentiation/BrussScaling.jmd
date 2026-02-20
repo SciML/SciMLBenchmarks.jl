@@ -510,14 +510,21 @@ plot!(plt_gk, legend = :outertopleft, size = (1200, 600))
 
 ## Peak Memory Benchmarks
 
-Peak resident set size (`Sys.maxrss()`) for each sensitivity method. Each configuration
-runs in a separate subprocess to get an independent peak memory measurement, since
-`Sys.maxrss()` is monotonically increasing within a process lifetime.
+Measures the memory consumed by each sensitivity computation. Each configuration runs
+in a separate subprocess. We measure current RSS (from `/proc/self/statm`) before and
+after the computation to isolate the memory used by the sensitivity solve from the
+large fixed cost of package loading.
 
 ```julia
 const CHILD_PREAMBLE = raw"""
 using OrdinaryDiffEq, ReverseDiff, ForwardDiff, FiniteDiff, SciMLSensitivity
 using LinearAlgebra, Mooncake
+
+function get_rss_mib()
+    statm = read("/proc/self/statm", String)
+    resident_pages = parse(Int, split(statm)[2])
+    return resident_pages * 4096 / (1024^2)
+end
 
 function makebrusselator(N = 8)
     xyd_brusselator = range(0, stop = 1, length = N)
@@ -665,49 +672,42 @@ function run_memory_benchmark(n::Int, method_setup::String)
     n = $(n)
     bfun, b_u0, b_p, brusselator_jac = makebrusselator(n)
 
+    GC.gc(); GC.gc()
+    rss_before = get_rss_mib()
+
     """ * method_setup * """
 
+    GC.gc(); GC.gc()
+    rss_after = get_rss_mib()
+
     println("BRUSSMEM_TIMING:", t)
-    println("BRUSSMEM_PEAK_RSS:", Sys.maxrss())
+    println("BRUSSMEM_RSS_BEFORE:", rss_before)
+    println("BRUSSMEM_RSS_AFTER:", rss_after)
     """
 
     try
         output = read(
             `$(Base.julia_cmd()) --project=$(PROJECT_DIR) -e $(child_script)`, String)
-        rss_m = match(r"BRUSSMEM_PEAK_RSS:(\d+)", output)
         time_m = match(r"BRUSSMEM_TIMING:([\d.eE+-]+)", output)
-        if rss_m === nothing || time_m === nothing
+        before_m = match(r"BRUSSMEM_RSS_BEFORE:([\d.eE+-]+)", output)
+        after_m = match(r"BRUSSMEM_RSS_AFTER:([\d.eE+-]+)", output)
+        if time_m === nothing || before_m === nothing || after_m === nothing
             @warn "Failed to parse subprocess output" n output
-            return (; peak_mib = NaN, timing = NaN)
+            return (; rss_before = NaN, rss_after = NaN, delta_mib = NaN, timing = NaN)
         end
-        peak_rss = parse(Int, rss_m.captures[1])
         timing = parse(Float64, time_m.captures[1])
-        peak_mib = peak_rss / (1024^2)
-        return (; peak_mib, timing)
+        rss_before = parse(Float64, before_m.captures[1])
+        rss_after = parse(Float64, after_m.captures[1])
+        delta_mib = rss_after - rss_before
+        return (; rss_before, rss_after, delta_mib, timing)
     catch e
         @warn "Subprocess failed" n exception = (e, catch_backtrace())
-        return (; peak_mib = NaN, timing = NaN)
+        return (; rss_before = NaN, rss_after = NaN, delta_mib = NaN, timing = NaN)
     end
 end
 
 mem_sizes = [2, 4, 6, 8, 10, 12]
 ```
-
-### Baseline Memory
-
-Package loading + Brusselator construction only, no sensitivity computation.
-
-```julia
-baseline = map(mem_sizes) do n
-    result = run_memory_benchmark(n, """
-    t = 0.0
-    """)
-    @show n, result
-    result
-end
-```
-
-### AD Choice Memory
 
 ```julia
 forwarddiff_mem = map(mem_sizes) do n
@@ -772,121 +772,21 @@ end
 ```julia
 mem_params = n_to_param.(mem_sizes)
 
-plt_mem1 = plot(title = "Brusselator Sensitivity Peak Memory Scaling");
-plot!(plt_mem1, mem_params, [b.peak_mib for b in baseline],
-    lab = "Baseline (packages only)", lw = lw, marksize = ms,
-    linestyle = :dash, marker = :auto, color = :gray);
-plot!(plt_mem1, mem_params, [r.peak_mib for r in forwarddiff_mem],
+plt_mem1 = plot(title = "Brusselator Sensitivity Memory Scaling");
+plot!(plt_mem1, mem_params, [r.delta_mib for r in forwarddiff_mem],
     lab = "Forward-Mode DSAAD", lw = lw, marksize = ms,
     linestyle = :auto, marker = :auto);
-plot!(plt_mem1, mem_params, [r.peak_mib for r in numdiff_mem],
+plot!(plt_mem1, mem_params, [r.delta_mib for r in numdiff_mem],
     lab = "Numerical Differentiation", lw = lw, marksize = ms,
     linestyle = :auto, marker = :auto);
 for entry in adjoint_ad_mem
-    plot!(plt_mem1, mem_params, [r.peak_mib for r in entry.results],
+    plot!(plt_mem1, mem_params, [r.delta_mib for r in entry.results],
         lab = entry.name, lw = lw, marksize = ms,
         linestyle = :auto, marker = :auto)
 end
 xaxis!(plt_mem1, "Number of Parameters", :log10);
-yaxis!(plt_mem1, "Peak Memory (MiB)", :log10);
+yaxis!(plt_mem1, "Memory (MiB)");
 plot!(plt_mem1, legend = :outertopleft, size = (1200, 600))
-```
-
-### VJP Choice Memory
-
-```julia
-mem_adjoint_types = [
-    "InterpolatingAdjoint",
-    "QuadratureAdjoint",
-    "GaussAdjoint",
-    "GaussKronrodAdjoint",
-]
-
-mem_vjp_backends = [
-    ("EnzymeVJP", "EnzymeVJP()"),
-    ("ReverseDiffVJP", "ReverseDiffVJP(false)"),
-    ("Compiled ReverseDiffVJP", "ReverseDiffVJP(true)"),
-    ("MooncakeVJP", "SciMLSensitivity.MooncakeVJP()"),
-]
-
-vjp_mem = map(mem_adjoint_types) do adj_type
-    per_vjp = map(mem_vjp_backends) do (vjp_name, vjp_str)
-        results = map(mem_sizes) do n
-            result = run_memory_benchmark(n, """
-            sensalg = $(adj_type)(autodiff = true, autojacvec = $(vjp_str))
-            solver = Rodas5(autodiff = false)
-            diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver;
-                sensalg = sensalg, tols...)
-            t = @elapsed diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, solver;
-                sensalg = sensalg, tols...)
-            """)
-            @show adj_type, vjp_name, n, result
-            result
-        end
-        (vjp_name = vjp_name, results = results)
-    end
-    (adj_type = adj_type, vjps = per_vjp)
-end
-```
-
-```julia
-# AD-Jacobian indices in adjoint_ad_mem:
-# 1=Interp-user, 2=Interp-AD, 3=Quad-user, 4=Quad-AD, 5=Gauss-AD, 6=GK-AD
-mem_ad_jac_indices = [2, 4, 5, 6]
-
-plt_mem_interp = plot(title = "Brusselator interpolating adjoint VJP memory scaling");
-plot!(plt_mem_interp, mem_params, [r.peak_mib for r in adjoint_ad_mem[mem_ad_jac_indices[1]].results],
-    lab = "AD-Jacobian", lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-for vjp_entry in vjp_mem[1].vjps
-    plot!(plt_mem_interp, mem_params, [r.peak_mib for r in vjp_entry.results],
-        lab = vjp_entry.vjp_name, lw = lw, marksize = ms,
-        linestyle = :auto, marker = :auto)
-end
-xaxis!(plt_mem_interp, "Number of Parameters", :log10);
-yaxis!(plt_mem_interp, "Peak Memory (MiB)", :log10);
-plot!(plt_mem_interp, legend = :outertopleft, size = (1200, 600))
-```
-
-```julia
-plt_mem_quad = plot(title = "Brusselator quadrature adjoint VJP memory scaling");
-plot!(plt_mem_quad, mem_params, [r.peak_mib for r in adjoint_ad_mem[mem_ad_jac_indices[2]].results],
-    lab = "AD-Jacobian", lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-for vjp_entry in vjp_mem[2].vjps
-    plot!(plt_mem_quad, mem_params, [r.peak_mib for r in vjp_entry.results],
-        lab = vjp_entry.vjp_name, lw = lw, marksize = ms,
-        linestyle = :auto, marker = :auto)
-end
-xaxis!(plt_mem_quad, "Number of Parameters", :log10);
-yaxis!(plt_mem_quad, "Peak Memory (MiB)", :log10);
-plot!(plt_mem_quad, legend = :outertopleft, size = (1200, 600))
-```
-
-```julia
-plt_mem_gauss = plot(title = "Brusselator Gauss adjoint VJP memory scaling");
-plot!(plt_mem_gauss, mem_params, [r.peak_mib for r in adjoint_ad_mem[mem_ad_jac_indices[3]].results],
-    lab = "AD-Jacobian", lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-for vjp_entry in vjp_mem[3].vjps
-    plot!(plt_mem_gauss, mem_params, [r.peak_mib for r in vjp_entry.results],
-        lab = vjp_entry.vjp_name, lw = lw, marksize = ms,
-        linestyle = :auto, marker = :auto)
-end
-xaxis!(plt_mem_gauss, "Number of Parameters", :log10);
-yaxis!(plt_mem_gauss, "Peak Memory (MiB)", :log10);
-plot!(plt_mem_gauss, legend = :outertopleft, size = (1200, 600))
-```
-
-```julia
-plt_mem_gk = plot(title = "Brusselator GaussKronrod adjoint VJP memory scaling");
-plot!(plt_mem_gk, mem_params, [r.peak_mib for r in adjoint_ad_mem[mem_ad_jac_indices[4]].results],
-    lab = "AD-Jacobian", lw = lw, marksize = ms, linestyle = :auto, marker = :auto);
-for vjp_entry in vjp_mem[4].vjps
-    plot!(plt_mem_gk, mem_params, [r.peak_mib for r in vjp_entry.results],
-        lab = vjp_entry.vjp_name, lw = lw, marksize = ms,
-        linestyle = :auto, marker = :auto)
-end
-xaxis!(plt_mem_gk, "Number of Parameters", :log10);
-yaxis!(plt_mem_gk, "Peak Memory (MiB)", :log10);
-plot!(plt_mem_gk, legend = :outertopleft, size = (1200, 600))
 ```
 
 ## Appendix
