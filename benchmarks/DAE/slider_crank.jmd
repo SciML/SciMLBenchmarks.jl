@@ -41,7 +41,7 @@ M(\mathbf{p},\mathbf{q})\dot{\mathbf{w}} &= \mathbf{f}(\mathbf{p},\mathbf{v},\ma
 ## Exact Port from crank.f (Index-2 DAE, 24 Variables)
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, Printf
 using Sundials: IDA
 
 # ===== EXACT FAITHFUL PORT OF crank.f =====
@@ -419,6 +419,74 @@ println("✓ THREE MATHEMATICALLY EQUIVALENT FORMS:")
 println("  1. Residual DAE (24 variables, direct)")
 println("  2. Explicit mass-matrix ODE (10 variables + implicit constraints)")
 println("  3. ModelingToolkit symbolic form (automatic simplification)")
+println("="^70)
+
+# ===== DETAILED VALIDATION =====
+println("\n" * "="^70)
+println("DETAILED INITIAL STATE VALIDATION")
+println("="^70)
+println("\nPosition and velocity consistency:")
+println("  Crank angle: φ₁ = ", y0[1], " rad")
+println("  Rod angle:  φ₂ = ", y0[2], " rad")
+println("  Slider pos: x₃ = ", y0[3], " m (expected: L₁ + L₂ = ", L1 + L2, ")")
+println("  Crank rate: v₁ = ", y0[8], " rad/s (expected: Ω = ", OMEGA, ")")
+println("  Rod rate:   v₂ = ", y0[9], " rad/s (expected: -(L₁/L₂)Ω = ", -(L1/L2)*OMEGA, ")")
+println()
+
+# Verify residual structure
+println("Residual structure check:")
+@printf("  Position residuals (rows 1-7, should be zeros): max = %.3e\n", maximum(abs.(res_init[1:7])))
+@printf("  Velocity residuals (rows 8-14, should be zeros): max = %.3e\n", maximum(abs.(res_init[8:14])))
+@printf("  Dynamics residuals (rows 15-21, index-2, algebraic): max = %.3e\n", maximum(abs.(res_init[15:21])))
+@printf("  Constraint residuals (rows 22-24, index-2, algebraic): max = %.3e\n", maximum(abs.(res_init[22:24])))
+println()
+
+# Check mass matrix properties
+AM_init = zeros(NP, NP)
+# Compute mass matrix at t=0
+p1_init, p2_init = y0[1], y0[2]
+q_init = y0[4:7]
+cosp1_init, cosp2_init = cos(p1_init), cos(p2_init)
+cosp12_init = cos(p1_init - p2_init)
+c1Tq_init = dot(c1, q_init)
+c12Tq_init = dot(c12, q_init)
+MQq_init = MQ * q_init
+qtmqq_init = dot(q_init, MQq_init)
+QtBQ_init = zeros(NQ)
+for i in 1:NQ
+    QtBQ_init[i] = dot(q_init, BQ[:, i])
+end
+
+AM_init[1,1] = J1 + M2 * L1^2
+AM_init[1,2] = 0.5 * L1 * L2 * M2 * cosp12_init
+AM_init[2,2] = J2
+AM_init[3,3] = M3
+AM_init[1,2] += RHO * L1 * (sin(p1_init - p2_init) * dot(c2, q_init) + cosp12_init * c1Tq_init)
+AM_init[2,2] += qtmqq_init + 2.0 * RHO * c12Tq_init
+for i in 1:NQ
+    AM_init[1, 3+i] = RHO * L1 * (-sin(p1_init - p2_init) * c1[i] + cosp12_init * c2[i])
+    AM_init[2, 3+i] = RHO * c21[i] + RHO * QtBQ_init[i]
+end
+for i in 1:NQ
+    for j in 1:i
+        AM_init[3+j, 3+i] = MQ[j, i]
+    end
+end
+for i in 1:NP
+    for j in i+1:NP
+        AM_init[j, i] = AM_init[i, j]
+    end
+end
+
+eigs = eigvals(AM_init)
+println("Mass matrix conditioning at t=0:")
+@printf("  Rank: %d (expected: 7)\n", rank(AM_init, atol=1e-10))
+@printf("  Min eigenvalue: %.6e\n", minimum(real.(eigs)))
+@printf("  Max eigenvalue: %.6e\n", maximum(real.(eigs)))
+@printf("  Condition number: %.3e\n", cond(AM_init))
+println()
+println("Note: All eigenvalues positive indicates well-conditioning for ODE solvers.")
+println("      If indefinite, system may require specialized DAE solvers.")
 println("="^70)
 
 if @isdefined(WEAVE_ARGS)
