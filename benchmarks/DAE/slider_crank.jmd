@@ -444,9 +444,9 @@ eqs = [
     D(vq2) ~ wq2,
     D(vq3) ~ wq3,
     D(vq4) ~ wq4,
-    0 ~ L1 * cos(p1) * v1 + (L2 * cos(p2) + q4 * cos(p2)) * v2,
-    0 ~ L1 * sin(p1) * v1 + (L2 * sin(p2) + q4 * sin(p2)) * v2 + vx3,
-    0 ~ v1 - OMEGA,
+    0 ~ 0.15 * cos(p1) * v1 + (0.30 * cos(p2) + q4 * cos(p2)) * v2,
+    0 ~ 0.15 * sin(p1) * v1 + (0.30 * sin(p2) + q4 * sin(p2)) * v2 + vx3,
+    0 ~ v1 - 150.0,
 ]
 
 @named slider_crank_mtk_sys = ODESystem(eqs, t)
@@ -472,19 +472,19 @@ if @isdefined(ref_sol) && length(ref_sol.t) > 0
     lam3_vals = [u[24] for u in ref_sol.u]
     
     # Plot 1: Rod angle and slider position
-    p1_plot = @plot(ts, [p2_vals x3_vals], label=["φ₂ (rod)" "x₃ (slider)"], 
+    p1_plot = plot(ts, [p2_vals x3_vals], label=["φ₂ (rod)" "x₃ (slider)"], 
                    xlabel="t", ylabel="Position", title="Gross Motion", lw=2)
     
     # Plot 2: Lateral elastic modes
-    p2_plot = @plot(ts, [q1_vals q2_vals], label=["q₁" "q₂"], 
+    p2_plot = plot(ts, [q1_vals q2_vals], label=["q₁" "q₂"], 
                    xlabel="t", ylabel="Amplitude", title="Lateral Elastic Modes (q₁, q₂)", lw=2)
     
     # Plot 3: Axial elastic modes
-    p3_plot = @plot(ts, [q3_vals q4_vals], label=["q₃" "q₄"], 
+    p3_plot = plot(ts, [q3_vals q4_vals], label=["q₃" "q₄"], 
                    xlabel="t", ylabel="Amplitude", title="Axial Elastic Modes (q₃, q₄)", lw=2)
     
     # Plot 4: Lagrange multipliers
-    p4_plot = @plot(ts, [lam1_vals lam2_vals lam3_vals], label=["λ₁" "λ₂" "λ₃"], 
+    p4_plot = plot(ts, [lam1_vals lam2_vals lam3_vals], label=["λ₁" "λ₂" "λ₃"], 
                    xlabel="t", ylabel="Force", title="Lagrange Multipliers", lw=2)
     
     p_verify = plot(p1_plot, p2_plot, p3_plot, p4_plot, layout=(2,2), size=(1200, 900), margin=5Plots.mm)
@@ -507,7 +507,7 @@ println("="^60)
 try
     ref_sol = solve(prob_dae, IDA(),
                     abstol=1e-12, reltol=1e-10,
-                    initializealg=IDA_YA_YDP_INIT,
+                    initializealg=Sundials.IDA_YA_YDP_INIT,
                     maxiters=Int(1e6))
     
     println("✓ Reference solution computed successfully")
@@ -539,7 +539,7 @@ try
         try
             sol = solve(prob_dae, IDA(),
                         abstol=tol, reltol=tol/10,
-                        initializealg=IDA_YA_YDP_INIT,
+                        initializealg=Sundials.IDA_YA_YDP_INIT,
                         maxiters=Int(1e5))
             err = compute_position_error(sol, ref_sol)
             push!(ida_errors, err)
