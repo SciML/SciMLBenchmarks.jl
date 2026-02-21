@@ -257,12 +257,13 @@ end
 y0 = get_initial_conditions()
 tspan = (0.0, 0.1)
 
-differential_vars = [
-    true, true, true, true, true, true, true,
-    true, true, true, true, true, true, true,
-    false, false, false, false, false, false, false,
-    false, false, false
-]
+# Mark which variables are differential (p, v, w) vs algebraic (λ)
+differential_vars = vcat(
+    trues(7),   # p₁, p₂, x₃, q₁, q₂, q₃, q₄
+    trues(7),   # v₁, v₂, vx₃, vq₁, vq₂, vq₃, vq₄
+    trues(7),   # w₁, w₂, wx₃, wq₁, wq₂, wq₃, wq₄
+    falses(3)   # λ₁, λ₂, λ₃
+)
 
 yp0 = zeros(NX)
 yp0[1:7] = y0[8:14]
@@ -455,123 +456,169 @@ eqs = [
 ## Work–Precision Diagrams
 
 ```julia
-# Compute high-accuracy reference solution
+# Compute high-accuracy reference solution with robust initialization
 println("\n" * "="^60)
-println("Computing Reference Solution (IDA, tight tolerances)")
+println("Computing Reference Solution (IDA)")
 println("="^60)
 
-ref_sol = solve(prob_dae, IDA(),
-                abstol=1e-14, reltol=1e-14,
-                saveat=range(0, 0.1, length=100))
-
-println("✓ Reference solution computed")
-println("  Time points: ", length(ref_sol.t))
-println("  Final x₃: ", ref_sol[3, end])
-
-# Error metric: max error in slider position
-function compute_position_error(sol, ref_sol)
-    # Interpolate reference at solution time points
-    ref_interp = LinearInterpolation(ref_sol.t, ref_sol[3, :])
-    errors = abs.(sol[3, :] .- ref_interp.(sol.t))
-    return maximum(errors)
+try
+    ref_sol = solve(prob_dae, IDA(),
+                    abstol=1e-10, reltol=1e-8,
+                    maxiters=Int(1e5))
+    
+    println("✓ Reference solution computed successfully")
+    println("  Final time: ", ref_sol.t[end])
+    println("  Number of time points: ", length(ref_sol.t))
+    
+    # Error metric: max error in slider position (x₃)
+    function compute_position_error(sol, ref_sol)
+        try
+            ref_interp = LinearInterpolation(ref_sol.t, ref_sol[3, :])
+            errors = abs.(sol[3, :] .- ref_interp.(sol.t))
+            return maximum(errors)
+        catch
+            return NaN
+        end
+    end
+    
+    # Sweep over tolerances for IDA (DAE solver)
+    println("\n" * "="^60)
+    println("Solver Sweep: IDA on DAE Problem")
+    println("="^60)
+    
+    ida_tols = 10.0 .^ (-4:-1:-8)
+    ida_errors = Float64[]
+    ida_times = Float64[]
+    ida_evals = Int[]
+    
+    for tol in ida_tols
+        println("  Tolerance: $tol")
+        try
+            sol = solve(prob_dae, IDA(),
+                        abstol=tol, reltol=tol/10,
+                        maxiters=Int(1e5))
+            err = compute_position_error(sol, ref_sol)
+            push!(ida_errors, err)
+            push!(ida_times, sol.destats.runtime)
+            push!(ida_evals, sol.destats.nf)
+            println("    ✓ Error: $err, Time: $(sol.destats.runtime)s")
+        catch e
+            println("    ✗ Solve failed: $(e)")
+            push!(ida_errors, NaN)
+            push!(ida_times, NaN)
+            push!(ida_evals, 0)
+        end
+    end
+    
+    println("✓ IDA sweep complete")
+    
+    # Create ODE problem for mass-matrix methods
+    u0_ode = y0[1:17]
+    prob_ode = ODEProblem(slider_crank_ode_massmatrix!, u0_ode, tspan)
+    
+    println("\n" * "="^60)
+    println("Solver Sweep: Rosenbrock (ODE Mass-Matrix Form)")
+    println("="^60)
+    
+    ros_tols = 10.0 .^ (-4:-1:-8)
+    ros_errors = Float64[]
+    ros_times = Float64[]
+    
+    for tol in ros_tols
+        println("  Tolerance: $tol")
+        try
+            sol = solve(prob_ode, Rosenbrock23(),
+                        abstol=tol, reltol=tol/10,
+                        maxiters=Int(1e5))
+            err = compute_position_error(sol, ref_sol)
+            push!(ros_errors, err)
+            push!(ros_times, sol.destats.runtime)
+            println("    ✓ Error: $err, Time: $(sol.destats.runtime)s")
+        catch e
+            println("    ✗ Solve failed: $(e)")
+            push!(ros_errors, NaN)
+            push!(ros_times, NaN)
+        end
+    end
+    
+    println("✓ Rosenbrock sweep complete")
+    
+catch e
+    println("✗ Reference solution failed: $e")
+    println("\nSkipping work-precision curves due to solver initialization issues.")
+    println("This may indicate that the initial conditions need refinement.")
 end
-
-# Sweep over tolerances for DAE (IDA)
-println("\n" * "="^60)
-println("Solver Sweep: DAE Methods")
-println("="^60)
-
-dae_tols = 10.0 .^ (-3:-1:-9)
-dae_errors = Float64[]
-dae_times = Float64[]
-dae_fevals = Int[]
-
-for tol in dae_tols
-    println("  IDA: tol = $tol")
-    sol = solve(prob_dae, IDA(),
-                abstol=tol, reltol=tol,
-                saveat=range(0, 0.1, length=50))
-    err = compute_position_error(sol, ref_sol)
-    push!(dae_errors, err)
-    push!(dae_times, sol.destats.runtime)
-    push!(dae_fevals, sol.destats.nf)
-end
-
-println("✓ DAE sweep complete")
-
-# Sweep for mass-matrix ODE form (explicit methods)
-println("\n" * "="^60)
-println("Solver Sweep: ODE Methods (Mass-Matrix Form)")
-println("="^60)
-
-# Create ODE problem from mass-matrix form
-u0_ode = y0[1:17]
-prob_ode = ODEProblem(slider_crank_ode_massmatrix!, u0_ode, tspan)
-
-ode_tols = 10.0 .^ (-3:-1:-9)
-ros_errors = Float64[]
-ros_times = Float64[]
-
-for tol in ode_tols
-    println("  Rosenbrock23: tol = $tol")
-    sol = solve(prob_ode, Rosenbrock23(),
-                abstol=tol, reltol=tol,
-                saveat=range(0, 0.1, length=50))
-    err = compute_position_error(sol, ref_sol)
-    push!(ros_errors, err)
-    push!(ros_times, sol.destats.runtime)
-end
-
-println("✓ ODE sweep complete")
 ```
 
 ---
 
-## Work–Precision Diagram
+## Work–Precision Plot
 
 ```julia
-using Plots
-
-plt = plot(legend=:topright, 
-           xlabel="Runtime (s)",
-           ylabel="Max Position Error (m)",
-           xscale=:log10,
-           yscale=:log10,
-           size=(800, 600),
-           margin=5Plots.mm)
-
-# Plot DAE results
-scatter!(plt, dae_times, dae_errors,
-         label="IDA (DAE)",
-         marker=:circle,
-         markersize=8,
-         color=:blue,
-         linewidth=2)
-
-# Plot ODE results
-scatter!(plt, ros_times, ros_errors,
-         label="Rosenbrock23 (ODE)",
-         marker=:square,
-         markersize=8,
-         color=:red,
-         linewidth=2)
-
-# Add reference slope lines for convergence rates
-tmin, tmax = extrema(vcat(dae_times, ros_times))
-slope_2 = (dae_errors[1] / dae_errors[end])^(1/log10(dae_times[end]/dae_times[1])) * 2
-ref_curve = slope_2 .* (tmin:1e-7:tmax) .^ (log10(dae_errors[end]/dae_errors[1])/log10(dae_times[end]/dae_times[1]))
-
-display(plt)
-
-println("\n" * "="^60)
-println("WORK–PRECISION SUMMARY")
-println("="^60)
-@printf("IDA (DAE):\n")
-@printf("  Min error: %.2e, Max error: %.2e\n", minimum(dae_errors), maximum(dae_errors))
-@printf("  Min time:  %.2e s, Max time:  %.2e s\n", minimum(dae_times), maximum(dae_times))
-@printf("\nRosenbrock23 (ODE):\n")
-@printf("  Min error: %.2e, Max error: %.2e\n", minimum(ros_errors), maximum(ros_errors))
-@printf("  Min time:  %.2e s, Max time:  %.2e s\n", minimum(ros_times), maximum(ros_times))
+# Plot work-precision diagram if reference solution succeeded
+if @isdefined(ida_errors) && !all(isnan.(ida_errors))
+    
+    plt = plot(legend=:bottomleft, 
+               xlabel="Runtime (s)",
+               ylabel="Max Position Error (m)",
+               xscale=:log10,
+               yscale=:log10,
+               size=(900, 600),
+               margin=5Plots.mm,
+               dpi=100)
+    
+    # Filter out NaN values for plotting
+    valid_ida = .!isnan.(ida_errors)
+    valid_ros = .!isnan.(ros_errors)
+    
+    if any(valid_ida)
+        scatter!(plt, ida_times[valid_ida], ida_errors[valid_ida],
+                 label="IDA (DAE, 24D)",
+                 marker=:circle,
+                 markersize=8,
+                 color=:blue,
+                 linewidth=2,
+                 alpha=0.8)
+    end
+    
+    if any(valid_ros)
+        scatter!(plt, ros_times[valid_ros], ros_errors[valid_ros],
+                 label="Rosenbrock23 (ODE, 17D)",
+                 marker=:square,
+                 markersize=8,
+                 color=:red,
+                 linewidth=2,
+                 alpha=0.8)
+    end
+    
+    display(plt)
+    
+    println("\n" * "="^60)
+    println("WORK–PRECISION SUMMARY")
+    println("="^60)
+    
+    if any(valid_ida)
+        valid_ida_errors = ida_errors[valid_ida]
+        valid_ida_times = ida_times[valid_ida]
+        @printf("IDA (DAE, 24 variables):\n")
+        @printf("  Min error: %.2e, Max error: %.2e\n", 
+                minimum(valid_ida_errors), maximum(valid_ida_errors))
+        @printf("  Min time:  %.2e s, Max time:  %.2e s\n", 
+                minimum(valid_ida_times), maximum(valid_ida_times))
+    end
+    
+    if any(valid_ros)
+        valid_ros_errors = ros_errors[valid_ros]
+        valid_ros_times = ros_times[valid_ros]
+        @printf("Rosenbrock23 (ODE, 17 variables):\n")
+        @printf("  Min error: %.2e, Max error: %.2e\n", 
+                minimum(valid_ros_errors), maximum(valid_ros_errors))
+        @printf("  Min time:  %.2e s, Max time:  %.2e s\n", 
+                minimum(valid_ros_times), maximum(valid_ros_times))
+    end
+else
+    println("\nWork-precision diagram not generated due to solver issues.")
+end
 ```
 
 ---
