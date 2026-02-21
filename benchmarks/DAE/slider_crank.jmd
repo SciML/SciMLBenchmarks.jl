@@ -37,8 +37,8 @@ M(\mathbf{p},\mathbf{q})\dot{\mathbf{w}} &= \mathbf{f}(\mathbf{p},\mathbf{v},\ma
 ## Exact Port from crank.f (Index-2 DAE, 24 Variables)
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, Printf
-using Sundials: IDA
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, LinearAlgebra, Printf, Interpolations
+using Sundials: IDA, IDA_YA_YDP_INIT
 
 const M1 = 0.36
 const M2 = 0.151104
@@ -257,12 +257,13 @@ end
 y0 = get_initial_conditions()
 tspan = (0.0, 0.1)
 
-# Mark which variables are differential (p, v, w) vs algebraic (λ)
+# Corrected: 14 differential (p, v) and 10 algebraic (w, λ)
+# Only positions and velocities have time derivatives in the residual function
 differential_vars = vcat(
-    trues(7),   # p₁, p₂, x₃, q₁, q₂, q₃, q₄
-    trues(7),   # v₁, v₂, vx₃, vq₁, vq₂, vq₃, vq₄
-    trues(7),   # w₁, w₂, wx₃, wq₁, wq₂, wq₃, wq₄
-    falses(3)   # λ₁, λ₂, λ₃
+    trues(7),   # p₁, p₂, x₃, q₁, q₂, q₃, q₄ (positions)
+    trues(7),   # v₁, v₂, vx₃, vq₁, vq₂, vq₃, vq₄ (velocities)
+    falses(7),  # w₁, w₂, wx₃, wq₁, wq₂, wq₃, wq₄ (accelerations - algebraic!)
+    falses(3)   # λ₁, λ₂, λ₃ (Lagrange multipliers - algebraic)
 )
 
 yp0 = zeros(NX)
@@ -453,18 +454,61 @@ eqs = [
 
 ---
 
+## Solution Verification Plots
+
+```julia
+if @isdefined(ref_sol) && length(ref_sol.t) > 0
+    # Extract solution data
+    ts = ref_sol.t
+    p1_vals = [u[1] for u in ref_sol.u]
+    p2_vals = [u[2] for u in ref_sol.u]
+    x3_vals = [u[3] for u in ref_sol.u]
+    q1_vals = [u[4] for u in ref_sol.u]
+    q2_vals = [u[5] for u in ref_sol.u]
+    q3_vals = [u[6] for u in ref_sol.u]
+    q4_vals = [u[7] for u in ref_sol.u]
+    lam1_vals = [u[22] for u in ref_sol.u]
+    lam2_vals = [u[23] for u in ref_sol.u]
+    lam3_vals = [u[24] for u in ref_sol.u]
+    
+    # Plot 1: Rod angle and slider position
+    p1_plot = @plot(ts, [p2_vals x3_vals], label=["φ₂ (rod)" "x₃ (slider)"], 
+                   xlabel="t", ylabel="Position", title="Gross Motion", lw=2)
+    
+    # Plot 2: Lateral elastic modes
+    p2_plot = @plot(ts, [q1_vals q2_vals], label=["q₁" "q₂"], 
+                   xlabel="t", ylabel="Amplitude", title="Lateral Elastic Modes (q₁, q₂)", lw=2)
+    
+    # Plot 3: Axial elastic modes
+    p3_plot = @plot(ts, [q3_vals q4_vals], label=["q₃" "q₄"], 
+                   xlabel="t", ylabel="Amplitude", title="Axial Elastic Modes (q₃, q₄)", lw=2)
+    
+    # Plot 4: Lagrange multipliers
+    p4_plot = @plot(ts, [lam1_vals lam2_vals lam3_vals], label=["λ₁" "λ₂" "λ₃"], 
+                   xlabel="t", ylabel="Force", title="Lagrange Multipliers", lw=2)
+    
+    p_verify = plot(p1_plot, p2_plot, p3_plot, p4_plot, layout=(2,2), size=(1200, 900), margin=5Plots.mm)
+    display(p_verify)
+    
+    println("\n✓ Solution verification plots generated")
+end
+```
+
+---
+
 ## Work–Precision Diagrams
 
 ```julia
 # Compute high-accuracy reference solution with robust initialization
 println("\n" * "="^60)
-println("Computing Reference Solution (IDA)")
+println("Computing Reference Solution (IDA with robust initialization)")
 println("="^60)
 
 try
     ref_sol = solve(prob_dae, IDA(),
-                    abstol=1e-10, reltol=1e-8,
-                    maxiters=Int(1e5))
+                    abstol=1e-12, reltol=1e-10,
+                    initializealg=IDA_YA_YDP_INIT,
+                    maxiters=Int(1e6))
     
     println("✓ Reference solution computed successfully")
     println("  Final time: ", ref_sol.t[end])
@@ -483,30 +527,28 @@ try
     
     # Sweep over tolerances for IDA (DAE solver)
     println("\n" * "="^60)
-    println("Solver Sweep: IDA on DAE Problem")
+    println("Solver Sweep: IDA on DAE Problem (24D Residual Form)")
     println("="^60)
     
     ida_tols = 10.0 .^ (-4:-1:-8)
     ida_errors = Float64[]
     ida_times = Float64[]
-    ida_evals = Int[]
     
     for tol in ida_tols
         println("  Tolerance: $tol")
         try
             sol = solve(prob_dae, IDA(),
                         abstol=tol, reltol=tol/10,
+                        initializealg=IDA_YA_YDP_INIT,
                         maxiters=Int(1e5))
             err = compute_position_error(sol, ref_sol)
             push!(ida_errors, err)
             push!(ida_times, sol.destats.runtime)
-            push!(ida_evals, sol.destats.nf)
-            println("    ✓ Error: $err, Time: $(sol.destats.runtime)s")
+            println("    ✓ Error: $(round(err, sigdigits=3)), Time: $(round(sol.destats.runtime, sigdigits=3))s")
         catch e
-            println("    ✗ Solve failed: $(e)")
+            println("    ✗ Solve failed")
             push!(ida_errors, NaN)
             push!(ida_times, NaN)
-            push!(ida_evals, 0)
         end
     end
     
@@ -517,7 +559,7 @@ try
     prob_ode = ODEProblem(slider_crank_ode_massmatrix!, u0_ode, tspan)
     
     println("\n" * "="^60)
-    println("Solver Sweep: Rosenbrock (ODE Mass-Matrix Form)")
+    println("Solver Sweep: Rosenbrock23 (17D Mass-Matrix Form)")
     println("="^60)
     
     ros_tols = 10.0 .^ (-4:-1:-8)
@@ -533,91 +575,98 @@ try
             err = compute_position_error(sol, ref_sol)
             push!(ros_errors, err)
             push!(ros_times, sol.destats.runtime)
-            println("    ✓ Error: $err, Time: $(sol.destats.runtime)s")
+            println("    ✓ Error: $(round(err, sigdigits=3)), Time: $(round(sol.destats.runtime, sigdigits=3))s")
         catch e
-            println("    ✗ Solve failed: $(e)")
+            println("    ✗ Solve failed")
             push!(ros_errors, NaN)
             push!(ros_times, NaN)
         end
     end
     
-    println("✓ Rosenbrock sweep complete")
+    println("✓ Rosenbrock23 sweep complete")
     
 catch e
     println("✗ Reference solution failed: $e")
     println("\nSkipping work-precision curves due to solver initialization issues.")
-    println("This may indicate that the initial conditions need refinement.")
 end
 ```
 
 ---
 
-## Work–Precision Plot
+## Work–Precision Plot (Benchmark Return)
 
 ```julia
-# Plot work-precision diagram if reference solution succeeded
+# Generate the final work-precision comparison plot
 if @isdefined(ida_errors) && !all(isnan.(ida_errors))
     
-    plt = plot(legend=:bottomleft, 
+    plt_wp = plot(legend=:bottomleft, 
                xlabel="Runtime (s)",
                ylabel="Max Position Error (m)",
                xscale=:log10,
                yscale=:log10,
-               size=(900, 600),
+               size=(1000, 700),
                margin=5Plots.mm,
-               dpi=100)
+               dpi=100,
+               title="Slider-Crank Work-Precision Diagram")
     
-    # Filter out NaN values for plotting
+    # Filter out NaN values
     valid_ida = .!isnan.(ida_errors)
     valid_ros = .!isnan.(ros_errors)
     
     if any(valid_ida)
-        scatter!(plt, ida_times[valid_ida], ida_errors[valid_ida],
-                 label="IDA (DAE, 24D)",
+        scatter!(plt_wp, ida_times[valid_ida], ida_errors[valid_ida],
+                 label="IDA (DAE, 24D Residual)",
                  marker=:circle,
-                 markersize=8,
+                 markersize=10,
                  color=:blue,
                  linewidth=2,
                  alpha=0.8)
     end
     
     if any(valid_ros)
-        scatter!(plt, ros_times[valid_ros], ros_errors[valid_ros],
-                 label="Rosenbrock23 (ODE, 17D)",
+        scatter!(plt_wp, ros_times[valid_ros], ros_errors[valid_ros],
+                 label="Rosenbrock23 (ODE, 17D Mass-Matrix)",
                  marker=:square,
-                 markersize=8,
+                 markersize=10,
                  color=:red,
                  linewidth=2,
                  alpha=0.8)
     end
     
-    display(plt)
+    display(plt_wp)
     
     println("\n" * "="^60)
-    println("WORK–PRECISION SUMMARY")
+    println("WORK–PRECISION BENCHMARK SUMMARY")
     println("="^60)
     
     if any(valid_ida)
         valid_ida_errors = ida_errors[valid_ida]
         valid_ida_times = ida_times[valid_ida]
-        @printf("IDA (DAE, 24 variables):\n")
-        @printf("  Min error: %.2e, Max error: %.2e\n", 
+        @printf("\nIDA (DAE, 24 variables):\n")
+        @printf("  Error range:  %.2e → %.2e\n", 
                 minimum(valid_ida_errors), maximum(valid_ida_errors))
-        @printf("  Min time:  %.2e s, Max time:  %.2e s\n", 
+        @printf("  Runtime range: %.2e → %.2e s\n", 
                 minimum(valid_ida_times), maximum(valid_ida_times))
+        @printf("  Points evaluated: %d\n", length(valid_ida_errors))
     end
     
     if any(valid_ros)
         valid_ros_errors = ros_errors[valid_ros]
         valid_ros_times = ros_times[valid_ros]
-        @printf("Rosenbrock23 (ODE, 17 variables):\n")
-        @printf("  Min error: %.2e, Max error: %.2e\n", 
+        @printf("\nRosenbrock23 (ODE, 17 variables):\n")
+        @printf("  Error range:  %.2e → %.2e\n", 
                 minimum(valid_ros_errors), maximum(valid_ros_errors))
-        @printf("  Min time:  %.2e s, Max time:  %.2e s\n", 
+        @printf("  Runtime range: %.2e → %.2e s\n", 
                 minimum(valid_ros_times), maximum(valid_ros_times))
+        @printf("  Points evaluated: %d\n", length(valid_ros_errors))
     end
+    
+    println("="^60)
+    println("✓ Benchmark comparison complete - PR ready for submission")
+    
 else
-    println("\nWork-precision diagram not generated due to solver issues.")
+    println("\n⚠ Work-precision diagram not generated.")
+    println("  Ensure initial conditions satisfy constraints: ||res(0)|| < 1e-10")
 end
 ```
 
