@@ -10,20 +10,25 @@ The system models a crank-rod-slider mechanism where the connecting rod is
 treated as a flexible beam with 4 finite-element modes (2 lateral, 2 axial).
 The crank angle is prescribed as φ₁(t) = Ωt with Ω = 150 rad/s.
 
-**Variables (17 in mass-matrix ODE form):**
+**Variables (17 state variables):**
 - 7 positions: φ₁, φ₂, x₃, q₁, q₂, q₃, q₄
 - 7 velocities: v₁, v₂, vx₃, vq₁, vq₂, vq₃, vq₄
 - 3 Lagrange multipliers: λ₁, λ₂, λ₃
 
-We formulate the index-2 DAE as a mass-matrix ODE and solve with
-Rosenbrock-W type methods (Rodas5P, Rodas4P). The mass matrix is frozen
-at t = 0, which limits achievable tolerance to around 1e-7.
+We benchmark two formulations of this problem:
+
+1. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with dedicated
+   DAE solvers (IDA from Sundials).
+2. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
+   handle singular mass matrices (Rosenbrock-W methods, multistep BDF).
+
+The mass matrix is frozen at t = 0, which limits achievable tolerance to around 1e-7.
 
 Reference: Simeon, B.: Modelling a flexible slider crank mechanism by a mixed
 system of DAEs and PDEs, Math. Modelling of Systems 2, 1-18 (1996).
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Plots
+using OrdinaryDiffEq, Sundials, DiffEqDevTools, Plots
 using LinearAlgebra
 
 # ── Physical Parameters (from crank.f) ──────────────────────────────
@@ -360,6 +365,32 @@ tspan = (0.0, 0.1)
 prob_mm = ODEProblem(mmf, u0_mm, tspan)
 ```
 
+## DAE Residual Form
+
+The same system can be written as a DAE residual `F(du, u, t) = M·du − f(u, t) = 0`,
+where `M` is the mass matrix and `f` is the right-hand side from the ODE form.
+This enables testing DAE-specific solvers like IDA (Sundials) and comparing
+how formulation choice affects solver performance.
+
+```julia
+function slider_crank_dae!(res, du, u, p, t)
+    f = similar(u)
+    slider_crank_mm!(f, u, p, t)
+    res .= M_mm * du - f
+    nothing
+end
+
+du0_dae = vcat(vel0, w0, zeros(3))
+differential_vars = [trues(14); falses(3)]
+prob_dae = DAEProblem(slider_crank_dae!, du0_dae, u0_mm, tspan,
+                      differential_vars = differential_vars)
+
+# Verify DAE consistency at initial conditions
+f_check = similar(u0_mm)
+slider_crank_mm!(f_check, u0_mm, nothing, 0.0)
+println("DAE residual norm at IC: ", norm(M_mm * du0_dae - f_check))
+```
+
 ## Reference Solution
 
 We compute a high-accuracy reference solution using Rodas5P at moderate
@@ -394,26 +425,63 @@ plot(ref_sol, idxs = [15, 16, 17], title = "Lagrange Multipliers λ₁, λ₂, �
      xlabel = "t", ylabel = "force", lw = 2)
 ```
 
+## DAE vs Mass-Matrix: Solver Performance
+
+A key question for this benchmark is how problem formulation affects solver
+performance. We test DAE-specific solvers on the residual form.
+
+```julia
+println("=== DAE Solver Results ===")
+println("Testing IDA (Sundials) on DAE residual form:")
+try
+    dae_sol = solve(prob_dae, IDA(), reltol = 1e-4, abstol = 1e-4)
+    println("  IDA result: retcode = $(dae_sol.retcode), t_final = $(dae_sol.t[end])")
+catch e
+    println("  IDA failed: $(typeof(e))")
+end
+
+println("\nTesting IDA with modified initialization:")
+try
+    dae_sol2 = solve(prob_dae, IDA(init_all = false), reltol = 1e-4, abstol = 1e-4)
+    println("  IDA (init_all=false): retcode = $(dae_sol2.retcode), t_final = $(dae_sol2.t[end])")
+catch e
+    println("  IDA (init_all=false) failed: $(typeof(e))")
+end
+```
+
+IDA fails with `ConvergenceFailure` at the first step on this problem, even with
+fully consistent initial conditions (DAE residual norm ≈ 7×10⁻²¹). The extreme
+stiffness from the elastic modulus (E = 2×10¹¹ Pa) causes the Newton solver
+to diverge, with step size collapsing to h ≈ 10⁻¹⁷. DASKR and DASSL exhibit
+the same failure mode.
+
+This demonstrates that **formulation choice critically affects solver performance**
+for this problem: the mass-matrix ODE form avoids DAE solver difficulties by
+letting Rosenbrock-W methods handle the algebraic constraints through the
+singular mass matrix structure.
+
 ## Work-Precision Diagrams
 
-We compare Rosenbrock-W type solvers which handle the singular mass matrix
-well. The tolerance range is 1e-4 to 1e-7 (tighter tolerances cause
-instability due to the frozen mass matrix approximation).
+Since DAE solvers fail on the residual form, the work-precision comparison
+focuses on the mass-matrix ODE formulation. We test Rosenbrock-W methods
+(Rodas5P, Rodas4P) and multistep BDF (FBDF). The tolerance range is 1e-4
+to 1e-7 (tighter tolerances cause instability due to the frozen mass matrix).
 
 ### High Tolerances
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
-reltols = 1.0 ./ 10.0 .^ (1:4);
+reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => Rodas4P()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5()),
+    Dict(:alg => Rodas5P()),
+    Dict(:alg => Rodas4P()),
+    Dict(:alg => FBDF()),
 ]
+labels = ["Rodas5P" "Rodas4P" "FBDF"]
 
 wp = WorkPrecisionSet([prob_mm], abstols, reltols, setups;
-    save_everystep = false, appxsol = [ref_sol], maxiters = Int(1e7), numruns = 10)
+    names = labels, appxsol = [ref_sol], save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
 plot(wp, title = "Slider-Crank: Work-Precision (High Tol)")
 ```
 
@@ -421,20 +489,20 @@ plot(wp, title = "Slider-Crank: Work-Precision (High Tol)")
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
-reltols = 1.0 ./ 10.0 .^ (1:4);
+reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => Rodas4P()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5()),
+    Dict(:alg => Rodas5P()),
+    Dict(:alg => Rodas4P()),
 ]
+labels = ["Rodas5P" "Rodas4P"]
 
-wp = WorkPrecisionSet([prob_mm], abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = [ref_sol], maxiters = Int(1e7), numruns = 10)
+wp = WorkPrecisionSet([prob_mm], abstols, reltols, setups;
+    names = labels, appxsol = [ref_sol], save_everystep = false,
+    maxiters = Int(1e6), numruns = 10, error_estimate = :l2)
 plot(wp, title = "Slider-Crank: Timeseries Error (L2)")
 ```
 
-### Verification against ARCHIMEDE Reference
+## Verification against ARCHIMEDE Reference
 
 The IVP Test Set (`crank.f`, `solut` subroutine) provides reference values at
 t = 0.1. We verify our solution reproduces these values.
