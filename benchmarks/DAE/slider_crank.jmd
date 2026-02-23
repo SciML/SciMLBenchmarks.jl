@@ -15,11 +15,13 @@ The crank angle is prescribed as φ₁(t) = Ωt with Ω = 150 rad/s.
 - 7 velocities: v₁, v₂, vx₃, vq₁, vq₂, vq₃, vq₄
 - 3 Lagrange multipliers: λ₁, λ₂, λ₃
 
-We benchmark two formulations of this problem:
+We benchmark three formulations of this problem:
 
 1. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with dedicated
    DAE solvers (IDA from Sundials).
-2. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
+2. **MTK Index-Reduced ODE:** The system defined symbolically with position-level
+   constraints, automatically index-reduced by `structural_simplify` to a 13-state ODE.
+3. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
    handle singular mass matrices (Rosenbrock-W methods, multistep BDF).
 
 The mass matrix is frozen at t = 0, which limits achievable tolerance to around 1e-7.
@@ -28,8 +30,9 @@ Reference: Simeon, B.: Modelling a flexible slider crank mechanism by a mixed
 system of DAEs and PDEs, Math. Modelling of Systems 2, 1-18 (1996).
 
 ```julia
-using OrdinaryDiffEq, Sundials, DiffEqDevTools, Plots
+using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, Plots
 using LinearAlgebra
+using ModelingToolkit: t_nounits as t, D_nounits as D
 
 # ── Physical Parameters (from crank.f) ──────────────────────────────
 
@@ -391,6 +394,114 @@ slider_crank_mm!(f_check, u0_mm, nothing, 0.0)
 println("DAE residual norm at IC: ", norm(M_mm * du0_dae - f_check))
 ```
 
+## MTK Index-Reduced Formulation
+
+ModelingToolkit can automatically reduce the DAE index via `structural_simplify`.
+We define the full system symbolically — with the 7 kinematic equations,
+7 dynamics equations (involving the configuration-dependent mass matrix), and
+the 3 position-level holonomic constraints — and let MTK differentiate and
+eliminate the Lagrange multipliers, producing a 13-state ODE.
+
+```julia
+@variables begin
+    φ1(t) = pos0[1]
+    φ2(t) = pos0[2]
+    x₃(t) = pos0[3]
+    q₁(t) = pos0[4]
+    q₂(t) = pos0[5]
+    q₃(t) = pos0[6]
+    q₄(t) = pos0[7]
+    vφ1(t) = vel0[1]
+    vφ2(t) = vel0[2]
+    vx₃(t) = vel0[3]
+    vq₁(t) = vel0[4]
+    vq₂(t) = vel0[5]
+    vq₃(t) = vel0[6]
+    vq₄(t) = vel0[7]
+    λ₁(t) = lam0[1]
+    λ₂(t) = lam0[2]
+    λ₃(t) = lam0[3]
+end
+
+pvec = [φ1, φ2, x₃, q₁, q₂, q₃, q₄]
+vvec = [vφ1, vφ2, vx₃, vq₁, vq₂, vq₃, vq₄]
+qvec = [q₁, q₂, q₃, q₄]
+vqvec = [vq₁, vq₂, vq₃, vq₄]
+λvec = [λ₁, λ₂, λ₃]
+
+# Symbolic trigonometric quantities
+sφ1 = sin(φ1); cφ1 = cos(φ1)
+sφ2 = sin(φ2); cφ2 = cos(φ2)
+sφ12 = sin(φ1 - φ2); cφ12 = cos(φ1 - φ2)
+
+# Dot products with FE vectors (Float64 constants × symbolic variables)
+c1q = sum(c1 .* qvec); c2q = sum(c2 .* qvec); c12q = sum(c12 .* qvec)
+c1vq = sum(c1 .* vqvec); c2vq = sum(c2 .* vqvec); c12vq = sum(c12 .* vqvec)
+
+# Matrix-vector products (Float64 FE matrices × symbolic vectors)
+MQq_s = MQ * qvec; KQq_s = KQ * qvec
+DQvq_s = DQ * vqvec; BQvq_s = BQ * vqvec
+
+# Quadratic forms
+qMQq_s = sum(qvec .* MQq_s)
+vqMQq_s = sum(vqvec .* MQq_s)
+vqBQvq_s = sum(vqvec .* BQvq_s)
+QBQ_s = [sum(qvec .* BQ[:,i]) for i in 1:NQ]
+
+# AM(φ,q) × D(v) — configuration-dependent mass matrix × acceleration
+am_dv = [
+    (J1 + M2*L1^2)*D(vφ1) +
+        (0.5*L1*L2*M2*cφ12 + RHO*L1*(sφ12*c2q + cφ12*c1q))*D(vφ2) +
+        sum(RHO*L1*(-sφ12*c1[i] + cφ12*c2[i])*D(vqvec[i]) for i in 1:NQ),
+    (0.5*L1*L2*M2*cφ12 + RHO*L1*(sφ12*c2q + cφ12*c1q))*D(vφ1) +
+        (J2 + qMQq_s + 2*RHO*c12q)*D(vφ2) +
+        sum((RHO*c21[i] + RHO*QBQ_s[i])*D(vqvec[i]) for i in 1:NQ),
+    M3*D(vx₃),
+    [RHO*L1*(-sφ12*c1[k] + cφ12*c2[k])*D(vφ1) +
+        (RHO*c21[k] + RHO*QBQ_s[k])*D(vφ2) +
+        sum(MQ[k,j]*D(vqvec[j]) for j in 1:NQ)
+        for k in 1:NQ]...
+]
+
+# Force vector F(φ,v,q,vq)
+F_s = [
+    -0.5*L1*GRAV*(M1+2*M2)*cφ1 - 0.5*L1*L2*M2*vφ2^2*sφ12 +
+        RHO*L1*vφ2^2*(-sφ12*c1q + cφ12*c2q) -
+        2*RHO*L1*vφ2*(cφ12*c1vq + sφ12*c2vq),
+    -0.5*L2*GRAV*M2*cφ2 + 0.5*L1*L2*M2*vφ1^2*sφ12 +
+        RHO*L1*vφ1^2*(sφ12*c1q - cφ12*c2q) -
+        2*RHO*vφ2*c12vq - 2*vφ2*vqMQq_s - RHO*vqBQvq_s -
+        RHO*GRAV*(cφ2*c1q - sφ2*c2q),
+    0,
+    [vφ2^2*MQq_s[i] + RHO*(vφ2^2*c12[i] +
+        L1*vφ1^2*(cφ12*c1[i] + sφ12*c2[i]) + 2*vφ2*BQvq_s[i]) -
+        RHO*GRAV*(sφ2*c1[i] + cφ2*c2[i]) - KQq_s[i] - DQvq_s[i]
+        for i in 1:NQ]...
+]
+
+# Constraint Jacobian GP(φ,q) and GP' × λ
+GP_rows = [
+    [L1*cφ1, (L2+q₄)*cφ2, 0, 0, 0, 0, sφ2],
+    [L1*sφ1, (L2+q₄)*sφ2, 1, 0, 0, 0, -cφ2],
+    [1,      0,            0, 0, 0, 0, 0     ]
+]
+GPt_λ = [sum(GP_rows[k][i]*λvec[k] for k in 1:3) for i in 1:NP]
+
+# 17 equations: 7 kinematic + 7 dynamics + 3 holonomic constraints
+eqs = vcat(
+    [D(pvec[i]) ~ vvec[i] for i in 1:NP],
+    [am_dv[i] ~ F_s[i] - GPt_λ[i] for i in 1:NP],
+    [0 ~ L1*sφ1 + (L2 + q₄)*sφ2,
+     0 ~ x₃ - L1*cφ1 - (L2 + q₄)*cφ2,
+     0 ~ φ1 - OMEGA*t]
+)
+
+@mtkbuild sys = ODESystem(eqs, t)
+prob_mtk = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
+        "(from 17 original)")
+```
+
 ## Reference Solution
 
 We compute a high-accuracy reference solution using Rodas5P at moderate
@@ -403,6 +514,11 @@ ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-6, abstol = 1e-6,
                 maxiters = 10_000_000);
 println("Reference solution: retcode = $(ref_sol.retcode), ",
         "npoints = $(length(ref_sol.t)), t_final = $(ref_sol.t[end])")
+
+mtk_ref = solve(prob_mtk, Rodas5P(), reltol = 1e-5, abstol = 1e-5,
+                maxiters = 10_000_000);
+println("MTK reference: retcode = $(mtk_ref.retcode), ",
+        "npoints = $(length(mtk_ref.t)), t_final = $(mtk_ref.t[end])")
 ```
 
 ```julia
@@ -462,15 +578,17 @@ singular mass matrix structure.
 
 ## Work-Precision Diagrams
 
-We compare solvers across both formulations using `WorkPrecisionSet` with
-`prob_choice` to overlay DAE and mass-matrix results on the same plot.
-IDA operates on the DAE residual form while Rosenbrock-W and BDF methods
-use the mass-matrix ODE form. The tolerance range is limited by the frozen
-mass matrix (instability above ~1e-7).
+We compare solvers across all three formulations using `WorkPrecisionSet` with
+`prob_choice` to overlay DAE, MTK, and mass-matrix results on the same plot.
+IDA operates on the DAE residual form, the MTK index-reduced form is solved
+with Rosenbrock-W methods, and the mass-matrix ODE form uses Rosenbrock-W
+and BDF methods. The tolerance range is limited by the frozen mass matrix
+(instability above ~1e-7). The MTK form's overdetermined initialization
+system limits it to tolerances above ~1e-5.
 
 ```julia
-probs = [prob_dae, prob_mm]
-refs  = [ref_sol, ref_sol]
+probs = [prob_dae, prob_mtk, prob_mm]
+refs  = [ref_sol, mtk_ref, ref_sol]
 ```
 
 ### High Tolerances
@@ -482,14 +600,16 @@ setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
-    Dict(:prob_choice => 2, :alg => FBDF()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4P()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)"]
+labels = ["IDA (DAE)" "Rodas5P (MTK)" "Rodas4P (MTK)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
     maxiters = Int(1e6), numruns = 5)
-plot(wp, title = "Slider-Crank: DAE vs Mass-Matrix (High Tol)")
+plot(wp, title = "Slider-Crank: All Formulations (High Tol)")
 ```
 
 ### Medium Tolerances
@@ -501,13 +621,15 @@ setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4P()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)"]
+labels = ["IDA (DAE)" "Rodas5P (MTK)" "Rodas4P (MTK)" "Rodas5P (MM)" "Rodas4P (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
     maxiters = Int(1e6), numruns = 5)
-plot(wp, title = "Slider-Crank: DAE vs Mass-Matrix (Medium Tol)")
+plot(wp, title = "Slider-Crank: All Formulations (Medium Tol)")
 ```
 
 ### Timeseries Errors (L2)
@@ -518,8 +640,10 @@ reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4P()),
 ]
-labels = ["Rodas5P (MM)" "Rodas4P (MM)"]
+labels = ["Rodas5P (MTK)" "Rodas4P (MTK)" "Rodas5P (MM)" "Rodas4P (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
