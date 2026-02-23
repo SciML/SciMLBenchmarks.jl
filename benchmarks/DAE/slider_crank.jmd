@@ -462,10 +462,16 @@ singular mass matrix structure.
 
 ## Work-Precision Diagrams
 
-Since DAE solvers fail on the residual form, the work-precision comparison
-focuses on the mass-matrix ODE formulation. We test Rosenbrock-W methods
-(Rodas5P, Rodas4P) and multistep BDF (FBDF). The tolerance range is 1e-4
-to 1e-7 (tighter tolerances cause instability due to the frozen mass matrix).
+We compare solvers across both formulations using `WorkPrecisionSet` with
+`prob_choice` to overlay DAE and mass-matrix results on the same plot.
+IDA operates on the DAE residual form while Rosenbrock-W and BDF methods
+use the mass-matrix ODE form. The tolerance range is limited by the frozen
+mass matrix (instability above ~1e-7).
+
+```julia
+probs = [prob_dae, prob_mm]
+refs  = [ref_sol, ref_sol]
+```
 
 ### High Tolerances
 
@@ -473,32 +479,51 @@ to 1e-7 (tighter tolerances cause instability due to the frozen mass matrix).
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [
-    Dict(:alg => Rodas5P()),
-    Dict(:alg => Rodas4P()),
-    Dict(:alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => Rodas5P()),
+    Dict(:prob_choice => 2, :alg => Rodas4P()),
+    Dict(:prob_choice => 2, :alg => FBDF()),
 ]
-labels = ["Rodas5P" "Rodas4P" "FBDF"]
+labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)"]
 
-wp = WorkPrecisionSet([prob_mm], abstols, reltols, setups;
-    names = labels, appxsol = [ref_sol], save_everystep = false,
-    maxiters = Int(1e6), numruns = 10)
-plot(wp, title = "Slider-Crank: Work-Precision (High Tol)")
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5)
+plot(wp, title = "Slider-Crank: DAE vs Mass-Matrix (High Tol)")
 ```
 
-### Timeseries Errors
+### Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:7)
+reltols = 1.0 ./ 10.0 .^ (2:4)
+setups = [
+    Dict(:prob_choice => 1, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => Rodas5P()),
+    Dict(:prob_choice => 2, :alg => Rodas4P()),
+]
+labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)"]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5)
+plot(wp, title = "Slider-Crank: DAE vs Mass-Matrix (Medium Tol)")
+```
+
+### Timeseries Errors (L2)
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [
-    Dict(:alg => Rodas5P()),
-    Dict(:alg => Rodas4P()),
+    Dict(:prob_choice => 2, :alg => Rodas5P()),
+    Dict(:prob_choice => 2, :alg => Rodas4P()),
 ]
-labels = ["Rodas5P" "Rodas4P"]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)"]
 
-wp = WorkPrecisionSet([prob_mm], abstols, reltols, setups;
-    names = labels, appxsol = [ref_sol], save_everystep = false,
-    maxiters = Int(1e6), numruns = 10, error_estimate = :l2)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5, error_estimate = :l2)
 plot(wp, title = "Slider-Crank: Timeseries Error (L2)")
 ```
 
