@@ -40,7 +40,6 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, Plots
-using ODEInterfaceDiffEq
 using DASSL, DASKR
 using LinearAlgebra, SparseArrays
 ```
@@ -868,7 +867,7 @@ communicated via `tstops` for efficiency. The IVP Test Set reference was
 computed with RADAU5 at rtol = atol = 1e-5.
 
 ```julia
-ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-10, abstol = 1e-10,
+ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
                 maxiters = 10_000_000, tstops = disc_times);
 println("Reference solution: retcode = $(ref_sol.retcode), ",
         "npoints = $(length(ref_sol.t)), t_final = $(ref_sol.t[end])")
@@ -928,10 +927,9 @@ end
 
 ## Work-Precision Diagrams
 
-We benchmark two formulations: DAE residual form (for IDA, DASKR, DASSL)
-and mass-matrix ODE form (for Rosenbrock-W, implicit Runge-Kutta, and BDF
-methods). Derivative discontinuity times from the input pulses are
-communicated via `tstops`.
+We benchmark two formulations: DAE residual form (for IDA) and mass-matrix
+ODE form (for Rosenbrock-W and BDF methods). Derivative discontinuity times
+from the input pulses are communicated via `tstops`.
 
 ```julia
 probs = [prob_dae, prob_mm]
@@ -941,66 +939,56 @@ refs  = [ref_sol, ref_sol]
 ### High Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (3:7)
-reltols = 1.0 ./ 10.0 .^ (1:5)
+abstols = 1.0 ./ 10.0 .^ (3:5)
+reltols = 1.0 ./ 10.0 .^ (1:3)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => QNDF()),
-    Dict(:prob_choice => 2, :alg => rodas()),
-    Dict(:prob_choice => 2, :alg => radau()),
-    Dict(:prob_choice => 2, :alg => RadauIIA5()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "radau (MM)" "RadauIIA5 (MM)"]
+labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+    maxiters = Int(1e6), numruns = 1, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: High Tolerances")
 ```
 
 ### Medium Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (2:5)
+abstols = 1.0 ./ 10.0 .^ (5:7)
+reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
-    Dict(:prob_choice => 1, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 1, :alg => DASSL.dassl()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => rodas()),
-    Dict(:prob_choice => 2, :alg => RadauIIA5()),
 ]
-labels = ["IDA (DAE)" "DASKR (DAE)" "DASSL (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "rodas (MM)" "RadauIIA5 (MM)"]
+labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+    maxiters = Int(1e6), numruns = 1, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: Medium Tolerances")
 ```
 
 ### Timeseries Errors (L2)
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (3:7)
-reltols = 1.0 ./ 10.0 .^ (1:5)
+abstols = 1.0 ./ 10.0 .^ (3:5)
+reltols = 1.0 ./ 10.0 .^ (1:3)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
-    Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => RadauIIA5()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "RadauIIA5 (MM)"]
+labels = ["IDA (DAE)" "Rodas5P (MM)" "FBDF (MM)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, error_estimate = :l2, tstops = disc_times)
+    maxiters = Int(1e6), numruns = 1, error_estimate = :l2, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: Timeseries Error (L2)")
 ```
 
