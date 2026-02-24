@@ -34,8 +34,8 @@ obs = [eq.lhs for eq in observed(rn)]
 osys = convert(ODESystem, rn)
 
 rhs = [eq.rhs for eq in full_equations(osys)]
-vars = unknowns(osys)
-pars = parameters(osys)
+vars = full_unknowns(osys)
+pars = full_parameters(osys)
 ```
 
 The `sparsejacobian` function in Symbolics.jl is optimized for hashconsing and caching, and as such
@@ -76,7 +76,7 @@ kwargs = (; iip_config = (false, true), expression = Val{true})
 jac_nocse_iip = eval(jac_nocse_iip)
 jac_cse_iip = eval(jac_cse_iip)
 
-defs = defaults(osys)
+defs = full_defaults(osys)
 u = Float64[Symbolics.fixpoint_sub(var, defs) for var in vars]
 buffer_cse = similar(jac, Float64)
 buffer_nocse = similar(jac, Float64)

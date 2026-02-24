@@ -262,7 +262,7 @@ include("old_sparse_jacobian.jl")
 function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_allocs, build_times, functions, i, N)
   @mtkbuild sys = TestBenchPreinsulated(L=470, N=N, dn=0.3127, t_layer=[0.0056, 0.058])
   rhs = [eq.rhs for eq in full_equations(sys)]
-  dvs = unknowns(sys)
+  dvs = full_unknowns(sys)
 
   @info "Built system"
   SymbolicUtils.ENABLE_HASHCONSING[] = false
@@ -286,8 +286,8 @@ function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_a
   @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
 
-  ps = parameters(sys)
-  defs = defaults(sys)
+  ps = full_parameters(sys)
+  defs = full_defaults(sys)
   u0 = Float64[Symbolics.fixpoint_sub(v, defs) for v in dvs]
   p = Float64[Symbolics.fixpoint_sub(v, defs) for v in ps]
   t0 = 0.0
