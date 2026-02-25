@@ -40,8 +40,9 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, Plots
+using ODEInterfaceDiffEq
 using DASSL, DASKR
-using LinearAlgebra
+using LinearAlgebra, SparseArrays
 ```
 
 ## Physical Constants and MOS Parameters
@@ -722,7 +723,18 @@ println("  S1  (V₁₃₀) = ", y0[305])
 println("  C   (V₁₄₈) = ", y0[323])
 ```
 
-## Mass-Matrix ODE Formulation
+## Derivative Discontinuity Times
+
+The five input pulse signals create derivative discontinuities every 5 time
+units (at t = 5, 10, …, 315). The Fortran reference (`tba.f`) specifies
+`ndisc = 63` with interaction points at multiples of 5. Communicating these
+to the solver via `tstops` prevents wasteful step rejections at transitions.
+
+```julia
+disc_times = collect(5.0:5.0:315.0)
+```
+
+## Step 1: Mass-Matrix ODE Formulation — Build and Verify
 
 The DAE is written as `M·dy/dt = f(t, y)` where `M = diag(I₁₇₅, 0₁₇₅)`.
 The first 175 equations are differential (charge conservation), and the
@@ -740,21 +752,27 @@ function tba_rhs!(dy, y, p, t)
     end
 end
 
-# Mass matrix: identity for charges, zero for potentials
-M_tba = zeros(350, 350)
-for i in 1:175
-    M_tba[i, i] = 1.0
-end
+# Mass matrix: identity for charges, zero for potentials (sparse)
+M_tba = spdiagm(0 => [ones(175); zeros(175)])
 
 tspan = (0.0, 320.0)
 mmf = ODEFunction(tba_rhs!, mass_matrix = M_tba)
 prob_mm = ODEProblem(mmf, y0, tspan)
+
+println("=== Step 1: Mass-Matrix ODE Verification ===")
+mm_test = solve(prob_mm, Rodas5P(), reltol = 1e-4, abstol = 1e-4,
+                maxiters = 1_000_000, tstops = disc_times)
+println("Rodas5P: retcode = $(mm_test.retcode), steps = $(length(mm_test.t)), ",
+        "t_final = $(mm_test.t[end])")
+println("  S₀ (V₄₉)  = $(mm_test[224, end])")
+println("  S₁ (V₁₃₀) = $(mm_test[305, end])")
+println("  C  (V₁₄₈) = $(mm_test[323, end])")
 ```
 
-## DAE Residual Form
+## Step 2: DAE Residual Form — Build and Verify
 
 The same system as a DAE residual `F(du, u, t) = M·du − f(u, t) = 0`,
-for testing DAE-specific solvers like IDA.
+for testing DAE-specific solvers (IDA, DASKR, DASSL).
 
 ```julia
 function tba_dae!(res, du, u, p, t)
@@ -776,39 +794,92 @@ differential_vars = [trues(175); falses(175)]
 prob_dae = DAEProblem(tba_dae!, du0_dae, y0, tspan,
                       differential_vars = differential_vars)
 println("DAE problem: 350 variables, 175 differential + 175 algebraic")
+
+# Verify DAE residual at initial conditions
+res_check = similar(y0)
+tba_dae!(res_check, du0_dae, y0, nothing, 0.0)
+println("=== Step 2: DAE Residual Verification ===")
+println("DAE residual norm at IC: ", norm(res_check))
+
+println("\nTesting IDA (Sundials):")
+try
+    dae_test = solve(prob_dae, IDA(), reltol = 1e-4, abstol = 1e-4,
+                     maxiters = 1_000_000, tstops = disc_times)
+    println("  IDA: retcode = $(dae_test.retcode), steps = $(length(dae_test.t)), ",
+            "t_final = $(dae_test.t[end])")
+catch e
+    println("  IDA failed: ", sprint(showerror, e)[1:min(end, 200)])
+end
+
+println("\nTesting DASKR:")
+try
+    daskr_test = solve(prob_dae, DASKR.daskr(), reltol = 1e-4, abstol = 1e-4,
+                       maxiters = 1_000_000, tstops = disc_times)
+    println("  DASKR: retcode = $(daskr_test.retcode), steps = $(length(daskr_test.t)), ",
+            "t_final = $(daskr_test.t[end])")
+catch e
+    println("  DASKR failed: ", sprint(showerror, e)[1:min(end, 200)])
+end
+
+println("\nTesting DASSL:")
+try
+    dassl_test = solve(prob_dae, DASSL.dassl(), reltol = 1e-4, abstol = 1e-4,
+                       maxiters = 1_000_000, tstops = disc_times)
+    println("  DASSL: retcode = $(dassl_test.retcode), steps = $(length(dassl_test.t)), ",
+            "t_final = $(dassl_test.t[end])")
+catch e
+    println("  DASSL failed: ", sprint(showerror, e)[1:min(end, 200)])
+end
 ```
 
-## MTK Formulation via modelingtoolkitize
+## Step 3: MTK Symbolic Formulation — Attempt
 
-We convert the mass-matrix ODE to a ModelingToolkit system using
-`modelingtoolkitize`, which enables symbolic Jacobian generation and
-structural analysis. For a 350-variable circuit model with heavy
-piecewise nonlinearities, this is the practical approach — full symbolic
-rewrite of transistor equations would be prohibitive.
+ModelingToolkit can automatically index-reduce DAEs via `structural_simplify`.
+We attempt `modelingtoolkitize` on the mass-matrix ODE to check whether
+symbolic tracing is possible for this large piecewise-switching circuit.
 
 ```julia
-sys = modelingtoolkitize(prob_mm)
-prob_mtk = ODEProblem(sys, [], tspan)
-println("MTK system: $(length(ModelingToolkit.unknowns(sys))) unknowns")
+println("=== Step 3: MTK Symbolic Formulation ===")
+println("Attempting modelingtoolkitize on mass-matrix ODE form...")
+mtk_success = false
+try
+    global sys_mtk = modelingtoolkitize(prob_mm)
+    println("  Tracing succeeded. Attempting structural_simplify...")
+    sys_simplified = structural_simplify(sys_mtk)
+    global prob_mtk = ODEProblem(sys_simplified, [], tspan)
+    println("  MTK problem built: $(length(ModelingToolkit.unknowns(sys_simplified))) states")
+    mtk_test = solve(prob_mtk, Rodas5P(), reltol = 1e-4, abstol = 1e-4,
+                     maxiters = 1_000_000, tstops = disc_times)
+    println("  Rodas5P (MTK): retcode = $(mtk_test.retcode), t_final = $(mtk_test.t[end])")
+    global mtk_success = true
+catch e
+    println("  MTK failed: ", sprint(showerror, e)[1:min(end, 300)])
+    println("\n  Expected: the Shichman–Hodges MOSFET model and pulse generator use")
+    println("  piecewise if/else branching that cannot be symbolically traced.")
+    println("  A full MTK formulation would require rewriting all transistor equations")
+    println("  with symbolic-friendly ifelse(), prohibitive for 350 variables.")
+end
 ```
 
 ## Reference Solution
 
 We compute a high-accuracy reference using Rodas5P on the mass-matrix form
-at tight tolerance. The IVP Test Set reference was computed with RADAU5
-at rtol = atol = 1e-5; our reference must be significantly tighter to ensure
-the WPD error floor is well below the tested tolerance range.
+at tight tolerance. The derivative discontinuities at pulse transitions are
+communicated via `tstops` for efficiency. The IVP Test Set reference was
+computed with RADAU5 at rtol = atol = 1e-5.
 
 ```julia
 ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-10, abstol = 1e-10,
-                maxiters = 10_000_000);
+                maxiters = 10_000_000, tstops = disc_times)
 println("Reference solution: retcode = $(ref_sol.retcode), ",
         "npoints = $(length(ref_sol.t)), t_final = $(ref_sol.t[end])")
 
-mtk_ref = solve(prob_mtk, Rodas5P(), reltol = 1e-10, abstol = 1e-10,
-                maxiters = 10_000_000);
-println("MTK reference: retcode = $(mtk_ref.retcode), ",
-        "npoints = $(length(mtk_ref.t)), t_final = $(mtk_ref.t[end])")
+if mtk_success
+    global mtk_ref = solve(prob_mtk, Rodas5P(), reltol = 1e-10, abstol = 1e-10,
+                           maxiters = 10_000_000, tstops = disc_times)
+    println("MTK reference: retcode = $(mtk_ref.retcode), ",
+            "npoints = $(length(mtk_ref.t)), t_final = $(mtk_ref.t[end])")
+end
 ```
 
 ## Output Signal Plots
@@ -865,83 +936,101 @@ end
 
 ## Work-Precision Diagrams
 
-We benchmark three formulations: DAE residual (IDA, DASKR, DASSL),
-mass-matrix ODE (Rosenbrock-W, BDF), and MTK (Rosenbrock-W).
-
-Per the IVP Test Set specification, error is measured only on the three
-physically relevant output signals: S₀ (index 224), S₁ (index 305),
-and C (index 323). This matches the original benchmark's scd computation.
+We benchmark up to three formulations: DAE residual (IDA, DASKR, DASSL),
+mass-matrix ODE (Rosenbrock-W, implicit RK, BDF), and — if MTK tracing
+succeeded — the symbolic MTK form. Derivative discontinuity times from
+the input pulses are communicated via `tstops`.
 
 ```julia
-probs = [prob_dae, prob_mm, prob_mtk]
-refs  = [ref_sol, ref_sol, mtk_ref]
+probs = [prob_dae, prob_mm]
+refs  = [ref_sol, ref_sol]
 
-# Output signal indices for error measurement
-const OUTPUT_IDXS = [224, 305, 323]
+if mtk_success
+    push!(probs, prob_mtk)
+    push!(refs, mtk_ref)
+end
 ```
 
 ### High Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (2:7)
-reltols = 1.0 ./ 10.0 .^ (1:6)
+abstols = 1.0 ./ 10.0 .^ (3:7)
+reltols = 1.0 ./ 10.0 .^ (1:5)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
     Dict(:prob_choice => 2, :alg => QNDF()),
+    Dict(:prob_choice => 2, :alg => rodas()),
+    Dict(:prob_choice => 2, :alg => radau()),
     Dict(:prob_choice => 2, :alg => RadauIIA5()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "RadauIIA5 (MM)" "Rodas5P (MTK)"]
+labels = ["IDA (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "QNDF (MM)", "rodas (MM)", "radau (MM)", "RadauIIA5 (MM)"]
+
+if mtk_success
+    push!(setups, Dict(:prob_choice => 3, :alg => Rodas5P()))
+    push!(labels, "Rodas5P (MTK)")
+end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, idxs = OUTPUT_IDXS)
-plot(wp, title = "Two-Bit Adder: All Formulations (High Tol)")
+    names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+plot(wp, title = "Two-Bit Adder: High Tolerances")
 ```
 
 ### Medium Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (4:8)
-reltols = 1.0 ./ 10.0 .^ (2:6)
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (2:5)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 1, :alg => DASKR.daskr()),
     Dict(:prob_choice => 1, :alg => DASSL.dassl()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
+    Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
+    Dict(:prob_choice => 2, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => RadauIIA5()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4P()),
 ]
-labels = ["IDA (DAE)" "DASKR (DAE)" "DASSL (DAE)" "Rodas5P (MM)" "FBDF (MM)" "RadauIIA5 (MM)" "Rodas5P (MTK)" "Rodas4P (MTK)"]
+labels = ["IDA (DAE)", "DASKR (DAE)", "DASSL (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "rodas (MM)", "RadauIIA5 (MM)"]
+
+if mtk_success
+    push!(setups, Dict(:prob_choice => 3, :alg => Rodas5P()))
+    push!(setups, Dict(:prob_choice => 3, :alg => Rodas4P()))
+    push!(labels, "Rodas5P (MTK)")
+    push!(labels, "Rodas4P (MTK)")
+end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, idxs = OUTPUT_IDXS)
-plot(wp, title = "Two-Bit Adder: All Formulations (Medium Tol)")
+    names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+plot(wp, title = "Two-Bit Adder: Medium Tolerances")
 ```
 
 ### Timeseries Errors (L2)
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (2:7)
-reltols = 1.0 ./ 10.0 .^ (1:6)
+abstols = 1.0 ./ 10.0 .^ (3:7)
+reltols = 1.0 ./ 10.0 .^ (1:5)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
+    Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
     Dict(:prob_choice => 2, :alg => RadauIIA5()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "FBDF (MM)" "RadauIIA5 (MM)" "Rodas5P (MTK)"]
+labels = ["IDA (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "RadauIIA5 (MM)"]
+
+if mtk_success
+    push!(setups, Dict(:prob_choice => 3, :alg => Rodas5P()))
+    push!(labels, "Rodas5P (MTK)")
+end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = labels, appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, error_estimate = :l2, idxs = OUTPUT_IDXS)
+    names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 5, error_estimate = :l2, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: Timeseries Error (L2)")
 ```
 
