@@ -15,13 +15,13 @@ using ModelingToolkit: t_nounits as t, D_nounits as D
 eqs = [D(y1) ~ p1*(y2+y1*(1-p2*y1-y2))
        D(y2) ~ (y3-(1+y1)*y2)/p1
        D(y3) ~ p3*(y1-y3)]
-@mtkbuild sys = ODESystem(eqs, t)
+@mtkcompile sys = System(eqs, t)
 mtkprob = ODEProblem(sys, [], (0.0, 30.0))
 daeprob = DAEProblem(
     sys, [D(y1)=>77.26935286375,
         D(y2)=>-0.012941633234114146,
-        D(y3)=>-0.322], [], (0.0, 30.0))
-odaeprob = ODAEProblem(sys, [], (0.0, 30.0))
+        D(y3)=>-0.322], (0.0, 30.0))
+odaeprob = ODEProblem(sys, [], (0.0, 30.0))
 
 ref_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14);
 ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14);

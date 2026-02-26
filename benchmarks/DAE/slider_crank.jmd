@@ -20,7 +20,7 @@ We benchmark three formulations of this problem:
 1. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with dedicated
    DAE solvers (IDA from Sundials).
 2. **MTK Index-Reduced ODE:** The system defined symbolically with position-level
-   constraints, automatically index-reduced by `structural_simplify` to a 13-state ODE.
+   constraints, automatically index-reduced by `mtkcompile` to a 13-state ODE.
 3. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
    handle singular mass matrices (Rosenbrock-W methods, multistep BDF).
 
@@ -396,7 +396,7 @@ println("DAE residual norm at IC: ", norm(M_mm * du0_dae - f_check))
 
 ## MTK Index-Reduced Formulation
 
-ModelingToolkit can automatically reduce the DAE index via `structural_simplify`.
+ModelingToolkit can automatically reduce the DAE index via `mtkcompile`.
 We define the full system symbolically — with the 7 kinematic equations,
 7 dynamics equations (involving the configuration-dependent mass matrix), and
 the 3 position-level holonomic constraints — and let MTK differentiate and
@@ -496,7 +496,7 @@ eqs = vcat(
      0 ~ φ1 - OMEGA*t]
 )
 
-@mtkbuild sys = ODESystem(eqs, t)
+@mtkcompile sys = System(eqs, t)
 prob_mtk = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
 println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
         "(from 17 original)")
