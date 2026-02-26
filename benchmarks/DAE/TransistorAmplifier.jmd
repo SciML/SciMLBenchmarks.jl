@@ -6,7 +6,7 @@ author: Aayush Sabharwal, Polic Marko
 ```julia
 using DiffEqDevTools, Sundials, ODEInterfaceDiffEq,
       Plots, DASSL, DASKR
-using ModelingToolkit, OrdinaryDiffEq
+using ModelingToolkit, OrdinaryDiffEq, Symbolics
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using LinearAlgebra
 
@@ -76,14 +76,14 @@ u0 = [y₁ => 0.0
       y₇ => 6.0
       y₈ => 0.0]
 
-@mtkbuild sys = ODESystem(eqs, t)
+@mtkcompile sys = System(eqs, t)
 tspan = (0.0, 0.2)
 mtkprob = ODEProblem(sys, u0, tspan)
 ref_sol = solve(mtkprob, Rodas5P(), abstol = 1e-10, reltol = 1e-10)
 
 du = mtkprob.f(mtkprob.u0, mtkprob.p, 0.0)
 du0 = D.(unknowns(sys)) .=> du
-daeprob = DAEProblem(sys, du0, [], tspan)
+daeprob = DAEProblem(sys, du0, tspan)
 dae_ref_sol = solve(daeprob, IDA(), abstol = 1/10^7, reltol = 1/10^7)
 
 function transamp(du, u, p, t)
@@ -121,7 +121,7 @@ function transamp(du, u, p, t)
     nothing
 end
 
-dirMassMatrix = Float64.(ModelingToolkit.unwrap.(substitute.(
+dirMassMatrix = Float64.(Symbolics.value.(substitute.(
     [-C₁ C₁ 0 0 0 0 0 0
      C₁ -C₁ 0 0 0 0 0 0
      0 0 -C₂ 0 0 0 0 0

@@ -44,18 +44,18 @@ eqs = [D(y₁) ~ -2.0 * r₁ + r₂ - r₃ - r₄
        D(y₅) ~ r₂ - r₃ + r₅
        0.0 ~ ks * y₁ * y₄ - y₆]
 
-ModelingToolkit.@mtkbuild sys = ModelingToolkit.ODESystem(eqs, t)
+ModelingToolkit.@mtkcompile sys = ModelingToolkit.System(eqs, t)
 
 tspan = (0.0, 180.0)
 mtkprob = ODEProblem(sys, [], tspan)
 sol = solve(mtkprob, Rodas4(), abstol = 1/10^14, reltol = 1/10^14)
 
-odaeprob = ODAEProblem(sys, [], tspan)
+odaeprob = ODEProblem(sys, [], tspan)
 ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14);
 
 du = mtkprob.f(mtkprob.u0, mtkprob.p, 0.0)
 du0 = D.(unknowns(sys)) .=> du
-daeprob = DAEProblem(sys, du0, [], tspan)
+daeprob = DAEProblem(sys, du0, tspan)
 ref_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14);
 
 function akzo(du, u, p, t)
