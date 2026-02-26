@@ -359,10 +359,10 @@ end
 ## Differentiation Setups
 
 ```julia
-function diffeq_sen(prob::DiffEqBase.DEProblem, args...; kwargs...)
+function diffeq_sen(prob, args...; kwargs...)
     diffeq_sen(prob.f, prob.u0, prob.tspan, prob.p, args...; kwargs...)
 end
-function auto_sen(prob::DiffEqBase.DEProblem, args...; kwargs...)
+function auto_sen(prob, args...; kwargs...)
     auto_sen(prob.f, prob.u0, prob.tspan, prob.p, args...; kwargs...)
 end
 
@@ -396,7 +396,7 @@ function diffeq_sen_l2(df, u0, tspan, p, t, alg = Tsit5();
         abstol = 1e-5, reltol = 1e-7,
         sensalg = InterpolatingAdjoint(), kwargs...)
     prob = ODEProblem(df, u0, tspan, p)
-    sol = solve(prob, alg, sensealg = DiffEqBase.SensitivityADPassThrough(),
+    sol = solve(prob, alg, sensealg = SensitivityADPassThrough(),
         abstol = abstol, reltol = reltol; kwargs...)
     dg(out, u, p, t, i) = (out.=u .- 1.0)
     adjoint_sensitivities(sol, alg; t, abstol = abstol, dgdu_discrete = dg,
@@ -407,7 +407,7 @@ function auto_sen_l2(
         f, u0, tspan, p, t, alg = Tsit5(); diffalg = ReverseDiff.gradient, kwargs...)
     test_f(p) = begin
         prob = ODEProblem{true, SciMLBase.FullSpecialize}(f, eltype(p).(u0), tspan, p)
-        sol = solve(prob, alg; sensealg = DiffEqBase.SensitivityADPassThrough(), kwargs...)(t)
+        sol = solve(prob, alg; sensealg = SensitivityADPassThrough(), kwargs...)(t)
         sum(sol.u) do x
             sum(z->(1-z)^2/2, x)
         end
