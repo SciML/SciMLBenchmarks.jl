@@ -17,6 +17,7 @@ In order to separate these two, we will use `iip` for the in-place names and `oo
 
 ```julia
 using OrdinaryDiffEq, Plots, DiffEqCallbacks
+using OrdinaryDiffEqTaylorSeries
 using SciMLBenchmarks
 using TaylorIntegration, LinearAlgebra, StaticArrays
 gr(fmt = :png)
@@ -63,6 +64,14 @@ function hamilton(du, u, p, t)
     return nothing
 end
 
+function hamilton_taylor!(du, u, p, t)
+    du[1] = -u[3] * (1 + 2u[4])
+    du[2] = -u[4] - (u[3]^2 - u[4]^2)
+    du[3] = u[1]
+    du[4] = u[2]
+    return nothing
+end
+
 function g(resid, u, p)
     resid[1] = H([u[1], u[2]], [u[3], u[4]], nothing) - E
     resid[2:4] .= 0
@@ -99,6 +108,8 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
         prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0.0, tmax))
     end
     prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0.0, tmax))
+    prob_taylor = ODEProblem{true, SciMLBase.FullSpecialize}(
+        hamilton_taylor!, vcat(iip_p0, iip_q0), (0.0, tmax))
 
     GC.gc()
     (mode == :inplace && all) &&
@@ -114,6 +125,10 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     GC.gc()
     (mode == :inplace && all) &&
         @time sol6 = solve(prob_linear, TaylorMethod(50), abstol = 1e-20)
+    GC.gc()
+    (mode == :inplace && all) &&
+        @time sol7 = solve(prob_taylor, ExplicitTaylor(order = Val(8)),
+            abstol = 1e-14, reltol = 1e-14)
 
     (mode == :inplace && all) && println("Vern9 + ManifoldProjection max energy error:\t" *
             "$(maximum(abs_energy_err(sol1)))\tin\t$(length(sol1.u))\tsteps.")
@@ -123,6 +138,8 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     println("DPRKN12 max energy error:\t\t\t$(maximum(abs_energy_err(sol5)))\tin\t$(length(sol5.u))\tsteps.")
     (mode == :inplace && all) &&
         println("TaylorMethod max energy error:\t\t\t$(maximum(abs_energy_err(sol6)))\tin\t$(length(sol6.u))\tsteps.")
+    (mode == :inplace && all) &&
+        println("ExplicitTaylor max energy error:\t\t\t$(maximum(abs_energy_err(sol7)))\tin\t$(length(sol7.u))\tsteps.")
 
     if plt === nothing
         plt = plot(xlabel = "t", ylabel = "Energy error")
@@ -137,6 +154,7 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     plot!(sol5.t, energy_err(sol5), label = "DPRKN12", ls = mode == :inplace ? :solid :
                                                             :dash)
     (mode == :inplace && all) && plot!(sol6.t, energy_err(sol6), label = "TaylorMethod")
+    (mode == :inplace && all) && plot!(sol7.t, energy_err(sol7), label = "ExplicitTaylor")
 
     return plt
 end
