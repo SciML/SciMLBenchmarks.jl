@@ -12,6 +12,7 @@ The aim of this benchmark is to see what happens with the energy error when high
 
 ```julia
 using OrdinaryDiffEq, Plots, DiffEqCallbacks, LinearAlgebra
+using OrdinaryDiffEqTaylorSeries
 using TaylorIntegration
 using ParameterizedFunctions
 using StaticArrays
@@ -64,6 +65,14 @@ function hamilton(z, params, t)
     )
 end
 
+function hamilton_iip!(dz, z, params, t)
+    dz[1] = -A * z[3] - 3 * B / sqrt(2) * (z[4]^2 - z[3]^2) - D * z[3] * (z[3]^2 + z[4]^2)
+    dz[2] = -z[4] * (A + 3 * sqrt(2) * B * z[3] + D * (z[3]^2 + z[4]^2))
+    dz[3] = z[1]
+    dz[4] = z[2]
+    return nothing
+end
+
 function g(resid, u, p)
     resid[1] = H([u[1], u[2]], [u[3], u[4]], nothing) - E
     resid[2:4] .= 0
@@ -101,6 +110,8 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
         prob = DynamicalODEProblem(oop_dp, oop_dq, oop_p0, oop_q0, (0.0, tmax))
     end
     prob_linear = ODEProblem(hamilton, vcat(iip_p0, iip_q0), (0.0, tmax))
+    prob_taylor = ODEProblem{true, SciMLBase.FullSpecialize}(
+        hamilton_iip!, vcat(iip_p0, iip_q0), (0.0, tmax))
 
     GC.gc()
     (mode == :inplace && all) &&
@@ -116,6 +127,10 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     GC.gc()
     (mode == :inplace && all) &&
         @time sol6 = solve(prob_linear, TaylorMethod(50), abstol = 1e-20)
+    GC.gc()
+    (mode == :inplace && all) &&
+        @time sol7 = solve(prob_taylor, ExplicitTaylor(order = Val(8)),
+            abstol = 1e-14, reltol = 1e-14)
 
     (mode == :inplace && all) && println("Vern9 + ManifoldProjection max energy error:\t" *
             "$(maximum(abs_energy_err(sol1)))\tin\t$(length(sol1.u))\tsteps.")
@@ -126,6 +141,9 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     (mode == :inplace && all) &&
         println("TaylorMethod max energy error:\t\t\t$(maximum(abs_energy_err(sol6)))" *
                 "\tin\t$(length(sol6.u))\tsteps.")
+    (mode == :inplace && all) &&
+        println("ExplicitTaylor max energy error:\t\t\t$(maximum(abs_energy_err(sol7)))" *
+                "\tin\t$(length(sol7.u))\tsteps.")
 
     if plt == nothing
         plt = plot(xlabel = "t", ylabel = "Energy error")
@@ -140,6 +158,7 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     plot!(sol4.t, energy_err(sol4), label = "Vern9", ls = mode==:inplace ? :solid : :dash)
     plot!(sol5.t, energy_err(sol5), label = "DPRKN12", ls = mode==:inplace ? :solid : :dash)
     (mode == :inplace && all) && plot!(sol6.t, energy_err(sol6), label = "TaylorMethod")
+    (mode == :inplace && all) && plot!(sol7.t, energy_err(sol7), label = "ExplicitTaylor")
 
     return plt
 end
