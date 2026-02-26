@@ -9,7 +9,6 @@ using LinearAlgebra, SparseArrays
 using BenchmarkTools, DataFrames
 import DifferentiationInterface as DI
 using Plots
-import SparseDiffTools as SDT
 using SparseConnectivityTracer: TracerSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
 using Symbolics: SymbolicsSparsityDetector
@@ -94,8 +93,7 @@ S2 = ADTypes.jacobian_sparsity(
 
 ```julia
 c1 = ADTypes.column_coloring(S1, GreedyColoringAlgorithm())
-c2 = SDT.matrix_colors(S1)
-@test c1 == c2
+@test length(unique(c1)) <= size(S1, 2)
 ```
 
 ### Differentiation
@@ -112,18 +110,7 @@ J1 = DI.jacobian!(
     brusselator_2d!, similar(x0_32), similar(S1, eltype(x0_32)), extras, backend, x0_32
 )
 
-cache = SDT.sparse_jacobian_cache(
-    backend,
-    SDT.JacPrototypeSparsityDetection(; jac_prototype = S1),
-    brusselator_2d!,
-    similar(x0_32),
-    x0_32
-);
-J2 = SDT.sparse_jacobian!(
-    similar(S1, eltype(x0_32)), backend, cache, brusselator_2d!, similar(x0_32), x0_32
-)
-
-@test J1 == J2
+@test nnz(J1) > 0
 ```
 
 ## Benchmarks
@@ -172,7 +159,7 @@ end
 ### Coloring
 
 ```julia
-tc1, tc2 = zeros(length(N_values)), zeros(length(N_values))
+tc1 = zeros(length(N_values))
 for (i, N) in enumerate(N_values)
     @info "Benchmarking coloring: N=$N"
     x0 = init_brusselator_2d(N)
@@ -180,7 +167,6 @@ for (i, N) in enumerate(N_values)
         brusselator_2d!, similar(x0), x0, TracerSparsityDetector()
     )
     tc1[i] = @belapsed ADTypes.column_coloring($S, GreedyColoringAlgorithm())
-    tc2[i] = @belapsed SDT.matrix_colors($S)
 end
 
 let
@@ -196,8 +182,6 @@ let
         markershape = :auto,
         label = "SparseMatrixColorings"
     )
-    plot!(plc, N_values, tc2; lw = 2, linestyle = :auto,
-        markershape = :auto, label = "SparseDiffTools")
     plot!(plc; xscale = :log10, yscale = :log10, legend = :topleft, minorgrid = true)
     plc
 end
@@ -206,7 +190,7 @@ end
 ### Differentiation
 
 ```julia
-tj1, tj2 = zeros(length(N_values)), zeros(length(N_values))
+tj1 = zeros(length(N_values))
 for (i, N) in enumerate(N_values)
     @info "Benchmarking differentiation: N=$N"
     x0 = init_brusselator_2d(N)
@@ -219,18 +203,6 @@ for (i, N) in enumerate(N_values)
         _y = similar($x0);
         _J = similar($J);
         _prep = DI.prepare_jacobian($brusselator_2d!, similar($x0), $backend, $x0)
-    ) evals=1
-
-    tj2[i] = @belapsed SDT.sparse_jacobian!(_J, $backend, _cache, $brusselator_2d!, _y, $x0) setup=(
-        _y = similar($x0);
-        _J = similar($J);
-        _cache = SDT.sparse_jacobian_cache(
-            $backend,
-            SDT.JacPrototypeSparsityDetection(; jac_prototype = $S),
-            $brusselator_2d!,
-            similar($x0),
-            $x0
-        )
     ) evals=1
 end
 
@@ -247,8 +219,6 @@ let
         markershape = :auto,
         label = "DifferentiationInterface"
     )
-    plot!(plj, N_values, tj2; lw = 2, linestyle = :auto,
-        markershape = :auto, label = "SparseDiffTools")
     plot!(plj; xscale = :log10, yscale = :log10, legend = :topleft, minorgrid = true)
     plj
 end
@@ -259,40 +229,47 @@ end
 ```julia
 let
     pl = plot(;
-        title = "Is the new pipeline worth it?\nTest case: Brusselator",
+        title = "Sparse AD pipeline on the Brusselator",
         xlabel = "Input size N",
-        ylabel = "Runtime ratio DI / SparseDiffTools"
+        ylabel = "Runtime [s]"
     )
     plot!(
         pl,
         N_values,
-        td2 ./ td1;
+        td1;
         lw = 2,
         linestyle = :dot,
         markershape = :utriangle,
-        label = "sparsity detection speedup"
+        label = "sparsity detection (SCT)"
     )
     plot!(
         pl,
         N_values,
-        tc2 ./ tc1;
+        td2;
+        lw = 2,
+        linestyle = :dot,
+        markershape = :dtriangle,
+        label = "sparsity detection (Symbolics)"
+    )
+    plot!(
+        pl,
+        N_values,
+        tc1;
         lw = 2,
         linestyle = :dashdot,
         markershape = :diamond,
-        label = "coloring speedup"
+        label = "coloring (SparseMatrixColorings)"
     )
     plot!(
         pl,
         N_values,
-        tj2 ./ tj1;
+        tj1;
         lw = 2,
         linestyle = :dash,
         markershape = :pentagon,
-        label = "differentiation speedup"
+        label = "differentiation (DI + ForwardDiff)"
     )
-    plot!(
-        pl, N_values, ones(length(N_values)); lw = 3, color = :black, label = "same speed")
-    plot!(pl; xscale = :log10, yscale = :log10, minorgrid = true, legend = :right)
+    plot!(pl; xscale = :log10, yscale = :log10, minorgrid = true, legend = :topleft)
     pl
 end
 ```
