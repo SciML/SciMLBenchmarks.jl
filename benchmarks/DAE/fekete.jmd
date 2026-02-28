@@ -3,53 +3,52 @@ title: Fekete Problem DAE Work-Precision Diagrams
 author: Singh Harsh Rahulkumar
 ---
 
-This is a benchmark of the Fekete problem in stabilized index-2 formulation,
-a DAE of dimension 160 from the [IVP Test Set](http://www.dm.uniba.it/~testset/).
+This is a benchmark of the Fekete problem, an index-3 DAE describing
+$N=20$ charged particles on the unit sphere, from the
+[IVP Test Set](http://www.dm.uniba.it/~testset/).
 
 The problem computes **elliptic Fekete points**: $N=20$ particles on the unit
 sphere $S^2$ that maximize the product of mutual distances
 $V(x) = \prod_{i<j} \|x_i - x_j\|_2$. By mechanical analogy, the particles
 are subject to a repulsive Coulomb-like force and an adhesion damping force
 $A_i = -\alpha q_i$ ($\alpha = 0.5$). The particles are constrained to the
-unit sphere via Lagrange multipliers $\lambda_i$, and the original index-3
-system is reduced to index 2 by differentiating the constraints once.
+unit sphere via Lagrange multipliers $\lambda_i$.
 
-**Variables (160 = 8N state variables):**
-- $3N = 60$ positions: $p_i \in \mathbb{R}^3$, $i=1,\dots,20$
-- $3N = 60$ velocities: $q_i \in \mathbb{R}^3$ (conjugate momenta)
-- $N = 20$ Lagrange multipliers: $\lambda_i$ (index 2)
-- $N = 20$ stabilization multipliers: $\mu_i$ (index 2)
+The **original index-3 system** has the physics:
+$$\ddot{p}_i = -\alpha \dot{p}_i + 2\lambda_i p_i + \sum_{j \neq i} \frac{p_i - p_j}{\|p_i - p_j\|^2}$$
+$$0 = \|p_i\|^2 - 1$$
 
-The system has the form $M \dot{y} = f(y)$ with constant mass matrix
-$M = \text{diag}(I_{6N}, 0_{2N})$.
+The **stabilized index-2 formulation** (from the Fortran test set) introduces
+velocity variables $q_i = \dot{p}_i$ and Baumgarte stabilization multipliers
+$\mu_i$, giving 160 = 8N state variables with mass matrix
+$M = \text{diag}(I_{6N}, 0_{2N})$:
+$$\dot{p}_i = q_i + 2\mu_i p_i, \quad
+\dot{q}_i = -\alpha q_i + 2\lambda_i p_i + \sum_{j\neq i}\frac{p_i - p_j}{\|p_i - p_j\|^2}$$
+$$0 = \|p_i\|^2 - 1, \quad 0 = 2p_i \cdot q_i$$
 
-**Equations:**
-$$\dot{p}_i = q_i + 2\mu_i p_i$$
-$$\dot{q}_i = -\alpha q_i + 2\lambda_i p_i + \sum_{j \neq i} \frac{p_i - p_j}{\|p_i - p_j\|^2}$$
-$$0 = \|p_i\|^2 - 1 \quad \text{(sphere constraint)}$$
-$$0 = 2 p_i \cdot q_i \quad \text{(differentiated constraint)}$$
+We benchmark three formulations:
 
-We benchmark two formulations of this problem:
-
-1. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
-   handle singular mass matrices (Rosenbrock-W methods, multistep BDF).
-2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with dedicated
-   DAE solvers (IDA, DASKR).
-
-**Note on MTK:** A ModelingToolkit index-reduced formulation was attempted but
-is not included.  At $N = 20$ particles the $O(N^2)$ pairwise Coulomb
-interactions produce a symbolic graph too large for `structural_simplify` to
-effectively reduce the DAE index — the system retains all unknowns as a
-mass-matrix DAE and the generated code is numerically unstable.  The
-hand-coded mass-matrix and residual forms are preferred for this problem size.
+1. **Mass-Matrix ODE Form:** The stabilized index-2 system as `M·du/dt = f(u, t)`,
+   solved with Rosenbrock-W and BDF methods.
+2. **DAE Residual Form:** Same system as `F(du, u, t) = M·du − f(u, t) = 0`,
+   solved with IDA and DASKR.
+3. **MTK Index-Reduced Form:** ModelingToolkit formulation using the
+   acceleration-level constraint. The original index-3 constraint $\|p_i\|^2 = 1$
+   is differentiated twice to yield an algebraic equation for $\lambda_i$:
+   $$0 = 2|q_i|^2 - 2\alpha\, p_i{\cdot}q_i + 4\lambda_i|p_i|^2 + 2\,p_i{\cdot}C_i$$
+   where $C_i$ is the Coulomb force on particle $i$.  This produces a 140-state
+   index-1 mass-matrix DAE with rank-120 mass matrix (120 differential, 20
+   algebraic for $\lambda$), avoiding the coordinate singularities that arise
+   when `structural_simplify` eliminates position components.
 
 Reference: Bendtsen, C., Thomsen, P.G.: Numerical solution of differential
 algebraic equations. IMM-DTU, Tech. Report (1999). Available at the
 [IVP Test Set](http://www.dm.uniba.it/~testset/problems/fekete.php).
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, ODEInterfaceDiffEq,
-      Plots, DASKR
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit,
+      ODEInterfaceDiffEq, Plots, DASKR
+using ModelingToolkit: t_nounits as t, D_nounits as D
 using LinearAlgebra, Statistics
 ```
 
@@ -356,6 +355,90 @@ daeprob = DAEProblem(fekete_dae!, du0_dae, y0, tspan,
                      differential_vars = differential_vars)
 ```
 
+### MTK Index-Reduced Formulation
+
+We formulate the Fekete problem as a first-order index-1 DAE using
+ModelingToolkit. Rather than giving MTK the original position-level
+constraint $\|p_i\|^2 = 1$ (which leads `structural_simplify` to eliminate
+position components via $p_1 = \sqrt{1 - p_2^2 - p_3^2}$, introducing
+coordinate singularities), we provide the **acceleration-level constraint**
+that directly determines $\lambda_i$:
+
+$$0 = 2|q_i|^2 - 2\alpha\,p_i{\cdot}q_i + 4\lambda_i|p_i|^2 + 2\,p_i{\cdot}C_i$$
+
+This produces a 140-state index-1 mass-matrix DAE with 120 differential
+variables (positions and velocities) and 20 algebraic variables ($\lambda$).
+
+```julia
+ps_mtk = Vector{Num}(undef, 3*N_ART)
+qs_mtk = Vector{Num}(undef, 3*N_ART)
+λs_mtk = Vector{Num}(undef, N_ART)
+
+# Compute consistent λ₀ from force balance at t=0 (q=0):
+# p·(2λp + Coulomb) = 0 → λ = -p·Coulomb / 2
+lam0 = zeros(N_ART)
+for i in 1:N_ART
+    cd = 0.0
+    for k in 1:3
+        pk = y0[3*(i-1)+k]; fk = 0.0
+        for j in 1:N_ART
+            j == i && continue
+            rn = sum((y0[3*(i-1)+m] - y0[3*(j-1)+m])^2 for m in 1:3)
+            fk += (pk - y0[3*(j-1)+k]) / rn
+        end
+        cd += pk * fk
+    end
+    lam0[i] = -cd / 2
+end
+
+for i in 1:N_ART
+    for k in 1:3
+        idx = 3*(i-1) + k
+        ps_mtk[idx] = only(@variables $(Symbol("p$(i)_$(k)"))(t) = y0[idx])
+        qs_mtk[idx] = only(@variables $(Symbol("q$(i)_$(k)"))(t) = 0.0)
+    end
+    λs_mtk[i] = only(@variables $(Symbol("lam$(i)"))(t) = lam0[i])
+end
+
+eqs_mtk = Equation[]
+
+# Block 1: dp/dt = q  (60 kinematic equations)
+for idx in 1:3*N_ART
+    push!(eqs_mtk, D(ps_mtk[idx]) ~ qs_mtk[idx])
+end
+
+# Block 2: dq/dt = -αq + 2λp + Coulomb  (60 dynamics equations)
+coulomb_mtk = Matrix{Num}(undef, N_ART, 3)
+for i in 1:N_ART
+    for k in 1:3
+        idx = 3*(i-1) + k
+        c_ik = sum(
+            (ps_mtk[idx] - ps_mtk[3*(j-1)+k]) /
+            sum((ps_mtk[3*(i-1)+m] - ps_mtk[3*(j-1)+m])^2 for m in 1:3)
+            for j in 1:N_ART if j != i
+        )
+        coulomb_mtk[i,k] = c_ik
+        push!(eqs_mtk, D(qs_mtk[idx]) ~ -ALPHA_DAMP*qs_mtk[idx] +
+              2*λs_mtk[i]*ps_mtk[idx] + c_ik)
+    end
+end
+
+# Block 3: Acceleration-level constraint (20 algebraic → determines λ)
+for i in 1:N_ART
+    q_sq    = sum(qs_mtk[3*(i-1)+k]^2 for k in 1:3)
+    p_dot_q = sum(ps_mtk[3*(i-1)+k]*qs_mtk[3*(i-1)+k] for k in 1:3)
+    p_sq    = sum(ps_mtk[3*(i-1)+k]^2 for k in 1:3)
+    p_dot_c = sum(ps_mtk[3*(i-1)+k]*coulomb_mtk[i,k] for k in 1:3)
+    push!(eqs_mtk, 0 ~ 2*q_sq - 2*ALPHA_DAMP*p_dot_q +
+          4*λs_mtk[i]*p_sq + 2*p_dot_c)
+end
+
+@mtkbuild sys_mtk = ODESystem(eqs_mtk, t)
+mtkprob = ODEProblem(sys_mtk, [], tspan; warn_initialize_determined = false)
+println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys_mtk))) states ",
+        "(mass matrix rank $(rank(mtkprob.f.mass_matrix)))")
+```
+
 ## Reference Solution
 
 The Fortran test set provides a high-accuracy reference solution at $t = 1000$,
@@ -538,8 +621,14 @@ ref_sol = solve(mmprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
 println("  retcode = $(ref_sol.retcode), npoints = $(length(ref_sol.t)), ",
         "t_final = $(ref_sol.t[end])")
 
-# We use a single canonical reference (mass-matrix) for all formulations.
-# This avoids dimension/ordering mismatches from structural_simplify.
+println("Computing MTK reference solution with Rodas5P...")
+mtk_ref = solve(mtkprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
+                maxiters = 10_000_000)
+println("  retcode = $(mtk_ref.retcode), npoints = $(length(mtk_ref.t))")
+
+# We use separate references: the canonical mass-matrix reference for
+# mass-matrix and DAE forms, and the MTK reference for the MTK form
+# (which has a different state layout from structural_simplify).
 ```
 
 ## Verification against Fortran Reference
@@ -605,11 +694,12 @@ plot(ref_sol, idxs = [121, 122, 123, 124, 125],
 ## Problem Setup for Benchmarks
 
 We set up the problem array and reference array for `WorkPrecisionSet`.
-The two formulations are: (1) mass-matrix ODE, (2) DAE residual.
+The three formulations are: (1) mass-matrix ODE, (2) DAE residual,
+(3) MTK index-reduced.
 
 ```julia
-probs = [mmprob, daeprob]
-refs  = [ref_sol, ref_sol]
+probs = [mmprob, daeprob, mtkprob]
+refs  = [ref_sol, ref_sol, mtk_ref]
 ```
 
 ## High Tolerances
@@ -625,18 +715,22 @@ setups = [
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
-plot(wp, title = "Fekete Problem: Mass-Matrix vs DAE (High Tol)")
+    maxiters = Int(1e7), numruns = 5)
+plot(wp, title = "Fekete Problem: All Formulations (High Tol)")
 ```
 
 Solver performance differs significantly across formulations, particularly
-between residual DAE and mass-matrix ODE forms.
+between residual DAE, mass-matrix ODE, and MTK index-reduced forms.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
@@ -647,14 +741,16 @@ setups = [
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "IDA (DAE)" "DASKR (DAE)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE Solvers (High Tol)")
+    maxiters = Int(1e7), numruns = 5)
+plot(wp, title = "Fekete Problem: MM vs DAE vs MTK (High Tol)")
 ```
 
 ### Timeseries Errors
@@ -670,13 +766,17 @@ setups = [
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
+    maxiters = Int(1e7), numruns = 5)
 plot(wp, title = "Fekete Problem: Timeseries (L2)")
 ```
 
@@ -689,14 +789,16 @@ setups = [
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "IDA (DAE)" "DASKR (DAE)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE Timeseries (L2)")
+    maxiters = Int(1e7), numruns = 5)
+plot(wp, title = "Fekete Problem: MM vs DAE vs MTK Timeseries (L2)")
 ```
 
 ### Low Tolerances
@@ -717,20 +819,23 @@ setups = [
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+    Dict(:prob_choice => 3, :alg => Rodas4()),
+    Dict(:prob_choice => 3, :alg => FBDF()),
 ]
 
-labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)"]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
+    maxiters = Int(1e7), numruns = 5)
 plot(wp, title = "Fekete Problem: Low Tolerances")
 ```
 
 ```julia
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e6), numruns = 5)
+    maxiters = Int(1e7), numruns = 5)
 plot(wp, title = "Fekete Problem: Low Tolerances (L2)")
 ```
 
