@@ -24,9 +24,10 @@ depletion- and enhancement-type devices.
 The charge-driven formulation gives
 $$\dot{Q} = f(t, V), \qquad 0 = Q - g(V)$$
 where $f$ contains the static currents (resistive + MOSFET drain/source/bulk)
-and $g$ is the nonlinear charge function. Since $\partial g/\partial V$ is
-nonsingular in the operating region, the algebraic variables can be locally
-solved for $V$, giving index-1 structure.
+and $g$ is the nonlinear charge function. The Jacobian $\partial g/\partial V$
+corresponds to the nodal capacitance matrix augmented by voltage-dependent
+bulk capacitances. In the operating regime of the circuit, this matrix
+remains nonsingular, ensuring index-1 structure.
 
 **Physically relevant outputs (3 signals):**
 - $V_{49}$  = $S_0$ (sum bit 0)
@@ -42,7 +43,6 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, Plots
-using ODEInterfaceDiffEq
 using DASSL, DASKR
 using LinearAlgebra, SparseArrays
 ```
@@ -504,7 +504,7 @@ end
 
 """Full charge function G[1:175] from node potentials U[1:175]."""
 function GCN!(G, U)
-    fill!(G, 0.0)
+    G .= 0.0
 
     # Ten logical subcircuits
     dnor!(G, U, 1)
@@ -759,7 +759,8 @@ M_tba = spdiagm(0 => [ones(175); zeros(175)])
 
 tspan = (0.0, 320.0)
 mmf = ODEFunction(tba_rhs!, mass_matrix = M_tba)
-prob_mm = ODEProblem(mmf, y0, tspan)
+prob_mm = ODEProblem(mmf, y0, tspan;
+                     isoutofdomain = (u, p, t) -> any(isnan, u))
 
 println("=== Step 1: Mass-Matrix ODE Verification ===")
 mm_test = solve(prob_mm, Rodas5P(), reltol = 1e-4, abstol = 1e-4,
@@ -875,6 +876,8 @@ because tighter tolerances are unnecessary for this stiff, discontinuous
 circuit and can trigger instabilities on some BLAS backends.
 
 ```julia
+ts = collect(0.0:0.5:320.0)
+
 ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
                 maxiters = 10_000_000, tstops = disc_times)
 println("Reference solution: retcode = $(ref_sol.retcode), ",
@@ -971,11 +974,9 @@ setups = [
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
     Dict(:prob_choice => 2, :alg => QNDF()),
-    Dict(:prob_choice => 2, :alg => rodas()),
-    Dict(:prob_choice => 2, :alg => radau()),
     Dict(:prob_choice => 2, :alg => RadauIIA5()),
 ]
-labels = ["IDA (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "QNDF (MM)", "rodas (MM)", "radau (MM)", "RadauIIA5 (MM)"]
+labels = ["IDA (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "QNDF (MM)", "RadauIIA5 (MM)"]
 
 if mtk_success
     push!(setups, Dict(:prob_choice => 3, :alg => Rodas5P()))
@@ -984,7 +985,7 @@ end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+    maxiters = Int(1e6), numruns = 1, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: High Tolerances")
 ```
 
@@ -999,10 +1000,9 @@ setups = [
     Dict(:prob_choice => 2, :alg => Rodas5P()),
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => RadauIIA5()),
 ]
-labels = ["IDA (DAE)", "DASKR (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "rodas (MM)", "RadauIIA5 (MM)"]
+labels = ["IDA (DAE)", "DASKR (DAE)", "Rodas5P (MM)", "Rodas4P (MM)", "FBDF (MM)", "RadauIIA5 (MM)"]
 
 if mtk_success
     push!(setups, Dict(:prob_choice => 3, :alg => Rodas5P()))
@@ -1013,15 +1013,19 @@ end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, tstops = disc_times)
+    maxiters = Int(1e6), numruns = 1, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: Medium Tolerances")
 ```
 
 ### Timeseries Errors (L2)
 
+Tolerances start at 1e-4/1e-2 rather than 1e-3/1e-1 because very loose
+tolerances on this stiff switching circuit amplify phase errors at input
+transitions, making L2 comparisons noisy.
+
 ```julia
-abstols = 1.0 ./ 10.0 .^ (3:7)
-reltols = 1.0 ./ 10.0 .^ (1:5)
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (2:5)
 setups = [
     Dict(:prob_choice => 1, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => Rodas5P()),
@@ -1037,9 +1041,9 @@ if mtk_success
 end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = reshape(labels, 1, :), appxsol = refs, save_everystep = false,
-    maxiters = Int(1e6), numruns = 5, error_estimate = :l2,
-    idxs = [224, 305, 323], tstops = disc_times)
+    names = reshape(labels, 1, :), appxsol = refs,
+    saveat = ts, maxiters = Int(1e6), numruns = 1,
+    error_estimate = :l2, tstops = disc_times)
 plot(wp, title = "Two-Bit Adder: Timeseries Error (L2)")
 ```
 
