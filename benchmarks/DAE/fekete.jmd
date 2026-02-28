@@ -384,13 +384,13 @@ end
 for i in 1:N_ART
     for k in 1:3
         idx = 3*(i-1) + k
-        coul = sum(
+        coulomb = sum(
             (ps_mtk[idx] - ps_mtk[3*(j-1)+k]) /
             sum((ps_mtk[3*(i-1)+m] - ps_mtk[3*(j-1)+m])^2 for m in 1:3)
             for j in 1:N_ART if j != i
         )
         push!(eqs_mtk, D(qs_mtk[idx]) ~ -ALPHA_DAMP*qs_mtk[idx] +
-              2*λs_mtk[i]*ps_mtk[idx] + coul)
+              2*λs_mtk[i]*ps_mtk[idx] + coulomb)
     end
 end
 
@@ -595,7 +595,7 @@ mtk_ref = solve(mtkprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
 println("  retcode = $(mtk_ref.retcode), npoints = $(length(mtk_ref.t))")
 
 # We use separate references: the canonical mass-matrix reference for
-# mass-matrix and DAE forms, and ans MTK reference for the MTK form
+# mass-matrix and DAE forms, and an MTK reference for the MTK form
 # (structural_simplify may change the state layout).
 ```
 
