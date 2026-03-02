@@ -22,116 +22,87 @@ using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, Optimizati
 using OptimizationMetaheuristics, OptimizationNOMAD, OptimizationPRIMA, OptimizationOptimisers, OptimizationSciPy, OptimizationPyCMA
 ```
 
-We extend the benchmark results to also track wall-clock time per run-length point.
-This allows us to plot success rate vs. actual runtime, not just iteration count.
-The wall-clock time is measured using `@elapsed` around each `solve_problem` call
-and averaged across trials.
+We define a time-to-success benchmarking framework. For each (optimizer, function, trial),
+we run the optimizer once with a large iteration budget and wrap the objective function to
+detect the first evaluation that achieves the success criterion. The wall-clock time at
+that moment is recorded as the "time to success". From these times we build a CDF:
+for a given wall-time budget T, what fraction of (function, trial) pairs were solved?
 
 ```julia
-struct TimedBenchmarkResults
-    bbob::BenchmarkResults
-    walltime::Vector{Float64}  # mean wall time per run_length point (seconds)
+function make_success_tracker(f_raw, f_opt, Δf)
+    t0 = Ref(time())
+    time_to_success = Ref(Inf)
+    function tracked_f(u)
+        val = f_raw(u)
+        if val < Δf + f_opt && time_to_success[] == Inf
+            time_to_success[] = time() - t0[]
+        end
+        return val
+    end
+    return tracked_f, t0, time_to_success
 end
 
-function timed_benchmark(
-    optimizer::Union{Chain, BenchmarkSetup}, f::BBOBFunction,
-    run_length::AbstractVector{Int};
-    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, CI_quantile = 0.25
+function solve_problem_timed(optimizer::BenchmarkSetup, tracked_f, D::Int, run_length::Int;
+    u0 = pinit(D))
+    method = optimizer.method
+    optf = OptimizationFunction((u, _) -> tracked_f(u), AutoForwardDiff())
+    if optimizer.isboxed
+        prob = OptimizationProblem(optf, u0, lb = fill(-5.5, D), ub = fill(5.5, D))
+    else
+        prob = OptimizationProblem(optf, u0)
+    end
+    sol = solve(prob, method; maxiters = run_length)
+    sol
+end
+
+function solve_problem_timed(m::Chain, tracked_f, D::Int, run_length::Int)
+    rl1 = round(Int, m.p * run_length)
+    rl2 = run_length - rl1
+    sol = solve_problem_timed(m.first, tracked_f, D, rl1)
+    xinit = sol.u
+    sol = solve_problem_timed(m.second, tracked_f, D, rl2; u0 = xinit)
+end
+
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, f::BBOBFunction;
+    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
 )
-    t_func = (T) -> zeros(T, Ntrials, length(run_length))
-
-    reached_minimum = t_func(Bool)
-    distance_to_xopt = t_func(Float64)
-    fmin = t_func(Float64)
-    callcount = t_func(Int)
-    walltimes = t_func(Float64)
-
-    total_time = 0.0
-    for j in 1:length(run_length)
-        for i in 1:Ntrials
-            try
-                fcounter = FunctionCallsCounter(f.f)
-                t_elapsed = @elapsed sol = solve_problem(
-                    optimizer, fcounter, dimension, run_length[j])
-                total_time += t_elapsed
-                walltimes[i, j] = t_elapsed
-
-                reached_minimum[i, j] = sol.objective < Δf + f.f_opt
-                fmin[i, j] = sol.objective - f.f_opt
-                distance_to_xopt[i, j] = √sum(abs2.(sol.u - f.x_opt[1:dimension]))
-                callcount[i, j] = fcounter.count
-            catch err
-                reached_minimum[i, j] = false
-                fmin[i, j] = NaN
-                distance_to_xopt[i, j] = NaN
-                callcount[i, j] = 0
-                walltimes[i, j] = 0.0
-                @warn(string(optimizer, " failed: ", err))
-            end
+    times = Float64[]
+    for i in 1:Ntrials
+        tracked_f, t0_ref, tts_ref = make_success_tracker(f.f, f.f_opt, Δf)
+        try
+            t0_ref[] = time()
+            sol = solve_problem_timed(optimizer, tracked_f, dimension, max_run_length)
+            push!(times, tts_ref[])
+        catch err
+            push!(times, Inf)
+            @warn(string(optimizer, " failed: ", err))
         end
     end
-    total_time /= Ntrials * length(run_length)
-
-    dr = x -> dropdims(x, dims = 1)
-    success_rate = sum(reached_minimum, dims = 1) / Ntrials |> dr
-    success_rate_qlow, success_rate_qhigh = compute_CI(success_rate, Ntrials, CI_quantile)
-
-    bbob_result = BenchmarkResults(
-        run_length = run_length,
-        success_count = sum(reached_minimum, dims = 1) |> dr,
-        success_rate = success_rate,
-        success_rate_qlow = success_rate_qlow,
-        success_rate_qhigh = success_rate_qhigh,
-        distance_to_minimizer = mean(distance_to_xopt, dims = 1) |> dr,
-        minimum = mean(fmin, dims = 1) |> dr,
-        runtime = total_time,
-        Neffective = Ntrials,
-        callcount = mean(callcount, dims = 1) |> dr,
-        success_rate_per_function = [success_rate[end]]
-    )
-
-    mean_walltime = mean(walltimes, dims = 1) |> dr
-    TimedBenchmarkResults(bbob_result, mean_walltime)
+    return times
 end
 
-timed_benchmark(optimizer, funcs, run_length::AbstractVector{Int};
-    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, CI_quantile = 0.25
-) = timed_benchmark(
-    BenchmarkSetup(optimizer), funcs, run_length; Ntrials, dimension, Δf, CI_quantile)
+benchmark_time_to_success(optimizer, f; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), f; kwargs...)
 
-function timed_benchmark(
-    optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{BBOBFunction},
-    run_length::AbstractVector{Int};
-    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, CI_quantile = 0.25
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{BBOBFunction};
+    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
 )
-    res = [timed_benchmark(optimizer, f, run_length; Ntrials, dimension, Δf) for f in funcs]
+    all_times = Float64[]
+    for f in funcs
+        append!(all_times, benchmark_time_to_success(
+            optimizer, f; Ntrials, dimension, Δf, max_run_length))
+    end
+    return all_times
+end
 
-    # Aggregate BBOB results
-    bbob_res = [r.bbob for r in res]
-    reduce_res(field, f = mean) = f(getfield(r, field) for r in bbob_res)
+benchmark_time_to_success(optimizer, funcs::Vector{BBOBFunction}; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), funcs; kwargs...)
 
-    Neff = Ntrials * length(funcs)
-    success_rate = reduce_res(:success_count, sum) / Neff
-    success_rate_qlow, success_rate_qhigh = compute_CI(success_rate, Neff, CI_quantile)
-
-    bbob_combined = BenchmarkResults(
-        run_length = run_length,
-        success_count = reduce_res(:success_count, sum),
-        success_rate = success_rate,
-        success_rate_qlow = success_rate_qlow,
-        success_rate_qhigh = success_rate_qhigh,
-        distance_to_minimizer = reduce_res(:distance_to_minimizer),
-        minimum = reduce_res(:minimum),
-        runtime = reduce_res(:runtime, sum),
-        Neffective = Neff,
-        callcount = reduce_res(:callcount),
-        success_rate_per_function = [r.bbob.success_rate[end] for r in res]
-    )
-
-    # Average walltimes across functions
-    mean_walltime = mean(r.walltime for r in res)
-
-    TimedBenchmarkResults(bbob_combined, mean_walltime)
+function success_rate_cdf(all_times::Vector{Float64}, time_thresholds::AbstractVector{Float64})
+    N = length(all_times)
+    return [count(x -> x <= t, all_times) / N for t in time_thresholds]
 end
 ```
 
@@ -147,8 +118,10 @@ test_functions = BBOB.list_functions()
 dimension = 3
 run_length = round.(Int, 10 .^ LinRange(1, 5, 30))
 
-@memoize run_bench(algo) = timed_benchmark(
+@memoize run_bench(algo) = BBOB.benchmark(
     setup[algo], test_functions, run_length, Ntrials = 40, dimension = dimension)
+@memoize run_tts(algo) = benchmark_time_to_success(
+    setup[algo], test_functions, Ntrials = 40, dimension = dimension)
 ```
 
 ```julia
@@ -192,12 +165,12 @@ setup = Dict(
 ## Test one optimizer
 
 ```julia
-@time b = timed_benchmark(
+@time b = BBOB.benchmark(
     chain(OptimizationMetaheuristics.CGSA(), isboxed = true),
     test_functions[1:10], 100:500:10_000, Ntrials = 10, dimension = 3
 )
 
-plot(b.bbob)
+plot(b)
 ```
 
 ## Test one test function (Rastrigin)
@@ -219,10 +192,10 @@ end
 p
 ```
 
-## Test all
+## Test all (iterations)
 
 ```julia
-results = Array{TimedBenchmarkResults}(undef, length(setup))
+results = Array{BBOB.BenchmarkResults}(undef, length(setup))
 
 Threads.@threads for (i, algo) in collect(enumerate(keys(setup)))
     results[i] = run_bench(algo)
@@ -235,33 +208,57 @@ results
 
 ```julia
 labels = collect(keys(setup))
-idx = sortperm([b.bbob.success_rate[end] for b in results], rev = true)
+idx = sortperm([b.success_rate[end] for b in results], rev = true)
 
 p = plot(xscale = :log10, legend = :outerright,
     size = (700, 350), margin = 10Plots.px, dpi = 200)
 for i in idx
-    plot!(results[i].bbob, label = labels[i], showribbon = false,
+    plot!(results[i], label = labels[i], showribbon = false,
         lw = 2.5, xlim = (1, 1e5), x = :run_length)
 end
 p
 ```
 
+## Test all (wall-clock time to success)
+
+For the time-based benchmark, each optimizer is run once with a large iteration budget
+(100,000 iterations) per (function, trial) pair. The objective function is wrapped to
+detect the first evaluation that achieves the success criterion (objective < Δf + f_opt)
+and record the wall-clock time at that moment. This gives a true "time to success" for
+each trial, from which we build a CDF.
+
+```julia
+tts_results = Dict{String, Vector{Float64}}()
+
+for algo in keys(setup)
+    tts_results[algo] = run_tts(algo)
+end
+```
+
 ## Success Rate vs. Wall-Clock Time
 
-This plot shows the same success rate data, but plotted against actual wall-clock time
-instead of iteration count. This reveals which methods are truly faster in practice,
-accounting for per-iteration cost differences between algorithms.
+This plot is the time-based analog of the iteration plot above. The x-axis is a wall-clock
+time budget; for each budget T, the y-axis shows what fraction of (function, trial) pairs
+the optimizer solved within T seconds. Unlike the iteration plot, this accounts for
+per-iteration cost differences between algorithms.
 
 ```julia
 labels = collect(keys(setup))
-idx = sortperm([b.bbob.success_rate[end] for b in results], rev = true)
+
+# Determine time thresholds from data
+all_finite = filter(isfinite, vcat(values(tts_results)...))
+t_lo = minimum(all_finite) / 2
+t_hi = maximum(all_finite) * 2
+time_thresholds = 10 .^ range(log10(t_lo), log10(t_hi), length = 50)
+
+cdfs = Dict(algo => success_rate_cdf(tts_results[algo], time_thresholds) for algo in labels)
+idx = sortperm([cdfs[l][end] for l in labels], rev = true)
 
 p = plot(xscale = :log10, legend = :outerright,
     size = (700, 350), margin = 10Plots.px, dpi = 200,
     xlabel = "Wall time (s)", ylabel = "Success rate", ylim = (0, 1))
 for i in idx
-    plot!(results[i].walltime, results[i].bbob.success_rate,
-        label = labels[i], lw = 2.5)
+    plot!(time_thresholds, cdfs[labels[i]], label = labels[i], lw = 2.5)
 end
 p
 ```
@@ -269,7 +266,7 @@ p
 ## Success Rate per Function Heatmap
 
 ```julia
-success_rate_per_function = reduce(hcat, b.bbob.success_rate_per_function for b in results)
+success_rate_per_function = reduce(hcat, b.success_rate_per_function for b in results)
 
 idx = sortperm(mean(success_rate_per_function, dims = 1)[:], rev = false)
 idxfunc = sortperm(mean(success_rate_per_function, dims = 2)[:], rev = true)
@@ -289,33 +286,15 @@ p = heatmap(
 
 ```julia
 labels = collect(keys(setup))
-idx = sortperm([b.bbob.distance_to_minimizer[end] for b in results], rev = false)
+idx = sortperm([b.distance_to_minimizer[end] for b in results], rev = false)
 
 p = plot(xscale = :log10, legend = :outerright,
     size = (900, 500), margin = 10Plots.px, ylim = (0, 5))
 for i in idx
     plot!(
-        results[i].bbob.run_length, results[i].bbob.distance_to_minimizer, label = labels[i],
+        results[i].run_length, results[i].distance_to_minimizer, label = labels[i],
         showribbon = false, lw = 2, xlim = (1, 1e5),
         xlabel = "Iterations", ylabel = "Mean distance to minimum"
-    )
-end
-p
-```
-
-## Distance to Minimizer vs. Wall-Clock Time
-
-```julia
-labels = collect(keys(setup))
-idx = sortperm([b.bbob.distance_to_minimizer[end] for b in results], rev = false)
-
-p = plot(xscale = :log10, legend = :outerright,
-    size = (900, 500), margin = 10Plots.px, ylim = (0, 5))
-for i in idx
-    plot!(
-        results[i].walltime, results[i].bbob.distance_to_minimizer, label = labels[i],
-        lw = 2,
-        xlabel = "Wall time (s)", ylabel = "Mean distance to minimum"
     )
 end
 p
@@ -325,7 +304,7 @@ p
 
 ```julia
 ref = findfirst("NelderMead" .== labels)
-runtimes = getfield.((r -> r.bbob).(results), :runtime)
+runtimes = getfield.(results, :runtime)
 runtimes = runtimes ./ runtimes[ref]
 
 bar(
