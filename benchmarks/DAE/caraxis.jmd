@@ -82,6 +82,9 @@ const r_ca    = 0.1
 const omega_ca = 10.0
 const g_ca    = 1.0
 const k_ca    = M_ca * eps_ca^2 / 2.0
+
+# Shared initial conditions for all 10-variable formulations
+u0_mm  = [0.0,0.5,1.0,0.5, -0.5,0.0,-0.5,0.0, 0.0,0.0]
 ```
 
 ---
@@ -121,7 +124,6 @@ eqs = [
 tspan = (0.0, 3.0)
 
 mtkprob  = ODEProblem(sys, [], tspan)                             # prob_choice = 1
-odaeprob = ODAEProblem(sys, [], tspan)                            # prob_choice = 2
 
 # MTK Pantelides introduces a dummy second-derivative variable (ylˍtt) whose
 # IC is not auto-computed and left as NaN.  At t=0 all λ=0, so
@@ -131,12 +133,49 @@ function fix_nanics(prob)
     remake(prob; u0 = u0f)
 end
 mtkprob  = fix_nanics(mtkprob)
-odaeprob = fix_nanics(odaeprob)
 ```
 
 ---
 
-## 2 · Manual Mass-Matrix ODE Form (Raw Index-3)
+## 2 · Residual DAE Form
+
+The implicit residual form $F(\dot{u}, u, t) = 0$ is the classic interface
+used by IDA, DASSL, and DASKR.  This formulation preserves the full index-3
+structure without any mass-matrix factoring.
+
+```julia
+function caraxis_residual!(res, du, u, p, t)
+    xl_,yl_,xr_,yr_     = u[1],u[2],u[3],u[4]
+    dxl_,dyl_,dxr_,dyr_ = u[5],u[6],u[7],u[8]
+    lam1_,lam2_          = u[9],u[10]
+    yb_ = r_ca*sin(omega_ca*t);  xb_ = sqrt(L_ca^2 - yb_^2)
+    Ll_ = sqrt(xl_^2 + yl_^2)
+    Lr_ = sqrt((xr_-xb_)^2 + (yr_-yb_)^2)
+    # Kinematics
+    res[1] = du[1] - dxl_
+    res[2] = du[2] - dyl_
+    res[3] = du[3] - dxr_
+    res[4] = du[4] - dyr_
+    # Dynamics
+    res[5] = k_ca*du[5] - ((L0_ca-Ll_)*xl_/Ll_ + lam1_*xb_ + 2.0*lam2_*(xl_-xr_))
+    res[6] = k_ca*du[6] - ((L0_ca-Ll_)*yl_/Ll_ + lam1_*yb_ + 2.0*lam2_*(yl_-yr_) - k_ca*g_ca)
+    res[7] = k_ca*du[7] - ((L0_ca-Lr_)*(xr_-xb_)/Lr_ - 2.0*lam2_*(xl_-xr_))
+    res[8] = k_ca*du[8] - ((L0_ca-Lr_)*(yr_-yb_)/Lr_ - 2.0*lam2_*(yl_-yr_) - k_ca*g_ca)
+    # Position-level algebraic constraints (index-3)
+    res[9]  = xb_*xl_ + yb_*yl_
+    res[10] = (xl_-xr_)^2 + (yl_-yr_)^2 - L_ca^2
+    nothing
+end
+
+du0_dae   = [-0.5, 0.0, -0.5, 0.0, 0.0, -g_ca, 0.0, -g_ca, 0.0, 0.0]
+diff_vars = [true,true,true,true,true,true,true,true,false,false]
+daeprob   = DAEProblem(caraxis_residual!, du0_dae, u0_mm, tspan;
+                       differential_vars = diff_vars)              # prob_choice = 2
+```
+
+---
+
+## 3 · Manual Mass-Matrix ODE Form (Raw Index-3)
 
 $M=\operatorname{diag}(1,1,1,1,k,k,k,k,0,0)$. Algebraic rows 9–10 hold
 **position-level constraints** with no $\lambda$ dependence ($\partial\phi/\partial\lambda=0$),
@@ -164,22 +203,21 @@ function caraxis_mm!(du, u, p, t)
 end
 
 M_mat  = Matrix(Diagonal([1.0,1.0,1.0,1.0, k_ca,k_ca,k_ca,k_ca, 0.0,0.0]))
-u0_mm  = [0.0,0.5,1.0,0.5, -0.5,0.0,-0.5,0.0, 0.0,0.0]
 mmf    = ODEFunction(caraxis_mm!, mass_matrix=M_mat)
 mmprob = ODEProblem(mmf, u0_mm, tspan)                            # prob_choice = 3
 ```
 
 ---
 
-## 3 · Reference Solutions
+## 4 · Reference Solutions
 
 ```julia
 ref_sol     = solve(mtkprob,  Rodas5P(), abstol=1e-14, reltol=1e-14, dense=true)
-ode_ref_sol = solve(odaeprob, Rodas4(),  abstol=1e-14, reltol=1e-14, dense=true)
+dae_ref_sol = solve(daeprob,  IDA(),     abstol=1e-14, reltol=1e-14)
 mm_refsol   = solve(mmprob,   radau(),   reltol=1e-12, abstol=1e-12, dense=true)
 
 println("MTK ref retcode:  ", ref_sol.retcode)
-println("ODAE ref retcode: ", ode_ref_sol.retcode)
+println("DAE ref retcode:  ", dae_ref_sol.retcode)
 println("MM ref retcode:   ", mm_refsol.retcode)
 ```
 
@@ -272,8 +310,8 @@ println("Steps: ", radau5_ref.stats["no_steps"],
 ## Problem Collection
 
 ```julia
-probs = [mtkprob, odaeprob, mmprob]
-refs  = [ref_sol, ode_ref_sol, mm_refsol]
+probs = [mtkprob, daeprob, mmprob]
+refs  = [ref_sol, dae_ref_sol, mm_refsol]
 ```
 
 ## Solution Trajectories
@@ -330,11 +368,7 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg => Rosenbrock23()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 2, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => TRBDF2()),
-    Dict(:prob_choice => 2, :alg => KenCarp4()),
+    Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 3, :alg => radau()),
     Dict(:prob_choice => 3, :alg => rodas()),
 ]
@@ -344,18 +378,14 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
-DASSL and DASKR benchmark on the MTK ODAE formulation:
+IDA benchmark on the residual DAE formulation:
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (3:5)
 
 setups = [
-    Dict(:prob_choice => 2, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 2, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => DASSL.dassl()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 2, :alg => IDA()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
@@ -391,11 +421,7 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg => Rosenbrock23()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 2, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => TRBDF2()),
-    Dict(:prob_choice => 2, :alg => KenCarp4()),
+    Dict(:prob_choice => 2, :alg => IDA()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
@@ -413,17 +439,13 @@ reltols = 1.0 ./ 10.0 .^ (4:9)
 
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas5()),
-    Dict(:prob_choice => 2, :alg => Rodas5()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => Rodas4()),
     Dict(:prob_choice => 3, :alg => radau()),
     Dict(:prob_choice => 3, :alg => rodas()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
-    Dict(:prob_choice => 2, :alg => FBDF()),
-    Dict(:prob_choice => 2, :alg => DASSL.dassl()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 2, :alg => IDA()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
@@ -529,6 +551,23 @@ end
 > introduced by Pantelides takes `NaN` as its initial value; `fix_nanics` patches
 > it to $-g$, but the underlying index-3 structure still prevents convergence.
 
+### DAE solvers on the residual form
+
+```julia
+println("DAE solvers on the residual form:")
+for (name, alg) in [("IDA", IDA()), ("DASSL", DASSL.dassl()), ("DASKR", DASKR.daskr())]
+    try
+        sol = solve(daeprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e4))
+        println("  ", rpad(name, 12), " → ", sol.retcode)
+    catch e
+        println("  ", rpad(name, 12), " → threw ", nameof(typeof(e)))
+    end
+end
+```
+
+> IDA, DASSL, and DASKR are index-1 DAE solvers.  They do not perform automatic
+> index reduction, so this index-3 problem typically causes convergence failure.
+
 ---
 
 ## Algebraic Constraint Satisfaction
@@ -563,7 +602,7 @@ plot(radau5_ref.times, [g1_err g2_err]; yscale=:log10,
 | Raw mass-matrix + `solve(prob, radau())` | RADAU5 via wrapper | ✗ NaN | Wrapper drops index hints |
 | Raw mass-matrix + Julia solvers | Rodas/RadauIIA5/FBDF | ✗ Unstable | No index-3 support |
 | MTK Pantelides-reduced | All Julia solvers | ✗ InitialFailure / Unstable | Overdetermined init |
-| MTK ODAE | Rosenbrock/BDF | ✗ Unstable | Still has mass matrix |
+| Residual DAE (`DAEProblem`) | IDA/DASSL/DASKR | ✗ Unstable / DomainError | Index-1 solvers, no index reduction |
 
 Currently the most robust solver for this index-3 formulation is the Fortran
 RADAU5 implementation, called directly through `ODEInterface` with the correct
