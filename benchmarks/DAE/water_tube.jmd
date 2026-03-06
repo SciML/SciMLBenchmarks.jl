@@ -1,0 +1,567 @@
+---
+title: Water Tube System DAE Work-Precision Diagrams
+author: Singh Harsh Rahulkumar
+---
+
+This is a benchmark of the Water Tube System, an index-2 DAE of dimension 49
+from the IVP Test Set (Fekete 2006, `water.F`).
+
+The system models water flow through a pipe network with 13 nodes and 18 pipes,
+accounting for turbulence and wall roughness. The network has two buffer nodes
+(nodes 5 and 8), external inflow at nodes 1 and 13, and external outflow at
+node 10. The external flows model a 17-hour demand cycle typical of municipal
+water systems.
+
+**Variables (49 state variables):**
+- 18 pipe flows: φᵢⱼ(t), volumetric flow rates [m³/s]
+- 18 resistance coefficients: λᵢⱼ(t), Darcy friction factors (dimensionless)
+- 13 node pressures: pₙ(t) [Pa]
+
+**Physical challenges:**
+1. **Regime switching:** Each pipe transitions between laminar (R ≤ 2300) and
+   turbulent flow, with the turbulent Colebrook equation being implicit in λ.
+2. **Scale separation:** Flows ∼ 10⁻³, friction factors ∼ 10⁻², pressures ∼ 10⁵
+   — nine orders of magnitude difference.
+3. **Index-2 structure:** Variables 1–38 are index-1, while the 11 non-buffer
+   node pressures (variables 39–49) are index-2 algebraic constraints.
+
+We benchmark three formulations:
+
+1. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)` with diagonal singular M,
+   solved with Rosenbrock-W methods and BDF.
+2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with IDA.
+3. **MTK Index-Reduced Form:** Defined symbolically with `structural_simplify`
+   reducing from 49 to 32 states via automatic index reduction.
+
+Reference: Fekete, I.: Water tube system, IVP Test Set for DAE Solvers,
+Release 2.4, University of Bari, 2006.
+
+```julia
+using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, ODEInterfaceDiffEq,
+      Plots, DASSL, DASKR
+using LinearAlgebra
+using ModelingToolkit: t_nounits as t, D_nounits as D
+```
+
+## Physical Parameters
+
+All constants are taken directly from `water.F` (the IVP Test Set source):
+
+```julia
+const NU     = 1.31e-6       # kinematic viscosity [m²/s]
+const GRAV   = 9.8           # gravitational acceleration [m/s²]
+const RHO    = 1.0e3         # water density [kg/m³]
+const RCRIT  = 2.3e3         # critical Reynolds number (laminar/turbulent)
+const LPIPE  = 1.0e3         # pipe length [m]
+const KROUGH = 2.0e-4        # wall roughness [m]
+const DPIPE  = 1.0           # pipe diameter [m]
+const BBUF   = 2.0e2         # buffer coefficient
+const PI_C   = 3.141592653589793238462643383
+
+# Derived constants
+const APIPE  = PI_C * DPIPE^2 / 4.0     # cross-sectional area [m²]
+const MU     = NU * RHO                  # dynamic viscosity [Pa·s]
+const VMASS  = RHO * LPIPE / APIPE       # mass coeff for flow equations
+const CMASS  = BBUF / (RHO * GRAV)       # mass coeff for buffer pressures
+```
+
+## Network Topology
+
+The pipe network connects 13 nodes via 18 directed pipes. Nodes 5 and 8 are
+buffer nodes (modeled with compliance/capacitance). External inflows enter
+at nodes 1 and 13; external outflow exits at node 10.
+
+```julia
+# 18 pipes: (from_node, to_node) — matches Fortran phi(i,j) ordering
+const PIPES = [
+    (1,2),  (2,3),  (2,6),  (3,4),  (3,5),  (4,5),
+    (5,10), (6,5),  (7,4),  (7,8),  (8,5),  (8,10),
+    (9,8),  (11,9), (11,12),(12,7), (12,8), (13,11)
+]
+const NNODES = 13
+const NPIPES = 18
+
+# Pressure variable mapping: node → y-index (Fortran ordering)
+# Buffer nodes 5, 8 → y[37], y[38] (differential)
+# Other nodes → y[39:49] (algebraic, index-2)
+const NODE_TO_YIDX = Dict(
+    5=>37, 8=>38, 1=>39, 2=>40, 3=>41, 4=>42,
+    6=>43, 7=>44, 9=>45, 10=>46, 11=>47, 12=>48, 13=>49
+)
+
+# f(37:49) → node ordering for net flow conservation
+const NETFLO_NODES = [5, 8, 1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13]
+
+# Precompute: for each node, which pipe indices flow IN and OUT
+const NODE_INFLOWS  = [Int[] for _ in 1:NNODES]
+const NODE_OUTFLOWS = [Int[] for _ in 1:NNODES]
+for k in 1:NPIPES
+    push!(NODE_OUTFLOWS[PIPES[k][1]], k)
+    push!(NODE_INFLOWS[PIPES[k][2]], k)
+end
+```
+
+## RHS Function
+
+The right-hand side has three blocks:
+1. **Momentum equations** (1–18): Darcy-Weisbach pressure drop for each pipe
+2. **Colebrook equations** (19–36): Implicit friction factor relationship
+3. **Node balance** (37–49): Kirchhoff mass conservation at each node
+
+The Colebrook equation for turbulent flow is:
+$$\frac{1}{\sqrt{\lambda}} = 1.74 - 2\log_{10}\left(\frac{2k}{d} + \frac{18.7}{|R|\sqrt{\lambda}}\right)$$
+
+where $R = |u_{ij}| d / \nu$ is the Reynolds number. In the laminar regime
+($R \le R_\text{crit}$), the Colebrook equation uses $R_\text{crit}$ in place
+of $R$, and the momentum equation uses the Hagen-Poiseuille law instead.
+
+```julia
+function water_rhs!(f, y, p, t)
+    # External flows (time-dependent boundary conditions)
+    that  = t / 3600.0
+    that2 = that * that
+
+    ein1   = (1.0 - cos(exp(-that) - 1.0)) / 200.0
+    ein13  = (1.0 - cos(exp(-that) - 1.0)) / 80.0
+    eout10 = that2 * (3.0*that2 - 92.0*that + 720.0) / 1.0e6
+
+    # Process each pipe: momentum (f[k]) and Colebrook (f[18+k])
+    @inbounds for k in 1:NPIPES
+        i_node, j_node = PIPES[k]
+        phi_k = y[k]
+        lam_k = y[18 + k]
+        p_i   = y[NODE_TO_YIDX[i_node]]
+        p_j   = y[NODE_TO_YIDX[j_node]]
+
+        rtla = sqrt(lam_k)
+        r    = abs(phi_k * DPIPE / (NU * APIPE))
+
+        if r > RCRIT
+            # Turbulent: implicit Colebrook + Darcy-Weisbach
+            f[18 + k] = 1.0/rtla - 1.74 +
+                         2.0*log10(2.0*KROUGH/DPIPE + 18.7/(r*rtla))
+            f[k] = p_i - p_j -
+                    lam_k * RHO * LPIPE * phi_k^2 / (APIPE^2 * DPIPE)
+        else
+            # Laminar: Colebrook at R_crit + Hagen-Poiseuille
+            f[18 + k] = 1.0/rtla - 1.74 +
+                         2.0*log10(2.0*KROUGH/DPIPE + 18.7/(RCRIT*rtla))
+            f[k] = p_i - p_j -
+                    32.0 * MU * LPIPE * phi_k / (APIPE * DPIPE^2)
+        end
+    end
+
+    # Node balance: Kirchhoff flow conservation (f[37:49])
+    @inbounds for (idx, node) in enumerate(NETFLO_NODES)
+        netflo = 0.0
+        if node == 1;  netflo += ein1;   end
+        if node == 13; netflo += ein13;  end
+        if node == 10; netflo -= eout10; end
+        for k in NODE_INFLOWS[node];  netflo += y[k]; end
+        for k in NODE_OUTFLOWS[node]; netflo -= y[k]; end
+        f[36 + idx] = netflo
+    end
+
+    nothing
+end
+```
+
+## Initial Conditions
+
+All flows start at zero, friction factors at the laminar Colebrook value
+λ₀ ≈ 0.04752, and all pressures at 109800 Pa. This is a consistent initial
+condition (the RHS evaluates to zero at t = 0).
+
+```julia
+y0 = zeros(49)
+y0[19:36] .= 0.47519404529185289807e-1   # laminar friction factor
+y0[37:49] .= 109800.0                     # initial pressures [Pa]
+
+tspan = (0.0, 17.0 * 3600.0)   # 0 to 61200 s (17 hours)
+
+# Verify consistency
+f0 = zeros(49)
+water_rhs!(f0, y0, nothing, 0.0)
+println("Max |RHS| at IC: ", maximum(abs, f0), " (should be ≈ 0)")
+```
+
+## Mass-Matrix ODE Form
+
+The mass matrix is diagonal with three blocks:
+- M[1:18] = ρL/A (flow momentum — differential)
+- M[19:36] = 0 (Colebrook equations — algebraic)
+- M[37:38] = b/(ρg) (buffer node balance — differential)
+- M[39:49] = 0 (non-buffer node balance — algebraic, index-2)
+
+```julia
+M_diag = zeros(49)
+M_diag[1:18]  .= VMASS   # flow momentum
+M_diag[37]     = CMASS   # buffer node 5
+M_diag[38]     = CMASS   # buffer node 8
+M_mat = Diagonal(M_diag)
+
+mmf = ODEFunction(water_rhs!, mass_matrix = Matrix(M_mat))
+prob_mm = ODEProblem(mmf, y0, tspan)
+```
+
+## DAE Residual Form
+
+```julia
+function water_dae!(res, du, u, p, t)
+    f_rhs = similar(u)
+    water_rhs!(f_rhs, u, p, t)
+    res .= M_mat * du .- f_rhs
+    nothing
+end
+
+du0 = zeros(49)
+differential_vars = [trues(18); falses(18); trues(2); falses(11)]
+
+prob_dae = DAEProblem(water_dae!, du0, y0, tspan,
+                      differential_vars = differential_vars)
+
+# Verify DAE consistency
+f_check = zeros(49)
+water_rhs!(f_check, y0, nothing, 0.0)
+println("DAE residual at IC: ", norm(M_mat * du0 - f_check))
+```
+
+## MTK Index-Reduced Formulation
+
+ModelingToolkit can automatically reduce the index-2 DAE. We define the full
+system symbolically — 18 flow momentum equations, 18 Colebrook algebraic
+equations, 2 buffer node balances (differential), and 11 non-buffer node
+balances (algebraic) — and let `structural_simplify` eliminate the index-2
+constraints.
+
+The regime switching (laminar/turbulent) is handled with `ifelse`, which
+ModelingToolkit propagates through the symbolic graph.
+
+```julia
+@variables begin
+    ϕ1(t)=0.0;   ϕ2(t)=0.0;   ϕ3(t)=0.0;   ϕ4(t)=0.0
+    ϕ5(t)=0.0;   ϕ6(t)=0.0;   ϕ7(t)=0.0;   ϕ8(t)=0.0
+    ϕ9(t)=0.0;   ϕ10(t)=0.0;  ϕ11(t)=0.0;  ϕ12(t)=0.0
+    ϕ13(t)=0.0;  ϕ14(t)=0.0;  ϕ15(t)=0.0;  ϕ16(t)=0.0
+    ϕ17(t)=0.0;  ϕ18(t)=0.0
+    λ1(t)=0.47519404529185289807e-1;  λ2(t)=0.47519404529185289807e-1
+    λ3(t)=0.47519404529185289807e-1;  λ4(t)=0.47519404529185289807e-1
+    λ5(t)=0.47519404529185289807e-1;  λ6(t)=0.47519404529185289807e-1
+    λ7(t)=0.47519404529185289807e-1;  λ8(t)=0.47519404529185289807e-1
+    λ9(t)=0.47519404529185289807e-1;  λ10(t)=0.47519404529185289807e-1
+    λ11(t)=0.47519404529185289807e-1; λ12(t)=0.47519404529185289807e-1
+    λ13(t)=0.47519404529185289807e-1; λ14(t)=0.47519404529185289807e-1
+    λ15(t)=0.47519404529185289807e-1; λ16(t)=0.47519404529185289807e-1
+    λ17(t)=0.47519404529185289807e-1; λ18(t)=0.47519404529185289807e-1
+    P1(t)=109800.0;  P2(t)=109800.0;  P3(t)=109800.0;  P4(t)=109800.0
+    P5(t)=109800.0;  P6(t)=109800.0;  P7(t)=109800.0;  P8(t)=109800.0
+    P9(t)=109800.0;  P10(t)=109800.0; P11(t)=109800.0; P12(t)=109800.0
+    P13(t)=109800.0
+end
+
+phi_vars  = [ϕ1,ϕ2,ϕ3,ϕ4,ϕ5,ϕ6,ϕ7,ϕ8,ϕ9,ϕ10,ϕ11,ϕ12,ϕ13,ϕ14,ϕ15,ϕ16,ϕ17,ϕ18]
+lam_vars  = [λ1,λ2,λ3,λ4,λ5,λ6,λ7,λ8,λ9,λ10,λ11,λ12,λ13,λ14,λ15,λ16,λ17,λ18]
+pres_vars = [P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13]
+pres_lookup = Dict(i => pres_vars[i] for i in 1:NNODES)
+
+# Symbolic external flows
+that_s   = t / 3600.0
+that2_s  = that_s^2
+ein1_s   = (1.0 - cos(exp(-that_s) - 1.0)) / 200.0
+ein13_s  = (1.0 - cos(exp(-that_s) - 1.0)) / 80.0
+eout10_s = that2_s * (3.0*that2_s - 92.0*that_s + 720.0) / 1.0e6
+
+eqs = Equation[]
+
+for k in 1:NPIPES
+    i_node, j_node = PIPES[k]
+    phi_k = phi_vars[k]
+    lam_k = lam_vars[k]
+    p_i = pres_lookup[i_node]
+    p_j = pres_lookup[j_node]
+
+    rtla = sqrt(lam_k)
+    r_sym = abs(phi_k * DPIPE / (NU * APIPE))
+    is_turb = r_sym > RCRIT
+
+    rghres_turb = 1.0/rtla - 1.74 + 2.0*log10(2.0*KROUGH/DPIPE + 18.7/(r_sym*rtla))
+    rghres_lam  = 1.0/rtla - 1.74 + 2.0*log10(2.0*KROUGH/DPIPE + 18.7/(RCRIT*rtla))
+
+    fdba_turb = p_i - p_j - lam_k*RHO*LPIPE*phi_k^2/(APIPE^2*DPIPE)
+    fdba_lam  = p_i - p_j - 32.0*MU*LPIPE*phi_k/(APIPE*DPIPE^2)
+
+    push!(eqs, VMASS * D(phi_k) ~ ifelse(is_turb, fdba_turb, fdba_lam))
+    push!(eqs, 0 ~ ifelse(is_turb, rghres_turb, rghres_lam))
+end
+
+for node in 1:NNODES
+    netflo_expr = Num(0)
+    if node == 1;  netflo_expr += ein1_s;  end
+    if node == 13; netflo_expr += ein13_s; end
+    if node == 10; netflo_expr -= eout10_s; end
+    for k in 1:NPIPES
+        if PIPES[k][2] == node; netflo_expr += phi_vars[k]; end
+        if PIPES[k][1] == node; netflo_expr -= phi_vars[k]; end
+    end
+    if node == 5 || node == 8
+        push!(eqs, CMASS * D(pres_lookup[node]) ~ netflo_expr)
+    else
+        push!(eqs, 0 ~ netflo_expr)
+    end
+end
+
+@mtkbuild water_sys = ODESystem(eqs, t)
+prob_mtk = ODEProblem(water_sys, [], tspan; warn_initialize_determined = false)
+println("MTK index-reduced: $(length(ModelingToolkit.unknowns(water_sys))) states ",
+        "(from 49 original)")
+```
+
+## Solver Verification
+
+We verify that the major solvers can integrate to t = 61200 s before
+running full work-precision benchmarks.
+
+```julia
+println("=== Solver Verification ===")
+
+# Mass-matrix form
+for (name, alg) in [("Rodas5P", Rodas5P()), ("Rodas4P", Rodas4P()),
+                     ("FBDF", FBDF()), ("QNDF", QNDF()),
+                     ("rodas (ODEInterface)", rodas()),
+                     ("RadauIIA5", RadauIIA5())]
+    try
+        sol = solve(prob_mm, alg, reltol=1e-6, abstol=1e-6, maxiters=1_000_000)
+        println("  $name (MM): retcode=$(sol.retcode), npts=$(length(sol.t))")
+    catch e
+        println("  $name (MM): FAILED — $(typeof(e))")
+    end
+end
+
+# DAE form
+for (name, alg) in [("IDA", IDA()), ("DFBDF", DFBDF())]
+    try
+        sol = solve(prob_dae, alg, reltol=1e-6, abstol=1e-6, maxiters=1_000_000)
+        println("  $name (DAE): retcode=$(sol.retcode), npts=$(length(sol.t))")
+    catch e
+        println("  $name (DAE): FAILED — $(typeof(e))")
+    end
+end
+
+# MTK form
+for (name, alg) in [("Rodas5P", Rodas5P()), ("FBDF", FBDF())]
+    try
+        sol = solve(prob_mtk, alg, reltol=1e-6, abstol=1e-6, maxiters=1_000_000)
+        println("  $name (MTK): retcode=$(sol.retcode), npts=$(length(sol.t))")
+    catch e
+        println("  $name (MTK): FAILED — $(typeof(e))")
+    end
+end
+```
+
+## Reference Solution
+
+We compute a high-accuracy reference using Rodas5P at tight tolerance.
+
+```julia
+ref_sol = solve(prob_mm, Rodas5P(), reltol=1e-9, abstol=1e-9,
+                maxiters=10_000_000)
+println("MM reference: retcode=$(ref_sol.retcode), npoints=$(length(ref_sol.t))")
+
+mtk_ref = solve(prob_mtk, Rodas5P(), reltol=1e-8, abstol=1e-8,
+                maxiters=10_000_000)
+println("MTK reference: retcode=$(mtk_ref.retcode), npoints=$(length(mtk_ref.t))")
+```
+
+## Verification against PSIDE Reference
+
+The IVP Test Set provides a 14-digit reference solution computed by PSIDE.
+
+```julia
+ref_vals = [
+    0.2298488296477430e-2, 0.1188984650746585e-2, 0.1109503645730845e-2,
+    0.1589620100314825e-3, 0.1030022640715102e-2, 0.8710606306836165e-3,
+    0.3243571480903489e-2, 0.1109503645730845e-2, 0.7120986206521341e-3,
+    0.6414613963833099e-3, 0.9416978549524347e-3, 0.3403428519096511e-2,
+    0.2397639310739395e-2, 0.2397639310739395e-2, 0.3348581430454180e-2,
+    0.1353560017035444e-2, 0.1995021413418736e-2, 0.5746220741193575e-2,
+    0.4751940452918529e-1, 0.4751940452918529e-1, 0.4751940452918529e-1,
+    0.4751940452918529e-1, 0.4751940452918529e-1, 0.4751940452918529e-1,
+    0.4311196778792902e-1, 0.4751940452918529e-1, 0.4751940452918529e-1,
+    0.4751940452918529e-1, 0.4751940452918529e-1, 0.4249217433601160e-1,
+    0.4732336439609648e-1, 0.4732336439609648e-1, 0.4270002118868241e-1,
+    0.4751940452918529e-1, 0.4751940452918529e-1, 0.3651427026675656e-1,
+    0.1111268591478108e6, 0.1111270045592387e6, 0.1111271078730254e6,
+    0.1111269851929858e6, 0.1111269255355337e6, 0.1111269322658045e6,
+    0.1111269221703983e6, 0.1111270121140691e6, 0.1111274419515807e6,
+    0.1111255158881087e6, 0.1111278793439227e6, 0.1111270995171642e6,
+    0.1111298338971779e6
+]
+
+sol_final = ref_sol.u[end]
+println("=== Verification at t = 61200 ===")
+println("Component  | PSIDE Reference       | Our Solution          | Rel Error")
+println("-"^76)
+for i in [1,2,3,7,12,18,25,30,36,37,38,39,46,49]
+    relerr = abs(ref_vals[i]) > 0 ?
+             abs((sol_final[i] - ref_vals[i]) / ref_vals[i]) : abs(sol_final[i])
+    vname = i <= 18 ? "φ[$i]" : (i <= 36 ? "λ[$(i-18)]" : "p[$(i-36)]")
+    status = relerr < 1e-3 ? "✓" : (relerr < 1e-1 ? "~" : "✗")
+    println("$(rpad(vname, 11))| $(lpad(ref_vals[i], 22)) | $(lpad(round(sol_final[i], sigdigits=15), 22)) | $(relerr) $status")
+end
+```
+
+## Solution Plots
+
+```julia
+plot(ref_sol, idxs=1:6, title="Pipe Flows φ₁–φ₆",
+     xlabel="Time [s]", ylabel="Flow [m³/s]", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=7:12, title="Pipe Flows φ₇–φ₁₂",
+     xlabel="Time [s]", ylabel="Flow [m³/s]", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=13:18, title="Pipe Flows φ₁₃–φ₁₈",
+     xlabel="Time [s]", ylabel="Flow [m³/s]", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=19:24, title="Friction Factors λ₁–λ₆",
+     xlabel="Time [s]", ylabel="λ", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=25:30, title="Friction Factors λ₇–λ₁₂",
+     xlabel="Time [s]", ylabel="λ", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=31:36, title="Friction Factors λ₁₃–λ₁₈",
+     xlabel="Time [s]", ylabel="λ", lw=1.5,
+     layout=(2,3), size=(900,500))
+```
+
+```julia
+plot(ref_sol, idxs=37:49, title="Node Pressures p₁–p₁₃",
+     xlabel="Time [s]", ylabel="Pressure [Pa]", lw=1.5,
+     layout=(4,4), size=(1000,800))
+```
+
+## Work-Precision Diagrams
+
+```julia
+probs = [prob_mm, prob_dae, prob_mtk]
+refs  = [ref_sol, ref_sol, mtk_ref]
+```
+
+### High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [
+    Dict(:prob_choice => 1, :alg => Rodas5P()),
+    Dict(:prob_choice => 1, :alg => Rodas4P()),
+    Dict(:prob_choice => 1, :alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => rodas()),
+    Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
+plot(wp, title = "Water Tube: High Tolerances")
+```
+
+### Medium Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:9)
+reltols = 1.0 ./ 10.0 .^ (3:6)
+setups = [
+    Dict(:prob_choice => 1, :alg => Rodas5P()),
+    Dict(:prob_choice => 1, :alg => Rodas4P()),
+    Dict(:prob_choice => 1, :alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => rodas()),
+    Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
+plot(wp, title = "Water Tube: Medium Tolerances")
+```
+
+### Timeseries Errors (L2)
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+setups = [
+    Dict(:prob_choice => 1, :alg => Rodas5P()),
+    Dict(:prob_choice => 1, :alg => Rodas4P()),
+    Dict(:prob_choice => 1, :alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => rodas()),
+    Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 3, :alg => Rodas5P()),
+]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
+plot(wp, title = "Water Tube: Timeseries Error (L2)")
+```
+
+### Low Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:10)
+reltols = 1.0 ./ 10.0 .^ (4:7)
+setups = [
+    Dict(:prob_choice => 1, :alg => Rodas5()),
+    Dict(:prob_choice => 1, :alg => Rodas5P()),
+    Dict(:prob_choice => 1, :alg => Rodas4()),
+    Dict(:prob_choice => 1, :alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => rodas()),
+    Dict(:prob_choice => 2, :alg => IDA()),
+    Dict(:prob_choice => 2, :alg => DFBDF()),
+]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)"]
+
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
+plot(wp, title = "Water Tube: Low Tolerances")
+```
+
+```julia
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
+    names = labels, appxsol = refs, save_everystep = false,
+    maxiters = Int(1e6), numruns = 10)
+plot(wp, title = "Water Tube: Low Tolerances (L2)")
+```
+
+### Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
