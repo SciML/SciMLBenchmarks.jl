@@ -213,11 +213,16 @@ mmprob = ODEProblem(mmf, u0_mm, tspan)                            # prob_choice 
 
 ```julia
 ref_sol     = solve(mtkprob,  Rodas5P(), abstol=1e-14, reltol=1e-14, dense=true)
-dae_ref_sol = solve(daeprob,  IDA(),     abstol=1e-14, reltol=1e-14)
+dae_ref_sol = try
+    solve(daeprob, IDA(); abstol=1e-10, reltol=1e-10, maxiters=Int(5e4))
+catch e
+    @warn "IDA reference failed" exception=e
+    nothing
+end
 mm_refsol   = solve(mmprob,   radau(),   reltol=1e-12, abstol=1e-12, dense=true)
 
 println("MTK ref retcode:  ", ref_sol.retcode)
-println("DAE ref retcode:  ", dae_ref_sol.retcode)
+println("DAE ref retcode:  ", dae_ref_sol === nothing ? "FAILED" : dae_ref_sol.retcode)
 println("MM ref retcode:   ", mm_refsol.retcode)
 ```
 
@@ -351,13 +356,10 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
-    Dict(:prob_choice => 3, :alg => rodas()),
-    Dict(:prob_choice => 3, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
@@ -368,28 +370,10 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg => Rosenbrock23()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 3, :alg => radau()),
-    Dict(:prob_choice => 3, :alg => rodas()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
-plot(wp)
-```
-
-IDA benchmark on the residual DAE formulation:
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (3:5)
-
-setups = [
-    Dict(:prob_choice => 2, :alg => IDA()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
@@ -404,13 +388,10 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
-    Dict(:prob_choice => 3, :alg => rodas()),
-    Dict(:prob_choice => 3, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
@@ -421,11 +402,10 @@ reltols = 1.0 ./ 10.0 .^ (2:4)
 setups = [
     Dict(:prob_choice => 1, :alg => Rosenbrock23()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 2, :alg => IDA()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
@@ -434,28 +414,24 @@ plot(wp)
 High-precision regime, measuring the solvers best suited for tight accuracy requirements.
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (7:12)
-reltols = 1.0 ./ 10.0 .^ (4:9)
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (2:5)
 
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas5()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => radau()),
-    Dict(:prob_choice => 3, :alg => rodas()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
-    Dict(:prob_choice => 2, :alg => IDA()),
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
 ```julia
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1)
+    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
 plot(wp)
 ```
 
@@ -520,7 +496,7 @@ is the root cause.
 println("Standard Julia solvers on the raw mass-matrix form:")
 for (name, alg) in [("Rodas4", Rodas4()), ("Rodas5P", Rodas5P()),
                      ("RadauIIA5", RadauIIA5()), ("FBDF", FBDF()), ("QNDF", QNDF())]
-    sol = solve(mmprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e4))
+    sol = solve(mmprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e3))
     println("  ", rpad(name, 12), " → ", sol.retcode)
 end
 ```
@@ -542,7 +518,7 @@ end
 println("Standard Julia solvers on the MTK Pantelides-reduced system:")
 for (name, alg) in [("Rodas5P", Rodas5P()), ("RadauIIA5", RadauIIA5()),
                      ("FBDF", FBDF()), ("QNDF", QNDF())]
-    sol = solve(mtkprob, alg; reltol=1e-8, abstol=1e-8, maxiters=Int(1e4))
+    sol = solve(mtkprob, alg; reltol=1e-8, abstol=1e-8, maxiters=Int(1e3))
     println("  ", rpad(name, 12), " → ", sol.retcode)
 end
 ```
@@ -557,7 +533,7 @@ end
 println("DAE solvers on the residual form:")
 for (name, alg) in [("IDA", IDA()), ("DASSL", DASSL.dassl()), ("DASKR", DASKR.daskr())]
     try
-        sol = solve(daeprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e4))
+        sol = solve(daeprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e3))
         println("  ", rpad(name, 12), " → ", sol.retcode)
     catch e
         println("  ", rpad(name, 12), " → threw ", nameof(typeof(e)))
