@@ -1,0 +1,863 @@
+---
+title: Andrews' Squeezing Mechanism DAE Work-Precision Diagrams
+author: Singh Harsh Rahulkumar
+---
+
+This is a benchmark of Andrews' squeezing mechanism, a classic index-3 DAE
+from the IVP Test Set (`andrews.f`). The system models the motion of 7 rigid
+bodies connected by joints without friction.
+
+**Mathematical form:** $K \frac{dy}{dt} = \phi(y)$ where
+$y = (q, \dot{q}, \ddot{q}, \lambda) \in \mathbb{R}^{27}$ consists of
+7 position coordinates, 7 velocities, 7 acceleration-like variables, and
+6 Lagrange multipliers.
+
+The underlying constrained mechanical system is:
+
+$$M(q)\ddot{q} = f(q, \dot{q}) - G^T(q)\lambda, \quad 0 = g(q)$$
+
+We benchmark three formulations of this problem:
+
+1. **Mass-Matrix ODE Form:** $K \cdot dy/dt = \phi(y)$ with
+   $K = \textrm{diag}(I_{14}, 0_{13})$, solved with ODE solvers that handle
+   singular mass matrices.
+2. **DAE Residual Form:** $F(\dot{y}, y, t) = K \cdot \dot{y} - \phi(y) = 0$,
+   solved with dedicated DAE solvers (IDA from Sundials).
+3. **MTK Index-Reduced ODE:** The full index-3 system defined symbolically with
+   position-level constraints, automatically index-reduced by `structural_simplify`.
+
+**Characteristics:**
+- 14 differential equations + 13 algebraic equations = 27 total
+- Index-3 DAE (position-level constraints)
+- Time interval: $t \in [0, 0.03]$
+- 7×7 configuration-dependent mass matrix $M(q)$
+- 6 holonomic constraints $g(q) = 0$
+- The mechanism rotates dramatically: $\beta$ goes from $-0.062$ to $+15.8$ rad
+
+This problem has a special structure exploited by the Fortran RADAU5 code:
+$y_i' = y_{i+7}$ for $i = 1,\ldots,14$ (positions track velocities, velocities
+track accelerations). The `M1`/`M2` parameters tell RADAU5 about this structure
+so it only needs to solve a 13×13 (not 27×27) nonlinear system at each step.
+
+Reference: Giles (1978), Manning (1981); Fortran source from
+http://www.dm.uniba.it/~testset/
+
+```julia
+using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, Plots
+using ODEInterfaceDiffEq, LinearAlgebra, Statistics
+using ModelingToolkit: t_nounits as t, D_nounits as D
+OI = ODEInterfaceDiffEq.ODEInterface
+```
+
+## Parameters
+
+Physical parameters of the 7-body mechanism (from `andrews.f`):
+
+```julia
+# Body masses
+const am_m1 = 0.04325;  const am_m2 = 0.00365;  const am_m3 = 0.02373
+const am_m4 = 0.00706;  const am_m5 = 0.07050;  const am_m6 = 0.00706
+const am_m7 = 0.05498
+
+# Fixed pivot coordinates
+const am_xa = -0.06934;  const am_ya = -0.00227
+const am_xb = -0.03635;  const am_yb = 0.03273
+const am_xc = 0.014;     const am_yc = 0.072
+
+# Spring constant
+const am_c0 = 4530.0
+
+# Moments of inertia
+const am_i1 = 2.194e-6;  const am_i2 = 4.410e-7;  const am_i3 = 5.255e-6
+const am_i4 = 5.667e-7;  const am_i5 = 1.169e-5;  const am_i6 = 5.667e-7
+const am_i7 = 1.912e-5
+
+# Link lengths and geometry (d, e, u renamed to avoid Julia conflicts)
+const am_d  = 28e-3;     const am_da = 0.0115
+const am_e  = 0.02;      const am_ea = 0.01421
+const am_rr = 7e-3;      const am_ra = 9.2e-4;    const am_l0 = 0.07785
+const am_ss = 35e-3;     const am_sa = 0.01874;   const am_sb = 0.01043
+const am_sc = 18e-3;     const am_sd = 0.02
+const am_ta = 0.02308;   const am_tb = 9.16e-3
+const am_u  = 0.04;      const am_ua = 0.01228;   const am_ub = 4.49e-3
+const am_zf = 0.02;      const am_zt = 0.04;      const am_fa = 0.01421
+const am_mom = 33e-3
+```
+
+## Initial Conditions
+
+Consistent initial values from `andrews.f`. Positions $q_0$ satisfy the
+constraints $g(q_0) = 0$, with zero initial velocities and consistent
+initial accelerations and multipliers.
+
+```julia
+y0 = zeros(27)
+# Positions q (angles of 7 rigid bodies: β, Θ, γ, Φ, δ, Ω, ε)
+y0[1]  = -0.0617138900142764496358948458001
+y0[2]  =  0.0
+y0[3]  =  0.455279819163070380255912382449
+y0[4]  =  0.222668390165885884674473185609
+y0[5]  =  0.487364979543842550225598953530
+y0[6]  = -0.222668390165885884674473185609
+y0[7]  =  1.23054744454982119249735015568
+# Velocities dq/dt (all zero)
+# y0[8:14] = 0
+# Accelerations (algebraic, from M*a = f - G^T*λ at t=0)
+y0[15] =  14222.4439199541138705911625887
+y0[16] = -10666.8329399655854029433719415
+# y0[17:21] = 0
+# Lagrange multipliers
+y0[22] =  98.5668703962410896057654982170
+y0[23] = -6.12268834425566265503114393122
+# y0[24:27] = 0
+
+println("Initial positions q₀ = ", y0[1:7])
+println("Initial multipliers λ₀ = ", y0[22:27])
+```
+
+## Reference Solution at t = 0.03
+
+Computed by PSIDE on Cray C90 with double precision (from `andrews.f` `solut`):
+
+```julia
+y_ref = zeros(27)
+y_ref[1]  =  0.1581077119629904e+2
+y_ref[2]  = -0.1575637105984298e+2
+y_ref[3]  =  0.4082224013073101e-1
+y_ref[4]  = -0.5347301163226948e+0
+y_ref[5]  =  0.5244099658805304e+0
+y_ref[6]  =  0.5347301163226948e+0
+y_ref[7]  =  0.1048080741042263e+1
+y_ref[8]  =  0.1139920302151208e+4
+y_ref[9]  = -0.1424379294994111e+4
+y_ref[10] =  0.1103291221937134e+2
+y_ref[11] =  0.1929337464421385e+2
+y_ref[12] =  0.5735699284790808e+0
+y_ref[13] = -0.1929337464421385e+2
+y_ref[14] =  0.3231791658026955e+0
+y_ref[15] = -0.2463176316945196e+5
+y_ref[16] =  0.5185037701610329e+5
+y_ref[17] =  0.3241025686413781e+6
+y_ref[18] =  0.5667493645176213e+6
+y_ref[19] =  0.1674362929479361e+5
+y_ref[20] = -0.5667493645176222e+6
+y_ref[21] =  0.9826520791458422e+4
+y_ref[22] =  0.1991753333731910e+3
+y_ref[23] = -0.2975531228015052e+2
+y_ref[24] =  0.2306654119098399e+2
+y_ref[25] =  0.3145271365475927e+2
+y_ref[26] =  0.2264249232082739e+2
+y_ref[27] =  0.1161740700019673e+2
+```
+
+## Right-Hand Side Functions
+
+We need two versions of the RHS: an out-of-place function returning 13
+algebraic components for RADAU5 with M1/M2 structure, and an in-place
+function for the full 27-variable mass-matrix ODE.
+
+### RADAU5 Block-Structured RHS (13 components)
+
+The first 14 equations are trivial: $y_i' = y_{i+7}$ for $i = 1,...,14$
+(communicated via `M1 = 14`, `M2 = 7`). The RHS returns only the 13 algebraic
+components: 7 dynamics equations and 6 position constraints.
+
+```julia
+function rhs_andrews(t, y)
+    if any(!isfinite, y); return fill(NaN, 13); end
+
+    # --- Trigonometric quantities ---
+    sibe = sin(y[1]);  cobe = cos(y[1])
+    sith = sin(y[2]);  cth  = cos(y[2])
+    siga = sin(y[3]);  coga = cos(y[3])
+    siph = sin(y[4]);  coph = cos(y[4])
+    side = sin(y[5]);  cde  = cos(y[5])
+    siom = sin(y[6]);  coom = cos(y[6])
+    siep = sin(y[7]);  coep = cos(y[7])
+
+    sibeth = sin(y[1] + y[2]);  cobeth = cos(y[1] + y[2])
+    siphde = sin(y[4] + y[5]);  cophde = cos(y[4] + y[5])
+    siomep = sin(y[6] + y[7]);  coomep = cos(y[6] + y[7])
+
+    # Velocity aliases
+    bep = y[8];  thp = y[9];  php = y[11]
+    dep = y[12]; omp = y[13]; epp = y[14]
+
+    # --- 7×7 Mass matrix M(q) ---
+    mm11 = am_m1*am_ra^2 + am_m2*(am_rr^2 - 2*am_da*am_rr*cth + am_da^2) + am_i1 + am_i2
+    mm21 = am_m2*(am_da^2 - am_da*am_rr*cth) + am_i2
+    mm22 = am_m2*am_da^2 + am_i2
+    mm33 = am_m3*(am_sa^2 + am_sb^2) + am_i3
+    mm44 = am_m4*(am_e - am_ea)^2 + am_i4
+    mm54 = am_m4*((am_e - am_ea)^2 + am_zt*(am_e - am_ea)*siph) + am_i4
+    mm55 = am_m4*(am_zt^2 + 2*am_zt*(am_e - am_ea)*siph + (am_e - am_ea)^2) +
+           am_m5*(am_ta^2 + am_tb^2) + am_i4 + am_i5
+    mm66 = am_m6*(am_zf - am_fa)^2 + am_i6
+    mm76 = am_m6*((am_zf - am_fa)^2 - am_u*(am_zf - am_fa)*siom) + am_i6
+    mm77 = am_m6*((am_zf - am_fa)^2 - 2*am_u*(am_zf - am_fa)*siom + am_u^2) +
+           am_m7*(am_ua^2 + am_ub^2) + am_i6 + am_i7
+
+    # --- Spring force ---
+    xd = am_sd*coga + am_sc*siga + am_xb
+    yd = am_sd*siga - am_sc*coga + am_yb
+    lang  = sqrt((xd - am_xc)^2 + (yd - am_yc)^2)
+    force = -am_c0 * (lang - am_l0) / lang
+    fx = force * (xd - am_xc)
+    fy = force * (yd - am_yc)
+
+    # --- Force vector ---
+    f1 = am_mom - am_m2*am_da*am_rr*thp*(thp + 2*bep)*sith
+    f2 = am_m2*am_da*am_rr*bep^2*sith
+    f3 = fx*(am_sc*coga - am_sd*siga) + fy*(am_sd*coga + am_sc*siga)
+    f4 = am_m4*am_zt*(am_e - am_ea)*dep^2*coph
+    f5 = -am_m4*am_zt*(am_e - am_ea)*php*(php + 2*dep)*coph
+    f6 = -am_m6*am_u*(am_zf - am_fa)*epp^2*coom
+    f7 = am_m6*am_u*(am_zf - am_fa)*omp*(omp + 2*epp)*coom
+
+    # --- Constraint Jacobian G(q): 6×7 ---
+    gp11 = -am_rr*sibe + am_d*sibeth;  gp12 = am_d*sibeth;  gp13 = -am_ss*coga
+    gp21 =  am_rr*cobe - am_d*cobeth;  gp22 = -am_d*cobeth; gp23 = -am_ss*siga
+    gp31 = -am_rr*sibe + am_d*sibeth;  gp32 = am_d*sibeth
+    gp34 = -am_e*cophde;  gp35 = -am_e*cophde + am_zt*side
+    gp41 =  am_rr*cobe - am_d*cobeth;  gp42 = -am_d*cobeth
+    gp44 = -am_e*siphde;  gp45 = -am_e*siphde - am_zt*cde
+    gp51 = -am_rr*sibe + am_d*sibeth;  gp52 = am_d*sibeth
+    gp56 =  am_zf*siomep; gp57 = am_zf*siomep - am_u*coep
+    gp61 =  am_rr*cobe - am_d*cobeth;  gp62 = -am_d*cobeth
+    gp66 = -am_zf*coomep; gp67 = -am_zf*coomep - am_u*siep
+
+    a1, a2, a3, a4, a5, a6, a7 = y[15], y[16], y[17], y[18], y[19], y[20], y[21]
+    lam1, lam2, lam3, lam4, lam5, lam6 = y[22], y[23], y[24], y[25], y[26], y[27]
+
+    res = Vector{Float64}(undef, 13)
+    # Rows 1–7: 0 = -f + M*a + G^T*λ
+    res[1] = -f1 + mm11*a1 + mm21*a2 + gp11*lam1 + gp21*lam2 + gp31*lam3 + gp41*lam4 + gp51*lam5 + gp61*lam6
+    res[2] = -f2 + mm21*a1 + mm22*a2 + gp12*lam1 + gp22*lam2 + gp32*lam3 + gp42*lam4 + gp52*lam5 + gp62*lam6
+    res[3] = -f3 + mm33*a3 + gp13*lam1 + gp23*lam2
+    res[4] = -f4 + mm44*a4 + mm54*a5 + gp34*lam3 + gp44*lam4
+    res[5] = -f5 + mm54*a4 + mm55*a5 + gp35*lam3 + gp45*lam4
+    res[6] = -f6 + mm66*a6 + mm76*a7 + gp56*lam5 + gp66*lam6
+    res[7] = -f7 + mm76*a6 + mm77*a7 + gp57*lam5 + gp67*lam6
+    # Rows 8–13: 0 = g(q)
+    res[8]  = am_rr*cobe - am_d*cobeth - am_ss*siga - am_xb
+    res[9]  = am_rr*sibe - am_d*sibeth + am_ss*coga - am_yb
+    res[10] = am_rr*cobe - am_d*cobeth - am_e*siphde - am_zt*cde - am_xa
+    res[11] = am_rr*sibe - am_d*sibeth + am_e*cophde - am_zt*side - am_ya
+    res[12] = am_rr*cobe - am_d*cobeth - am_zf*coomep - am_u*siep - am_xa
+    res[13] = am_rr*sibe - am_d*sibeth - am_zf*siomep + am_u*coep - am_ya
+    return res
+end
+
+res0 = rhs_andrews(0.0, y0)
+println("Residual at t=0: max|res| = ", maximum(abs, res0))
+```
+
+### Full 27-Variable RHS (In-Place)
+
+The complete right-hand side $\phi(y)$ for the mass-matrix ODE form $K \cdot dy/dt = \phi(y)$:
+
+```julia
+function andrews_rhs_full!(du, u, p, t)
+    sibe = sin(u[1]); cobe = cos(u[1]); sith = sin(u[2]); cth  = cos(u[2])
+    siga = sin(u[3]); coga = cos(u[3]); siph = sin(u[4]); coph = cos(u[4])
+    side = sin(u[5]); cde  = cos(u[5]); siom = sin(u[6]); coom = cos(u[6])
+    siep = sin(u[7]); coep = cos(u[7])
+    sibeth = sin(u[1]+u[2]); cobeth = cos(u[1]+u[2])
+    siphde = sin(u[4]+u[5]); cophde = cos(u[4]+u[5])
+    siomep = sin(u[6]+u[7]); coomep = cos(u[6]+u[7])
+    bep = u[8]; thp = u[9]; php = u[11]; dep = u[12]; omp = u[13]; epp = u[14]
+
+    # 7×7 configuration-dependent mass matrix
+    M = zeros(7,7)
+    M[1,1] = am_m1*am_ra^2 + am_m2*(am_rr^2 - 2*am_da*am_rr*cth + am_da^2) + am_i1 + am_i2
+    M[2,1] = am_m2*(am_da^2 - am_da*am_rr*cth) + am_i2; M[2,2] = am_m2*am_da^2 + am_i2
+    M[3,3] = am_m3*(am_sa^2+am_sb^2) + am_i3; M[4,4] = am_m4*(am_e-am_ea)^2 + am_i4
+    M[5,4] = am_m4*((am_e-am_ea)^2 + am_zt*(am_e-am_ea)*siph) + am_i4
+    M[5,5] = am_m4*(am_zt^2 + 2*am_zt*(am_e-am_ea)*siph + (am_e-am_ea)^2) +
+             am_m5*(am_ta^2+am_tb^2) + am_i4 + am_i5
+    M[6,6] = am_m6*(am_zf-am_fa)^2 + am_i6
+    M[7,6] = am_m6*((am_zf-am_fa)^2 - am_u*(am_zf-am_fa)*siom) + am_i6
+    M[7,7] = am_m6*((am_zf-am_fa)^2 - 2*am_u*(am_zf-am_fa)*siom + am_u^2) +
+             am_m7*(am_ua^2+am_ub^2) + am_i6 + am_i7
+    for j in 2:7, i in 1:j-1; M[i,j] = M[j,i]; end
+
+    # Spring force
+    xd = am_sd*coga+am_sc*siga+am_xb; yd = am_sd*siga-am_sc*coga+am_yb
+    lang = sqrt((xd-am_xc)^2+(yd-am_yc)^2); force = -am_c0*(lang-am_l0)/lang
+    fx = force*(xd-am_xc); fy = force*(yd-am_yc)
+
+    # Force vector
+    f = zeros(7)
+    f[1] = am_mom - am_m2*am_da*am_rr*thp*(thp+2*bep)*sith
+    f[2] = am_m2*am_da*am_rr*bep^2*sith
+    f[3] = fx*(am_sc*coga-am_sd*siga) + fy*(am_sd*coga+am_sc*siga)
+    f[4] = am_m4*am_zt*(am_e-am_ea)*dep^2*coph
+    f[5] = -am_m4*am_zt*(am_e-am_ea)*php*(php+2*dep)*coph
+    f[6] = -am_m6*am_u*(am_zf-am_fa)*epp^2*coom
+    f[7] = am_m6*am_u*(am_zf-am_fa)*omp*(omp+2*epp)*coom
+
+    # Constraint Jacobian G(q): 6×7
+    G = zeros(6,7)
+    G[1,1] = -am_rr*sibe+am_d*sibeth; G[1,2] = am_d*sibeth; G[1,3] = -am_ss*coga
+    G[2,1] = am_rr*cobe-am_d*cobeth; G[2,2] = -am_d*cobeth; G[2,3] = -am_ss*siga
+    G[3,1] = -am_rr*sibe+am_d*sibeth; G[3,2] = am_d*sibeth
+    G[3,4] = -am_e*cophde; G[3,5] = -am_e*cophde+am_zt*side
+    G[4,1] = am_rr*cobe-am_d*cobeth; G[4,2] = -am_d*cobeth
+    G[4,4] = -am_e*siphde; G[4,5] = -am_e*siphde-am_zt*cde
+    G[5,1] = -am_rr*sibe+am_d*sibeth; G[5,2] = am_d*sibeth
+    G[5,6] = am_zf*siomep; G[5,7] = am_zf*siomep-am_u*coep
+    G[6,1] = am_rr*cobe-am_d*cobeth; G[6,2] = -am_d*cobeth
+    G[6,6] = -am_zf*coomep; G[6,7] = -am_zf*coomep-am_u*siep
+
+    # Constraints g(q)
+    gg = zeros(6)
+    gg[1] = am_rr*cobe-am_d*cobeth-am_ss*siga-am_xb
+    gg[2] = am_rr*sibe-am_d*sibeth+am_ss*coga-am_yb
+    gg[3] = am_rr*cobe-am_d*cobeth-am_e*siphde-am_zt*cde-am_xa
+    gg[4] = am_rr*sibe-am_d*sibeth+am_e*cophde-am_zt*side-am_ya
+    gg[5] = am_rr*cobe-am_d*cobeth-am_zf*coomep-am_u*siep-am_xa
+    gg[6] = am_rr*sibe-am_d*sibeth-am_zf*siomep+am_u*coep-am_ya
+
+    # Assemble: rows 1-14 are dq/dt = v, dv/dt = a
+    for i in 1:14; du[i] = u[i+7]; end
+    # Rows 15-21: 0 = -f + M*a + G^T*λ
+    for i in 1:7
+        du[14+i] = -f[i]
+        for j in 1:7; du[14+i] += M[i,j]*u[14+j]; end
+        for j in 1:6; du[14+i] += G[j,i]*u[21+j]; end
+    end
+    # Rows 22-27: 0 = g(q)
+    for i in 1:6; du[21+i] = gg[i]; end
+    nothing
+end
+```
+
+## Problem Collection
+
+### Mass-Matrix ODE Formulation
+
+The 27-variable first-order form $K \cdot dy/dt = \phi(y)$ where
+$K = \text{diag}(I_{14}, 0_{13})$:
+
+```julia
+K_mat = Matrix(Diagonal(vcat(ones(14), zeros(13))))
+mmf = ODEFunction(andrews_rhs_full!, mass_matrix = K_mat)
+tspan = (0.0, 0.03)
+prob_mm = ODEProblem(mmf, y0, tspan)
+```
+
+### DAE Residual Formulation
+
+The same system as $F(\dot{y}, y, t) = K \cdot \dot{y} - \phi(y) = 0$:
+
+```julia
+function andrews_dae!(res, du, u, p, t)
+    f = similar(u)
+    andrews_rhs_full!(f, u, p, t)
+    res .= K_mat * du - f
+    nothing
+end
+
+du0 = zeros(27)
+du0[1:7]  .= y0[8:14]    # d(positions)/dt = velocities (all zero)
+du0[8:14] .= y0[15:21]   # d(velocities)/dt = accelerations
+differential_vars = [trues(14); falses(13)]
+prob_dae = DAEProblem(andrews_dae!, du0, y0, tspan,
+                      differential_vars = differential_vars)
+
+# Verify DAE consistency at initial conditions
+f_check = similar(y0)
+andrews_rhs_full!(f_check, y0, nothing, 0.0)
+println("DAE residual norm at IC: ", norm(K_mat * du0 - f_check))
+```
+
+### MTK Index-Reduced Formulation
+
+ModelingToolkit can automatically reduce the DAE index via `structural_simplify`.
+We define the full system symbolically — 7 kinematic equations (positions track
+velocities), 7 dynamics equations (with configuration-dependent mass matrix),
+and 6 position-level holonomic constraints — for a total of 20 equations with
+20 unknowns (7 positions, 7 velocities, 6 multipliers).
+
+```julia
+@variables begin
+    p1(t) = y0[1]     # β
+    p2(t) = y0[2]     # Θ
+    p3(t) = y0[3]     # γ
+    p4(t) = y0[4]     # Φ
+    p5(t) = y0[5]     # δ
+    p6(t) = y0[6]     # Ω
+    p7(t) = y0[7]     # ε
+    w1(t) = 0.0       # dβ/dt
+    w2(t) = 0.0       # dΘ/dt
+    w3(t) = 0.0       # dγ/dt
+    w4(t) = 0.0       # dΦ/dt
+    w5(t) = 0.0       # dδ/dt
+    w6(t) = 0.0       # dΩ/dt
+    w7(t) = 0.0       # dε/dt
+    lm1(t) = y0[22]
+    lm2(t) = y0[23]
+    lm3(t) = 0.0
+    lm4(t) = 0.0
+    lm5(t) = 0.0
+    lm6(t) = 0.0
+end
+
+# Symbolic compound angles
+s12 = sin(p1 + p2);  c12 = cos(p1 + p2)
+s45 = sin(p4 + p5);  c45 = cos(p4 + p5)
+s67 = sin(p6 + p7);  c67 = cos(p6 + p7)
+
+# 7×7 mass matrix M(q) entries (symmetric, block-sparse)
+mm11_s = am_m1*am_ra^2 + am_m2*(am_rr^2 - 2*am_da*am_rr*cos(p2) + am_da^2) + am_i1 + am_i2
+mm21_s = am_m2*(am_da^2 - am_da*am_rr*cos(p2)) + am_i2
+mm22_s = am_m2*am_da^2 + am_i2
+mm33_s = am_m3*(am_sa^2 + am_sb^2) + am_i3
+mm44_s = am_m4*(am_e - am_ea)^2 + am_i4
+mm54_s = am_m4*((am_e - am_ea)^2 + am_zt*(am_e - am_ea)*sin(p4)) + am_i4
+mm55_s = am_m4*(am_zt^2 + 2*am_zt*(am_e - am_ea)*sin(p4) + (am_e - am_ea)^2) +
+         am_m5*(am_ta^2 + am_tb^2) + am_i4 + am_i5
+mm66_s = am_m6*(am_zf - am_fa)^2 + am_i6
+mm76_s = am_m6*((am_zf - am_fa)^2 - am_u*(am_zf - am_fa)*sin(p6)) + am_i6
+mm77_s = am_m6*((am_zf - am_fa)^2 - 2*am_u*(am_zf - am_fa)*sin(p6) + am_u^2) +
+         am_m7*(am_ua^2 + am_ub^2) + am_i6 + am_i7
+
+# M(q) × D(v) — configuration-dependent mass matrix × acceleration vector
+Mdv = [
+    mm11_s*D(w1) + mm21_s*D(w2),
+    mm21_s*D(w1) + mm22_s*D(w2),
+    mm33_s*D(w3),
+    mm44_s*D(w4) + mm54_s*D(w5),
+    mm54_s*D(w4) + mm55_s*D(w5),
+    mm66_s*D(w6) + mm76_s*D(w7),
+    mm76_s*D(w6) + mm77_s*D(w7),
+]
+
+# Spring force (depends only on γ = p3)
+xd_s = am_sd*cos(p3) + am_sc*sin(p3) + am_xb
+yd_s = am_sd*sin(p3) - am_sc*cos(p3) + am_yb
+lang_s = sqrt((xd_s - am_xc)^2 + (yd_s - am_yc)^2)
+force_s = -am_c0 * (lang_s - am_l0) / lang_s
+fx_s = force_s * (xd_s - am_xc)
+fy_s = force_s * (yd_s - am_yc)
+
+# Force vector f(q, dq/dt)
+F_s = [
+    am_mom - am_m2*am_da*am_rr*w2*(w2 + 2*w1)*sin(p2),
+    am_m2*am_da*am_rr*w1^2*sin(p2),
+    fx_s*(am_sc*cos(p3) - am_sd*sin(p3)) + fy_s*(am_sd*cos(p3) + am_sc*sin(p3)),
+    am_m4*am_zt*(am_e - am_ea)*w5^2*cos(p4),
+    -am_m4*am_zt*(am_e - am_ea)*w4*(w4 + 2*w5)*cos(p4),
+    -am_m6*am_u*(am_zf - am_fa)*w7^2*cos(p6),
+    am_m6*am_u*(am_zf - am_fa)*w6*(w6 + 2*w7)*cos(p6),
+]
+
+# Constraint Jacobian G(q): 6×7 — nonzero entries only
+gp11_s = -am_rr*sin(p1) + am_d*s12;  gp12_s =  am_d*s12;  gp13_s = -am_ss*cos(p3)
+gp21_s =  am_rr*cos(p1) - am_d*c12;  gp22_s = -am_d*c12;  gp23_s = -am_ss*sin(p3)
+gp31_s = -am_rr*sin(p1) + am_d*s12;  gp32_s =  am_d*s12
+gp34_s = -am_e*c45;  gp35_s = -am_e*c45 + am_zt*sin(p5)
+gp41_s =  am_rr*cos(p1) - am_d*c12;  gp42_s = -am_d*c12
+gp44_s = -am_e*s45;  gp45_s = -am_e*s45 - am_zt*cos(p5)
+gp51_s = -am_rr*sin(p1) + am_d*s12;  gp52_s =  am_d*s12
+gp56_s =  am_zf*s67;  gp57_s = am_zf*s67 - am_u*cos(p7)
+gp61_s =  am_rr*cos(p1) - am_d*c12;  gp62_s = -am_d*c12
+gp66_s = -am_zf*c67;  gp67_s = -am_zf*c67 - am_u*sin(p7)
+
+# G^T × λ for each DOF
+GTlam = [
+    gp11_s*lm1 + gp21_s*lm2 + gp31_s*lm3 + gp41_s*lm4 + gp51_s*lm5 + gp61_s*lm6,
+    gp12_s*lm1 + gp22_s*lm2 + gp32_s*lm3 + gp42_s*lm4 + gp52_s*lm5 + gp62_s*lm6,
+    gp13_s*lm1 + gp23_s*lm2,
+    gp34_s*lm3 + gp44_s*lm4,
+    gp35_s*lm3 + gp45_s*lm4,
+    gp56_s*lm5 + gp66_s*lm6,
+    gp57_s*lm5 + gp67_s*lm6,
+]
+
+# 6 position constraints g(q) = 0
+g_cons = [
+    am_rr*cos(p1) - am_d*c12 - am_ss*sin(p3) - am_xb,
+    am_rr*sin(p1) - am_d*s12 + am_ss*cos(p3) - am_yb,
+    am_rr*cos(p1) - am_d*c12 - am_e*s45 - am_zt*cos(p5) - am_xa,
+    am_rr*sin(p1) - am_d*s12 + am_e*c45 - am_zt*sin(p5) - am_ya,
+    am_rr*cos(p1) - am_d*c12 - am_zf*c67 - am_u*sin(p7) - am_xa,
+    am_rr*sin(p1) - am_d*s12 - am_zf*s67 + am_u*cos(p7) - am_ya,
+]
+
+# Assemble 20 equations: 7 kinematic + 7 dynamics + 6 constraints
+pvec = [p1, p2, p3, p4, p5, p6, p7]
+wvec = [w1, w2, w3, w4, w5, w6, w7]
+eqs = vcat(
+    [D(pvec[i]) ~ wvec[i] for i in 1:7],
+    [Mdv[i] ~ F_s[i] - GTlam[i] for i in 1:7],
+    [0 ~ g_cons[i] for i in 1:6],
+)
+
+@mtkbuild sys = ODESystem(eqs, t)
+prob_mtk = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
+        "(from 20 original)")
+```
+
+## Reference Solution
+
+The only reliable solver for this index-3 DAE is the Fortran RADAU5 code
+with M1/M2 block structure and DAE index dimensions (DIMOFIND). We use this
+to compute a high-accuracy reference solution and trajectory.
+
+**Key solver parameters:**
+- `M1 = 14, M2 = 7`: The first 14 equations are $y_i' = y_{i+7}$
+- `MASSMATRIX`: 13×13 zero matrix (all remaining equations are algebraic)
+- `DIMOFIND1VAR = 14, DIMOFIND2VAR = 7, DIMOFIND3VAR = 6`: DAE index dimensions
+
+```julia
+M_lower = OI.BandedMatrix(13, 13, 0, 0, 0.0)   # 13×13 zero mass matrix
+
+function make_radau5_opts(tol; maxsteps = 200000)
+    OI.OptionsODE(
+        OI.OPT_RTOL      => tol,
+        OI.OPT_ATOL      => tol,
+        OI.OPT_M1        => 14,
+        OI.OPT_M2        => 7,
+        OI.OPT_MASSMATRIX  => M_lower,
+        OI.OPT_MAXSTEPS    => maxsteps,
+        OI.OPT_INITIALSS   => 1e-6,
+        OI.OPT_DIMOFIND1VAR => 14,
+        OI.OPT_DIMOFIND2VAR => 7,
+        OI.OPT_DIMOFIND3VAR => 6,
+    )
+end
+
+t_ref, x_ref, rc_ref, stats_ref = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
+    make_radau5_opts(1e-7))
+
+println("Reference solution: retcode = $rc_ref (1 = success)")
+println("Steps: $(stats_ref["no_steps"]) (accepted: $(stats_ref["no_steps_accepted"]))")
+println("RHS evaluations: $(stats_ref["no_rhs_calls"])")
+println("Jacobian evaluations: $(stats_ref["no_jac_calls"])")
+println("LU decompositions: $(stats_ref["no_lu_decomp"])")
+```
+
+Collect solution trajectory at each accepted step:
+
+```julia
+traj_t = Float64[0.0]
+traj_y = [copy(y0)]
+
+function output_fcn(reason, told, t, x, eval_sol_fcn, extra_data)
+    if reason == OI.OUTPUTFCN_CALL_STEP
+        push!(traj_t, t)
+        push!(traj_y, copy(x))
+    end
+    return OI.OUTPUTFCN_RET_CONTINUE
+end
+
+opts_traj = OI.OptionsODE(
+    OI.OPT_RTOL         => 1e-7,
+    OI.OPT_ATOL         => 1e-7,
+    OI.OPT_M1           => 14,
+    OI.OPT_M2           => 7,
+    OI.OPT_MASSMATRIX   => M_lower,
+    OI.OPT_MAXSTEPS     => 200000,
+    OI.OPT_INITIALSS    => 1e-6,
+    OI.OPT_DIMOFIND1VAR => 14,
+    OI.OPT_DIMOFIND2VAR => 7,
+    OI.OPT_DIMOFIND3VAR => 6,
+    OI.OPT_OUTPUTFCN    => output_fcn,
+    OI.OPT_OUTPUTMODE   => OI.OUTPUTFCN_WODENSE,
+)
+
+OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), opts_traj)
+println("Trajectory: $(length(traj_t)) points from t=$(traj_t[1]) to t=$(traj_t[end])")
+```
+
+## Solution Plots
+
+```julia
+tt = traj_t
+q_mat  = hcat([y[1:7]   for y in traj_y]...)'   # positions
+v_mat  = hcat([y[8:14]  for y in traj_y]...)'   # velocities
+lam_mat = hcat([y[22:27] for y in traj_y]...)'   # multipliers
+```
+
+```julia
+plot(tt, q_mat,
+    title = "Andrews' Mechanism: Position Angles",
+    xlabel = "t", ylabel = "angle (rad)",
+    label = ["q₁ (β)" "q₂ (Θ)" "q₃ (γ)" "q₄ (Φ)" "q₅ (δ)" "q₆ (Ω)" "q₇ (ε)"],
+    layout = (4, 2), size = (800, 800), lw = 1.5)
+```
+
+```julia
+plot(tt, v_mat,
+    title = "Andrews' Mechanism: Velocities",
+    xlabel = "t", ylabel = "angular velocity",
+    label = ["v₁" "v₂" "v₃" "v₄" "v₅" "v₆" "v₇"],
+    layout = (4, 2), size = (800, 800), lw = 1.5)
+```
+
+```julia
+plot(tt, lam_mat,
+    title = "Andrews' Mechanism: Lagrange Multipliers",
+    xlabel = "t", ylabel = "λ",
+    label = ["λ₁" "λ₂" "λ₃" "λ₄" "λ₅" "λ₆"],
+    layout = (3, 2), size = (800, 600), lw = 1.5)
+```
+
+## Verification against PSIDE Reference
+
+```julia
+names_ref = ["q₁(β)", "q₂(Θ)", "q₃(γ)", "q₄(Φ)", "q₅(δ)", "q₆(Ω)", "q₇(ε)"]
+println("=== Verification at t = 0.03 (positions) ===")
+println("Variable    | PSIDE Reference         | RADAU5 Solution         | Rel Error")
+println("-"^85)
+for i in 1:7
+    ref_val = y_ref[i]
+    our_val = x_ref[i]
+    relerr = abs(ref_val) > 0 ? abs((our_val - ref_val) / ref_val) : abs(our_val)
+    status = relerr < 1e-6 ? "✓" : (relerr < 1e-3 ? "~" : "✗")
+    println("$(rpad(names_ref[i], 12))| $(lpad(string(ref_val), 24)) | $(lpad(string(round(our_val, sigdigits=15)), 24)) | $(round(relerr, sigdigits=3)) $status")
+end
+```
+
+## Constraint Satisfaction
+
+The 6 position constraints $g(q) = 0$ must be satisfied throughout the
+integration. We check their violation at the final time and along the
+full trajectory:
+
+```julia
+function eval_constraints(q)
+    sibe = sin(q[1]); cobe = cos(q[1])
+    sibeth = sin(q[1] + q[2]); cobeth = cos(q[1] + q[2])
+    siga = sin(q[3]); coga = cos(q[3])
+    siphde = sin(q[4] + q[5]); cophde = cos(q[4] + q[5])
+    side = sin(q[5]); cde = cos(q[5])
+    siomep = sin(q[6] + q[7]); coomep = cos(q[6] + q[7])
+    siep = sin(q[7]); coep = cos(q[7])
+    return [
+        am_rr*cobe - am_d*cobeth - am_ss*siga - am_xb,
+        am_rr*sibe - am_d*sibeth + am_ss*coga - am_yb,
+        am_rr*cobe - am_d*cobeth - am_e*siphde - am_zt*cde - am_xa,
+        am_rr*sibe - am_d*sibeth + am_e*cophde - am_zt*side - am_ya,
+        am_rr*cobe - am_d*cobeth - am_zf*coomep - am_u*siep - am_xa,
+        am_rr*sibe - am_d*sibeth - am_zf*siomep + am_u*coep - am_ya,
+    ]
+end
+
+g_final = eval_constraints(x_ref[1:7])
+println("Position constraints at t = 0.03:")
+for i in 1:6
+    println("  g[$i] = $(g_final[i])")
+end
+println("Max |g|: $(maximum(abs, g_final))")
+```
+
+```julia
+max_g = [maximum(abs, eval_constraints(y[1:7])) for y in traj_y]
+plot(tt, max_g, yscale = :log10,
+    title = "Constraint Violation Along Trajectory",
+    xlabel = "t", ylabel = "max|g(q)|",
+    lw = 2, legend = false, ylims = (1e-16, 1e-6))
+```
+
+## Solver Performance on Each Formulation
+
+Andrews' squeezing mechanism is an index-3 DAE, significantly harder than
+the index-1 or index-2 systems encountered in most SciMLBenchmarks. We test
+each formulation with standard solvers to demonstrate this challenge.
+
+### Mass-Matrix ODE Form
+
+The singular mass matrix $K = \text{diag}(I_{14}, 0_{13})$ creates difficulties
+for standard implicit methods. The `radau()`/`radau5()` DiffEq wrappers cannot
+pass the M1/M2 block structure or DIMOFIND index dimensions to the underlying
+Fortran solver. Rosenbrock-W methods fail due to singular Jacobian (LAPACK
+`U(22,22) = 0` error).
+
+```julia
+println("=== Mass-Matrix ODE Form ===")
+for (name, alg) in [("Rodas5P(autodiff=false)", Rodas5P(autodiff = false)),
+                     ("FBDF(autodiff=false)",    FBDF(autodiff = false)),
+                     ("radau()",                 radau()),
+                     ("radau5()",                radau5())]
+    print("  $name: ")
+    try
+        sol = solve(prob_mm, alg, reltol = 1e-6, abstol = 1e-6, maxiters = 100000)
+        has_nan = any(isnan, sol.u[end])
+        println("retcode = $(sol.retcode), NaN = $has_nan")
+    catch e
+        println("failed ($(typeof(e)))")
+    end
+end
+```
+
+### DAE Residual Form
+
+IDA (Sundials) is designed for index-1 DAEs and cannot handle the index-3
+structure of Andrews' mechanism:
+
+```julia
+println("\n=== DAE Residual Form ===")
+print("  IDA: ")
+try
+    sol_dae = solve(prob_dae, IDA(), reltol = 1e-6, abstol = 1e-6)
+    println("retcode = $(sol_dae.retcode), t_final = $(sol_dae.t[end])")
+catch e
+    println("failed ($(typeof(e)))")
+end
+
+print("  IDA (init_all=false): ")
+try
+    sol_dae2 = solve(prob_dae, IDA(init_all = false), reltol = 1e-6, abstol = 1e-6)
+    println("retcode = $(sol_dae2.retcode), t_final = $(sol_dae2.t[end])")
+catch e
+    println("failed ($(typeof(e)))")
+end
+```
+
+### MTK Index-Reduced Form
+
+After `structural_simplify`, the system has fewer states but the numerical
+conditioning of the reduced system may still be challenging:
+
+```julia
+println("\n=== MTK Index-Reduced Form ===")
+for (name, alg) in [("Rodas5P", Rodas5P()),
+                     ("FBDF",    FBDF()),
+                     ("Rodas4P", Rodas4P())]
+    print("  $name: ")
+    try
+        sol_mtk = solve(prob_mtk, alg, reltol = 1e-6, abstol = 1e-6, maxiters = 100000)
+        println("retcode = $(sol_mtk.retcode), t_final = $(sol_mtk.t[end])")
+    catch e
+        println("failed ($(typeof(e)))")
+    end
+end
+```
+
+## Work-Precision Diagrams
+
+### Standard Solver Comparison
+
+Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where multiple
+solvers succeed and `WorkPrecisionSet` produces comparative curves, **no
+standard solver handles this index-3 DAE**:
+
+| Solver | Formulation | Result |
+|--------|-------------|--------|
+| IDA | DAE | `ConvergenceFailure` at $t = 0$ |
+| Rodas5P | Mass-Matrix | Singular Jacobian (LAPACK error) |
+| FBDF | Mass-Matrix | Singular Jacobian (LAPACK error) |
+| radau() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
+| radau5() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
+| Rodas5P/FBDF/Rodas4P | MTK | `Unstable` |
+
+A `WorkPrecisionSet` is therefore not applicable — it requires at least one
+solver to produce valid solutions. This is itself the key benchmark result.
+
+```julia
+plot(title = "Andrews' Mechanism:\nNo standard solver succeeds on this index-3 DAE",
+     xlabel = "Error (final)", ylabel = "Time (s)", legend = false,
+     framestyle = :box, size = (600, 400),
+     annotations = (0.5, 0.5, text("All solvers fail.\nSee RADAU5 M1/M2 work-precision below.",
+                                   :center, 10, :gray)))
+```
+
+### RADAU5 with M1/M2 Block Structure
+
+The only reliable approach uses the Fortran RADAU5 with the M1/M2 block
+structure and DIMOFIND index dimensions. Since this solver cannot be integrated
+into `WorkPrecisionSet` (it requires the direct ODEInterface API), we provide
+a manual work-precision analysis.
+
+The achievable tolerance range is $10^{-5}$ to $10^{-7}$, limited by severe
+order reduction for index-3 components (order 1 for Lagrange multipliers
+vs order 5 for positions).
+
+```julia
+tols = [3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7]
+errors = Float64[]
+times = Float64[]
+steps_list = Int[]
+
+for tol in tols
+    # Warm-up run
+    OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), make_radau5_opts(tol))
+
+    # Timed run (median of 3)
+    elapsed = zeros(3)
+    local rc, xs, st
+    for k in 1:3
+        elapsed[k] = @elapsed begin
+            _, xs, rc, st = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
+                make_radau5_opts(tol))
+        end
+    end
+    t_avg = median(elapsed)
+
+    if rc == 1 && !any(isnan, xs)
+        err = maximum(abs, xs[1:7] .- y_ref[1:7])
+        push!(errors, err)
+        push!(times, t_avg)
+        push!(steps_list, st["no_steps"])
+        println("tol=$tol → err=$(round(err, sigdigits=4)), ",
+                "time=$(round(t_avg*1000, sigdigits=4))ms, steps=$(st["no_steps"])")
+    else
+        println("tol=$tol → FAILED (rc=$rc, NaN=$(any(isnan, xs)))")
+    end
+end
+```
+
+```julia
+scatter(errors, times .* 1000, xscale = :log10,
+    xlabel = "Endpoint Error (max|q - q_ref|)",
+    ylabel = "Time (ms)",
+    title = "Andrews' Mechanism: Work-Precision (RADAU5 M1/M2)",
+    label = "RADAU5 (M1/M2)", markersize = 6, legend = :topleft)
+for (i, tol) in enumerate(tols[1:length(errors)])
+    annotate!(errors[i], times[i]*1000, text("tol=$(tol)", :left, 7))
+end
+plot!()
+```
+
+## Convergence Table
+
+```julia
+println("=" ^ 70)
+println("Tolerance   | Steps | Endpoint Error | Order (vs prev)")
+println("-" ^ 70)
+for i in eachindex(errors)
+    order = i > 1 ? log(errors[i-1]/errors[i]) / log(tols[i-1]/tols[i]) : "-"
+    println("$(rpad(string(tols[i]), 12))| $(lpad(string(steps_list[i]), 5)) | ",
+            "$(lpad(string(round(errors[i], sigdigits=4)), 14)) | $order")
+end
+println("=" ^ 70)
+```
+
+## Conclusion
+
+Andrews' squeezing mechanism is one of the most challenging standard DAE
+benchmarks. Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where
+multiple formulations and solvers can be compared via `WorkPrecisionSet`,
+this index-3 problem reveals fundamental solver limitations:
+
+- **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock-W, BDF) fail due
+  to singular Jacobian from the zero mass-matrix block. The `radau()`/`radau5()`
+  DiffEq wrappers cannot pass M1/M2/DIMOFIND to the underlying Fortran solver.
+- **DAE residual:** IDA (Sundials) cannot handle index-3 DAEs (designed for
+  index-1 only).
+- **MTK index-reduced:** `structural_simplify` produces a numerically challenging
+  system that standard solvers struggle with.
+- **RADAU5 with M1/M2:** The only reliable approach. The M1/M2 block structure
+  and DIMOFIND index dimensions are essential — without them, even RADAU5 fails.
+
+The achievable tolerance range is $10^{-5}$ to $10^{-7}$, limited by the
+severe order reduction inherent in applying RADAU5 to index-3 DAEs
+(order 1 for Lagrange multipliers).
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
