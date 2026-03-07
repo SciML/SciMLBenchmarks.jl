@@ -1,0 +1,506 @@
+---
+title: Car Axis DAE Benchmark
+author: Harsh Rahulkumar Singh
+---
+
+# The Car Axis Problem
+
+The **Car Axis Problem** is a stiff Differential-Algebraic Equation (DAE) of index 3, consisting of 8 differential and 2 algebraic equations. It models a rather simple multibody system: a car axis on a bumpy road.
+
+## Mathematical Description
+
+The problem is of the form:
+$$
+\begin{aligned}
+p' &= q \\
+K q' &= f(t, p, \lambda) \\
+0 &= \phi(t, p)
+\end{aligned}
+$$
+where $p, q \in \mathbb{R}^4$, $\lambda \in \mathbb{R}^2$, and $0 \le t \le 3$.
+The matrix $K = \frac{\epsilon^2 M}{2} I_4$.
+
+The function $f(t, p, \lambda)$ is given by:
+$$
+f(t, p, \lambda) = \begin{pmatrix}
+\frac{L_0 - L_l}{L_l} x_l + \lambda_1 x_b + 2\lambda_2(x_l - x_r) \\
+\frac{L_0 - L_l}{L_l} y_l + \lambda_1 y_b + 2\lambda_2(y_l - y_r) - \frac{\epsilon^2 M}{2} g \\
+\frac{L_0 - L_r}{L_r} (x_r - x_b) - 2\lambda_2(x_l - x_r) \\
+\frac{L_0 - L_r}{L_r} (y_r - y_b) - 2\lambda_2(y_l - y_r) - \frac{\epsilon^2 M}{2} g
+\end{pmatrix}
+$$
+where $p = (x_l, y_l, x_r, y_r)^T$.
+
+The lengths $L_l$ and $L_r$ are:
+$$
+L_l = \sqrt{x_l^2 + y_l^2}, \quad L_r = \sqrt{(x_r - x_b)^2 + (y_r - y_b)^2}
+$$
+
+The road profile is defined by:
+$$
+x_b(t) = \sqrt{L^2 - y_b^2(t)}, \quad y_b(t) = r \sin(\omega t)
+$$
+
+The constraint function $\phi(t, p)$ is:
+$$
+\phi(t, p) = \begin{pmatrix}
+x_l x_b + y_l y_b \\
+(x_l - x_r)^2 + (y_l - y_r)^2 - L^2
+\end{pmatrix}
+$$
+
+### Parameters
+* $L = 1$
+* $L_0 = 0.5$
+* $\epsilon = 10^{-2}$
+* $M = 10$
+* $r = 0.1$ (denoted as $h$ in some sources)
+* $\omega = 10$
+* $g = 1$
+* $k = \frac{M \epsilon^2}{2} = 5 \times 10^{-4}$
+
+### Initial Conditions
+Consistent initial values at $t=0$:
+$$
+p_0 = (0, 0.5, 1, 0.5)^T, \quad q_0 = (-0.5, 0, -0.5, 0)^T, \quad \lambda_0 = (0, 0)^T
+$$
+
+```julia
+using OrdinaryDiffEq, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
+      Plots, DASSL, DASKR
+using LinearAlgebra, Printf
+using ModelingToolkit: t_nounits as t, D_nounits as D
+
+const OI = ODEInterfaceDiffEq.ODEInterface
+
+# Constants
+const M_ca    = 10.0
+const eps_ca  = 1e-2
+const L_ca    = 1.0
+const L0_ca   = 0.5
+const r_ca    = 0.1
+const omega_ca = 10.0
+const g_ca    = 1.0
+const k_ca    = M_ca * eps_ca^2 / 2.0
+
+# Shared initial conditions for all 10-variable formulations
+u0_mm  = [0.0,0.5,1.0,0.5, -0.5,0.0,-0.5,0.0, 0.0,0.0]
+```
+
+---
+
+## 1 · ModelingToolkit Symbolic Form (Primary)
+
+`@mtkbuild` calls `structural_simplify` (Pantelides) to reduce index 3 → 0/1.
+The algorithm introduces a dummy second-derivative variable (`ylˍtt`) and reduces
+the system from 10 unknowns to **8**.  The initialization system is overdetermined
+(6 equations, 0 unknowns); `ylˍtt(0)` is left as `NaN` and must be patched
+analytically via `fix_nanics` (at $t=0$: $D(dyl)(0)=-g$ from the force equation).
+
+```julia
+@variables xl(t)=0.0    yl(t)=0.5   xr(t)=1.0    yr(t)=0.5
+@variables dxl(t)=-0.5  dyl(t)=0.0  dxr(t)=-0.5  dyr(t)=0.0
+@variables lam1(t)=0.0  lam2(t)=0.0
+
+yb_s = r_ca * sin(omega_ca * t)
+xb_s = sqrt(L_ca^2 - yb_s^2)
+Ll_s = sqrt(xl^2 + yl^2)
+Lr_s = sqrt((xr - xb_s)^2 + (yr - yb_s)^2)
+
+eqs = [
+    D(xl)  ~ dxl,
+    D(yl)  ~ dyl,
+    D(xr)  ~ dxr,
+    D(yr)  ~ dyr,
+    k_ca * D(dxl) ~ (L0_ca - Ll_s)*xl/Ll_s + lam1*xb_s + 2.0*lam2*(xl - xr),
+    k_ca * D(dyl) ~ (L0_ca - Ll_s)*yl/Ll_s + lam1*yb_s + 2.0*lam2*(yl - yr) - k_ca*g_ca,
+    k_ca * D(dxr) ~ (L0_ca - Lr_s)*(xr - xb_s)/Lr_s    - 2.0*lam2*(xl - xr),
+    k_ca * D(dyr) ~ (L0_ca - Lr_s)*(yr - yb_s)/Lr_s    - 2.0*lam2*(yl - yr) - k_ca*g_ca,
+    0 ~ xb_s*xl + yb_s*yl,
+    0 ~ (xl - xr)^2 + (yl - yr)^2 - L_ca^2,
+]
+
+@mtkbuild sys = ODESystem(eqs, t)
+tspan = (0.0, 3.0)
+
+mtkprob  = ODEProblem(sys, [], tspan)                             # prob_choice = 1
+
+# MTK Pantelides introduces a dummy second-derivative variable (ylˍtt) whose
+# IC is not auto-computed and left as NaN.  At t=0 all λ=0, so
+# D(dyl)(0) = −g_ca from the force equation → patch it analytically.
+function fix_nanics(prob)
+    u0f = [isnan(v) ? -g_ca : v for v in prob.u0]
+    remake(prob; u0 = u0f)
+end
+mtkprob  = fix_nanics(mtkprob)
+```
+
+---
+
+## 2 · Residual DAE Form
+
+The implicit residual form $F(\dot{u}, u, t) = 0$ is the classic interface
+used by IDA, DASSL, and DASKR.  This formulation preserves the full index-3
+structure without any mass-matrix factoring.
+
+```julia
+function caraxis_residual!(res, du, u, p, t)
+    xl_,yl_,xr_,yr_     = u[1],u[2],u[3],u[4]
+    dxl_,dyl_,dxr_,dyr_ = u[5],u[6],u[7],u[8]
+    lam1_,lam2_          = u[9],u[10]
+    yb_ = r_ca*sin(omega_ca*t);  xb_ = sqrt(L_ca^2 - yb_^2)
+    Ll_ = sqrt(xl_^2 + yl_^2)
+    Lr_ = sqrt((xr_-xb_)^2 + (yr_-yb_)^2)
+    # Kinematics
+    res[1] = du[1] - dxl_
+    res[2] = du[2] - dyl_
+    res[3] = du[3] - dxr_
+    res[4] = du[4] - dyr_
+    # Dynamics
+    res[5] = k_ca*du[5] - ((L0_ca-Ll_)*xl_/Ll_ + lam1_*xb_ + 2.0*lam2_*(xl_-xr_))
+    res[6] = k_ca*du[6] - ((L0_ca-Ll_)*yl_/Ll_ + lam1_*yb_ + 2.0*lam2_*(yl_-yr_) - k_ca*g_ca)
+    res[7] = k_ca*du[7] - ((L0_ca-Lr_)*(xr_-xb_)/Lr_ - 2.0*lam2_*(xl_-xr_))
+    res[8] = k_ca*du[8] - ((L0_ca-Lr_)*(yr_-yb_)/Lr_ - 2.0*lam2_*(yl_-yr_) - k_ca*g_ca)
+    # Position-level algebraic constraints (index-3)
+    res[9]  = xb_*xl_ + yb_*yl_
+    res[10] = (xl_-xr_)^2 + (yl_-yr_)^2 - L_ca^2
+    nothing
+end
+
+du0_dae   = [-0.5, 0.0, -0.5, 0.0, 0.0, -g_ca, 0.0, -g_ca, 0.0, 0.0]
+diff_vars = [true,true,true,true,true,true,true,true,false,false]
+daeprob   = DAEProblem(caraxis_residual!, du0_dae, u0_mm, tspan;
+                       differential_vars = diff_vars)              # prob_choice = 2
+```
+
+---
+
+## 3 · Manual Mass-Matrix ODE Form (Raw Index-3)
+
+$M=\operatorname{diag}(1,1,1,1,k,k,k,k,0,0)$. Algebraic rows 9–10 hold
+**position-level constraints** with no $\lambda$ dependence ($\partial\phi/\partial\lambda=0$),
+making this a genuine index-3 DAE.
+
+```julia
+function caraxis_mm!(du, u, p, t)
+    xl_,yl_,xr_,yr_     = u[1],u[2],u[3],u[4]
+    dxl_,dyl_,dxr_,dyr_ = u[5],u[6],u[7],u[8]
+    lam1_,lam2_          = u[9],u[10]
+    yb_ = r_ca*sin(omega_ca*t);  xb_ = sqrt(L_ca^2 - yb_^2)
+    Ll_ = sqrt(xl_^2 + yl_^2)
+    Lr_ = sqrt((xr_-xb_)^2 + (yr_-yb_)^2)
+    # Kinematics (mass = 1)
+    du[1]=dxl_; du[2]=dyl_; du[3]=dxr_; du[4]=dyr_
+    # Dynamics (mass = k_ca)
+    du[5] = (L0_ca-Ll_)*xl_/Ll_ + lam1_*xb_ + 2.0*lam2_*(xl_-xr_)
+    du[6] = (L0_ca-Ll_)*yl_/Ll_ + lam1_*yb_ + 2.0*lam2_*(yl_-yr_) - k_ca*g_ca
+    du[7] = (L0_ca-Lr_)*(xr_-xb_)/Lr_         - 2.0*lam2_*(xl_-xr_)
+    du[8] = (L0_ca-Lr_)*(yr_-yb_)/Lr_         - 2.0*lam2_*(yl_-yr_) - k_ca*g_ca
+    # Position-level algebraic constraints (index-3, no λ dependence)
+    du[9]  = xb_*xl_ + yb_*yl_
+    du[10] = (xl_-xr_)^2 + (yl_-yr_)^2 - L_ca^2
+    nothing
+end
+
+M_mat  = Matrix(Diagonal([1.0,1.0,1.0,1.0, k_ca,k_ca,k_ca,k_ca, 0.0,0.0]))
+mmf    = ODEFunction(caraxis_mm!, mass_matrix=M_mat)
+mmprob = ODEProblem(mmf, u0_mm, tspan)                            # prob_choice = 3
+```
+
+---
+
+## 4 · Reference Solutions
+
+```julia
+ref_sol     = solve(mtkprob,  Rodas5P(), abstol=1e-14, reltol=1e-14, dense=true)
+dae_ref_sol = try
+    solve(daeprob, IDA(); abstol=1e-10, reltol=1e-10, maxiters=Int(5e4))
+catch e
+    @warn "IDA reference failed" exception=e
+    nothing
+end
+mm_refsol   = solve(mmprob,   radau(),   reltol=1e-12, abstol=1e-12, dense=true)
+
+println("MTK ref retcode:  ", ref_sol.retcode)
+println("DAE ref retcode:  ", dae_ref_sol === nothing ? "FAILED" : dae_ref_sol.retcode)
+println("MM ref retcode:   ", mm_refsol.retcode)
+```
+
+### Quad-precision GAMD reference and direct RADAU5
+
+The Fortran RADAU5 (Hairer & Wanner) supports index-3 DAEs in Hessenberg form
+through options `DIMOFIND1VAR`, `DIMOFIND2VAR`, `DIMOFIND3VAR`.  The Julia
+wrapper `ODEInterfaceDiffEq` does not forward these through `solve()`, so we
+call `ODEInterface.radau5` directly on a **rescaled** formulation (dynamics ÷ $k$)
+that puts the mass matrix in the standard semi-explicit form
+$M = \operatorname{diag}(I_8, 0_2)$.
+
+```julia
+# Rescaled RHS for direct RADAU5 (dynamics ÷ k → mass = I for rows 5-8)
+function caraxis_rescaled!(du, u, p, t)
+    xl_,yl_,xr_,yr_     = u[1],u[2],u[3],u[4]
+    dxl_,dyl_,dxr_,dyr_ = u[5],u[6],u[7],u[8]
+    lam1_,lam2_          = u[9],u[10]
+    yb_ = r_ca*sin(omega_ca*t);  xb_ = sqrt(L_ca^2 - yb_^2)
+    Ll_ = sqrt(xl_^2 + yl_^2)
+    Lr_ = sqrt((xr_-xb_)^2 + (yr_-yb_)^2)
+    du[1]=dxl_; du[2]=dyl_; du[3]=dxr_; du[4]=dyr_
+    du[5] = ((L0_ca-Ll_)*xl_/Ll_ + lam1_*xb_ + 2.0*lam2_*(xl_-xr_)) / k_ca
+    du[6] = ((L0_ca-Ll_)*yl_/Ll_ + lam1_*yb_ + 2.0*lam2_*(yl_-yr_) - k_ca*g_ca) / k_ca
+    du[7] = ((L0_ca-Lr_)*(xr_-xb_)/Lr_ - 2.0*lam2_*(xl_-xr_)) / k_ca
+    du[8] = ((L0_ca-Lr_)*(yr_-yb_)/Lr_ - 2.0*lam2_*(yl_-yr_) - k_ca*g_ca) / k_ca
+    du[9]  = xb_*xl_ + yb_*yl_
+    du[10] = (xl_-xr_)^2 + (yl_-yr_)^2 - L_ca^2
+    nothing
+end
+
+M_rsc = Matrix(Diagonal([1.0,1.0,1.0,1.0, 1.0,1.0,1.0,1.0, 0.0,0.0]))
+
+function oi_rhs!(t, x, dx)
+    caraxis_rescaled!(dx, x, nothing, t)
+end
+
+function solve_radau5(rtol, atol; collect_trajectory=false)
+    times = Float64[]
+    states = Vector{Float64}[]
+    function output_fcn(reason, told, t, x, eval_sol, extra)
+        if reason == OI.OUTPUTFCN_CALL_STEP
+            push!(times, t)
+            push!(states, copy(x))
+        end
+        return OI.OUTPUTFCN_RET_CONTINUE
+    end
+    opts_pairs = [
+        OI.OPT_RTOL => rtol, OI.OPT_ATOL => atol,
+        OI.OPT_MASSMATRIX   => M_rsc,
+        OI.OPT_MAXSS        => 200_000,
+        OI.OPT_RHS_CALLMODE => OI.RHS_CALL_INSITU,
+        OI.OPT_DIMOFIND1VAR => 4,
+        OI.OPT_DIMOFIND2VAR => 4,
+        OI.OPT_DIMOFIND3VAR => 2,
+    ]
+    if collect_trajectory
+        push!(opts_pairs, OI.OPT_OUTPUTFCN  => output_fcn)
+        push!(opts_pairs, OI.OPT_OUTPUTMODE => OI.OUTPUTFCN_DENSE)
+    end
+    opts = OI.OptionsODE(opts_pairs...)
+    (t_end, x_end, retcode, stats) = OI.radau5(oi_rhs!, 0.0, 3.0, copy(u0_mm), opts)
+    return (t_end=t_end, x_end=x_end, retcode=retcode, stats=stats,
+            times=times, states=states)
+end
+
+radau5_ref = solve_radau5(1e-12, 1e-12; collect_trajectory=true)
+
+# Quad-precision GAMD reference at t=3 (caraxis.f, IVP Test Set 2006)
+ref_final = [
+    0.493455784275402809122e-1,
+    0.496989460230171153861e0,
+    0.104174252488542151681e1,
+    0.373911027265361256927e0,
+   -0.770583684040972357970e-1,
+    0.744686658723778553466e-2,
+    0.175568157537232222276e-1,
+    0.770341043779251976443e0,
+   -0.473688659084893324729e-2,
+   -0.110468033125734368808e-2,
+]
+
+gamd_err = abs.(radau5_ref.x_end .- ref_final)
+println("Direct RADAU5 retcode: ", radau5_ref.retcode, "  (1 = success)")
+println("Steps: ", radau5_ref.stats["no_steps"],
+        "  (accepted: ", radau5_ref.stats["no_steps_accepted"], ")")
+@printf("Max error vs quad-GAMD: %.4e\n", maximum(gamd_err))
+```
+
+## Solution Trajectories
+
+The positions show clear periodic oscillations as the chassis responds to
+$y_b(t)=0.1\sin(10t)$.  Trajectories are plotted from the direct RADAU5 solution
+(the most reliable reference for this index-3 system).
+
+```julia
+t_plot = vcat(0.0, radau5_ref.times)
+x_plot = Matrix(reduce(hcat, vcat([u0_mm], radau5_ref.states))')
+
+plot(t_plot, x_plot[:, 1:4];
+     label=["xₗ" "yₗ" "xᵣ" "yᵣ"], title="Car Axis — positions",
+     xlabel="t", ylabel="position", layout=(2,2), size=(900,600))
+```
+
+```julia
+plot(t_plot, x_plot[:, 9:10];
+     label=["λ₁" "λ₂"], title="Lagrange multipliers", xlabel="t")
+```
+
+---
+
+## Work-Precision Diagrams
+
+No solver accessible through the standard `solve()` interface produces valid
+results for this index-3 DAE:
+- **MTK (Pantelides-reduced):** All Julia solvers return `InitialFailure` or `Unstable`.
+- **Mass-matrix ODE:** Julia implicit solvers return `Unstable` ($\partial\phi/\partial\lambda \equiv 0 \Rightarrow$ singular Jacobian). The `radau()` wrapper silently drops `DIMOFIND2VAR`/`DIMOFIND3VAR` index hints → NaN from step 2.
+- **Residual DAE:** IDA/DASSL/DASKR are index-1 solvers → convergence failure.
+
+The only working approach is calling `ODEInterface.radau5` **directly** with
+Hessenberg index hints `(4, 4, 2)` on the rescaled formulation ($M = \text{diag}(I_8, 0_2)$).
+The work-precision data below sweeps tolerance from $10^{-4}$ to $10^{-12}$,
+comparing each run's final state against the quad-precision GAMD reference.
+
+```julia
+tols = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12]
+errs  = Float64[]
+times_wp = Float64[]
+nsteps_wp = Int[]
+
+for tol in tols
+    t0 = time()
+    r = solve_radau5(tol, tol)
+    elapsed = time() - t0
+    push!(times_wp, elapsed)
+    if r.retcode == 1 && !any(isnan, r.x_end)
+        push!(errs, maximum(abs.(r.x_end .- ref_final)))
+        push!(nsteps_wp, r.stats["no_steps"])
+    else
+        push!(errs, NaN)
+        push!(nsteps_wp, 0)
+    end
+end
+
+println("RADAU5 Convergence (rescaled semi-explicit index-3 form):")
+println("─"^70)
+@printf("%-12s  %-14s  %-8s  %-10s\n", "Tolerance", "Max Error", "Steps", "Time (s)")
+println("─"^70)
+for i in eachindex(tols)
+    @printf("%-12.0e  %-14.6e  %-8d  %-10.4f\n", tols[i], errs[i], nsteps_wp[i], times_wp[i])
+end
+```
+
+```julia
+plot(errs, times_wp;
+     xscale=:log10, marker=:circle, legend=false,
+     xlabel="Max error at t=3 vs GAMD", ylabel="Wall time (s)",
+     title="RADAU5 Work-Precision — Error vs Time")
+```
+
+```julia
+plot(errs, nsteps_wp;
+     xscale=:log10, marker=:square, legend=false,
+     xlabel="Max error at t=3 vs GAMD", ylabel="Number of steps",
+     title="RADAU5 Work-Precision — Error vs Steps")
+```
+
+---
+
+## Index-3 Solver Limitations
+
+This section documents why most solver–formulation combinations fail on this
+problem.  The Car Axis index-3 structure ($\partial\phi/\partial\lambda \equiv 0$)
+is the root cause.
+
+### Standard Julia solvers on the raw mass-matrix form
+
+```julia
+println("Standard Julia solvers on the raw mass-matrix form:")
+for (name, alg) in [("Rodas4", Rodas4()), ("Rodas5P", Rodas5P()),
+                     ("RadauIIA5", RadauIIA5()), ("FBDF", FBDF()), ("QNDF", QNDF())]
+    sol = solve(mmprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e3))
+    println("  ", rpad(name, 12), " → ", sol.retcode)
+end
+```
+
+> All return **Unstable** because $\partial\phi/\partial\lambda \equiv 0$
+> makes the Jacobian singular.  Standard implicit solvers cannot resolve the
+> index-3 algebraic block.
+
+### Why `radau()` through `solve()` produces NaN
+
+> The `ODEInterfaceDiffEq` wrapper does not forward `DIMOFIND2VAR`/`DIMOFIND3VAR`
+> to the Fortran RADAU5 solver — these options are silently dropped by the
+> kwargs filter.  Without index hints, RADAU5 treats all 10 variables as index-1
+> and produces NaN from step 2 onward.
+
+### Standard solvers on the Pantelides-reduced system (MTK)
+
+```julia
+println("Standard Julia solvers on the MTK Pantelides-reduced system:")
+for (name, alg) in [("Rodas5P", Rodas5P()), ("RadauIIA5", RadauIIA5()),
+                     ("FBDF", FBDF()), ("QNDF", QNDF())]
+    sol = solve(mtkprob, alg; reltol=1e-8, abstol=1e-8, maxiters=Int(1e3))
+    println("  ", rpad(name, 12), " → ", sol.retcode)
+end
+```
+
+> These return **InitialFailure** or **Unstable**.  The dummy derivative `ylˍtt`
+> introduced by Pantelides takes `NaN` as its initial value; `fix_nanics` patches
+> it to $-g$, but the underlying index-3 structure still prevents convergence.
+
+### DAE solvers on the residual form
+
+```julia
+println("DAE solvers on the residual form:")
+for (name, alg) in [("IDA", IDA()), ("DASSL", DASSL.dassl()), ("DASKR", DASKR.daskr())]
+    try
+        sol = solve(daeprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e3))
+        println("  ", rpad(name, 12), " → ", sol.retcode)
+    catch e
+        println("  ", rpad(name, 12), " → threw ", nameof(typeof(e)))
+    end
+end
+```
+
+> IDA, DASSL, and DASKR are index-1 DAE solvers.  They do not perform automatic
+> index reduction, so this index-3 problem typically causes convergence failure.
+
+---
+
+## Algebraic Constraint Satisfaction
+
+We evaluate both algebraic constraints along the direct RADAU5 trajectory:
+
+```julia
+g1_err = Float64[]
+g2_err = Float64[]
+for i in eachindex(radau5_ref.times)
+    u = radau5_ref.states[i]
+    tc = radau5_ref.times[i]
+    xb = sqrt(L_ca^2 - (r_ca*sin(omega_ca*tc))^2)
+    yb = r_ca*sin(omega_ca*tc)
+    push!(g1_err, abs(xb*u[1] + yb*u[2]))
+    push!(g2_err, abs((u[1]-u[3])^2 + (u[2]-u[4])^2 - L_ca^2))
+end
+
+# Clamp to eps() to avoid log10(0) = -Inf on log-scale plots
+g1_plot = max.(g1_err, eps())
+g2_plot = max.(g2_err, eps())
+
+plot(radau5_ref.times, [g1_plot g2_plot]; yscale=:log10,
+     label=["|g₁| orthogonality" "|g₂| rigid axis"],
+     xlabel="t", ylabel="residual",
+     title="Algebraic Constraint Satisfaction (RADAU5, rtol=1e-12)")
+```
+
+---
+
+## Summary
+
+| Formulation | Solver | Status | Notes |
+|-------------|--------|--------|-------|
+| Rescaled mass-matrix + direct `ODEInterface.radau5` | RADAU5 (Fortran) | ✓ Works | Requires index hints (4,4,2) |
+| Raw mass-matrix + `solve(prob, radau())` | RADAU5 via wrapper | ✗ NaN | Wrapper drops index hints |
+| Raw mass-matrix + Julia solvers | Rodas/RadauIIA5/FBDF | ✗ Unstable | No index-3 support |
+| MTK Pantelides-reduced | All Julia solvers | ✗ InitialFailure / Unstable | Overdetermined init |
+| Residual DAE (`DAEProblem`) | IDA/DASSL/DASKR | ✗ Unstable / DomainError | Index-1 solvers, no index reduction |
+
+Currently the most robust solver for this index-3 formulation is the Fortran
+RADAU5 implementation, called directly through `ODEInterface` with the correct
+Hessenberg index dimension hints and a rescaled mass matrix.
+
+---
+
+## Conclusion
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
