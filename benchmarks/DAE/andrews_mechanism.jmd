@@ -739,54 +739,31 @@ end
 
 ## Work-Precision Diagrams
 
-### Standard Solver Comparison (WorkPrecisionSet)
+### Standard Solver Comparison
 
-We set up a `WorkPrecisionSet` for the DAE and mass-matrix formulations
-(both 27-variable). The MTK index-reduced form uses 23 states after
-`structural_simplify`, so it requires a separate reference; since no standard
-solver succeeds on it, MTK results are reported in the solver comparison above.
+Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where multiple
+solvers succeed and `WorkPrecisionSet` produces comparative curves, **no
+standard solver handles this index-3 DAE**:
 
-For this index-3 DAE, all standard solvers fail — which itself is the key
-benchmark result.
+| Solver | Formulation | Result |
+|--------|-------------|--------|
+| IDA | DAE | `ConvergenceFailure` at $t = 0$ |
+| Rodas5P | Mass-Matrix | Singular Jacobian (LAPACK error) |
+| FBDF | Mass-Matrix | Singular Jacobian (LAPACK error) |
+| radau() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
+| radau5() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
+| Rodas5P/FBDF/Rodas4P | MTK | `Unstable` |
+
+A `WorkPrecisionSet` is therefore not applicable — it requires at least one
+solver to produce valid solutions. This is itself the key benchmark result.
 
 ```julia
-# Reference from RADAU5 trajectory (27 variables, matches DAE and MM forms)
-mm_ref = DiffEqDevTools.TestSolution(traj_t, [copy(y) for y in traj_y])
-
-probs = [prob_dae, prob_mm]
-refs = [mm_ref, mm_ref]
+plot(title = "Andrews' Mechanism:\nNo standard solver succeeds on this index-3 DAE",
+     xlabel = "Error (final)", ylabel = "Time (s)", legend = false,
+     framestyle = :box, size = (600, 400),
+     annotations = (0.5, 0.5, text("All solvers fail.\nSee RADAU5 M1/M2 work-precision below.",
+                                   :center, 10, :gray)))
 ```
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (4:7)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-setups = [
-    Dict(:prob_choice => 1, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => Rodas5P(autodiff = false)),
-    Dict(:prob_choice => 2, :alg => FBDF(autodiff = false)),
-    Dict(:prob_choice => 2, :alg => radau()),
-    Dict(:prob_choice => 2, :alg => radau5()),
-]
-labels = ["IDA (DAE)" "Rodas5P (MM)" "FBDF (MM)" "radau (MM)" "radau5 (MM)"]
-
-try
-    wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-        names = labels, appxsol = refs, save_everystep = false,
-        maxiters = Int(1e6), numruns = 3)
-    plot(wp, title = "Andrews' Mechanism: DAE + Mass-Matrix Formulations")
-catch e
-    println("WorkPrecisionSet failed: $(typeof(e))")
-    println("This is expected — no standard solver handles this index-3 DAE.")
-    plot(title = "Andrews' Mechanism: No standard solver succeeded",
-         xlabel = "Error", ylabel = "Time (s)", legend = false)
-end
-```
-
-All standard solvers fail on this index-3 DAE: IDA returns `ConvergenceFailure`,
-Rosenbrock-W methods (Rodas5P, FBDF) produce singular Jacobians from the zero
-mass-matrix block, and the `radau()`/`radau5()` DiffEq wrappers cannot pass
-M1/M2/DIMOFIND to the underlying Fortran solver (producing NaN). This is the
-fundamental distinction from index-1/2 benchmarks where multiple solvers succeed.
 
 ### RADAU5 with M1/M2 Block Structure
 
