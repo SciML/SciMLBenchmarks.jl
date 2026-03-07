@@ -66,7 +66,7 @@ p_0 = (0, 0.5, 1, 0.5)^T, \quad q_0 = (-0.5, 0, -0.5, 0)^T, \quad \lambda_0 = (0
 $$
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
+using OrdinaryDiffEq, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
       Plots, DASSL, DASKR
 using LinearAlgebra, Printf
 using ModelingToolkit: t_nounits as t, D_nounits as D
@@ -312,13 +312,6 @@ println("Steps: ", radau5_ref.stats["no_steps"],
 @printf("Max error vs quad-GAMD: %.4e\n", maximum(gamd_err))
 ```
 
-## Problem Collection
-
-```julia
-probs = [mtkprob, daeprob, mmprob]
-refs  = [ref_sol, dae_ref_sol, mm_refsol]
-```
-
 ## Solution Trajectories
 
 The positions show clear periodic oscillations as the chassis responds to
@@ -343,108 +336,16 @@ plot(t_plot, x_plot[:, 9:10];
 
 ## Work-Precision Diagrams
 
-### High Tolerances
+No solver accessible through the standard `solve()` interface produces valid
+results for this index-3 DAE:
+- **MTK (Pantelides-reduced):** All Julia solvers return `InitialFailure` or `Unstable`.
+- **Mass-matrix ODE:** Julia implicit solvers return `Unstable` ($\partial\phi/\partial\lambda \equiv 0 \Rightarrow$ singular Jacobian). The `radau()` wrapper silently drops `DIMOFIND2VAR`/`DIMOFIND3VAR` index hints → NaN from step 2.
+- **Residual DAE:** IDA/DASSL/DASKR are index-1 solvers → convergence failure.
 
-Final-value error at the end of the integration interval.
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => QNDF()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
-### Timeseries Errors ($L_2$ norm over trajectory)
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => QNDF()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-
-setups = [
-    Dict(:prob_choice => 1, :alg => Rosenbrock23()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
-### Low Tolerances
-
-High-precision regime, measuring the solvers best suited for tight accuracy requirements.
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (2:5)
-
-setups = [
-    Dict(:prob_choice => 1, :alg => Rodas5()),
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => QNDF()),
-]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(2e4), numruns = 1)
-plot(wp)
-```
-
----
-
-## Supplementary: RADAU5 Direct Convergence Analysis
-
-The standard `solve()` interface currently cannot produce valid results for
-this problem because the `ODEInterfaceDiffEq` wrapper does not forward the
-Hessenberg index dimension hints required by Fortran RADAU5.  Calling
-`ODEInterface.radau5` directly with `DIMOFIND1VAR=4, DIMOFIND2VAR=4,
-DIMOFIND3VAR=2` on the rescaled formulation is currently the most robust
-approach for this index-3 DAE.
+The only working approach is calling `ODEInterface.radau5` **directly** with
+Hessenberg index hints `(4, 4, 2)` on the rescaled formulation ($M = \text{diag}(I_8, 0_2)$).
+The work-precision data below sweeps tolerance from $10^{-4}$ to $10^{-12}$,
+comparing each run's final state against the quad-precision GAMD reference.
 
 ```julia
 tols = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12]
@@ -479,7 +380,14 @@ end
 plot(errs, times_wp;
      xscale=:log10, marker=:circle, legend=false,
      xlabel="Max error at t=3 vs GAMD", ylabel="Wall time (s)",
-     title="RADAU5 Work-Precision (direct, index-3 rescaled form)")
+     title="RADAU5 Work-Precision — Error vs Time")
+```
+
+```julia
+plot(errs, nsteps_wp;
+     xscale=:log10, marker=:square, legend=false,
+     xlabel="Max error at t=3 vs GAMD", ylabel="Number of steps",
+     title="RADAU5 Work-Precision — Error vs Steps")
 ```
 
 ---
@@ -562,7 +470,11 @@ for i in eachindex(radau5_ref.times)
     push!(g2_err, abs((u[1]-u[3])^2 + (u[2]-u[4])^2 - L_ca^2))
 end
 
-plot(radau5_ref.times, [g1_err g2_err]; yscale=:log10,
+# Clamp to eps() to avoid log10(0) = -Inf on log-scale plots
+g1_plot = max.(g1_err, eps())
+g2_plot = max.(g2_err, eps())
+
+plot(radau5_ref.times, [g1_plot g2_plot]; yscale=:log10,
      label=["|g₁| orthogonality" "|g₂| rigid axis"],
      xlabel="t", ylabel="residual",
      title="Algebraic Constraint Satisfaction (RADAU5, rtol=1e-12)")
