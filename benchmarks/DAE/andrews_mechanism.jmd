@@ -739,42 +739,14 @@ end
 
 ## Work-Precision Diagrams
 
-### Standard Solver Comparison
+As demonstrated above, no standard DiffEq solver (IDA, Rodas5P, FBDF, radau,
+radau5) succeeds on this index-3 DAE in any formulation. The only working
+solver is the Fortran RADAU5 via the direct ODEInterface API with M1/M2 block
+structure and DIMOFIND index dimensions.
 
-Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where multiple
-solvers succeed and `WorkPrecisionSet` produces comparative curves, **no
-standard solver handles this index-3 DAE**:
-
-| Solver | Formulation | Result |
-|--------|-------------|--------|
-| IDA | DAE | `ConvergenceFailure` at $t = 0$ |
-| Rodas5P | Mass-Matrix | Singular Jacobian (LAPACK error) |
-| FBDF | Mass-Matrix | Singular Jacobian (LAPACK error) |
-| radau() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
-| radau5() | Mass-Matrix | NaN (cannot pass M1/M2/DIMOFIND) |
-| Rodas5P/FBDF/Rodas4P | MTK | `Unstable` |
-
-A `WorkPrecisionSet` is therefore not applicable — it requires at least one
-solver to produce valid solutions. This is itself the key benchmark result.
-
-```julia
-plot(title = "Andrews' Mechanism:\nNo standard solver succeeds on this index-3 DAE",
-     xlabel = "Error (final)", ylabel = "Time (s)", legend = false,
-     framestyle = :box, size = (600, 400),
-     annotations = (0.5, 0.5, text("All solvers fail.\nSee RADAU5 M1/M2 work-precision below.",
-                                   :center, 10, :gray)))
-```
-
-### RADAU5 with M1/M2 Block Structure
-
-The only reliable approach uses the Fortran RADAU5 with the M1/M2 block
-structure and DIMOFIND index dimensions. Since this solver cannot be integrated
-into `WorkPrecisionSet` (it requires the direct ODEInterface API), we provide
-a manual work-precision analysis.
-
-The achievable tolerance range is $10^{-5}$ to $10^{-7}$, limited by severe
-order reduction for index-3 components (order 1 for Lagrange multipliers
-vs order 5 for positions).
+We construct work-precision data by sweeping tolerances from $10^{-5}$ to
+$10^{-7}$. The achievable range is limited by severe order reduction for
+index-3 components (order 1 for Lagrange multipliers vs order 5 for positions).
 
 ```julia
 tols = [3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7]
@@ -811,15 +783,11 @@ end
 ```
 
 ```julia
-scatter(errors, times .* 1000, xscale = :log10,
-    xlabel = "Endpoint Error (max|q - q_ref|)",
-    ylabel = "Time (ms)",
+plot(errors, times .* 1000, xscale = :log10, yscale = :log10,
+    xlabel = "Error (max|q - q_ref|)", ylabel = "Time (ms)",
     title = "Andrews' Mechanism: Work-Precision (RADAU5 M1/M2)",
-    label = "RADAU5 (M1/M2)", markersize = 6, legend = :topleft)
-for (i, tol) in enumerate(tols[1:length(errors)])
-    annotate!(errors[i], times[i]*1000, text("tol=$(tol)", :left, 7))
-end
-plot!()
+    label = "RADAU5 (M1/M2)", marker = :circle, markersize = 6,
+    linewidth = 2, legend = :topright, size = (800, 500))
 ```
 
 ## Convergence Table
