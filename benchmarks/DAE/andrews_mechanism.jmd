@@ -44,7 +44,7 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, Plots
-using ODEInterfaceDiffEq, LinearAlgebra
+using ODEInterfaceDiffEq, LinearAlgebra, Statistics
 using ModelingToolkit: t_nounits as t, D_nounits as D
 OI = ODEInterfaceDiffEq.ODEInterface
 ```
@@ -502,40 +502,73 @@ println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
 
 ## Reference Solution
 
-We compute the high-accuracy reference solution using RADAU5 via the standard
-DiffEq `solve` interface. The `radau5()` wrapper now forwards M1/M2 block
-structure and DAE index dimensions directly.
+The only reliable solver for this index-3 DAE is the Fortran RADAU5 code
+with M1/M2 block structure and DAE index dimensions (DIMOFIND). We use this
+to compute a high-accuracy reference solution and trajectory.
 
 **Key solver parameters:**
 - `M1 = 14, M2 = 7`: The first 14 equations are $y_i' = y_{i+7}$
-- `massmatrix`: 13×13 zero matrix (all remaining equations are algebraic)
+- `MASSMATRIX`: 13×13 zero matrix (all remaining equations are algebraic)
 - `DIMOFIND1VAR = 14, DIMOFIND2VAR = 7, DIMOFIND3VAR = 6`: DAE index dimensions
 
 ```julia
 M_lower = OI.BandedMatrix(13, 13, 0, 0, 0.0)   # 13×13 zero mass matrix
 
-# Standard DiffEq problem (no mass matrix annotation — M1/M2 handles structure)
-prob_radau = ODEProblem(andrews_rhs_full!, y0, tspan)
+function make_radau5_opts(tol; maxsteps = 200000)
+    OI.OptionsODE(
+        OI.OPT_RTOL      => tol,
+        OI.OPT_ATOL      => tol,
+        OI.OPT_M1        => 14,
+        OI.OPT_M2        => 7,
+        OI.OPT_MASSMATRIX  => M_lower,
+        OI.OPT_MAXSTEPS    => maxsteps,
+        OI.OPT_INITIALSS   => 1e-6,
+        OI.OPT_DIMOFIND1VAR => 14,
+        OI.OPT_DIMOFIND2VAR => 7,
+        OI.OPT_DIMOFIND3VAR => 6,
+    )
+end
 
-# RADAU5 algorithm with DAE structure information
-radau5_alg = radau5(M1 = 14, M2 = 7,
-                    DIMOFIND1VAR = 14, DIMOFIND2VAR = 7, DIMOFIND3VAR = 6,
-                    massmatrix = M_lower)
+t_ref, x_ref, rc_ref, stats_ref = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
+    make_radau5_opts(1e-7))
 
-sol_ref = solve(prob_radau, radau5_alg,
-                reltol = 3e-8, abstol = 3e-8, dt = 1e-6, maxiters = 200000)
-
-x_ref = sol_ref.u[end]
-println("Reference solution: retcode = $(sol_ref.retcode)")
-println("Steps: $(length(sol_ref.t))")
-println("RHS evaluations: $(sol_ref.stats.nf)")
+println("Reference solution: retcode = $rc_ref (1 = success)")
+println("Steps: $(stats_ref["no_steps"]) (accepted: $(stats_ref["no_steps_accepted"]))")
+println("RHS evaluations: $(stats_ref["no_rhs_calls"])")
+println("Jacobian evaluations: $(stats_ref["no_jac_calls"])")
+println("LU decompositions: $(stats_ref["no_lu_decomp"])")
 ```
 
-Collect solution trajectory from the reference solve:
+Collect solution trajectory at each accepted step:
 
 ```julia
-traj_t = sol_ref.t
-traj_y = sol_ref.u
+traj_t = Float64[0.0]
+traj_y = [copy(y0)]
+
+function output_fcn(reason, told, t, x, eval_sol_fcn, extra_data)
+    if reason == OI.OUTPUTFCN_CALL_STEP
+        push!(traj_t, t)
+        push!(traj_y, copy(x))
+    end
+    return OI.OUTPUTFCN_RET_CONTINUE
+end
+
+opts_traj = OI.OptionsODE(
+    OI.OPT_RTOL         => 1e-7,
+    OI.OPT_ATOL         => 1e-7,
+    OI.OPT_M1           => 14,
+    OI.OPT_M2           => 7,
+    OI.OPT_MASSMATRIX   => M_lower,
+    OI.OPT_MAXSTEPS     => 200000,
+    OI.OPT_INITIALSS    => 1e-6,
+    OI.OPT_DIMOFIND1VAR => 14,
+    OI.OPT_DIMOFIND2VAR => 7,
+    OI.OPT_DIMOFIND3VAR => 6,
+    OI.OPT_OUTPUTFCN    => output_fcn,
+    OI.OPT_OUTPUTMODE   => OI.OUTPUTFCN_WODENSE,
+)
+
+OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), opts_traj)
 println("Trajectory: $(length(traj_t)) points from t=$(traj_t[1]) to t=$(traj_t[end])")
 ```
 
@@ -638,9 +671,10 @@ each formulation with standard solvers to demonstrate this challenge.
 ### Mass-Matrix ODE Form
 
 The singular mass matrix $K = \text{diag}(I_{14}, 0_{13})$ creates difficulties
-for standard implicit methods. With the updated `radau5()` wrapper that forwards
-M1/M2 block structure and DIMOFIND index dimensions, RADAU5 now works through
-the standard DiffEq `solve` interface.
+for standard implicit methods. The `radau()`/`radau5()` DiffEq wrappers cannot
+pass the M1/M2 block structure or DIMOFIND index dimensions to the underlying
+Fortran solver. Rosenbrock-W methods fail due to singular Jacobian (LAPACK
+`U(22,22) = 0` error).
 
 ```julia
 println("=== Mass-Matrix ODE Form ===")
@@ -705,40 +739,91 @@ end
 
 ## Work-Precision Diagrams
 
-With the updated ODEInterfaceDiffEq wrapper, RADAU5 now accepts M1/M2 block
-structure and DAE index dimensions directly through the algorithm constructor.
-This allows using the standard `WorkPrecisionSet` pipeline.
+As demonstrated above, no standard DiffEq solver (IDA, Rodas5P, FBDF, radau,
+radau5) succeeds on this index-3 DAE in any formulation. The only working
+solver is the Fortran RADAU5 via the direct ODEInterface API with M1/M2 block
+structure and DIMOFIND index dimensions.
+
+We construct work-precision data by sweeping tolerances from $10^{-5}$ to
+$10^{-7}$. The achievable range is limited by severe order reduction for
+index-3 components (order 1 for Lagrange multipliers vs order 5 for positions).
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:7)
-reltols = 1.0 ./ 10.0 .^ (5:7)
+tols = [3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7]
+errors = Float64[]
+times = Float64[]
+steps_list = Int[]
 
-setups = [
-    Dict(:alg => radau5(M1 = 14, M2 = 7,
-                        DIMOFIND1VAR = 14, DIMOFIND2VAR = 7, DIMOFIND3VAR = 6,
-                        massmatrix = M_lower))
-]
-labels = ["RADAU5 (M1/M2)"]
+for tol in tols
+    # Warm-up run
+    OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), make_radau5_opts(tol))
 
-wp = WorkPrecisionSet(prob_radau, abstols, reltols, setups;
-    names = labels, appxsol = sol_ref, save_everystep = false,
-    maxiters = 200000, numruns = 5, dt = 1e-6)
+    # Timed run (median of 3)
+    elapsed = zeros(3)
+    local rc, xs, st
+    for k in 1:3
+        elapsed[k] = @elapsed begin
+            _, xs, rc, st = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
+                make_radau5_opts(tol))
+        end
+    end
+    t_avg = median(elapsed)
 
-plot(wp, title = "Andrews' Mechanism: Work-Precision (RADAU5 M1/M2)")
+    if rc == 1 && !any(isnan, xs)
+        err = maximum(abs, xs[1:7] .- y_ref[1:7])
+        push!(errors, err)
+        push!(times, t_avg)
+        push!(steps_list, st["no_steps"])
+        println("tol=$tol → err=$(round(err, sigdigits=4)), ",
+                "time=$(round(t_avg*1000, sigdigits=4))ms, steps=$(st["no_steps"])")
+    else
+        println("tol=$tol → FAILED (rc=$rc, NaN=$(any(isnan, xs)))")
+    end
+end
+```
+
+```julia
+plot(errors, times .* 1000, xscale = :log10, yscale = :log10,
+    xlabel = "Error (max|q - q_ref|)", ylabel = "Time (ms)",
+    title = "Andrews' Mechanism: Work-Precision (RADAU5 M1/M2)",
+    label = "RADAU5 (M1/M2)", marker = :circle, markersize = 6,
+    linewidth = 2, legend = :topright, size = (800, 500))
+```
+
+## Convergence Table
+
+```julia
+println("=" ^ 70)
+println("Tolerance   | Steps | Endpoint Error | Order (vs prev)")
+println("-" ^ 70)
+for i in eachindex(errors)
+    order = i > 1 ? log(errors[i-1]/errors[i]) / log(tols[i-1]/tols[i]) : "-"
+    println("$(rpad(string(tols[i]), 12))| $(lpad(string(steps_list[i]), 5)) | ",
+            "$(lpad(string(round(errors[i], sigdigits=4)), 14)) | $order")
+end
+println("=" ^ 70)
 ```
 
 ## Conclusion
 
+Andrews' squeezing mechanism is one of the most challenging standard DAE
+benchmarks. Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where
+multiple formulations and solvers can be compared via `WorkPrecisionSet`,
+this index-3 problem reveals fundamental solver limitations:
+
 - **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock-W, BDF) fail due
-  to singular Jacobian from the zero mass-matrix block.
+  to singular Jacobian from the zero mass-matrix block. The `radau()`/`radau5()`
+  DiffEq wrappers cannot pass M1/M2/DIMOFIND to the underlying Fortran solver.
 - **DAE residual:** IDA (Sundials) cannot handle index-3 DAEs (designed for
   index-1 only).
 - **MTK index-reduced:** `structural_simplify` produces a numerically challenging
   system that standard solvers struggle with.
-- **RADAU5 with M1/M2:** The only reliable approach, now accessible through
-  the standard `solve(prob, radau5(M1=14, M2=7, ...))` interface. The M1/M2
-  block structure and DIMOFIND index dimensions are essential — without them,
-  even RADAU5 fails.
+- **RADAU5 with M1/M2:** The only reliable approach. The M1/M2 block structure
+  and DIMOFIND index dimensions are essential — without them, even RADAU5 fails.
+
+The achievable tolerance range is $10^{-5}$ to $10^{-7}$, limited by the
+severe order reduction inherent in applying RADAU5 to index-3 DAEs
+(order 1 for Lagrange multipliers).
 
 ```julia, echo = false
 using SciMLBenchmarks
