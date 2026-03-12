@@ -44,9 +44,8 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, Plots
-using ODEInterfaceDiffEq, LinearAlgebra, Statistics
+using ODEInterfaceDiffEq, LinearAlgebra
 using ModelingToolkit: t_nounits as t, D_nounits as D
-OI = ODEInterfaceDiffEq.ODEInterface
 ```
 
 ## Parameters
@@ -150,111 +149,13 @@ y_ref[26] =  0.2264249232082739e+2
 y_ref[27] =  0.1161740700019673e+2
 ```
 
-## Right-Hand Side Functions
+## Right-Hand Side
 
-We need two versions of the RHS: an out-of-place function returning 13
-algebraic components for RADAU5 with M1/M2 structure, and an in-place
-function for the full 27-variable mass-matrix ODE.
-
-### RADAU5 Block-Structured RHS (13 components)
-
-The first 14 equations are trivial: $y_i' = y_{i+7}$ for $i = 1,...,14$
-(communicated via `M1 = 14`, `M2 = 7`). The RHS returns only the 13 algebraic
-components: 7 dynamics equations and 6 position constraints.
-
-```julia
-function rhs_andrews(t, y)
-    if any(!isfinite, y); return fill(NaN, 13); end
-
-    # --- Trigonometric quantities ---
-    sibe = sin(y[1]);  cobe = cos(y[1])
-    sith = sin(y[2]);  cth  = cos(y[2])
-    siga = sin(y[3]);  coga = cos(y[3])
-    siph = sin(y[4]);  coph = cos(y[4])
-    side = sin(y[5]);  cde  = cos(y[5])
-    siom = sin(y[6]);  coom = cos(y[6])
-    siep = sin(y[7]);  coep = cos(y[7])
-
-    sibeth = sin(y[1] + y[2]);  cobeth = cos(y[1] + y[2])
-    siphde = sin(y[4] + y[5]);  cophde = cos(y[4] + y[5])
-    siomep = sin(y[6] + y[7]);  coomep = cos(y[6] + y[7])
-
-    # Velocity aliases
-    bep = y[8];  thp = y[9];  php = y[11]
-    dep = y[12]; omp = y[13]; epp = y[14]
-
-    # --- 7×7 Mass matrix M(q) ---
-    mm11 = am_m1*am_ra^2 + am_m2*(am_rr^2 - 2*am_da*am_rr*cth + am_da^2) + am_i1 + am_i2
-    mm21 = am_m2*(am_da^2 - am_da*am_rr*cth) + am_i2
-    mm22 = am_m2*am_da^2 + am_i2
-    mm33 = am_m3*(am_sa^2 + am_sb^2) + am_i3
-    mm44 = am_m4*(am_e - am_ea)^2 + am_i4
-    mm54 = am_m4*((am_e - am_ea)^2 + am_zt*(am_e - am_ea)*siph) + am_i4
-    mm55 = am_m4*(am_zt^2 + 2*am_zt*(am_e - am_ea)*siph + (am_e - am_ea)^2) +
-           am_m5*(am_ta^2 + am_tb^2) + am_i4 + am_i5
-    mm66 = am_m6*(am_zf - am_fa)^2 + am_i6
-    mm76 = am_m6*((am_zf - am_fa)^2 - am_u*(am_zf - am_fa)*siom) + am_i6
-    mm77 = am_m6*((am_zf - am_fa)^2 - 2*am_u*(am_zf - am_fa)*siom + am_u^2) +
-           am_m7*(am_ua^2 + am_ub^2) + am_i6 + am_i7
-
-    # --- Spring force ---
-    xd = am_sd*coga + am_sc*siga + am_xb
-    yd = am_sd*siga - am_sc*coga + am_yb
-    lang  = sqrt((xd - am_xc)^2 + (yd - am_yc)^2)
-    force = -am_c0 * (lang - am_l0) / lang
-    fx = force * (xd - am_xc)
-    fy = force * (yd - am_yc)
-
-    # --- Force vector ---
-    f1 = am_mom - am_m2*am_da*am_rr*thp*(thp + 2*bep)*sith
-    f2 = am_m2*am_da*am_rr*bep^2*sith
-    f3 = fx*(am_sc*coga - am_sd*siga) + fy*(am_sd*coga + am_sc*siga)
-    f4 = am_m4*am_zt*(am_e - am_ea)*dep^2*coph
-    f5 = -am_m4*am_zt*(am_e - am_ea)*php*(php + 2*dep)*coph
-    f6 = -am_m6*am_u*(am_zf - am_fa)*epp^2*coom
-    f7 = am_m6*am_u*(am_zf - am_fa)*omp*(omp + 2*epp)*coom
-
-    # --- Constraint Jacobian G(q): 6×7 ---
-    gp11 = -am_rr*sibe + am_d*sibeth;  gp12 = am_d*sibeth;  gp13 = -am_ss*coga
-    gp21 =  am_rr*cobe - am_d*cobeth;  gp22 = -am_d*cobeth; gp23 = -am_ss*siga
-    gp31 = -am_rr*sibe + am_d*sibeth;  gp32 = am_d*sibeth
-    gp34 = -am_e*cophde;  gp35 = -am_e*cophde + am_zt*side
-    gp41 =  am_rr*cobe - am_d*cobeth;  gp42 = -am_d*cobeth
-    gp44 = -am_e*siphde;  gp45 = -am_e*siphde - am_zt*cde
-    gp51 = -am_rr*sibe + am_d*sibeth;  gp52 = am_d*sibeth
-    gp56 =  am_zf*siomep; gp57 = am_zf*siomep - am_u*coep
-    gp61 =  am_rr*cobe - am_d*cobeth;  gp62 = -am_d*cobeth
-    gp66 = -am_zf*coomep; gp67 = -am_zf*coomep - am_u*siep
-
-    a1, a2, a3, a4, a5, a6, a7 = y[15], y[16], y[17], y[18], y[19], y[20], y[21]
-    lam1, lam2, lam3, lam4, lam5, lam6 = y[22], y[23], y[24], y[25], y[26], y[27]
-
-    res = Vector{Float64}(undef, 13)
-    # Rows 1–7: 0 = -f + M*a + G^T*λ
-    res[1] = -f1 + mm11*a1 + mm21*a2 + gp11*lam1 + gp21*lam2 + gp31*lam3 + gp41*lam4 + gp51*lam5 + gp61*lam6
-    res[2] = -f2 + mm21*a1 + mm22*a2 + gp12*lam1 + gp22*lam2 + gp32*lam3 + gp42*lam4 + gp52*lam5 + gp62*lam6
-    res[3] = -f3 + mm33*a3 + gp13*lam1 + gp23*lam2
-    res[4] = -f4 + mm44*a4 + mm54*a5 + gp34*lam3 + gp44*lam4
-    res[5] = -f5 + mm54*a4 + mm55*a5 + gp35*lam3 + gp45*lam4
-    res[6] = -f6 + mm66*a6 + mm76*a7 + gp56*lam5 + gp66*lam6
-    res[7] = -f7 + mm76*a6 + mm77*a7 + gp57*lam5 + gp67*lam6
-    # Rows 8–13: 0 = g(q)
-    res[8]  = am_rr*cobe - am_d*cobeth - am_ss*siga - am_xb
-    res[9]  = am_rr*sibe - am_d*sibeth + am_ss*coga - am_yb
-    res[10] = am_rr*cobe - am_d*cobeth - am_e*siphde - am_zt*cde - am_xa
-    res[11] = am_rr*sibe - am_d*sibeth + am_e*cophde - am_zt*side - am_ya
-    res[12] = am_rr*cobe - am_d*cobeth - am_zf*coomep - am_u*siep - am_xa
-    res[13] = am_rr*sibe - am_d*sibeth - am_zf*siomep + am_u*coep - am_ya
-    return res
-end
-
-res0 = rhs_andrews(0.0, y0)
-println("Residual at t=0: max|res| = ", maximum(abs, res0))
-```
-
-### Full 27-Variable RHS (In-Place)
-
-The complete right-hand side $\phi(y)$ for the mass-matrix ODE form $K \cdot dy/dt = \phi(y)$:
+The complete right-hand side $\phi(y)$ for the mass-matrix ODE form $K \cdot dy/dt = \phi(y)$.
+The 27 variables decompose into 14 differential and 13 algebraic components.
+The special block structure ($y_i' = y_{i+7}$ for $i = 1,\ldots,14$) is
+exploited by RADAU5 via the `DIMOFIND1VAR`, `DIMOFIND2VAR`, `DIMOFIND3VAR`
+parameters passed through the `radau5()` wrapper.
 
 ```julia
 function andrews_rhs_full!(du, u, p, t)
@@ -502,119 +403,62 @@ println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
 
 ## Reference Solution
 
-The only reliable solver for this index-3 DAE is the Fortran RADAU5 code
-with M1/M2 block structure and DAE index dimensions (DIMOFIND). We use this
-to compute a high-accuracy reference solution and trajectory.
-
-**Key solver parameters:**
-- `M1 = 14, M2 = 7`: The first 14 equations are $y_i' = y_{i+7}$
-- `MASSMATRIX`: 13×13 zero matrix (all remaining equations are algebraic)
-- `DIMOFIND1VAR = 14, DIMOFIND2VAR = 7, DIMOFIND3VAR = 6`: DAE index dimensions
+High-accuracy reference computed using RADAU5 with Hessenberg index hints
+`(14, 7, 6)` and an initial step-size hint `dt=1e-6` (mapped to Fortran
+`INITIALSS`). The tightest reliable tolerance for the DiffEq wrapper on this
+index-3 problem is `3e-8`.
 
 ```julia
-M_lower = OI.BandedMatrix(13, 13, 0, 0, 0.0)   # 13×13 zero mass matrix
+const radau5_alg = radau5(DIMOFIND1VAR=14, DIMOFIND2VAR=7, DIMOFIND3VAR=6)
 
-function make_radau5_opts(tol; maxsteps = 200000)
-    OI.OptionsODE(
-        OI.OPT_RTOL      => tol,
-        OI.OPT_ATOL      => tol,
-        OI.OPT_M1        => 14,
-        OI.OPT_M2        => 7,
-        OI.OPT_MASSMATRIX  => M_lower,
-        OI.OPT_MAXSTEPS    => maxsteps,
-        OI.OPT_INITIALSS   => 1e-6,
-        OI.OPT_DIMOFIND1VAR => 14,
-        OI.OPT_DIMOFIND2VAR => 7,
-        OI.OPT_DIMOFIND3VAR => 6,
-    )
-end
-
-t_ref, x_ref, rc_ref, stats_ref = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
-    make_radau5_opts(1e-7))
-
-println("Reference solution: retcode = $rc_ref (1 = success)")
-println("Steps: $(stats_ref["no_steps"]) (accepted: $(stats_ref["no_steps_accepted"]))")
-println("RHS evaluations: $(stats_ref["no_rhs_calls"])")
-println("Jacobian evaluations: $(stats_ref["no_jac_calls"])")
-println("LU decompositions: $(stats_ref["no_lu_decomp"])")
+ref_sol = solve(prob_mm, radau5_alg; abstol=3e-8, reltol=3e-8, dt=1e-6,
+                maxiters=Int(1e6))
+println("Reference retcode: ", ref_sol.retcode)
+println("NaN in reference? ", any(isnan, ref_sol.u[end]))
 ```
 
-Collect solution trajectory at each accepted step:
-
 ```julia
-traj_t = Float64[0.0]
-traj_y = [copy(y0)]
-
-function output_fcn(reason, told, t, x, eval_sol_fcn, extra_data)
-    if reason == OI.OUTPUTFCN_CALL_STEP
-        push!(traj_t, t)
-        push!(traj_y, copy(x))
-    end
-    return OI.OUTPUTFCN_RET_CONTINUE
-end
-
-opts_traj = OI.OptionsODE(
-    OI.OPT_RTOL         => 1e-7,
-    OI.OPT_ATOL         => 1e-7,
-    OI.OPT_M1           => 14,
-    OI.OPT_M2           => 7,
-    OI.OPT_MASSMATRIX   => M_lower,
-    OI.OPT_MAXSTEPS     => 200000,
-    OI.OPT_INITIALSS    => 1e-6,
-    OI.OPT_DIMOFIND1VAR => 14,
-    OI.OPT_DIMOFIND2VAR => 7,
-    OI.OPT_DIMOFIND3VAR => 6,
-    OI.OPT_OUTPUTFCN    => output_fcn,
-    OI.OPT_OUTPUTMODE   => OI.OUTPUTFCN_WODENSE,
-)
-
-OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), opts_traj)
-println("Trajectory: $(length(traj_t)) points from t=$(traj_t[1]) to t=$(traj_t[end])")
+probs = [prob_mm, prob_dae, prob_mtk]
+refs  = [ref_sol, ref_sol, ref_sol];
 ```
 
 ## Solution Plots
 
 ```julia
-tt = traj_t
-q_mat  = hcat([y[1:7]   for y in traj_y]...)'   # positions
-v_mat  = hcat([y[8:14]  for y in traj_y]...)'   # velocities
-lam_mat = hcat([y[22:27] for y in traj_y]...)'   # multipliers
+plot(ref_sol; idxs=[1,2,3,4,5,6,7],
+     label=["q₁ (β)" "q₂ (Θ)" "q₃ (γ)" "q₄ (Φ)" "q₅ (δ)" "q₆ (Ω)" "q₇ (ε)"],
+     title="Andrews' Mechanism: Position Angles",
+     xlabel="t", ylabel="angle (rad)",
+     layout=(4,2), size=(800,800), lw=1.5)
 ```
 
 ```julia
-plot(tt, q_mat,
-    title = "Andrews' Mechanism: Position Angles",
-    xlabel = "t", ylabel = "angle (rad)",
-    label = ["q₁ (β)" "q₂ (Θ)" "q₃ (γ)" "q₄ (Φ)" "q₅ (δ)" "q₆ (Ω)" "q₇ (ε)"],
-    layout = (4, 2), size = (800, 800), lw = 1.5)
+plot(ref_sol; idxs=[8,9,10,11,12,13,14],
+     label=["v₁" "v₂" "v₃" "v₄" "v₅" "v₆" "v₇"],
+     title="Andrews' Mechanism: Velocities",
+     xlabel="t", ylabel="angular velocity",
+     layout=(4,2), size=(800,800), lw=1.5)
 ```
 
 ```julia
-plot(tt, v_mat,
-    title = "Andrews' Mechanism: Velocities",
-    xlabel = "t", ylabel = "angular velocity",
-    label = ["v₁" "v₂" "v₃" "v₄" "v₅" "v₆" "v₇"],
-    layout = (4, 2), size = (800, 800), lw = 1.5)
-```
-
-```julia
-plot(tt, lam_mat,
-    title = "Andrews' Mechanism: Lagrange Multipliers",
-    xlabel = "t", ylabel = "λ",
-    label = ["λ₁" "λ₂" "λ₃" "λ₄" "λ₅" "λ₆"],
-    layout = (3, 2), size = (800, 600), lw = 1.5)
+plot(ref_sol; idxs=[22,23,24,25,26,27],
+     label=["λ₁" "λ₂" "λ₃" "λ₄" "λ₅" "λ₆"],
+     title="Andrews' Mechanism: Lagrange Multipliers",
+     xlabel="t", ylabel="λ",
+     layout=(3,2), size=(800,600), lw=1.5)
 ```
 
 ## Verification against PSIDE Reference
 
 ```julia
 names_ref = ["q₁(β)", "q₂(Θ)", "q₃(γ)", "q₄(Φ)", "q₅(δ)", "q₆(Ω)", "q₇(ε)"]
+xs = ref_sol.u[end]
 println("=== Verification at t = 0.03 (positions) ===")
 println("Variable    | PSIDE Reference         | RADAU5 Solution         | Rel Error")
 println("-"^85)
 for i in 1:7
     ref_val = y_ref[i]
-    our_val = x_ref[i]
+    our_val = xs[i]
     relerr = abs(ref_val) > 0 ? abs((our_val - ref_val) / ref_val) : abs(our_val)
     status = relerr < 1e-6 ? "✓" : (relerr < 1e-3 ? "~" : "✗")
     println("$(rpad(names_ref[i], 12))| $(lpad(string(ref_val), 24)) | $(lpad(string(round(our_val, sigdigits=15)), 24)) | $(round(relerr, sigdigits=3)) $status")
@@ -646,7 +490,7 @@ function eval_constraints(q)
     ]
 end
 
-g_final = eval_constraints(x_ref[1:7])
+g_final = eval_constraints(xs[1:7])
 println("Position constraints at t = 0.03:")
 for i in 1:6
     println("  g[$i] = $(g_final[i])")
@@ -655,8 +499,8 @@ println("Max |g|: $(maximum(abs, g_final))")
 ```
 
 ```julia
-max_g = [maximum(abs, eval_constraints(y[1:7])) for y in traj_y]
-plot(tt, max_g, yscale = :log10,
+max_g = [maximum(abs, eval_constraints(u[1:7])) for u in ref_sol.u]
+plot(ref_sol.t, max_g, yscale = :log10,
     title = "Constraint Violation Along Trajectory",
     xlabel = "t", ylabel = "max|g(q)|",
     lw = 2, legend = false, ylims = (1e-16, 1e-6))
@@ -671,10 +515,9 @@ each formulation with standard solvers to demonstrate this challenge.
 ### Mass-Matrix ODE Form
 
 The singular mass matrix $K = \text{diag}(I_{14}, 0_{13})$ creates difficulties
-for standard implicit methods. The `radau()`/`radau5()` DiffEq wrappers cannot
-pass the M1/M2 block structure or DIMOFIND index dimensions to the underlying
-Fortran solver. Rosenbrock-W methods fail due to singular Jacobian (LAPACK
-`U(22,22) = 0` error).
+for standard implicit methods. Without DIMOFIND index hints, solvers cannot
+exploit the Hessenberg structure. Rosenbrock-W methods fail due to singular
+Jacobian.
 
 ```julia
 println("=== Mass-Matrix ODE Form ===")
@@ -739,91 +582,38 @@ end
 
 ## Work-Precision Diagrams
 
-As demonstrated above, no standard DiffEq solver (IDA, Rodas5P, FBDF, radau,
-radau5) succeeds on this index-3 DAE in any formulation. The only working
-solver is the Fortran RADAU5 via the direct ODEInterface API with M1/M2 block
-structure and DIMOFIND index dimensions.
+We use `WorkPrecisionSet` from DiffEqDevTools to benchmark RADAU5 with
+Hessenberg index hints on the mass-matrix ODE formulation.
 
-We construct work-precision data by sweeping tolerances from $10^{-5}$ to
-$10^{-7}$. The achievable range is limited by severe order reduction for
-index-3 components (order 1 for Lagrange multipliers vs order 5 for positions).
+The `dt=1e-6` initial step-size hint is required — without it, the Fortran
+RADAU5 code fails at certain tolerance levels on this stiff index-3 system.
 
 ```julia
-tols = [3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7]
-errors = Float64[]
-times = Float64[]
-steps_list = Int[]
+abstols = [3e-5, 1e-5, 3e-6, 3e-7, 1e-7]
+reltols = [3e-5, 1e-5, 3e-6, 3e-7, 1e-7]
 
-for tol in tols
-    # Warm-up run
-    OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0), make_radau5_opts(tol))
+setups = [Dict(:prob_choice => 1, :alg => radau5_alg)]
 
-    # Timed run (median of 3)
-    elapsed = zeros(3)
-    local rc, xs, st
-    for k in 1:3
-        elapsed[k] = @elapsed begin
-            _, xs, rc, st = OI.radau5(rhs_andrews, 0.0, 0.03, copy(y0),
-                make_radau5_opts(tol))
-        end
-    end
-    t_avg = median(elapsed)
-
-    if rc == 1 && !any(isnan, xs)
-        err = maximum(abs, xs[1:7] .- y_ref[1:7])
-        push!(errors, err)
-        push!(times, t_avg)
-        push!(steps_list, st["no_steps"])
-        println("tol=$tol → err=$(round(err, sigdigits=4)), ",
-                "time=$(round(t_avg*1000, sigdigits=4))ms, steps=$(st["no_steps"])")
-    else
-        println("tol=$tol → FAILED (rc=$rc, NaN=$(any(isnan, xs)))")
-    end
-end
-```
-
-```julia
-plot(errors, times .* 1000, xscale = :log10, yscale = :log10,
-    xlabel = "Error (max|q - q_ref|)", ylabel = "Time (ms)",
-    title = "Andrews' Mechanism: Work-Precision (RADAU5 M1/M2)",
-    label = "RADAU5 (M1/M2)", marker = :circle, markersize = 6,
-    linewidth = 2, legend = :topright, size = (800, 500))
-```
-
-## Convergence Table
-
-```julia
-println("=" ^ 70)
-println("Tolerance   | Steps | Endpoint Error | Order (vs prev)")
-println("-" ^ 70)
-for i in eachindex(errors)
-    order = i > 1 ? log(errors[i-1]/errors[i]) / log(tols[i-1]/tols[i]) : "-"
-    println("$(rpad(string(tols[i]), 12))| $(lpad(string(steps_list[i]), 5)) | ",
-            "$(lpad(string(round(errors[i], sigdigits=4)), 14)) | $order")
-end
-println("=" ^ 70)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3,
+    dt = 1e-6)
+plot(wp; title = "Andrews' Mechanism WPD")
 ```
 
 ## Conclusion
 
 Andrews' squeezing mechanism is one of the most challenging standard DAE
-benchmarks. Unlike index-1/2 benchmarks (ROBER, slider-crank, car axis) where
-multiple formulations and solvers can be compared via `WorkPrecisionSet`,
-this index-3 problem reveals fundamental solver limitations:
+benchmarks. This index-3 problem reveals fundamental solver limitations:
 
 - **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock-W, BDF) fail due
-  to singular Jacobian from the zero mass-matrix block. The `radau()`/`radau5()`
-  DiffEq wrappers cannot pass M1/M2/DIMOFIND to the underlying Fortran solver.
+  to singular Jacobian from the zero mass-matrix block.
 - **DAE residual:** IDA (Sundials) cannot handle index-3 DAEs (designed for
   index-1 only).
 - **MTK index-reduced:** `structural_simplify` produces a numerically challenging
   system that standard solvers struggle with.
-- **RADAU5 with M1/M2:** The only reliable approach. The M1/M2 block structure
-  and DIMOFIND index dimensions are essential — without them, even RADAU5 fails.
-
-The achievable tolerance range is $10^{-5}$ to $10^{-7}$, limited by the
-severe order reduction inherent in applying RADAU5 to index-3 DAEs
-(order 1 for Lagrange multipliers).
+- **RADAU5 with DIMOFIND:** The only reliable approach. The Hessenberg index
+  dimensions `(14, 7, 6)` are essential for correct error estimation and step
+  size control on this index-3 system.
 
 ```julia, echo = false
 using SciMLBenchmarks
