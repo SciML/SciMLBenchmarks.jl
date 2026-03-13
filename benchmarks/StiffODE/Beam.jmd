@@ -1,0 +1,295 @@
+---
+title: Beam Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, RecursiveFactorization
+gr()
+
+# Beam problem from the IVP Test Set
+# ODE of dimension 80 (N=40 discretization points, 2*N unknowns)
+# Describes the deformation of a beam under an applied force
+# Exact translation from Fortran feval subroutine at:
+# http://archimede.dm.uniba.it/~testset/src/problems/beam.f
+
+const N_beam = 40
+const NN_beam = 2 * N_beam
+const NSQ_beam = N_beam * N_beam
+const NQUATR_beam = NSQ_beam * NSQ_beam
+const DELTAS_beam = 1.0 / N_beam
+
+function beam!(df, th, p, t)
+    N = N_beam
+    NN = NN_beam
+
+    # Precompute sin and cos of differences
+    sth = zeros(N)
+    cth = zeros(N)
+    for i in 2:N
+        thdiff = th[i] - th[i-1]
+        sth[i] = sin(thdiff)
+        cth[i] = cos(thdiff)
+    end
+
+    # Compute right-hand side of the linear system
+    v = zeros(N)
+    if t > pi
+        # Case t > pi: no external force
+        v[1] = (-3.0*th[1] + th[2]) * NQUATR_beam
+        for i in 2:N-1
+            v[i] = (th[i-1] - 2.0*th[i] + th[i+1]) * NQUATR_beam
+        end
+        v[N] = (th[N-1] - th[N]) * NQUATR_beam
+    else
+        # Case t <= pi: with applied force
+        fabs = 1.5 * sin(t)^2
+        fx = -fabs
+        fy = fabs
+        v[1] = (-3.0*th[1] + th[2]) * NQUATR_beam +
+               NSQ_beam * (fy*cos(th[1]) - fx*sin(th[1]))
+        for i in 2:N-1
+            v[i] = (th[i-1] - 2.0*th[i] + th[i+1]) * NQUATR_beam +
+                   NSQ_beam * (fy*cos(th[i]) - fx*sin(th[i]))
+        end
+        v[N] = (th[N-1] - th[N]) * NQUATR_beam +
+               NSQ_beam * (fy*cos(th[N]) - fx*sin(th[N]))
+    end
+
+    # Compute product DV = W
+    w = zeros(N)
+    w[1] = sth[2] * v[2]
+    for i in 2:N-1
+        w[i] = -sth[i]*v[i-1] + sth[i+1]*v[i+1]
+    end
+    w[N] = -sth[N] * v[N-1]
+
+    # Add term 3: w[i] += th[N+i]^2
+    for i in 1:N
+        w[i] += th[N+i]^2
+    end
+
+    # Solve tridiagonal system CW = W
+    alpha = zeros(N)
+    beta = zeros(N)
+    alpha[1] = 1.0
+    for i in 2:N
+        alpha[i] = 2.0
+        beta[i-1] = -cth[i]
+    end
+    alpha[N] = 3.0
+
+    # Forward elimination
+    for i in N-1:-1:1
+        q = beta[i] / alpha[i+1]
+        w[i] = w[i] - w[i+1] * q
+        alpha[i] = alpha[i] - beta[i] * q
+    end
+
+    # Back substitution
+    w[1] = w[1] / alpha[1]
+    for i in 2:N
+        w[i] = (w[i] - beta[i-1]*w[i-1]) / alpha[i]
+    end
+
+    # Compute U = CV + DW
+    u = zeros(N)
+    u[1] = v[1] - cth[2]*v[2] + sth[2]*w[2]
+    for i in 2:N-1
+        u[i] = 2.0*v[i] - cth[i]*v[i-1] - cth[i+1]*v[i+1] -
+               sth[i]*w[i-1] + sth[i+1]*w[i+1]
+    end
+    u[N] = 3.0*v[N] - cth[N]*v[N-1] - sth[N]*w[N-1]
+
+    # Put derivatives in right place
+    for i in 1:N
+        df[i] = th[N+i]      # theta' = omega
+        df[N+i] = u[i]       # omega' = u
+    end
+end
+
+u0 = zeros(NN_beam)
+tspan = (0.0, 5.0)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(beam!, u0, tspan)
+
+# Generate reference solution using tight tolerances
+# The beam problem is moderately stiff and needs many steps
+sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14, maxiters=Int(1e7))
+test_sol = TestSolution(sol)
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8);
+```
+
+The Beam problem describes the dynamics of a flexible beam under an applied force.
+The beam is discretized into N=40 segments, giving 80 ODEs (40 angles + 40 angular velocities).
+The force is applied for t ∈ [0, π] and then released, causing the beam to oscillate.
+
+Reference plots from the IVP Test Set show the angular velocities z(10), z(20), z(30), z(40)
+(components 50, 60, 70, 80) peaking around t=1-2 and oscillating:
+
+```julia
+# Plot angular velocities matching reference: z(10)=y(50), z(20)=y(60), z(30)=y(70), z(40)=y(80)
+p1 = plot(sol, idxs=[50], title="z(10)", legend=false)
+p2 = plot(sol, idxs=[60], title="z(20)", legend=false)
+p3 = plot(sol, idxs=[70], title="z(30)", legend=false)
+p4 = plot(sol, idxs=[80], title="z(40)", legend=false)
+plot(p1, p2, p3, p4, layout=(2,2), size=(800,600))
+```
+
+```julia
+# Plot angles: y(10), y(20), y(30), y(40)
+p1 = plot(sol, idxs=[10], title="y(10)", legend=false)
+p2 = plot(sol, idxs=[20], title="y(20)", legend=false)
+p3 = plot(sol, idxs=[30], title="y(30)", legend=false)
+p4 = plot(sol, idxs=[40], title="y(40)", legend=false)
+plot(p1, p2, p3, p4, layout=(2,2), size=(800,600))
+```
+
+## Omissions
+
+The following were omitted from the tests due to convergence failures.
+
+```julia
+#sol = solve(prob,ROCK2()); # Unstable
+#sol = solve(prob,ROCK4()); # Unstable
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          Dict(:alg=>ABDF2()),
+          Dict(:alg=>FBDF()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:12)
+reltols = 1.0 ./ 10.0 .^ (7:9)
+
+setups = [
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>seulex()),
+          Dict(:alg=>ImplicitEulerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitEulerExtrapolation(threading = false)),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, threading = false)),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+          ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+           "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+
+plot(wp, title = "Implicit Methods: Beam",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
+```
+
+### Conclusion
+
+The Beam problem is an 80-dimensional stiff ODE from structural mechanics. It involves solving a tridiagonal system at each RHS evaluation, which adds computational cost per function evaluation. `CVODE_BDF` and `Rodas4`/`Rodas5P` perform well across tolerance ranges. The implicit extrapolation methods benefit from multithreading on this larger problem.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

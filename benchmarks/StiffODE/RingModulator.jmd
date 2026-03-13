@@ -1,0 +1,259 @@
+---
+title: Ring Modulator Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, StaticArrays, RecursiveFactorization
+gr()
+
+# Ring Modulator problem from the IVP Test Set
+# Stiff system of 15 nonlinear ODEs from electrical circuit analysis
+# Exact translation from Fortran feval subroutine at:
+# http://archimede.dm.uniba.it/~testset/src/problems/ringmod.f
+
+# Circuit parameters
+const c_rm = 1.6e-8
+const cs_rm = 2e-12
+const cp_rm = 1e-8
+const r_rm = 25e3
+const rp_rm = 50.0
+const lh_rm = 4.45
+const ls1_rm = 2e-3
+const ls2_rm = 5e-4
+const ls3_rm = 5e-4
+const rg1_rm = 36.3
+const rg2_rm = 17.3
+const rg3_rm = 17.3
+const ri_rm = 50.0
+const rc_rm = 600.0
+const gamma_rm = 40.67286402e-9
+const delta_rm = 17.7493332
+
+function ringmod!(f, y, p, t)
+    pi_val = 3.141592653589793238462643383
+
+    uin1 = 0.5 * sin(2e3 * pi_val * t)
+    uin2 = 2.0 * sin(2e4 * pi_val * t)
+    ud1  = +y[3] - y[5] - y[7] - uin2
+    ud2  = -y[4] + y[6] - y[7] - uin2
+    ud3  = +y[4] + y[5] + y[7] + uin2
+    ud4  = -y[3] - y[6] + y[7] + uin2
+
+    qud1 = gamma_rm * (exp(delta_rm * ud1) - 1.0)
+    qud2 = gamma_rm * (exp(delta_rm * ud2) - 1.0)
+    qud3 = gamma_rm * (exp(delta_rm * ud3) - 1.0)
+    qud4 = gamma_rm * (exp(delta_rm * ud4) - 1.0)
+
+    f[1]  = (y[8] - 0.5*y[10] + 0.5*y[11] + y[14] - y[1]/r_rm) / c_rm
+    f[2]  = (y[9] - 0.5*y[12] + 0.5*y[13] + y[15] - y[2]/r_rm) / c_rm
+    f[3]  = (y[10] - qud1 + qud4) / cs_rm
+    f[4]  = (-y[11] + qud2 - qud3) / cs_rm
+    f[5]  = (y[12] + qud1 - qud3) / cs_rm
+    f[6]  = (-y[13] - qud2 + qud4) / cs_rm
+    f[7]  = (-y[7]/rp_rm + qud1 + qud2 - qud3 - qud4) / cp_rm
+    f[8]  = -y[1] / lh_rm
+    f[9]  = -y[2] / lh_rm
+    f[10] = (0.5*y[1] - y[3] - rg2_rm*y[10]) / ls2_rm
+    f[11] = (-0.5*y[1] + y[4] - rg3_rm*y[11]) / ls3_rm
+    f[12] = (0.5*y[2] - y[5] - rg2_rm*y[12]) / ls2_rm
+    f[13] = (-0.5*y[2] + y[6] - rg3_rm*y[13]) / ls3_rm
+    f[14] = (-y[1] + uin1 - (ri_rm + rg1_rm)*y[14]) / ls1_rm
+    f[15] = (-y[2] - (rc_rm + rg1_rm)*y[15]) / ls1_rm
+end
+
+u0 = zeros(15)
+tspan = (0.0, 1e-3)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(ringmod!, u0, tspan)
+
+# Generate reference solution using tight tolerances
+# This is a very oscillatory problem (10kHz forcing) requiring many steps
+sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14, maxiters=Int(1e7))
+test_sol = TestSolution(sol)
+
+abstols = 1.0 ./ 10.0 .^ (4:8)
+reltols = 1.0 ./ 10.0 .^ (1:5);
+```
+
+The Ring Modulator describes an electrical circuit with diodes. The system has 15 variables:
+y[1]-y[2] are capacitor voltages, y[3]-y[7] involve diode voltages, y[8]-y[9] are inductor
+currents, and y[10]-y[15] are transformer currents. The forcing includes two sinusoidal
+inputs at 1kHz and 10kHz.
+
+Reference plots from the IVP Test Set show oscillatory behavior in all components over [0, 1e-3]:
+
+```julia
+plot(sol, layout=(3,5), size=(1200,600), title=["y$i" for i in 1:15]',
+    legend=false, fmt=:png)
+```
+
+```julia
+# Detailed view of first 4 components matching reference plots
+p1 = plot(sol, idxs=[1], title="y(1)", legend=false)
+p2 = plot(sol, idxs=[2], title="y(2)", legend=false)
+p3 = plot(sol, idxs=[3], title="y(3)", legend=false)
+p4 = plot(sol, idxs=[4], title="y(4)", legend=false)
+plot(p1, p2, p3, p4, layout=(2,2), size=(800,600))
+```
+
+```julia
+# Components y(5)-y(8) matching reference plots
+p5 = plot(sol, idxs=[5], title="y(5)", legend=false)
+p6 = plot(sol, idxs=[6], title="y(6)", legend=false)
+p7 = plot(sol, idxs=[7], title="y(7)", legend=false)
+p8 = plot(sol, idxs=[8], title="y(8)", legend=false)
+plot(p5, p6, p7, p8, layout=(2,2), size=(800,600))
+```
+
+## Omissions
+
+The following were omitted from the tests due to convergence failures.
+
+```julia
+#sol = solve(prob,ROCK2()); # Unstable
+#sol = solve(prob,ROCK4()); # Unstable
+#sol = solve(prob,EXPRB53s3(),dt=2.0^(-20));
+#sol = solve(prob,EPIRK4s3B(),dt=2.0^(-20));
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
+          Dict(:alg=>ROS34PW1a()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+names = ["Rosenbrock23" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "lsoda" "radau"]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;names=names, verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>RadauIIA5()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp47()),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:12)
+reltols = 1.0 ./ 10.0 .^ (7:9)
+
+setups = [
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>seulex()),
+          Dict(:alg=>ImplicitEulerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitEulerExtrapolation(threading = false)),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, threading = false)),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+          ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+           "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),numruns=10)
+
+plot(wp, title = "Implicit Methods: Ring Modulator",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
+```
+
+### Conclusion
+
+The Ring Modulator is a challenging 15-dimensional stiff ODE arising from electrical circuit analysis. At high tolerances, `Rosenbrock23` and `lsoda` are fast. At lower tolerances, `Rodas4`, `Rodas5P`, and `radau` perform well. The problem features rapid oscillations from 1kHz and 10kHz forcing, making it a good test for stiff solvers.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

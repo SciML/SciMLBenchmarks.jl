@@ -1,0 +1,304 @@
+---
+title: Medical Akzo Nobel Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, RecursiveFactorization, SparseArrays
+gr()
+
+# Medical Akzo Nobel problem from the IVP Test Set
+# Semi-discretization of 2 PDEs describing penetration of radio-labeled
+# antibodies into tissue infected by a tumor (oncology application)
+# ODE of dimension 400, banded Jacobian (bandwidth 2)
+# Exact translation from Fortran feval subroutine at:
+# http://archimede.dm.uniba.it/~testset/src/problems/medakzo.f
+
+const k_ma = 100.0
+const c_ma = 4.0
+
+function medakzo!(f, y, p, t)
+    N = length(y) ÷ 2
+    dzeta = 1.0 / N
+    dzeta2 = dzeta * dzeta
+
+    if t <= 5.0
+        phi = 2.0
+    else
+        phi = 0.0
+    end
+
+    # First grid point (j=1)
+    zeta = dzeta
+    dum = (zeta - 1.0)^2 / c_ma
+    alpha = 2.0 * (zeta - 1.0) * dum / c_ma
+    beta = dum * dum
+
+    f[1] = (phi - 2.0*y[1] + y[3]) * beta / dzeta2 +
+           alpha * (y[3] - phi) / (2.0*dzeta) - k_ma*y[1]*y[2]
+    f[2] = -k_ma * y[1] * y[2]
+
+    # Interior grid points (j=2,...,N-1)
+    for j in 2:N-1
+        i = 2*j - 1
+        zeta = j * dzeta
+        dum = (zeta - 1.0)^2 / c_ma
+        alpha = 2.0 * (zeta - 1.0) * dum / c_ma
+        beta = dum * dum
+        f[i] = (y[i-2] - 2.0*y[i] + y[i+2]) * beta / dzeta2 +
+               alpha * (y[i+2] - y[i-2]) / (2.0*dzeta) - k_ma*y[i]*y[i+1]
+        f[i+1] = -k_ma * y[i] * y[i+1]
+    end
+
+    # Last grid point (j=N)
+    f[2*N-1] = -k_ma * y[2*N-1] * y[2*N]
+    f[2*N]   = -k_ma * y[2*N-1] * y[2*N]
+end
+
+function medakzo_jac!(dfdy, y, p, t)
+    N = length(y) ÷ 2
+    dzeta = 1.0 / N
+    dzeta2 = dzeta * dzeta
+
+    dfdy .= 0.0
+
+    # First grid point
+    zeta = dzeta
+    dum = (zeta - 1.0)^2 / c_ma
+    alpha = 2.0 * (zeta - 1.0) * dum / c_ma
+    beta = dum * dum
+
+    dfdy[1,1] = -beta * 2.0 / dzeta2 - k_ma*y[2]
+    dfdy[1,3] = beta / dzeta2 + alpha / (2.0*dzeta)
+    dfdy[2,2] = -k_ma * y[1]
+    dfdy[2,1] = -k_ma * y[2]
+    dfdy[1,2] = -k_ma * y[1]
+
+    # Interior grid points
+    for j in 2:N-1
+        i = 2*j - 1
+        zeta = j * dzeta
+        dum = (zeta - 1.0)^2 / c_ma
+        alpha = 2.0 * (zeta - 1.0) * dum / c_ma
+        beta = dum * dum
+        bz = beta / dzeta2
+        dfdy[i, i-2] = bz - alpha / (2.0*dzeta)
+        dfdy[i, i]   = -2.0*bz - k_ma*y[i+1]
+        dfdy[i, i+2] = bz + alpha / (2.0*dzeta)
+        dfdy[i, i+1] = -k_ma * y[i]
+        i2 = 2*j
+        dfdy[i2, i2-1] = -k_ma * y[i2]
+        dfdy[i2, i2]   = -k_ma * y[i2-1]
+    end
+
+    # Last grid point
+    dfdy[2*N-1, 2*N-1] = -k_ma * y[2*N]
+    dfdy[2*N-1, 2*N]   = -k_ma * y[2*N-1]
+    dfdy[2*N, 2*N-1]   = -k_ma * y[2*N]
+    dfdy[2*N, 2*N]     = -k_ma * y[2*N-1]
+end
+
+N = 200
+neqn = 2*N
+u0 = zeros(neqn)
+for j in 1:N
+    u0[2*j-1] = 0.0
+    u0[2*j]   = 1.0
+end
+tspan = (0.0, 20.0)
+
+# The Jacobian is banded with bandwidth 2 - use sparse structure
+jac_prototype = spzeros(neqn, neqn)
+for i in 1:neqn
+    for j in max(1, i-2):min(neqn, i+2)
+        jac_prototype[i,j] = 1.0
+    end
+end
+
+ff = ODEFunction{true, SciMLBase.FullSpecialize}(medakzo!; jac=medakzo_jac!,
+    jac_prototype=jac_prototype)
+prob = ODEProblem(ff, u0, tspan)
+
+# Generate reference solution
+sol = solve(prob, CVODE_BDF(), abstol=1/10^14, reltol=1/10^14)
+test_sol = TestSolution(sol)
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8);
+```
+
+The Medical Akzo Nobel problem models the penetration of radio-labeled antibodies
+into tissue infected by a tumor. It is a semi-discretization of 2 coupled PDEs
+on N=200 grid points, yielding 400 ODEs with a banded Jacobian (bandwidth 2).
+The solution has a discontinuity at t=5 when the source term switches off.
+
+Reference plots show the u(x,t) and v(x,t) components at selected grid points:
+- y(79)=u(1,t): peaks around t=5, then decays
+- y(133)=u(2,t): smaller peak, later and broader
+- y(171)=u(3,t): even smaller peak
+- y(199)=u(4,t): smallest peak, latest
+
+```julia
+# Plot selected components matching reference: y(79), y(133), y(171), y(199)
+p1 = plot(sol, idxs=[79], title="y(79) (=u(1,t))", legend=false)
+p2 = plot(sol, idxs=[133], title="y(133) (=u(2,t))", legend=false)
+p3 = plot(sol, idxs=[171], title="y(171) (=u(3,t))", legend=false)
+p4 = plot(sol, idxs=[199], title="y(199) (=u(4,t))", legend=false)
+plot(p1, p2, p3, p4, layout=(2,2), size=(800,600))
+```
+
+```julia
+# Plot v components: y(80), y(134), y(172), y(200)
+p5 = plot(sol, idxs=[80], title="y(80) (=v(1,t))", legend=false)
+p6 = plot(sol, idxs=[134], title="y(134) (=v(2,t))", legend=false)
+p7 = plot(sol, idxs=[172], title="y(172) (=v(3,t))", legend=false)
+p8 = plot(sol, idxs=[200], title="y(200) (=v(4,t))", legend=false)
+plot(p5, p6, p7, p8, layout=(2,2), size=(800,600))
+```
+
+## Omissions
+
+The following were omitted from the tests due to convergence failures.
+
+```julia
+#sol = solve(prob,ROCK2()); # Unstable
+#sol = solve(prob,ROCK4()); # Unstable
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          Dict(:alg=>ABDF2()),
+          Dict(:alg=>FBDF()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:12)
+reltols = 1.0 ./ 10.0 .^ (7:9)
+
+setups = [
+            Dict(:alg=>CVODE_BDF()),
+            Dict(:alg=>KenCarp4()),
+            Dict(:alg=>Rodas4()),
+            Dict(:alg=>Rodas5P()),
+            Dict(:alg=>QNDF()),
+            Dict(:alg=>lsoda()),
+            Dict(:alg=>radau()),
+            Dict(:alg=>seulex()),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+            ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+            "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
+
+plot(wp, title = "Implicit Methods: Medical Akzo Nobel",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
+```
+
+### Conclusion
+
+The Medical Akzo Nobel problem is a 400-dimensional banded stiff ODE from oncology. The banded structure (bandwidth 2) makes it well-suited for solvers that exploit sparsity. `CVODE_BDF` performs very well here across all tolerance ranges. `Rodas4` and `Rodas5P` are good alternatives.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
