@@ -1,0 +1,155 @@
+---
+title: BioPreDyn-bench B1 Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+The following benchmark is of 285 ODEs modeling the genome-wide kinetics
+of *S. cerevisiae* from [Smallbone et al.](https://doi.org/10.1049/iet-syb.2011.0038),
+as defined in the [BioPreDyn-bench](https://doi.org/10.1186/s12918-015-0144-4)
+benchmark suite (Problem B1). This is a large-scale kinetic model with 1759
+parameters using generalized reversible Michaelis-Menten kinetics. Due to its
+size, sparse linear algebra and Krylov methods are essential for performance.
+
+We load the model from its SBML file using
+[SBMLImporter](https://github.com/sebapersson/SBMLImporter.jl) and supply
+nominal parameter values and initial conditions from the original
+BioPreDyn-bench Matlab files.
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots,
+      SBMLImporter, Catalyst, ModelingToolkit, LinearAlgebra,
+      BenchmarkTools, IncompleteLU, LinearSolve, JLD2,
+      SciMLBenchmarks, LSODA
+
+gr()
+```
+
+## Load the SBML model
+
+```julia
+sbml_file = joinpath(@__DIR__, "Models", "BioPreDyn", "b1.xml")
+prn, cb = load_SBML(sbml_file)
+rn = complete(prn.rn)
+sps = Catalyst.species(rn)
+ps = Catalyst.parameters(rn)
+
+# Load pre-extracted parameter values and initial conditions
+par = load(joinpath(@__DIR__, "params_BioPreDynB1.jld2"))
+pval = par["pval"]
+ic = par["ic"]
+
+# Build parameter and initial condition maps
+u0map = [s => ic[replace(string(s), "(t)" => "")]
+         for s in sps if haskey(ic, replace(string(s), "(t)" => ""))]
+
+pmap = [p => (haskey(pval, string(p)) ? pval[string(p)] : ic[string(p)[1:end-5]])
+        for p in ps
+        if haskey(pval, string(p)) ||
+           (endswith(string(p), "_init") && haskey(ic, string(p)[1:end-5]))]
+
+tspan = (0.0, 500.0)
+oprob = ODEProblem(rn, u0map, tspan, pmap; structural_simplify = true)
+@show length(oprob.u0)
+```
+
+## Picture of the solution
+
+```julia
+sol = solve(oprob, CVODE_BDF(), saveat = tspan[2]/1000.0, reltol = 1e-5, abstol = 1e-5)
+plot(sol; legend = false, fmt = :png, title = "BioPreDyn B1: S. cerevisiae (285 ODEs)")
+```
+
+## Generate Test Solution
+
+```julia
+@time sol = solve(oprob, CVODE_BDF(), abstol = 1/10^12, reltol = 1/10^12)
+test_sol = TestSolution(sol);
+```
+
+## Setups
+
+```julia
+default(legendfontsize = 7, framestyle = :box, gridalpha = 0.3, gridlinewidth = 2.5)
+
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (5:8);
+```
+
+## Work-Precision Diagrams (CVODE and lsoda solvers)
+
+```julia
+setups = [
+    Dict(:alg => lsoda()),
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF(linear_solver = :LapackDense)),
+    Dict(:alg => CVODE_BDF(linear_solver = :GMRES)),
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
+
+names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)"]
+plot(wp; label = names, title = "BioPreDyn B1: Sundials/lsoda")
+```
+
+## Work-Precision Diagrams (Julia solvers, default linear solver)
+
+```julia
+setups = [
+    Dict(:alg => TRBDF2(autodiff = false)),
+    Dict(:alg => QNDF(autodiff = false)),
+    Dict(:alg => FBDF(autodiff = false)),
+    Dict(:alg => KenCarp4(autodiff = false)),
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
+
+names = ["TRBDF2" "QNDF" "FBDF" "KenCarp4"]
+plot(wp; label = names, title = "BioPreDyn B1: Julia (default linsolver)")
+```
+
+## Work-Precision Diagrams (Julia solvers, GMRES)
+
+```julia
+setups = [
+    Dict(:alg => TRBDF2(linsolve = KrylovJL_GMRES(), autodiff = false)),
+    Dict(:alg => QNDF(linsolve = KrylovJL_GMRES(), autodiff = false)),
+    Dict(:alg => FBDF(linsolve = KrylovJL_GMRES(), autodiff = false)),
+    Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES(), autodiff = false)),
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
+
+names = ["TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)"]
+plot(wp; label = names, title = "BioPreDyn B1: Julia (GMRES)")
+```
+
+## Summary of Results
+
+```julia
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => CVODE_BDF(linear_solver = :GMRES)),
+    Dict(:alg => QNDF(autodiff = false)),
+    Dict(:alg => FBDF(autodiff = false)),
+    Dict(:alg => QNDF(linsolve = KrylovJL_GMRES(), autodiff = false)),
+    Dict(:alg => FBDF(linsolve = KrylovJL_GMRES(), autodiff = false)),
+    Dict(:alg => lsoda()),
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 10)
+
+names = ["CVODE_BDF" "CVODE_BDF (GMRES)" "QNDF" "FBDF" "QNDF (GMRES)" "FBDF (GMRES)" "lsoda"]
+plot(wp; label = names, title = "BioPreDyn B1: Summary",
+    left_margin = 10Plots.mm, right_margin = 10Plots.mm,
+    legendfontsize = 10, tickfontsize = 10, guidefontsize = 10,
+    legend = :topright, lw = 2, markersize = 6, size = (800, 600))
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
