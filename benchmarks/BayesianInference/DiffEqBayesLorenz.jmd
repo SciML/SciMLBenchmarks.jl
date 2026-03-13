@@ -25,6 +25,23 @@ function display_ess_per_sec(chain, elapsed)
     end
     println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
 end
+
+"""Extract and display Stan's internal timing from its CSV output files."""
+function display_stan_timing(stan_result)
+    sample_files = stan_result.model.sample_file
+    for (chain_idx, f) in enumerate(sample_files)
+        isfile(f) || continue
+        lines = readlines(f)
+        println("Chain $chain_idx timing (from Stan CSV):")
+        for line in lines
+            if startswith(line, "#") && occursin("Elapsed Time", line)
+                println("  ", strip(line[2:end]))
+            elseif startswith(line, "#") && occursin("seconds", line)
+                println("  ", strip(line[2:end]))
+            end
+        end
+    end
+end
 ```
 
 ```julia
@@ -115,14 +132,16 @@ Lorenz equation is a chaotic system hence requires very low tolerance to be esti
 We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
 Stan infers a separate noise parameter per data dimension (3 for the 3D Lorenz system).
 
-Note: `@time` includes Julia compilation on first run. The reported time also includes
-Stan's own compilation, data serialization, and CSV parsing — not just sampling. Stan's internal
-sampling time (reported in its CSV output) is typically lower. ESS/s is the fairest comparison metric.
-
 ```julia
 @time bayesian_result_stan = stan_inference(
     prob, t, data, priors; delta = 0.85, reltol = 1e-8, abstol = 1e-8,
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+```
+
+Stan's internal timing (excluding data serialization and CSV parsing):
+
+```julia
+display_stan_timing(bayesian_result_stan)
 ```
 
 ### Direct Turing.jl

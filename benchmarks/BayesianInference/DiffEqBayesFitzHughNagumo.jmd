@@ -25,6 +25,23 @@ function display_ess_per_sec(chain, elapsed)
     end
     println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
 end
+
+"""Extract and display Stan's internal timing from its CSV output files."""
+function display_stan_timing(stan_result)
+    sample_files = stan_result.model.sample_file
+    for (chain_idx, f) in enumerate(sample_files)
+        isfile(f) || continue
+        lines = readlines(f)
+        println("Chain $chain_idx timing (from Stan CSV):")
+        for line in lines
+            if startswith(line, "#") && occursin("Elapsed Time", line)
+                println("  ", strip(line[2:end]))
+            elseif startswith(line, "#") && occursin("seconds", line)
+                println("  ", strip(line[2:end]))
+            end
+        end
+    end
+end
 ```
 
 ```julia
@@ -82,14 +99,16 @@ priors = [truncated(Normal(1.0, 0.5), 0, 1.5), truncated(Normal(1.0, 0.5), 0, 1.
 
 We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
 
-Note: `@btime` excludes Julia compilation overhead. However, the reported time still includes
-Stan's own compilation, data serialization, and CSV parsing — not just sampling. Stan's internal
-sampling time (reported in its CSV output) is typically lower. ESS/s is the fairest comparison metric.
-
 ```julia
 @btime bayesian_result_stan = stan_inference(
     prob_ode_fitzhughnagumo, t, data, priors; delta = 0.85, num_samples = 10_000,
     print_summary = false, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+```
+
+Stan's internal timing (excluding data serialization and CSV parsing):
+
+```julia
+display_stan_timing(bayesian_result_stan)
 ```
 
 ### Direct Turing.jl
