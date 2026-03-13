@@ -14,6 +14,20 @@ using Plots, LinearAlgebra
 ```
 
 ```julia
+"""Display ESS/s (effective samples per second) from a Turing chain."""
+function display_ess_per_sec(chain, elapsed)
+    stats = summarystats(chain)
+    ess_bulk = stats[:, :ess_bulk]
+    println("Elapsed time: $(round(elapsed; digits=2)) seconds\n")
+    println("ESS/s (effective samples per second, bulk):")
+    for (i, param) in enumerate(stats[:, :parameters])
+        println("  $param: $(round(ess_bulk[i] / elapsed; digits=1))")
+    end
+    println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
+end
+```
+
+```julia
 gr(fmt = :png)
 ```
 
@@ -98,54 +112,67 @@ priors = [truncated(Normal(10, 2), 1, 15), truncated(Normal(30, 5), 1, 45),
 
 Lorenz equation is a chaotic system hence requires very low tolerance to be estimated in a reasonable way, we use 1e-8 obtained from the uncertainty plots. Use of truncated priors is necessary to prevent Stan from stepping into negative and other improbable areas.
 
+We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
+Stan infers a separate noise parameter per data dimension (3 for the 3D Lorenz system).
+
 ```julia
-@time bayesian_result_stan = stan_inference(
-    prob, t, data, priors; delta = 0.65, reltol = 1e-8, abstol = 1e-8,
+elapsed_stan = @elapsed bayesian_result_stan = stan_inference(
+    prob, t, data, priors; delta = 0.85, reltol = 1e-8, abstol = 1e-8,
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+println("Stan elapsed time: $(round(elapsed_stan; digits=2)) seconds")
 ```
 
 ### Direct Turing.jl
 
+We use per-dimension noise parameters (matching Stan) with `InverseGamma(2, 3)` priors on each `σ`.
+
 ```julia
-@model function fitlv(data, prob)
+@model function fitlorenz(data, prob)
     # Prior distributions.
-    α ~ InverseGamma(2, 3)
-    σ ~ truncated(Normal(10, 2), 1, 15)
+    σ ~ filldist(InverseGamma(2, 3), 3)
+    σ_param ~ truncated(Normal(10, 2), 1, 15)
     ρ ~ truncated(Normal(30, 5), 1, 45)
     β ~ truncated(Normal(2.5, 0.5), 1, 4)
 
-    # Simulate Lotka-Volterra model. 
-    p = SA[σ, ρ, β]
+    # Simulate Lorenz model.
+    p = SA[σ_param, ρ, β]
     _prob = remake(prob, p = p)
     predicted = solve(_prob, Vern9(); saveat = t)
 
     # Observations.
     for i in 1:length(predicted)
-        data[:, i] ~ MvNormal(predicted[i], α^2 * I)
+        data[:, i] ~ MvNormal(predicted[i], Diagonal(σ .^ 2))
     end
 
     return nothing
 end
 
-model = fitlv(data, sprob)
+model = fitlorenz(data, sprob)
 
-@time chain = sample(model, Turing.NUTS(0.65), 10000; progress = false)
+elapsed_turing_direct = @elapsed chain = sample(model, Turing.NUTS(0.85), 10_000; progress = false)
+chain
+```
+
+```julia
+display_ess_per_sec(chain, elapsed_turing_direct)
 ```
 
 ### Using Turing.jl backend
 
 ```julia
-@time bayesian_result_turing = turing_inference(
+elapsed_turing_backend = @elapsed bayesian_result_turing = turing_inference(
     prob, Vern9(), t, data, priors; reltol = 1e-8, abstol = 1e-8,
     likelihood = (u, p, t, σ) -> MvNormal(u, Diagonal((σ) .^ 2 .* ones(length(u)))),
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3), InverseGamma(2, 3)])
+println("Turing backend elapsed time: $(round(elapsed_turing_backend; digits=2)) seconds")
 ```
 
 ### Using DynamicHMC.jl backend
 
 ```julia
-@time bayesian_result_dynamichmc = dynamichmc_inference(
+elapsed_dynamichmc = @elapsed bayesian_result_dynamichmc = dynamichmc_inference(
     prob, Tsit5(), t, data, priors; solve_kwargs = (reltol = 1e-8, abstol = 1e-8))
+println("DynamicHMC elapsed time: $(round(elapsed_dynamichmc; digits=2)) seconds")
 ```
 
 ## Conclusion

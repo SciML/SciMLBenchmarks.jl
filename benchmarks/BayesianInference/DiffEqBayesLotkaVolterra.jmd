@@ -10,9 +10,23 @@ using DiffEqBayes, StanSample, DynamicHMC, Turing
 ```
 
 ```julia
-using Distributions, BenchmarkTools, StaticArrays
+using Distributions, StaticArrays
 using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions
 using Plots, LinearAlgebra
+```
+
+```julia
+"""Display ESS/s (effective samples per second) from a Turing chain."""
+function display_ess_per_sec(chain, elapsed)
+    stats = summarystats(chain)
+    ess_bulk = stats[:, :ess_bulk]
+    println("Elapsed time: $(round(elapsed; digits=2)) seconds\n")
+    println("ESS/s (effective samples per second, bulk):")
+    for (i, param) in enumerate(stats[:, :parameters])
+        println("  $param: $(round(ess_bulk[i] / elapsed; digits=1))")
+    end
+    println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
+end
 ```
 
 ```julia
@@ -71,31 +85,37 @@ priors = [truncated(Normal(1.5, 0.5), 0.5, 2.5), truncated(Normal(1.2, 0.5), 0, 
 
 The solution converges for tolerance values lower than 1e-3, lower tolerance leads to better accuracy in result but is accompanied by longer warmup and sampling time, truncated normal priors are used for preventing Stan from stepping into negative values.
 
+We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
+Stan infers a separate noise parameter (`sigma`) per data dimension via the `vars` specification.
+
 ```julia
-@btime bayesian_result_stan = stan_inference(
+elapsed_stan = @elapsed bayesian_result_stan = stan_inference(
     prob, t, data, priors, num_samples = 10_000, print_summary = false,
-    delta = 0.65, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+    delta = 0.85, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+println("Stan elapsed time: $(round(elapsed_stan; digits=2)) seconds")
 ```
 
 ### Direct Turing.jl
 
+We use a per-dimension noise model (matching Stan) with `InverseGamma(2, 3)` priors on each `σ`.
+
 ```julia
 @model function fitlv(data, prob)
     # Prior distributions.
-    σ ~ InverseGamma(2, 3)
+    σ ~ filldist(InverseGamma(2, 3), 2)
     α ~ truncated(Normal(1.5, 0.5), 0.5, 2.5)
     β ~ truncated(Normal(1.2, 0.5), 0, 2)
     γ ~ truncated(Normal(3.0, 0.5), 1, 4)
     δ ~ truncated(Normal(1.0, 0.5), 0, 2)
 
-    # Simulate Lotka-Volterra model. 
+    # Simulate Lotka-Volterra model.
     p = SA[α, β, γ, δ]
     _prob = remake(prob, p = p)
     predicted = solve(_prob, Tsit5(); saveat = t)
 
     # Observations.
     for i in 1:length(predicted)
-        data[:, i] ~ MvNormal(predicted[i], σ^2 * I)
+        data[:, i] ~ MvNormal(predicted[i], Diagonal(σ .^ 2))
     end
 
     return nothing
@@ -103,21 +123,29 @@ end
 
 model = fitlv(data, sprob)
 
-@time chain = sample(model, Turing.NUTS(0.65), 10000; progress = false)
+elapsed_turing_direct = @elapsed chain = sample(model, Turing.NUTS(0.85), 10_000; progress = false)
+chain
+```
+
+```julia
+display_ess_per_sec(chain, elapsed_turing_direct)
 ```
 
 ### Turing.jl backend
 
 ```julia
-@btime bayesian_result_turing = turing_inference(
-    prob, Tsit5(), t, data, priors, num_samples = 10_000)
+elapsed_turing_backend = @elapsed bayesian_result_turing = turing_inference(
+    prob, Tsit5(), t, data, priors; num_samples = 10_000,
+    likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3)])
+println("Turing backend elapsed time: $(round(elapsed_turing_backend; digits=2)) seconds")
 ```
 
 ### DynamicHMC.jl backend
 
 ```julia
-@btime bayesian_result_dynamichmc = dynamichmc_inference(
-    prob, Tsit5(), t, data, priors, num_samples = 10_000)
+elapsed_dynamichmc = @elapsed bayesian_result_dynamichmc = dynamichmc_inference(
+    prob, Tsit5(), t, data, priors; num_samples = 10_000)
+println("DynamicHMC elapsed time: $(round(elapsed_dynamichmc; digits=2)) seconds")
 ```
 
 ## Conclusion
