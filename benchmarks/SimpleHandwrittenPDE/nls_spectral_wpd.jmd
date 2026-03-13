@@ -38,6 +38,8 @@ Splitting into real and imaginary parts $\psi = u + iv$:
 
 The spatial derivative operators are represented via Fourier pseudospectral approximations. The linear operator $\alpha\begin{bmatrix} 0 & -D_x^2 \\ D_x^2 & 0 \end{bmatrix}$ has purely imaginary eigenvalues, reflecting the dispersive (not dissipative) nature of the NLS equation.
 
+Note: Unlike the FDM version, the spectral differentiation matrix $D_x^2$ is dense, so the Jacobian is also dense. Sparse Jacobian techniques do not apply here. For sparse Jacobian stiff method comparisons, see the FDM benchmark.
+
 ### Implementation
 
 ```julia
@@ -79,7 +81,7 @@ Using an adaptive timestepping method to solve the system of ordinary differenti
 
 ```julia
 L = 16.0 # Domain half-length
-n = 128 # Number of grid points
+n = 256 # Number of grid points
 alpha = 5.0 # Dispersive coefficient
 xs, prob = nonlinear_schrodinger(n, L, alpha)
 
@@ -203,7 +205,7 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, High Toleranc
 
 #### Non-Stiff vs IMEX
 
-Note: `KenCarp3`/`KenCarp4`/`KenCarp5` were tested but stall at several seconds per solve due to expensive dense linear solves on the 256×256 system (2N variables from real/imaginary splitting). They are excluded. ARKODE with dense linear solver is used as the adaptive IMEX representative.
+Note: `KenCarp3`/`KenCarp4`/`KenCarp5` were tested but stall at several seconds per solve due to expensive dense linear solves on the $(2N) \times (2N)$ system. They are excluded. ARKODE with dense linear solver is used as the adaptive IMEX representative.
 
 ```julia
 abstols = 0.1 .^ (8:11)
