@@ -4,7 +4,7 @@ author: Vaibhav Dixit, Chris Rackauckas
 ---
 
 ```julia
-using DiffEqBayes
+using DiffEqBayes, BenchmarkTools
 ```
 
 ```julia
@@ -82,11 +82,14 @@ priors = [truncated(Normal(1.0, 0.5), 0, 1.5), truncated(Normal(1.0, 0.5), 0, 1.
 
 We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
 
+Note: `@btime` excludes Julia compilation overhead. However, the reported time still includes
+Stan's own compilation, data serialization, and CSV parsing — not just sampling. Stan's internal
+sampling time (reported in its CSV output) is typically lower. ESS/s is the fairest comparison metric.
+
 ```julia
-elapsed_stan = @elapsed bayesian_result_stan = stan_inference(
+@btime bayesian_result_stan = stan_inference(
     prob_ode_fitzhughnagumo, t, data, priors; delta = 0.85, num_samples = 10_000,
     print_summary = false, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
-println("Stan elapsed time: $(round(elapsed_stan; digits=2)) seconds")
 ```
 
 ### Direct Turing.jl
@@ -117,6 +120,9 @@ end
 
 model = fitfhn(data, sprob_ode_fitzhughnagumo)
 
+# Warmup run to compile all code paths before timing
+sample(model, Turing.NUTS(0.85), 10; progress = false)
+
 elapsed_turing_direct = @elapsed chain = sample(model, Turing.NUTS(0.85), 10_000; progress = false)
 chain
 ```
@@ -128,10 +134,9 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 #### Turing.jl backend
 
 ```julia
-elapsed_turing_backend = @elapsed bayesian_result_turing = turing_inference(
+@btime bayesian_result_turing = turing_inference(
     prob_ode_fitzhughnagumo, Tsit5(), t, data, priors; num_samples = 10_000,
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3)])
-println("Turing backend elapsed time: $(round(elapsed_turing_backend; digits=2)) seconds")
 ```
 
 # Conclusion

@@ -115,11 +115,14 @@ Lorenz equation is a chaotic system hence requires very low tolerance to be esti
 We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
 Stan infers a separate noise parameter per data dimension (3 for the 3D Lorenz system).
 
+Note: `@time` includes Julia compilation on first run. The reported time also includes
+Stan's own compilation, data serialization, and CSV parsing — not just sampling. Stan's internal
+sampling time (reported in its CSV output) is typically lower. ESS/s is the fairest comparison metric.
+
 ```julia
-elapsed_stan = @elapsed bayesian_result_stan = stan_inference(
+@time bayesian_result_stan = stan_inference(
     prob, t, data, priors; delta = 0.85, reltol = 1e-8, abstol = 1e-8,
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
-println("Stan elapsed time: $(round(elapsed_stan; digits=2)) seconds")
 ```
 
 ### Direct Turing.jl
@@ -149,6 +152,9 @@ end
 
 model = fitlorenz(data, sprob)
 
+# Warmup run to compile all code paths before timing
+sample(model, Turing.NUTS(0.85), 10; progress = false)
+
 elapsed_turing_direct = @elapsed chain = sample(model, Turing.NUTS(0.85), 10_000; progress = false)
 chain
 ```
@@ -160,19 +166,17 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 ### Using Turing.jl backend
 
 ```julia
-elapsed_turing_backend = @elapsed bayesian_result_turing = turing_inference(
+@time bayesian_result_turing = turing_inference(
     prob, Vern9(), t, data, priors; reltol = 1e-8, abstol = 1e-8,
     likelihood = (u, p, t, σ) -> MvNormal(u, Diagonal((σ) .^ 2 .* ones(length(u)))),
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3), InverseGamma(2, 3)])
-println("Turing backend elapsed time: $(round(elapsed_turing_backend; digits=2)) seconds")
 ```
 
 ### Using DynamicHMC.jl backend
 
 ```julia
-elapsed_dynamichmc = @elapsed bayesian_result_dynamichmc = dynamichmc_inference(
+@time bayesian_result_dynamichmc = dynamichmc_inference(
     prob, Tsit5(), t, data, priors; solve_kwargs = (reltol = 1e-8, abstol = 1e-8))
-println("DynamicHMC elapsed time: $(round(elapsed_dynamichmc; digits=2)) seconds")
 ```
 
 ## Conclusion
