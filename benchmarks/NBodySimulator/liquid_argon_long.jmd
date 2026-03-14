@@ -50,11 +50,12 @@ function benchmark(energyerr, rts, bytes, allocs, nt, nf, t, configs)
     prob = SecondOrderODEProblem(simulation)
     for config in configs
         alg = config.alg
+        solver_kwargs = Base.structdiff(config, NamedTuple{(:alg,)})
         sol, rt,
         b,
         gc,
         memalloc = @timed solve(prob, alg();
-            save_everystep = false, progress = true, progress_name = "$alg", config...)
+            save_everystep = false, progress = true, progress_name = "$alg", solver_kwargs...)
         result = NBodySimulator.SimulationResult(sol, simulation)
         ΔE = total_energy(result, t) - total_energy(result, 0)
         energyerr[alg] = ΔE
@@ -79,7 +80,7 @@ function run_benchmark!(results, t, integrators, tol...; c = ones(length(integra
         GC.gc()
         benchmark(ΔE, runtime, b, allocs, nt, nf, t, cfg)
         get_tol(idx) = haskey(cfg[idx], :dt) ? cfg[idx].dt :
-                       (cfg[idx].abstol, cfg[idx].rtol)
+                       (cfg[idx].abstol, cfg[idx].reltol)
 
         for (idx, i) in enumerate(integrators)
             push!(results, [
@@ -172,7 +173,7 @@ adaptive_integrators=[
 
 ```julia
 function config(integrators, c, at, rt)
-    [(alg = a, abstol = at*2^cₐ, rtol = rt*2^cₐ) for (a, cₐ) in zip(integrators, c)]
+    [(alg = a, abstol = at*2^cₐ, reltol = rt*2^cₐ) for (a, cₐ) in zip(integrators, c)]
 end
 
 t = 35.0
