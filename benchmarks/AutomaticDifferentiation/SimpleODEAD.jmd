@@ -396,7 +396,7 @@ function diffeq_sen_l2(df, u0, tspan, p, t, alg = Tsit5();
         abstol = 1e-5, reltol = 1e-7,
         sensalg = InterpolatingAdjoint(), kwargs...)
     prob = ODEProblem(df, u0, tspan, p)
-    sol = solve(prob, alg, sensealg = SensitivityADPassThrough(),
+    sol = solve(prob, alg, sensealg = SciMLSensitivity.SensitivityADPassThrough(),
         abstol = abstol, reltol = reltol; kwargs...)
     dg(out, u, p, t, i) = (out.=u .- 1.0)
     adjoint_sensitivities(sol, alg; t, abstol = abstol, dgdu_discrete = dg,
@@ -407,7 +407,7 @@ function auto_sen_l2(
         f, u0, tspan, p, t, alg = Tsit5(); diffalg = ReverseDiff.gradient, kwargs...)
     test_f(p) = begin
         prob = ODEProblem{true, SciMLBase.FullSpecialize}(f, eltype(p).(u0), tspan, p)
-        sol = solve(prob, alg; sensealg = SensitivityADPassThrough(), kwargs...)(t)
+        sol = solve(prob, alg; sensealg = SciMLSensitivity.SensitivityADPassThrough(), kwargs...)(t)
         sum(sol.u) do x
             sum(z->(1-z)^2/2, x)
         end
@@ -778,7 +778,7 @@ adjoint_timings = DataFrame(
     methods = adjoint_methods, LV = adjoint_lv, Bruss = adjoint_bruss,
     Pollution = adjoint_pollution, PKPD = adjoint_pkpd)
 Markdown.parse(PrettyTables.pretty_table(
-    String, adjoint_timings; backend = :markdown))
+    String, adjoint_timings; backend = :markdown, column_labels = names(adjoint_timings)))
 ```
 
 ## Appendix
