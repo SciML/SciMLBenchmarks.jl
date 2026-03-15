@@ -17,7 +17,7 @@ BioPreDyn-bench Matlab files.
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots,
-      ODEInterfaceDiffEq, LSODA, SBMLImporter, Catalyst,
+      LSODA, SBMLImporter, Catalyst,
       LinearAlgebra, BenchmarkTools, JLD2, SciMLBenchmarks
 
 gr()
@@ -81,8 +81,8 @@ setups = [
     Dict(:alg => FBDF()),
     Dict(:alg => QNDF()),
     Dict(:alg => Rodas4()),
-    Dict(:alg => rodas()),
-    Dict(:alg => radau()),
+    Dict(:alg => Rodas5()),
+    Dict(:alg => RadauIIA5()),
     Dict(:alg => lsoda()),
     Dict(:alg => CVODE_BDF()),
 ]
@@ -90,7 +90,7 @@ setups = [
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 
-names = ["Rosenbrock23" "TRBDF2" "FBDF" "QNDF" "Rodas4" "rodas" "radau" "lsoda" "CVODE_BDF"]
+names = ["Rosenbrock23" "TRBDF2" "FBDF" "QNDF" "Rodas4" "Rodas5" "RadauIIA5" "lsoda" "CVODE_BDF"]
 plot(wp; label = names, title = "BioPreDyn B2: High Tolerances")
 ```
 
@@ -110,13 +110,13 @@ setups = [
     Dict(:alg => Kvaerno5()),
     Dict(:alg => CVODE_BDF()),
     Dict(:alg => lsoda()),
-    Dict(:alg => radau()),
+    Dict(:alg => RadauIIA5()),
 ]
 
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 
-names = ["FBDF" "QNDF" "Rodas4" "Rodas5P" "KenCarp4" "KenCarp47" "Kvaerno5" "CVODE_BDF" "lsoda" "radau"]
+names = ["FBDF" "QNDF" "Rodas4" "Rodas5P" "KenCarp4" "KenCarp47" "Kvaerno5" "CVODE_BDF" "lsoda" "RadauIIA5"]
 plot(wp; label = names, title = "BioPreDyn B2: Low Tolerances")
 ```
 
@@ -157,13 +157,13 @@ setups = [
     Dict(:alg => Rodas5P()),
     Dict(:alg => KenCarp4()),
     Dict(:alg => lsoda()),
-    Dict(:alg => radau()),
+    Dict(:alg => RadauIIA5()),
 ]
 
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 
-names = ["CVODE_BDF" "QNDF" "FBDF" "Rodas4" "Rodas5P" "KenCarp4" "lsoda" "radau"]
+names = ["CVODE_BDF" "QNDF" "FBDF" "Rodas4" "Rodas5P" "KenCarp4" "lsoda" "RadauIIA5"]
 plot(wp; label = names, title = "BioPreDyn B2: Summary",
     left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     legendfontsize = 10, tickfontsize = 10, guidefontsize = 10,
