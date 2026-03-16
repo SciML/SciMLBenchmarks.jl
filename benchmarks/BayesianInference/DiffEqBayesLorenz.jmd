@@ -134,7 +134,9 @@ Stan infers a separate noise parameter per data dimension (3 for the 3D Lorenz s
 
 ```julia
 @time bayesian_result_stan = stan_inference(
-    prob, t, data, priors; delta = 0.85, reltol = 1e-8, abstol = 1e-8,
+    prob, t, data, priors;
+    solve_kwargs = Dict(:reltol => 1e-8, :abstol => 1e-8),
+    sample_kwargs = Dict(:delta => 0.85),
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
@@ -186,7 +188,9 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 
 ```julia
 @time bayesian_result_turing = turing_inference(
-    prob, Vern9(), t, data, priors; reltol = 1e-8, abstol = 1e-8,
+    prob, Vern9(), t, data, priors;
+    sample_args = (sampler = Turing.NUTS(0.85), num_samples = 10_000),
+    solve_kwargs = (reltol = 1e-8, abstol = 1e-8),
     likelihood = (u, p, t, σ) -> MvNormal(u, Diagonal((σ) .^ 2 .* ones(length(u)))),
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3), InverseGamma(2, 3)])
 ```

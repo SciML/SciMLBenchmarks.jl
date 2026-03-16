@@ -101,8 +101,10 @@ We use `adapt_delta = 0.85` (Stan's default) consistently across all backends fo
 
 ```julia
 @btime bayesian_result_stan = stan_inference(
-    prob_ode_fitzhughnagumo, t, data, priors; delta = 0.85, num_samples = 10_000,
-    print_summary = false, vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
+    prob_ode_fitzhughnagumo, t, data, priors;
+    print_summary = false,
+    sample_kwargs = Dict(:delta => 0.85, :num_samples => 10_000),
+    vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
 Stan's internal timing (excluding data serialization and CSV parsing):
@@ -154,7 +156,8 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 
 ```julia
 @btime bayesian_result_turing = turing_inference(
-    prob_ode_fitzhughnagumo, Tsit5(), t, data, priors; num_samples = 10_000,
+    prob_ode_fitzhughnagumo, Tsit5(), t, data, priors;
+    sample_args = (sampler = Turing.NUTS(0.85), num_samples = 10_000),
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3)])
 ```
 
