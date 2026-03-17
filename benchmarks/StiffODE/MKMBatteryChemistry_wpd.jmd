@@ -20,7 +20,7 @@ This represents a realistic electrochemical system with multiple time scales and
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA, LinearSolve
 using ProfileSVG, BenchmarkTools, Profile
 gr() # gr(fmt=:png)
-using LinearAlgebra, StaticArrays, RecursiveFactorization
+using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester
 
 ff = begin
         ff = ((var"##MTIIPVar#15413", var"##MTKArg#15409", var"##MTKArg#15410", var"##MTKArg#15411")->begin
@@ -225,7 +225,7 @@ ff = begin
                     nothing
                 end)
         M = UniformScaling{Bool}(true)
-        ODEFunction{true}(ff, jac = jac, tgrad = tgrad, mass_matrix = M, jac_prototype = nothing, syms = [:x₁, :x₂, :x₃, :x₄, :x₅, :x₆, :x₇, :x₈, :x₉, :x₁₀, :x₁₁, :x₁₂, :x₁₃])
+        ODEFunction{true}(ff, jac = jac, tgrad = tgrad, mass_matrix = M, jac_prototype = nothing, sys = SciMLBase.SymbolCache([:x₁, :x₂, :x₃, :x₄, :x₅, :x₆, :x₇, :x₈, :x₉, :x₁₀, :x₁₁, :x₁₂, :x₁₃]))
     end
 u0 = [0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.81e-6, 55500.0]
 tspan = (0.0, 1.0e-5)
@@ -240,11 +240,11 @@ reltols = 1.0 ./ 10.0 .^ (1:8);
 ```
 
 ```julia
-plot(sol, vars=[8], xscale = :log10, tspan=(1e-12, 1e-5))
+plot(sol, idxs=[8], xscale = :log10, tspan=(1e-12, 1e-5))
 ```
 
 ```julia
-plot(sol, vars=[11], xscale = :log10, tspan=(1e-12, 1e-5))
+plot(sol, idxs=[11], xscale = :log10, tspan=(1e-12, 1e-5))
 ```
 
 ## High Tolerances
@@ -440,11 +440,11 @@ setups = [
             Dict(:alg=>lsoda()),
             Dict(:alg=>radau()),
             Dict(:alg=>seulex()),
-            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
             ]
 
