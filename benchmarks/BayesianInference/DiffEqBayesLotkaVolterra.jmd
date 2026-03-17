@@ -72,7 +72,7 @@ sol = solve(prob, Tsit5())
 
 ```julia
 su0 = SA[1.0, 1.0]
-sp = SA[1.5, 1.0, 3.0, 1, 0]
+sp = SA[1.5, 1.0, 3.0, 1.0]
 sprob = ODEProblem{false, SciMLBase.FullSpecialize}(f, su0, tspan, sp)
 sol = solve(sprob, Tsit5())
 ```
@@ -106,7 +106,7 @@ We use `adapt_delta = 0.85` (Stan's default) consistently across all backends fo
 Stan infers a separate noise parameter (`sigma`) per data dimension via the `vars` specification.
 
 ```julia
-@btime bayesian_result_stan = stan_inference(
+bayesian_result_stan = @time stan_inference(
     prob, :rk45, t, data, priors; print_summary = false,
     sample_kwargs = Dict(:delta => 0.85, :num_samples => 10_000),
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
