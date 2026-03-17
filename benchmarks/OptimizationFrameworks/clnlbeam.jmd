@@ -21,7 +21,6 @@ import Optimization
 import OptimizationMOI
 import Plots
 import ReverseDiff
-import SparseDiffTools
 import Test
 ```
 
@@ -79,12 +78,12 @@ function run_enzyme_diff(N::Int)
 end
 
 function run_forward_diff(N::Int)
-    run_optimization(N, Optimization.AutoSparseForwardDiff())
+    run_optimization(N, Optimization.AutoSparse(Optimization.AutoForwardDiff()))
     return
 end
 
 function run_reverse_diff(N::Int)
-    run_optimization(N, Optimization.AutoSparseReverseDiff(true))
+    run_optimization(N, Optimization.AutoSparse(Optimization.AutoReverseDiff(true)))
     return
 end
 ```
@@ -149,11 +148,11 @@ function run_modelingtoolkit(N::Int, use_structural_simplify::Bool = true)
         name = :clnlbeam
     ))
     if use_structural_simplify
-        system = MTK.structural_simplify(system)
+        system = MTK.mtkcompile(system)
     end
     prob = Optimization.OptimizationProblem(
         system,
-        Dict(k => 0.0 for k in system.unknowns);
+        Dict(k => 0.0 for k in MTK.unknowns(system));
         grad = true,
         hess = true,
         cons_j = true,
