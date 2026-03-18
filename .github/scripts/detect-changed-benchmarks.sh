@@ -11,7 +11,8 @@ set -eo pipefail
 #   1. benchmarks/<name>/benchmark_config.toml (per-benchmark override)
 #   2. .github/benchmark_defaults.toml (fallback defaults)
 #
-# Outputs a JSON array of {target, runner, timeout} objects for matrix include.
+# Outputs a JSON array of {target, runner, timeout, julia_version} objects for matrix include.
+# Julia version is read from each benchmark's Manifest.toml (major.minor).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/read-benchmark-config.sh"
@@ -76,7 +77,7 @@ if [[ ${#FILES[@]} -gt 0 ]]; then
     done
 fi
 
-# Output as JSON array of {target, runner, timeout} objects for matrix include
+# Output as JSON array of {target, runner, timeout, julia_version} objects for matrix include
 if [[ ${#BUILD_TARGETS[@]} -eq 0 ]]; then
     echo "has_changes=false" >> "$GITHUB_OUTPUT"
     echo "matrix=[]" >> "$GITHUB_OUTPUT"
@@ -86,20 +87,21 @@ else
     JSON="["
     for i in "${!BUILD_TARGETS[@]}"; do
         target="${BUILD_TARGETS[$i]}"
-        config=$(get_runner_config "${target}")
-        runner="${config%|*}"
-        timeout="${config#*|}"
+        config=$(get_benchmark_config "${target}")
+        runner=$(echo "${config}" | cut -d'|' -f1)
+        timeout=$(echo "${config}" | cut -d'|' -f2)
+        julia_version=$(echo "${config}" | cut -d'|' -f3)
 
         if [[ $i -gt 0 ]]; then
             JSON+=","
         fi
-        JSON+="{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout}}"
+        JSON+="{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout},\"julia_version\":\"${julia_version}\"}"
     done
     JSON+="]"
     echo "matrix=${JSON}" >> "$GITHUB_OUTPUT"
     echo "Detected benchmark targets:"
     for t in "${BUILD_TARGETS[@]}"; do
-        config=$(get_runner_config "${t}")
-        echo "  ${t} -> runner=${config%|*} timeout=${config#*|}"
+        config=$(get_benchmark_config "${t}")
+        echo "  ${t} -> runner=$(echo "${config}" | cut -d'|' -f1) timeout=$(echo "${config}" | cut -d'|' -f2) julia=$(echo "${config}" | cut -d'|' -f3)"
     done
 fi
