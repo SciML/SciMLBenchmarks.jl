@@ -52,11 +52,12 @@ jobs:
         run: |
           target="${{ github.event.inputs.benchmark_target }}"
           source .github/scripts/read-benchmark-config.sh
-          config=$(get_runner_config "${target}")
-          runner="${config%|*}"
-          timeout="${config#*|}"
+          config=$(get_benchmark_config "${target}")
+          runner=$(echo "${config}" | cut -d'|' -f1)
+          timeout=$(echo "${config}" | cut -d'|' -f2)
+          julia_version=$(echo "${config}" | cut -d'|' -f3)
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "matrix=[{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout}}]" >> "$GITHUB_OUTPUT"
+          echo "matrix=[{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout},\"julia_version\":\"${julia_version}\"}]" >> "$GITHUB_OUTPUT"
 
   benchmark:
     name: "Run: ${{ matrix.target }}"
@@ -80,7 +81,7 @@ jobs:
 
       - uses: julia-actions/setup-julia@v2
         with:
-          version: '1.10'
+          version: ${{ matrix.julia_version }}
 
       - uses: julia-actions/cache@v2
 
