@@ -20,13 +20,13 @@ echo "--- Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
 if [[ "${1}" == *BayesianInference* ]]; then
-	export CMDSTAN_HOME="$(pwd)/cmdstan-2.29.2/"
-	curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.29.2/cmdstan-2.29.2.tar.gz
-	tar -xzpf cmdstan-2.29.2.tar.gz --no-same-owner
-	echo "STAN_THREADS=true" > ./cmdstan-2.29.2/make/local
+	export CMDSTAN_HOME="$(pwd)/cmdstan-2.38.0/"
+	curl -LO https://github.com/stan-dev/cmdstan/releases/download/v2.38.0/cmdstan-2.38.0.tar.gz
+	tar -xzpf cmdstan-2.38.0.tar.gz --no-same-owner
+	echo "STAN_THREADS=true" > ./cmdstan-2.38.0/make/local
 	echo "g++ version"
-	echo $(g++ -v)
-	make -C cmdstan-2.29.2 build
+	g++ --version
+	make -C cmdstan-2.38.0 build
 fi
 
 # Run benchmark
