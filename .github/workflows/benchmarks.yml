@@ -46,11 +46,17 @@ jobs:
       matrix: ${{ steps.manual.outputs.matrix }}
       has_changes: ${{ steps.manual.outputs.has_changes }}
     steps:
+      - uses: actions/checkout@v4
       - name: Set manual target
         id: manual
         run: |
+          target="${{ github.event.inputs.benchmark_target }}"
+          source .github/scripts/read-benchmark-config.sh
+          config=$(get_runner_config "${target}")
+          runner="${config%|*}"
+          timeout="${config#*|}"
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "matrix=[\"${{ github.event.inputs.benchmark_target }}\"]" >> "$GITHUB_OUTPUT"
+          echo "matrix=[{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout}}]" >> "$GITHUB_OUTPUT"
 
   benchmark:
     name: "Run: ${{ matrix.target }}"
@@ -61,13 +67,12 @@ jobs:
         (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.has_changes == 'true') ||
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
-    runs-on: [self-hosted, benchmark, exclusive]
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        target: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
+        include: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
       fail-fast: false
-      max-parallel: 1
-    timeout-minutes: 12000
+    timeout-minutes: ${{ matrix.timeout }}
     env:
       JULIA_NUM_THREADS: auto
     steps:
