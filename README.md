@@ -3,7 +3,7 @@
 [![Join the chat at https://julialang.zulipchat.com #sciml-bridged](https://img.shields.io/static/v1?label=Zulip&message=chat&color=9558b2&labelColor=389826)](https://julialang.zulipchat.com/#narrow/stream/279055-sciml-bridged)
 [![Global Docs](https://img.shields.io/badge/docs-SciML-blue.svg)](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/)
 
-[![Build status](https://badge.buildkite.com/2f4b5708bf098c75ce193f04b3f3c4047f993f0e363e314c61.svg)](https://buildkite.com/julialang/scimlbenchmarks-dot-jl)
+[![CI](https://github.com/SciML/SciMLBenchmarks.jl/actions/workflows/benchmarks.yml/badge.svg)](https://github.com/SciML/SciMLBenchmarks.jl/actions/workflows/benchmarks.yml)
 
 [![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac)
 [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle)
@@ -204,7 +204,7 @@ will add all of the packages required to run any benchmark in the `NonStiffODE` 
 All of the files are generated from the Weave.jl files in the `benchmarks` folder of the [SciMLBenchmarks.jl](https://github.com/SciML/SciMLBenchmarks.jl) repository. The generation process runs automatically,
 and thus one does not necessarily need to test the Weave process locally. Instead, simply open a PR that adds/updates a
 file in the `benchmarks` folder and the PR will generate the benchmark on demand. Its artifacts can then be inspected in the
-Buildkite as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
+GitHub Actions CI as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
 any changes to dependencies requires that those are updated.
 
 ### Reporting Bugs and Issues
@@ -213,11 +213,65 @@ Report any bugs or issues at [the SciMLBenchmarks repository](https://github.com
 
 ### Inspecting Benchmark Results
 
-To see benchmark results before merging, click into the Github Actions CI results, click into
+To see benchmark results before merging, click into the GitHub Actions CI results, click into
 "Upload Benchmark Artifacts", and then investigate the trained results by clicking the link to download the zip file
 with all of the results.
 
 ![](https://private-user-images.githubusercontent.com/1814174/565558304-9d4ee2c9-dec6-4c39-b159-91769fc2cc8c.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzM4Mzg5ODIsIm5iZiI6MTc3MzgzODY4MiwicGF0aCI6Ii8xODE0MTc0LzU2NTU1ODMwNC05ZDRlZTJjOS1kZWM2LTRjMzktYjE1OS05MTc2OWZjMmNjOGMucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDMxOCUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjAzMThUMTI1ODAyWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDAzMGI3MGZlMTVmMDVmZmM5NzgwNDJjMDcwMjJkYzk0MTc5MzQzMGEzMmMzYzIzMTdiMGEwYjUxNmZhZDAyYyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Esx39-jE3dI8Be0reWOTJBDYNua2M2Q_K1i5_fVAaQg)
+
+### CI Architecture
+
+Benchmarks run on self-hosted GitHub Actions runners. Each benchmark directory can customize its CI behavior via two optional configuration files.
+
+#### Runner Configuration (`benchmark_config.toml`)
+
+Each benchmark directory can contain a `benchmark_config.toml` to specify which runner to use and the job timeout. If absent, defaults from `.github/benchmark_defaults.toml` apply.
+
+```toml
+# CPU benchmark (default — no config file needed)
+runner = ["self-hosted", "benchmark"]
+timeout = 12000  # minutes
+
+# GPU benchmark (e.g. benchmarks/PINNErrorsVsTime/benchmark_config.toml)
+runner = ["self-hosted", "gpu", "exclusive"]
+timeout = 12000
+```
+
+| Runner Type | Labels | Hardware | Use Case |
+|-------------|--------|----------|----------|
+| CPU | `["self-hosted", "benchmark"]` | amdci1, amdci3 (AMD EPYC, stable hardware) | Most benchmarks. Stable hardware for regression checking. |
+| GPU | `["self-hosted", "gpu", "exclusive"]` | demeter3 (AMD EPYC + 2x Tesla V100) | NeuralPDE/PINN benchmarks and other GPU workloads. |
+
+#### Setup Scripts (`setup.sh`)
+
+If a benchmark directory contains an executable `setup.sh`, it runs before `Pkg.instantiate()` and the benchmark itself. Use this for installing system dependencies, configuring package registries, downloading data, etc.
+
+```
+benchmarks/
+  BayesianInference/
+    setup.sh            # Installs CmdStan
+    Project.toml
+    DiffEqBayesLorenz.jmd
+  ModelingToolkit/
+    setup.sh            # Configures JuliaHubRegistry
+    Project.toml
+    ...
+  NonStiffODE/
+    Project.toml        # No setup.sh needed — just uses defaults
+    linear_wpd.jmd
+```
+
+Setup scripts can export environment variables to the benchmark process by writing to `$BENCHMARK_ENV_FILE`:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+# Install something...
+export MY_VAR="/path/to/thing"
+echo "export MY_VAR=\"${MY_VAR}\"" >> "${BENCHMARK_ENV_FILE}"
+```
+
+The CI pipeline for each benchmark is: `setup.sh` (if present) → `Pkg.instantiate()` → `julia benchmark.jl <target>`.
 
 ### Manually Generating Files
 
