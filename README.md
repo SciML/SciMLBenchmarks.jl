@@ -213,10 +213,11 @@ Report any bugs or issues at [the SciMLBenchmarks repository](https://github.com
 
 ### Inspecting Benchmark Results
 
-To see benchmark results before merging, click into the BuildKite, click onto
-Artifacts, and then investigate the trained results.
+To see benchmark results before merging, click into the Github Actions CI results, click into
+"Upload Benchmark Artifacts", and then investigate the trained results by clicking the link to download the zip file
+with all of the results.
 
-![](https://user-images.githubusercontent.com/1814174/118359358-02ddc980-b551-11eb-8a9b-24de947cefee.PNG)
+![](https://private-user-images.githubusercontent.com/1814174/565558304-9d4ee2c9-dec6-4c39-b159-91769fc2cc8c.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzM4Mzg5ODIsIm5iZiI6MTc3MzgzODY4MiwicGF0aCI6Ii8xODE0MTc0LzU2NTU1ODMwNC05ZDRlZTJjOS1kZWM2LTRjMzktYjE1OS05MTc2OWZjMmNjOGMucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDMxOCUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjAzMThUMTI1ODAyWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDAzMGI3MGZlMTVmMDVmZmM5NzgwNDJjMDcwMjJkYzk0MTc5MzQzMGEzMmMzYzIzMTdiMGEwYjUxNmZhZDAyYyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Esx39-jE3dI8Be0reWOTJBDYNua2M2Q_K1i5_fVAaQg)
 
 ### Manually Generating Files
 
