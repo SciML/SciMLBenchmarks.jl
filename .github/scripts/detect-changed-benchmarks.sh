@@ -2,10 +2,19 @@
 set -eo pipefail
 
 # Detect changed benchmark files and produce a JSON matrix for GHA.
-# Replicates the logic from .buildkite/path_processors/project-coalescing:
+# Replicates the project-coalescing logic:
 #   - A changed .jmd file triggers a rebuild of just that file
-#   - A changed .toml file triggers a rebuild of its entire benchmark directory
+#   - A changed .toml file (Project.toml/Manifest.toml) triggers a rebuild of its entire benchmark directory
 #   - If a directory is already being rebuilt, individual .jmd files in it are suppressed
+#
+# Reads runner configuration from:
+#   1. benchmarks/<name>/benchmark_config.toml (per-benchmark override)
+#   2. .github/benchmark_defaults.toml (fallback defaults)
+#
+# Outputs a JSON array of {target, runner, timeout} objects for matrix include.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/read-benchmark-config.sh"
 
 if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
@@ -15,10 +24,6 @@ else
     # Push event: compare with parent commit
     CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
 fi
-
-# Also check if src/ or root toml changed — if so, we should note it but
-# the forerunner in buildkite only watched benchmarks/** for launching benchmark jobs.
-# src/ changes triggered test_sciml.yml instead. We replicate that behavior.
 
 declare -A FILES     # .jmd file -> its project directory
 declare -A PROJECTS  # project directories that need full rebuild
@@ -37,6 +42,8 @@ find_project() {
 
 while IFS= read -r f; do
     [[ -z "${f}" ]] && continue
+    # Skip benchmark_config.toml changes — they don't trigger rebuilds
+    [[ "${f}" == */benchmark_config.toml ]] && continue
     proj=$(find_project "$(dirname "${f}")")
     if [[ -z "${proj}" ]]; then
         echo "::warning::Unable to find project for ${f}"
@@ -69,22 +76,30 @@ if [[ ${#FILES[@]} -gt 0 ]]; then
     done
 fi
 
-# Output as JSON array for GHA matrix
+# Output as JSON array of {target, runner, timeout} objects for matrix include
 if [[ ${#BUILD_TARGETS[@]} -eq 0 ]]; then
     echo "has_changes=false" >> "$GITHUB_OUTPUT"
     echo "matrix=[]" >> "$GITHUB_OUTPUT"
     echo "No benchmark changes detected."
 else
     echo "has_changes=true" >> "$GITHUB_OUTPUT"
-    # Build JSON array
     JSON="["
     for i in "${!BUILD_TARGETS[@]}"; do
+        target="${BUILD_TARGETS[$i]}"
+        config=$(get_runner_config "${target}")
+        runner="${config%|*}"
+        timeout="${config#*|}"
+
         if [[ $i -gt 0 ]]; then
             JSON+=","
         fi
-        JSON+="\"${BUILD_TARGETS[$i]}\""
+        JSON+="{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout}}"
     done
     JSON+="]"
     echo "matrix=${JSON}" >> "$GITHUB_OUTPUT"
-    echo "Detected benchmark targets: ${BUILD_TARGETS[*]}"
+    echo "Detected benchmark targets:"
+    for t in "${BUILD_TARGETS[@]}"; do
+        config=$(get_runner_config "${t}")
+        echo "  ${t} -> runner=${config%|*} timeout=${config#*|}"
+    done
 fi
