@@ -17,17 +17,40 @@ read_toml_key() {
     fi
 }
 
-# Extract Julia minor version (e.g. "1.10") from a Manifest.toml's julia_version field
+# Minimum Julia version — clamp to LTS so old Manifests don't pull ancient versions
+JULIA_LTS="1.10"
+
+# Compare two major.minor version strings. Returns 0 if $1 < $2.
+version_lt() {
+    local major1 minor1 major2 minor2
+    major1=$(echo "$1" | cut -d. -f1)
+    minor1=$(echo "$1" | cut -d. -f2)
+    major2=$(echo "$2" | cut -d. -f1)
+    minor2=$(echo "$2" | cut -d. -f2)
+    if [[ "${major1}" -lt "${major2}" ]]; then
+        return 0
+    elif [[ "${major1}" -eq "${major2}" && "${minor1}" -lt "${minor2}" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Extract Julia minor version (e.g. "1.10") from a Manifest.toml's julia_version field.
+# Clamps to LTS as a minimum — old Manifests (1.8, 1.9) will use LTS instead.
 get_julia_version() {
     local bench_dir="$1"
     local manifest="${bench_dir}/Manifest.toml"
     local raw
     raw=$(read_toml_key "${manifest}" "julia_version")
     if [[ -n "${raw}" ]]; then
-        # Strip quotes and extract major.minor (e.g. "1.10.10" -> "1.10")
         local version
         version=$(echo "${raw}" | tr -d '"' | cut -d. -f1,2)
-        echo "${version}"
+        # Clamp to LTS minimum
+        if version_lt "${version}" "${JULIA_LTS}"; then
+            echo "${JULIA_LTS}"
+        else
+            echo "${version}"
+        fi
     fi
 }
 
