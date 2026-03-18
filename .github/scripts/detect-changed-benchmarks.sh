@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 # Detect changed benchmark files and produce a JSON matrix for GHA.
 # Replicates the logic from .buildkite/path_processors/project-coalescing:
