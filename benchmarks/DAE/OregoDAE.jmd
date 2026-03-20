@@ -29,6 +29,23 @@ probs = [mtkprob, daeprob, odaeprob]
 refs = [ode_ref_sol, ode_ref_sol, ode_ref_sol];
 ```
 
+## IDA Reference Solve (DAE form)
+
+IDA on the DAE formulation goes unstable near the end of integration
+(t ≈ 29.4 out of [0, 30]).  With the Sundials 7 C library (Sundials.jl v5)
+the error-test failure is not recoverable at high precision, so we use the
+ODE reference from CVODE_BDF above instead.
+
+```julia
+try
+    ida_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14)
+    println("IDA retcode: ", ida_sol.retcode,
+            ", t_final: ", ida_sol.t[end], " (tspan ends at 30.0)")
+catch e
+    println("IDA solve failed: ", e)
+end
+```
+
 ```julia
 plot(ode_ref_sol)
 ```
