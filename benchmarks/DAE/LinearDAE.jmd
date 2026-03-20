@@ -218,22 +218,34 @@ cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0]
 
 ## Index-3 DAE: Electric Generator
 
-**System**: E*dx/dt = A*x + B*u, where x = [ω, i1, i2, i3, φ1, φ2, φ3, v1, v2]
+**System**: E*dx/dt = A*x + B*u, where x = [ω, i, v_emf, v_load]
+
+A simplified DC generator with rotor inertia, back-EMF coupling, winding
+resistance, and a resistive load.  Only ω is differential; the remaining
+three variables are algebraically determined.
 
 ```julia
 # Electric Generator Parameters
-J_gen, L_gen, R1_gen, R2_gen, k_gen = 1.0, 1.0, 1.0, 1.0, 1.0
+J_gen = 1.0    # rotor inertia
+R1_gen = 1.0   # winding resistance
+R2_gen = 1.0   # load resistance
+k_gen = 1.0    # back-EMF / torque constant
 
-# System matrices (simplified 4x4 version)
+# System matrices (4x4)
+# State: [ω, i, v_emf, v_load]
+# Row 1  (differential): J*dω/dt = -k*i + u(t)
+# Row 2  (algebraic):    0 = k*ω - v_emf
+# Row 3  (algebraic):    0 = v_emf - R1*i - v_load
+# Row 4  (algebraic):    0 = v_load - R2*i
 E_gen = [J_gen 0 0 0
          0 0 0 0
          0 0 0 0
          0 0 0 0]
 
-A_gen = [0 0 0 0
-         0 0 0 1
-         0 0 0 -R2_gen
-         0 -k_gen 1 0]
+A_gen = [0      -k_gen  0   0
+         k_gen   0     -1   0
+         0      -R1_gen 1  -1
+         0      -R2_gen 0   1]
 
 B_gen = [1; 0; 0; 0]
 C_gen = [1 0 0 0; 0 0 0 1]
