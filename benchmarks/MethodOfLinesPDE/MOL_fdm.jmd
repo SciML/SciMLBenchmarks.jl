@@ -75,25 +75,33 @@ discnu1 = MOLFiniteDifference([gridnu1], t, advection_scheme = UpwindScheme())
 discnu2 = MOLFiniteDifference([gridnu2], t, advection_scheme = UpwindScheme(), grid_align = edge_align)
 ```
 
-Here are the problems for pdesys1:
+Here are the problems for pdesys1 (note: we omit `analytic` from `discretize` due to
+a SciMLBase function-promotion bug, and instead compute reference solutions for error estimation):
 
 ```julia
-probupwind1 = discretize(pdesys1, discupwind1; analytic = pdesys1.analytic_func)
-probupwind2 = discretize(pdesys1, discupwind2; analytic = pdesys1.analytic_func)
+probupwind1 = discretize(pdesys1, discupwind1)
+probupwind2 = discretize(pdesys1, discupwind2)
 
-probweno1 = discretize(pdesys1, discweno1; analytic = pdesys1.analytic_func)
-probweno2 = discretize(pdesys1, discweno2; analytic = pdesys1.analytic_func)
+probweno1 = discretize(pdesys1, discweno1)
+probweno2 = discretize(pdesys1, discweno2)
 
-probnu1 = discretize(pdesys1, discnu1; analytic = pdesys1.analytic_func)
-probnu2 = discretize(pdesys1, discnu2; analytic = pdesys1.analytic_func)
+probnu1 = discretize(pdesys1, discnu1)
+probnu2 = discretize(pdesys1, discnu2)
 
 probs1 = [probupwind1, probupwind2, probnu1, probnu2, probweno1, probweno2]
+```
+
+Compute reference solutions at tight tolerances for error estimation:
+
+```julia
+appxsol1 = map(probs1) do p
+    solve(p, FBDF(); abstol = 1e-14, reltol = 1e-14, maxiters = Int(1e6), wrap = Val(false))
+end
 ```
 
 ## Work-Precision Plot for Burgers Equation, Dirichlet BCs
 
 ```julia
-dummy_appxsol = [nothing for i in 1:length(probs1)]
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
 setups = [Dict(:alg => solver, :prob_choice => 1),
@@ -107,7 +115,7 @@ names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
     "Nonuniform Upwind, edge_align", "WENO, center_align", "WENO, edge_align"];
 
 wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names = names,
-    save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
+    save_everystep = false, appxsol = appxsol1, maxiters = Int(1e5),
     numruns = 10, wrap = Val(false))
 plot(wp)
 ```
@@ -115,16 +123,24 @@ plot(wp)
 Here are the problems for pdesys2:
 
 ```julia
-probupwind1 = discretize(pdesys2, discupwind1; analytic = pdesys2.analytic_func)
-probupwind2 = discretize(pdesys2, discupwind2; analytic = pdesys2.analytic_func)
+probupwind1 = discretize(pdesys2, discupwind1)
+probupwind2 = discretize(pdesys2, discupwind2)
 
-probweno1 = discretize(pdesys2, discweno1; analytic = pdesys2.analytic_func)
-probweno2 = discretize(pdesys2, discweno2; analytic = pdesys2.analytic_func)
+probweno1 = discretize(pdesys2, discweno1)
+probweno2 = discretize(pdesys2, discweno2)
 
-probnu1 = discretize(pdesys2, discnu1; analytic = pdesys2.analytic_func)
-probnu2 = discretize(pdesys2, discnu2; analytic = pdesys2.analytic_func)
+probnu1 = discretize(pdesys2, discnu1)
+probnu2 = discretize(pdesys2, discnu2)
 
 probs2 = [probupwind1, probupwind2, probnu1, probnu2, probweno1, probweno2]
+```
+
+Compute reference solutions for pdesys2:
+
+```julia
+appxsol2 = map(probs2) do p
+    solve(p, FBDF(); abstol = 1e-14, reltol = 1e-14, maxiters = Int(1e6), wrap = Val(false))
+end
 ```
 
 ## Work-Precision Plot for Burgers Equation, Neumann BCs
@@ -143,7 +159,7 @@ names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
     "Nonuniform Upwind, edge_align", "WENO, center_align", "WENO, edge_align"];
 
 wp = WorkPrecisionSet(probs2, abstols, reltols, setups; names = names,
-    save_everystep = false, maxiters = Int(1e5),
+    save_everystep = false, appxsol = appxsol2, maxiters = Int(1e5),
     numruns = 10, wrap = Val(false))
 plot(wp)
 ```
