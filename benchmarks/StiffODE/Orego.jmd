@@ -84,15 +84,23 @@ setups = [
 The EPIRK and exponential methods also fail:
 
 ```julia
-sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
-sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
-sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+for alg in [EXPRB53s3(), EPIRK4s3B(), EPIRK5P2()]
+    try
+        sol = solve(prob, alg, dt=2.0^(-8))
+    catch e
+        println("$(nameof(typeof(alg))) failed: $e")
+    end
+end
 ```
 
 PDIRK44 also fails
 
 ```julia
-sol = solve(prob,PDIRK44(),dt=2.0^(-8));
+try
+    sol = solve(prob,PDIRK44(),dt=2.0^(-8));
+catch e
+    println("PDIRK44 failed: $e")
+end
 ```
 
 ## High Tolerances
