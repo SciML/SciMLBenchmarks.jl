@@ -17,6 +17,7 @@ macro subprocess(ex, wait = true)
 end
 
 function weave_file(folder, file, build_list = (:script, :github))
+    Weave.set_chunk_defaults!(:error => false)
     target = joinpath(folder, file)
     @info("Weaving $(target)")
 

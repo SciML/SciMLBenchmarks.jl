@@ -207,6 +207,46 @@ file in the `benchmarks` folder and the PR will generate the benchmark on demand
 GitHub Actions CI as described below before merging. Note that it will use the Project.toml and Manifest.toml of the subfolder, so
 any changes to dependencies requires that those are updated.
 
+### Handling Method Omissions and Errors in Benchmarks
+
+It is good practice to include sections showing *why* a method was omitted from a
+benchmark — for example, because it errors or is too slow. This gives readers useful
+context about solver coverage and limitations.
+
+However, these error demonstrations **must be captured** so they don't break the build.
+By default, any code chunk that throws an uncaught error will fail the benchmark build.
+This is intentional: it catches real issues instead of silently including ugly stacktraces
+in published output.
+
+There are two ways to safely demonstrate errors:
+
+**Option 1: Use a `try/catch` block** (preferred when you want to show a friendly message):
+
+````markdown
+```julia
+try
+    sol = solve(prob, SomeMethod())
+catch e
+    println("SomeMethod failed: ", e)
+end
+```
+````
+
+**Option 2: Use the `error=true` chunk option** (when you want to show the actual error output):
+
+````markdown
+```julia; error=true
+sol = solve(prob, SomeMethod())
+```
+````
+
+**Do not** leave raw uncaught errors in benchmark code. They will:
+1. Fail the CI build
+2. Produce ugly stacktrace output if the chunk somehow runs
+
+When adding a new solver comparison that you expect to fail, always wrap it in one of the
+above patterns.
+
 ### Reporting Bugs and Issues
 
 Report any bugs or issues at [the SciMLBenchmarks repository](https://github.com/SciML/SciMLBenchmarks.jl).
