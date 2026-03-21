@@ -8,6 +8,7 @@ using ADTypes
 using LinearAlgebra, SparseArrays
 using BenchmarkTools
 import DifferentiationInterface as DI
+import ForwardDiff
 using Plots
 using SparseConnectivityTracer: TracerSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
@@ -93,7 +94,7 @@ S2 = ADTypes.jacobian_sparsity(
 
 ```julia
 c1 = ADTypes.column_coloring(S1, GreedyColoringAlgorithm())
-@test length(unique(c1)) > 0  # basic sanity check
+@test length(unique(c1)) <= size(S1, 2)
 ```
 
 ### Differentiation
@@ -110,7 +111,7 @@ J1 = DI.jacobian!(
     brusselator_2d!, similar(x0_32), similar(S1, eltype(x0_32)), prep, backend, x0_32
 )
 
-@test nnz(J1) > 0  # basic sanity check
+@test nnz(J1) > 0
 ```
 
 ## Benchmarks
@@ -229,22 +230,47 @@ end
 ```julia
 let
     pl = plot(;
-        title = "Sparsity detection: Symbolics vs SparseConnectivityTracer\nTest case: Brusselator",
+        title = "Sparse AD pipeline on the Brusselator",
         xlabel = "Input size N",
-        ylabel = "Runtime ratio Symbolics / SCT"
+        ylabel = "Runtime [s]"
     )
     plot!(
         pl,
         N_values,
-        td2 ./ td1;
+        td1;
         lw = 2,
-        linestyle = :auto,
-        markershape = :auto,
-        label = "sparsity detection speedup"
+        linestyle = :dot,
+        markershape = :utriangle,
+        label = "sparsity detection (SCT)"
     )
     plot!(
-        pl, N_values, ones(length(N_values)); lw = 3, color = :black, label = "same speed")
-    plot!(pl; xscale = :log10, yscale = :log10, minorgrid = true, legend = :right)
+        pl,
+        N_values,
+        td2;
+        lw = 2,
+        linestyle = :dot,
+        markershape = :dtriangle,
+        label = "sparsity detection (Symbolics)"
+    )
+    plot!(
+        pl,
+        N_values,
+        tc1;
+        lw = 2,
+        linestyle = :dashdot,
+        markershape = :diamond,
+        label = "coloring (SparseMatrixColorings)"
+    )
+    plot!(
+        pl,
+        N_values,
+        tj1;
+        lw = 2,
+        linestyle = :dash,
+        markershape = :pentagon,
+        label = "differentiation (DI + ForwardDiff)"
+    )
+    plot!(pl; xscale = :log10, yscale = :log10, minorgrid = true, legend = :topleft)
     pl
 end
 ```
