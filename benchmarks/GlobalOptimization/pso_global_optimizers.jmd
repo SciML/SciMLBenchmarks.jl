@@ -1,0 +1,430 @@
+---
+title: PSO Global Optimizer Benchmarks
+author: Utkarsh, Chris Rackauckas
+---
+
+This benchmark evaluates Particle Swarm Optimization (PSO) variants from
+[ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl)
+against established global optimizers on the
+[BlackBoxOptimizationBenchmarking.jl](https://github.com/jonathanBieler/BlackBoxOptimizationBenchmarking.jl)
+suite, using the [Optimization.jl](https://github.com/SciML/Optimization.jl) interface.
+
+## Setup
+```julia
+using BlackBoxOptimizationBenchmarking, Plots, Optimization, Memoize, Statistics, Printf
+import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
+    BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
+const BBOB = BlackBoxOptimizationBenchmarking
+
+using OptimizationBBO, OptimizationOptimJL, OptimizationNLopt
+using OptimizationSciPy
+
+using ParallelParticleSwarms
+using KernelAbstractions: CPU
+using StaticArrays, LinearAlgebra
+
+const PSOKernel     = ParallelParticleSwarms.ParallelPSOKernel
+const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
+const SerPSO        = ParallelParticleSwarms.SerialPSO
+const HPso          = ParallelParticleSwarms.HybridPSO
+```
+
+## PSO Benchmark Harness
+```julia
+function pso_solve(opt, f::BBOBFunction, D::Int, maxiters::Int; local_maxiters::Int = 30)
+    obj = (x, p) -> f.f(Vector(x))
+    ad = opt isa HPso ? AutoForwardDiff() : Optimization.SciMLBase.NoAD()
+    optf = OptimizationFunction{false}(obj, ad)
+    lb = SVector{D}(ntuple(_ -> -5.0, Val(D)))
+    ub = SVector{D}(ntuple(_ ->  5.0, Val(D)))
+    x0 = SVector{D}(ntuple(_ -> -5.0 + rand() * 10.0, Val(D)))
+    prob = OptimizationProblem{false}(optf, x0, nothing; lb = lb, ub = ub)
+
+    if opt isa HPso
+        solve(prob, opt; maxiters = maxiters, local_maxiters = local_maxiters,
+            abstol = 1e-8, reltol = 1e-8)
+    else
+        solve(prob, opt; maxiters = maxiters)
+    end
+end
+
+function _extract_u(sol, D)
+    u = sol.u
+    u isa SVector && return u
+    u[]
+end
+
+function pso_benchmark(opt, funcs, run_length;
+        Ntrials = 10, dimension = 3, local_maxiters = 30, Δf = 1e-6, CI_quantile = 0.25)
+    Nf = length(funcs)
+    Nr = length(run_length)
+    success = zeros(Float64, Nf, Nr)
+    dist    = zeros(Float64, Nf, Nr)
+    fmin    = zeros(Float64, Nf, Nr)
+
+    for f in funcs
+        try pso_solve(opt, f, dimension, 5; local_maxiters) catch; end
+    end
+
+    t0 = time()
+    for (fi, f) in enumerate(funcs)
+        xopt = SVector{dimension}(f.x_opt[1:dimension])
+        for (ri, rl) in enumerate(run_length)
+            hits = 0; dsum = 0.0; fsum = 0.0
+            for _ in 1:Ntrials
+                sol = try pso_solve(opt, f, dimension, rl; local_maxiters) catch; nothing end
+                if sol !== nothing
+                    u = _extract_u(sol, dimension)
+                    fval = sol.objective isa Real ? Float64(sol.objective) : Float64(sol.objective[])
+                    hits += abs(fval - f.f_opt) < Δf ? 1 : 0
+                    dsum += norm(u .- xopt)
+                    fsum += fval - f.f_opt
+                end
+            end
+            success[fi, ri] = hits / Ntrials
+            dist[fi, ri]    = dsum / Ntrials
+            fmin[fi, ri]    = fsum / Ntrials
+        end
+    end
+    elapsed = time() - t0
+
+    Neff = Ntrials * Nf
+    sr   = vec(mean(success, dims = 1))
+    sc   = vec(sum(success .* Ntrials, dims = 1)) .|> round .|> Int
+    ci   = BBOB.compute_CI(sr, Neff, CI_quantile)
+
+    BenchmarkResults(
+        run_length     = collect(run_length),
+        success_count  = sc,
+        success_rate   = sr,
+        success_rate_qlow  = ci.success_rate_qlow,
+        success_rate_qhigh = ci.success_rate_qhigh,
+        distance_to_minimizer = vec(mean(dist, dims = 1)),
+        minimum        = vec(mean(fmin, dims = 1)),
+        runtime        = elapsed,
+        Neffective     = Neff,
+        callcount      = Float64.(run_length),
+        success_rate_per_function = [success[fi, end] for fi in 1:Nf],
+    )
+end
+
+function pso_tts(opt, funcs; Ntrials = 10, dimension = 3, Δf = 1e-6,
+        local_maxiters = 30, max_run_length = 500)
+    all_times = Float64[]
+    for f in funcs
+        for _ in 1:Ntrials
+            tracked_f, t0_ref, tts_ref = make_success_tracker(f.f, f.f_opt, Δf)
+            obj = (x, p) -> tracked_f(Vector(x))
+            ad = opt isa HPso ? AutoForwardDiff() : Optimization.SciMLBase.NoAD()
+            optf = OptimizationFunction{false}(obj, ad)
+            D = dimension
+            lb = SVector{D}(ntuple(_ -> -5.0, Val(D)))
+            ub = SVector{D}(ntuple(_ ->  5.0, Val(D)))
+            x0 = SVector{D}(ntuple(_ -> -5.0 + rand() * 10.0, Val(D)))
+            prob = OptimizationProblem{false}(optf, x0, nothing; lb = lb, ub = ub)
+            try
+                t0_ref[] = time()
+                if opt isa HPso
+                    solve(prob, opt; maxiters = max_run_length, local_maxiters = local_maxiters,
+                        abstol = 1e-8, reltol = 1e-8)
+                else
+                    solve(prob, opt; maxiters = max_run_length)
+                end
+                push!(all_times, tts_ref[])
+            catch
+                push!(all_times, Inf)
+            end
+        end
+    end
+    all_times
+end
+```
+
+## Time-to-Success Framework
+```julia
+function make_success_tracker(f_raw, f_opt, Δf)
+    t0 = Ref(time())
+    time_to_success = Ref(Inf)
+    function tracked_f(u)
+        val = f_raw(u)
+        if val < Δf + f_opt && time_to_success[] == Inf
+            time_to_success[] = time() - t0[]
+        end
+        return val
+    end
+    return tracked_f, t0, time_to_success
+end
+
+function solve_problem_timed(optimizer::BenchmarkSetup, tracked_f, D::Int, run_length::Int;
+    u0 = pinit(D))
+    method = optimizer.method
+    optf = OptimizationFunction((u, _) -> tracked_f(u), AutoForwardDiff())
+    if optimizer.isboxed
+        prob = OptimizationProblem(optf, u0, lb = fill(-5.5, D), ub = fill(5.5, D))
+    else
+        prob = OptimizationProblem(optf, u0)
+    end
+    solve(prob, method; maxiters = run_length)
+end
+
+function solve_problem_timed(m::Chain, tracked_f, D::Int, run_length::Int)
+    rl1 = round(Int, m.p * run_length)
+    rl2 = run_length - rl1
+    sol = solve_problem_timed(m.first, tracked_f, D, rl1)
+    solve_problem_timed(m.second, tracked_f, D, rl2; u0 = sol.u)
+end
+
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, f::BBOBFunction;
+    Ntrials::Int = 10, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 10_000
+)
+    times = Float64[]
+    for _ in 1:Ntrials
+        tracked_f, t0_ref, tts_ref = make_success_tracker(f.f, f.f_opt, Δf)
+        try
+            t0_ref[] = time()
+            solve_problem_timed(optimizer, tracked_f, dimension, max_run_length)
+            push!(times, tts_ref[])
+        catch err
+            push!(times, Inf)
+        end
+    end
+    return times
+end
+
+benchmark_time_to_success(optimizer, f; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), f; kwargs...)
+
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{BBOBFunction};
+    Ntrials::Int = 10, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 10_000
+)
+    all_times = Float64[]
+    for f in funcs
+        append!(all_times, benchmark_time_to_success(
+            optimizer, f; Ntrials, dimension, Δf, max_run_length))
+    end
+    return all_times
+end
+
+benchmark_time_to_success(optimizer, funcs::Vector{BBOBFunction}; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), funcs; kwargs...)
+
+function success_rate_cdf(all_times::Vector{Float64}, time_thresholds::AbstractVector{Float64})
+    N = length(all_times)
+    [count(x -> x <= t, all_times) / N for t in time_thresholds]
+end
+```
+
+## Configure Optimizers
+```julia
+chain = (t; isboxed = false) -> Chain(
+    BenchmarkSetup(t, isboxed = isboxed),
+    BenchmarkSetup(NelderMead(), isboxed = false),
+    0.9)
+
+test_functions = BBOB.list_functions()
+dimension = 3
+run_length = round.(Int, 10 .^ LinRange(1, 5, 10))
+
+const MARKERS = [:circle, :diamond, :utriangle, :square, :star5, :dtriangle, :pentagon,
+    :hexagon, :cross, :xcross, :rtriangle, :ltriangle, :star4, :star8, :heptagon, :octagon,
+    :vline, :hline, :+, :x]
+const LINESTYLES = [:solid, :dash, :dot, :dashdot, :dashdotdot]
+
+cpu_setup = Dict(
+    "NelderMead" => NelderMead(),
+    "NLopt.GN_CRS2_LM()" => chain(NLopt.GN_CRS2_LM(), isboxed = true),
+    "BBO_adaptive_de_rand_1_bin" => chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
+    "BBO_adaptive_de_rand_1_bin_radiuslimited" => chain(
+        BBO_adaptive_de_rand_1_bin_radiuslimited(), isboxed = true),
+    "BBO_de_rand_2_bin" => chain(BBO_de_rand_2_bin(), isboxed = true),
+    "ScipyDifferentialEvolution" => chain(ScipyDifferentialEvolution(), isboxed = true),
+)
+
+cpu_labels = sort(collect(keys(cpu_setup)))
+
+num_particles = 250
+
+pso_setup = Dict(
+    "SerialPSO"        => SerPSO(num_particles),
+    "PSOKernel sync"   => PSOKernel(num_particles; backend = CPU(), global_update = true),
+    "SyncPSOKernel"    => SyncPSOKernel(num_particles; backend = CPU()),
+    "HybridPSO-LBFGS"  => HPso(pso = PSOKernel(num_particles; backend = CPU()); backend = CPU()),
+)
+
+pso_labels = sort(collect(keys(pso_setup)))
+```
+
+## Run CPU Baselines
+```julia
+@memoize run_cpu_bench(algo) = BBOB.benchmark(
+    cpu_setup[algo], test_functions, run_length, Ntrials = 10, dimension = dimension)
+@memoize run_cpu_tts(algo) = benchmark_time_to_success(
+    cpu_setup[algo], test_functions, Ntrials = 10, dimension = dimension)
+
+cpu_results_raw = Vector{Union{BenchmarkResults, Nothing}}(undef, length(cpu_labels))
+cpu_tts = Dict{String, Vector{Float64}}()
+for (i, algo) in enumerate(cpu_labels)
+    @info "CPU: $algo ..."
+    try
+        cpu_results_raw[i] = run_cpu_bench(algo)
+        cpu_tts[algo] = run_cpu_tts(algo)
+        @info "  done" success=round(cpu_results_raw[i].success_rate[end], digits = 3)
+    catch err
+        @warn "CPU $algo failed, skipping" exception = err
+        cpu_results_raw[i] = nothing
+    end
+end
+
+valid_cpu = [(cpu_labels[i], cpu_results_raw[i]) for i in eachindex(cpu_labels) if cpu_results_raw[i] !== nothing]
+cpu_labels_ok = [v[1] for v in valid_cpu]
+cpu_results = Dict(v[1] => v[2] for v in valid_cpu)
+```
+
+## Run PSO Variants
+```julia
+@memoize run_pso_bench(algo) = pso_benchmark(
+    pso_setup[algo], test_functions, run_length;
+    Ntrials = 10, dimension = dimension)
+@memoize run_pso_tts(algo) = pso_tts(
+    pso_setup[algo], test_functions;
+    Ntrials = 10, dimension = dimension)
+
+pso_results = Dict{String, BenchmarkResults}()
+pso_tts_results = Dict{String, Vector{Float64}}()
+for algo in pso_labels
+    @info "PSO: $algo ..."
+    try
+        pso_results[algo] = run_pso_bench(algo)
+        pso_tts_results[algo] = run_pso_tts(algo)
+        @info "  done" success=round(pso_results[algo].success_rate[end], digits = 3)
+    catch err
+        @warn "$algo failed, skipping" exception=(err, catch_backtrace())
+    end
+end
+
+available_pso = [l for l in pso_labels if haskey(pso_results, l)]
+```
+
+## Success Rate vs. Iterations
+```julia
+all_labels  = vcat(cpu_labels_ok, available_pso)
+all_results = vcat(
+    [cpu_results[l] for l in cpu_labels_ok],
+    [pso_results[l] for l in available_pso])
+
+idx = sortperm([r.success_rate[end] for r in all_results], rev = true)
+
+p = plot(xscale = :log10, legend = :outerright,
+    size = (700, 350), margin = 10Plots.px, dpi = 200,
+    xlabel = "Iterations", ylabel = "Success rate", ylim = (0, 1))
+for (j, i) in enumerate(idx)
+    r = all_results[i]
+    plot!(r.run_length, r.success_rate, label = all_labels[i],
+        showribbon = false, lw = 2.5, xlim = (1, 1e5),
+        markershape = MARKERS[mod1(j, length(MARKERS))],
+        linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+        markersize = 4, markerstrokewidth = 0)
+end
+p
+```
+
+## Success Rate vs. Wall-Clock Time
+```julia
+all_tts = merge(
+    Dict(k => v for (k, v) in cpu_tts if k in cpu_labels_ok),
+    pso_tts_results)
+
+all_finite = filter(isfinite, vcat(values(all_tts)...))
+if !isempty(all_finite)
+    t_lo = minimum(all_finite) / 2
+    t_hi = maximum(all_finite) * 2
+    time_thresholds = 10 .^ range(log10(t_lo), log10(t_hi), length = 50)
+
+    cdfs = Dict(l => success_rate_cdf(all_tts[l], time_thresholds) for l in all_labels if haskey(all_tts, l))
+    tts_labels = [l for l in all_labels if haskey(cdfs, l)]
+    idx = sortperm([cdfs[l][end] for l in tts_labels], rev = true)
+
+    p = plot(xscale = :log10, legend = :outerright,
+        size = (700, 350), margin = 10Plots.px, dpi = 200,
+        xlabel = "Wall time (s)", ylabel = "Success rate", ylim = (0, 1))
+    for (j, i) in enumerate(idx)
+        plot!(time_thresholds, cdfs[tts_labels[i]], label = tts_labels[i], lw = 2.5,
+            markershape = MARKERS[mod1(j, length(MARKERS))],
+            linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+            markersize = 4, markerstrokewidth = 0)
+    end
+    p
+else
+    @warn "No finite time-to-success recorded"
+end
+```
+
+## Success Rate per Function Heatmap
+```julia
+all_srpf = reduce(hcat, r.success_rate_per_function for r in all_results)
+func_names = string.(test_functions)
+
+idx = sortperm(mean(all_srpf, dims = 1)[:], rev = false)
+idxfunc = 1:length(test_functions)
+
+heatmap(func_names[idxfunc], all_labels[idx], all_srpf[idxfunc, idx]',
+    cmap = :RdYlGn, xticks = :all, yticks = :all, xrotation = 45, dpi = 200)
+```
+
+## Distance to Minimizer vs. Iterations
+```julia
+idx = sortperm([r.distance_to_minimizer[end] for r in all_results], rev = false)
+
+p = plot(xscale = :log10, legend = :outerright,
+    size = (900, 500), margin = 10Plots.px, ylim = (0, 5),
+    xlabel = "Iterations", ylabel = "Mean distance to minimum")
+for (j, i) in enumerate(idx)
+    r = all_results[i]
+    plot!(r.run_length, r.distance_to_minimizer, label = all_labels[i],
+        showribbon = false, lw = 2, xlim = (1, 1e5),
+        markershape = MARKERS[mod1(j, length(MARKERS))],
+        linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+        markersize = 4, markerstrokewidth = 0)
+end
+p
+```
+
+## Relative Runtime
+```julia
+all_runtimes = [r.runtime for r in all_results]
+ref = findfirst("NelderMead" .== all_labels)
+if ref !== nothing
+    runtimes_rel = all_runtimes ./ all_runtimes[ref]
+    bar(all_labels, runtimes_rel, xrotation = 45, xticks = :all,
+        ylabel = "Run time relative to NM", yscale = :log10,
+        yticks = [0.1, 1, 10, 100], legend = false, margin = 25Plots.px)
+end
+```
+
+## Summary
+```julia
+println("\n", "="^70)
+println("CONVERGENCE RANKING (success rate at max budget)")
+println("="^70)
+
+all_sr = [(all_labels[i], all_results[i].success_rate[end]) for i in 1:length(all_labels)]
+sort!(all_sr, by = x -> -x[2])
+
+for (rank, (name, sr)) in enumerate(all_sr)
+    tag = name in available_pso ? " ← PSO" : ""
+    @printf("  %2d. %-45s %5.1f%%%s\n", rank, name, sr * 100, tag)
+end
+
+println("\n", "="^70)
+println("Best PSO variant for GPU promotion:")
+if !isempty(available_pso)
+    best_pso = argmax(Dict(l => pso_results[l].success_rate[end] for l in available_pso))
+    sr = round(pso_results[best_pso].success_rate[end] * 100, digits = 1)
+    println("  → $best_pso ($sr%)")
+else
+    println("  No PSO variants completed successfully")
+end
+println("="^70)
+```
