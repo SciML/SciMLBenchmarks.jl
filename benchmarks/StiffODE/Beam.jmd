@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
-using LinearAlgebra, RecursiveFactorization, Polyester
+using LinearAlgebra, RecursiveFactorization, Polyester, PreallocationTools
 gr()
 
 # Beam problem from the IVP Test Set
@@ -20,13 +20,28 @@ const NSQ_beam = N_beam * N_beam
 const NQUATR_beam = NSQ_beam * NSQ_beam
 const DELTAS_beam = 1.0 / N_beam
 
+# Pre-allocate work buffers using DiffCache for ForwardDiff compatibility
+const _beam_sth   = DiffCache(zeros(N_beam))
+const _beam_cth   = DiffCache(zeros(N_beam))
+const _beam_v     = DiffCache(zeros(N_beam))
+const _beam_w     = DiffCache(zeros(N_beam))
+const _beam_alpha = DiffCache(zeros(N_beam))
+const _beam_beta  = DiffCache(zeros(N_beam))
+const _beam_u     = DiffCache(zeros(N_beam))
+
 function beam!(df, th, p, t)
     N = N_beam
     NN = NN_beam
 
-    # Precompute sin and cos of differences
-    sth = zeros(N)
-    cth = zeros(N)
+    sth   = get_tmp(_beam_sth, df)
+    cth   = get_tmp(_beam_cth, df)
+    v     = get_tmp(_beam_v, df)
+    w     = get_tmp(_beam_w, df)
+    alpha = get_tmp(_beam_alpha, df)
+    beta  = get_tmp(_beam_beta, df)
+    u     = get_tmp(_beam_u, df)
+
+    # Precompute sin and cos of differences (indices 2:N only)
     for i in 2:N
         thdiff = th[i] - th[i-1]
         sth[i] = sin(thdiff)
@@ -34,7 +49,6 @@ function beam!(df, th, p, t)
     end
 
     # Compute right-hand side of the linear system
-    v = zeros(N)
     if t > pi
         # Case t > pi: no external force
         v[1] = (-3.0*th[1] + th[2]) * NQUATR_beam
@@ -58,7 +72,6 @@ function beam!(df, th, p, t)
     end
 
     # Compute product DV = W
-    w = zeros(N)
     w[1] = sth[2] * v[2]
     for i in 2:N-1
         w[i] = -sth[i]*v[i-1] + sth[i+1]*v[i+1]
@@ -71,8 +84,6 @@ function beam!(df, th, p, t)
     end
 
     # Solve tridiagonal system CW = W
-    alpha = zeros(N)
-    beta = zeros(N)
     alpha[1] = 1.0
     for i in 2:N
         alpha[i] = 2.0
@@ -94,7 +105,6 @@ function beam!(df, th, p, t)
     end
 
     # Compute U = CV + DW
-    u = zeros(N)
     u[1] = v[1] - cth[2]*v[2] + sth[2]*w[2]
     for i in 2:N-1
         u[i] = 2.0*v[i] - cth[i]*v[i-1] - cth[i+1]*v[i+1] -

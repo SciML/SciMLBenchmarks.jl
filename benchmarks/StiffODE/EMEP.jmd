@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
-using LinearAlgebra, RecursiveFactorization, Polyester
+using LinearAlgebra, RecursiveFactorization, Polyester, PreallocationTools
 gr()
 
 # EMEP MSC-W Ozone Model Chemistry problem from the IVP Test Set
@@ -63,11 +63,9 @@ const B_emep = [0.60, 1.40, 0.40, 0.75, 1.25,
                 0.79, 0.79, 0.081, 0.059, 0.57,
                 0.62]
 
-function emepcf!(time, rc, dj, h2o_out)
+function emepcf!(time, rc, dj)
     timeh = time / 3600.0
-    itimeh = floor(Int, timeh)
-    i24hrs = itimeh ÷ 24 + 1
-    timeod = timeh - (i24hrs - 1) * 24.0
+    timeod = mod(timeh, 24.0)
 
     pi_val = 4.0 * atan(1.0)
     xlha = (1.0 + timeod * 3600.0 / 4.32e4) * pi_val
@@ -82,7 +80,6 @@ function emepcf!(time, rc, dj, h2o_out)
     xz = (597.3 - 0.57*(t_temp - 273.16)) * 18.0 / 1.986 *
          (1.0/t_temp - 1.0/273.16)
     h2o = 6.1078 * exp(-xz) * 10.0 / (1.38e-16 * t_temp) * rh
-    h2o_out[] = h2o
 
     # Photolysis rates
     if timeod < 4.0 || timeod >= 20.0
@@ -96,7 +93,7 @@ function emepcf!(time, rc, dj, h2o_out)
     end
 
     # Rate coefficients
-    fill!(rc, 0.0)
+    fill!(rc, zero(eltype(rc)))
     m = 2.55e19
     o2 = 5.2e18
     xn2 = 1.99e19
@@ -211,14 +208,17 @@ function emepcf!(time, rc, dj, h2o_out)
     rc[51] = 0.1 * delta / HMIX_emep
     rc[52] = 0.5 * delta / HMIX_emep
     rc[53] = 0.3 * delta / HMIX_emep
+    return h2o
 end
 
+# Pre-allocate work buffers using DiffCache for ForwardDiff compatibility
+const _emep_rc = DiffCache(zeros(NRC_emep))
+const _emep_dj = DiffCache(zeros(NDJ_emep))
+
 function emep!(dy, y, p, t)
-    rc = zeros(NRC_emep)
-    dj = zeros(NDJ_emep)
-    h2o_ref = Ref(0.0)
-    emepcf!(t, rc, dj, h2o_ref)
-    h2o = h2o_ref[]
+    rc = get_tmp(_emep_rc, dy)
+    dj = get_tmp(_emep_dj, dy)
+    h2o = emepcf!(t, rc, dj)
 
     m = 2.55e19
     o2 = 5.2e18
