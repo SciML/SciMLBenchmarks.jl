@@ -37,9 +37,9 @@ you think should be changed in the code, please make the recommended change in t
 
 ## Results
 
-To view the results of the SciML Benchmarks, go to [benchmarks.sciml.ai](https://benchmarks.sciml.ai/stable/). By default, this
+To view the results of the SciML Benchmarks, go to [docs.sciml.ai/SciMLBenchmarksOutput](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/). By default, this
 will lead to the latest tagged version of the benchmarks. To see the in-development version of the benchmarks, go to
-[https://benchmarks.sciml.ai/dev/](https://benchmarks.sciml.ai/dev/).
+[https://docs.sciml.ai/SciMLBenchmarksOutput/dev/](https://docs.sciml.ai/SciMLBenchmarksOutput/dev/).
 
 Static outputs in pdf, markdown, and html reside in [SciMLBenchmarksOutput](https://github.com/SciML/SciMLBenchmarksOutput).
 
@@ -257,7 +257,7 @@ To see benchmark results before merging, click into the GitHub Actions CI result
 "Upload Benchmark Artifacts", and then investigate the trained results by clicking the link to download the zip file
 with all of the results.
 
-![](https://private-user-images.githubusercontent.com/1814174/565558304-9d4ee2c9-dec6-4c39-b159-91769fc2cc8c.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NzM4Mzg5ODIsIm5iZiI6MTc3MzgzODY4MiwicGF0aCI6Ii8xODE0MTc0LzU2NTU1ODMwNC05ZDRlZTJjOS1kZWM2LTRjMzktYjE1OS05MTc2OWZjMmNjOGMucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI2MDMxOCUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNjAzMThUMTI1ODAyWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9MDAzMGI3MGZlMTVmMDVmZmM5NzgwNDJjMDcwMjJkYzk0MTc5MzQzMGEzMmMzYzIzMTdiMGEwYjUxNmZhZDAyYyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QifQ.Esx39-jE3dI8Be0reWOTJBDYNua2M2Q_K1i5_fVAaQg)
+![](https://github.com/user-attachments/assets/9d4ee2c9-dec6-4c39-b159-91769fc2cc8c)
 
 ### CI Architecture
 
@@ -361,7 +361,7 @@ different solution, there will be a digit of accuracy at which all other
 solutions stop converging to the reference. If this occurs, all solutions will
 give a straight line, you can see there here:
 
-![](https://private-user-images.githubusercontent.com/1814174/348980835-69251f8e-6ea2-4ab2-b76f-56d5b75dbdb1.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MjExMTQ2NTQsIm5iZiI6MTcyMTExNDM1NCwicGF0aCI6Ii8xODE0MTc0LzM0ODk4MDgzNS02OTI1MWY4ZS02ZWEyLTRhYjItYjc2Zi01NmQ1Yjc1ZGJkYjEucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDcxNiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA3MTZUMDcxOTE0WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9YTc1YjI4YTNmNThkNmQzZDc3MGEzY2YxODQ3MzYwYTU1N2Q5NTAwOGY0OTk4ZjRkYmViYzNhM2Q0ZDliNTViZSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.B6QCTRINqOI9p_FBD97GBQo-NJdwGS79zaKsjjscMk8)
+![](https://github.com/user-attachments/assets/69251f8e-6ea2-4ab2-b76f-56d5b75dbdb1)
 
 In this image (taken from the TransistorAmplifierDAE benchmark),
 the second Rodas5P and Rodas4 are from a different problem implementation, and
@@ -370,7 +370,7 @@ reference solution and seem to "hit a wall" at around 1e-5. This is because
 the chosen reference solution was only 1e-5 accurate. Changing to a
 different reference solution makes them all converge:
 
-![](https://private-user-images.githubusercontent.com/1814174/348980837-ebadf9f9-b6fe-4092-b980-654d3168e8b8.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MjExMTQ2NTQsIm5iZiI6MTcyMTExNDM1NCwicGF0aCI6Ii8xODE0MTc0LzM0ODk4MDgzNy1lYmFkZjlmOS1iNmZlLTQwOTItYjk4MC02NTRkMzE2OGU4YjgucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDcxNiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA3MTZUMDcxOTE0WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZWJjYjcwMTFjZWMwMGEzNzc2ZWEyZDVlODE5NjhiZDFiZWJiNzFhMjg1YWRjMzU5YmI5NTEyZjAyYWRlMDlmOSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.XdhD7IWrgUl7rIb2mWvK3xizg0rUUtX4JcOvwGN1_iY)
+![](https://github.com/user-attachments/assets/ebadf9f9-b6fe-4092-b980-654d3168e8b8)
 
 This shows that all that truly matters is that the chosen reference is
 sufficiently accurate, and any walling behavior is an indicator that some
