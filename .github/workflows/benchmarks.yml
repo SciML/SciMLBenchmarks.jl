@@ -15,17 +15,43 @@ on:
         required: false
         type: string
 
-# Cancel in-progress PR runs (but not master — benchmarks are long-running)
-concurrency:
-  group: benchmarks-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+# NOTE: Workflow-level concurrency was removed because it caused deadlocks.
+# When a benchmark job was queued (waiting for a self-hosted runner) but not yet
+# in_progress, cancel-in-progress could not cancel it. This blocked new runs
+# from even starting their detect-changes job on ubuntu-latest.
+# Concurrency is now handled per-job: detect-changes runs freely, and each
+# benchmark target has its own concurrency group so new commits cancel stale
+# queued jobs for the same target.
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
+  # Cancel previous workflow runs for the same PR/branch.
+  # This handles the case where a previous run's benchmark job is queued
+  # (waiting for a self-hosted runner) — workflow-level cancel-in-progress
+  # cannot cancel queued-but-not-started jobs, so we do it explicitly.
+  cancel-outdated:
+    name: Cancel Previous Runs
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/master'
+    steps:
+      - name: Cancel outdated runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          workflow_id: benchmarks.yml
+          access_token: ${{ github.token }}
+
   detect-changes:
     name: Detect Changed Benchmarks
     runs-on: ubuntu-latest
-    # Skip change detection if a manual target is provided
-    if: ${{ github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null }}
+    needs: [cancel-outdated]
+    # Run even if cancel-outdated was skipped (master push) or succeeded
+    if: |
+      always() &&
+      needs.cancel-outdated.result != 'failure' &&
+      (github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null)
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
@@ -41,7 +67,11 @@ jobs:
   manual-matrix:
     name: Manual Target
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.benchmark_target != '' && github.event.inputs.benchmark_target != null }}
+    needs: [cancel-outdated]
+    if: |
+      always() &&
+      needs.cancel-outdated.result != 'failure' &&
+      github.event.inputs.benchmark_target != '' && github.event.inputs.benchmark_target != null
     outputs:
       matrix: ${{ steps.manual.outputs.matrix }}
       has_changes: ${{ steps.manual.outputs.has_changes }}
@@ -69,6 +99,12 @@ jobs:
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
     runs-on: ${{ matrix.runner }}
+    # Per-target concurrency: new commits cancel queued/running benchmarks for
+    # the same target on the same branch, but different targets run in parallel.
+    # Master is excluded so long-running publish-bound benchmarks are not cancelled.
+    concurrency:
+      group: bench-${{ matrix.target }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
     strategy:
       matrix:
         include: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
