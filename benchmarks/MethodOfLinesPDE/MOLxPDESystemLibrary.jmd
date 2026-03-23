@@ -11,6 +11,7 @@ using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools
       LinearAlgebra,
       LinearSolve, Plots, RecursiveFactorization
 using PDESystemLibrary
+import SciMLBase
 
 solver = FBDF()
 ```
@@ -88,8 +89,14 @@ end
 This script tests all systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
 It then plots the work precision sets.
 
+**Note:** Systems with parameters are currently skipped due to a
+[MethodOfLines.jl bug](https://github.com/SciML/MethodOfLines.jl/issues/537)
+where `discretize` fails with MTK v11 when the PDESystem has parameters
+(e.g. `v`, `k`, `D`). Only parameter-free systems are benchmarked below.
+
 ```julia
 N = 100
+n_skipped_params = 0
 for ex in PDESystemLibrary.all_systems
     try
         if ex.analytic_func === nothing
@@ -99,63 +106,11 @@ for ex in PDESystemLibrary.all_systems
         if length(ivs) == 0
             continue
         elseif length(ivs) == length(ex.ivs)
-            # Skip nonlinear systems until I know the syntax for that
             continue
-
-            # advection = false
-            # discuu1 = uniformupwind1(ex, ivs, nothing, N)
-            # discuu2 = uniformupwind2(ex, ivs, nothing, N)
-            # discnu1 = chebyupwind1(ex, ivs, nothing, N)
-            # discnu2 = chebyupwind2(ex, ivs, nothing, N)
-            # discs = [discuu1, discuu2, discnu1, discnu2]
-            # if "Advection" in ex.metadata
-            #     advection = true
-            #     discw1 = discweno1(ex, ivs, nothing, N)
-            #     discw2 = discweno2(ex, ivs, nothing, N)
-            #     push!(discs, discw1, discw2)
-            # end
-
-            # probs = map(discs) do disc
-            #     discretize(ex, disc, analytic = ex.analytic_func)
-            # end
-
-            # title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
-            # println("Running $title")
-            # if advection
-            #     dummy_appxsol = [nothing for i in 1:length(probs1)]
-            #     abstols = 1.0 ./ 10.0 .^ (5:8)
-            #     reltols = 1.0 ./ 10.0 .^ (1:4);
-            #     setups = [Dict(:alg => solver, :prob_choice => 1),
-            #         Dict(:alg => solver, :prob_choice => 2),
-            #         Dict(:alg => solver, :prob_choice => 3),
-            #         Dict(:alg => solver, :prob_choice => 4),
-            #         Dict(:alg => solver, :prob_choice => 5),
-            #         Dict(:alg => solver, :prob_choice => 6),]
-            #     names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-            #              "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
-            #              "Uniform WENO, center_align", "Uniform WENO, edge_align"];
-
-            #     wp = WorkPrecisionSet(probs, abstols, reltols, setups; names=names,
-            #         save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-            #         numruns=10, wrap=Val(false))
-            #     plot(wp, title=title)
-            # else
-            #     dummy_appxsol = [nothing for i in 1:length(probs)]
-            #     abstols = 1.0 ./ 10.0 .^ (5:8)
-            #     reltols = 1.0 ./ 10.0 .^ (1:4);
-            #     setups = [Dict(:alg => solver, :prob_choice => 1),
-            #         Dict(:alg => solver, :prob_choice => 2),
-            #         Dict(:alg => solver, :prob_choice => 3),
-            #         Dict(:alg => solver, :prob_choice => 4),]
-            #     names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-            #              "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align"];
-
-            #     wp = WorkPrecisionSet(probs1, abstols, reltols, setups; names=names,
-            #         save_everystep=false, appxsol = dummy_appxsol, maxiters=Int(1e5),
-            #         numruns=10, wrap=Val(false))
-            #     plot(wp, title=title)
-            # end
-
+        elseif !(ex.ps isa SciMLBase.NullParameters)
+            # Skip systems with parameters due to MethodOfLines.jl#537
+            n_skipped_params += 1
+            continue
         else
             @parameters t
             # Create discretizations
@@ -219,4 +174,5 @@ for ex in PDESystemLibrary.all_systems
         println(e)
     end
 end
+println("\nSkipped $n_skipped_params systems with parameters (MethodOfLines.jl#537)")
 ```
