@@ -150,9 +150,8 @@ reltol = 1e-8;
 u0 = get_IC();
 tspan = (0.0, 1e9);
 prob1 = ODEProblem(f, u0, tspan, nothing);
-sys = modelingtoolkitize(prob1);
-sys_simplified = structural_simplify(sys)
-prob_mtk1 = ODEProblem(sys_simplified, [], tspan, jac = true, sparse = true);
+@mtkcompile sys = modelingtoolkitize(prob1)
+prob_mtk1 = ODEProblem(sys, [], tspan, jac = true, sparse = true);
 global sol, tcpu,
 bytes,
 gctime,
@@ -165,9 +164,8 @@ test_sol1 = TestSolution(sol)
 #code (2): high cumulative velocity (>0.01) following phase (1)
 tspan = (0.0, 1e4);
 prob2 = ODEProblem(f, convU0(u1), tspan, nothing);
-sys2 = modelingtoolkitize(prob2);
-sys2_simplified = structural_simplify(sys2)
-prob_mtk2 = ODEProblem(sys2_simplified, [], tspan, jac = true, sparse = true);
+@mtkcompile sys2 = modelingtoolkitize(prob2)
+prob_mtk2 = ODEProblem(sys2, [], tspan, jac = true, sparse = true);
 global sol, tcpu,
 bytes,
 gctime,
