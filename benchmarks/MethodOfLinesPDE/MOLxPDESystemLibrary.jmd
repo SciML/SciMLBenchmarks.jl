@@ -11,7 +11,6 @@ using MethodOfLines, DomainSets, OrdinaryDiffEq, ModelingToolkit, DiffEqDevTools
       LinearAlgebra,
       LinearSolve, Plots, RecursiveFactorization
 using PDESystemLibrary
-import SciMLBase
 
 solver = FBDF()
 ```
@@ -89,14 +88,8 @@ end
 This script tests all systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
 It then plots the work precision sets.
 
-**Note:** Systems with parameters are currently skipped due to a
-[MethodOfLines.jl bug](https://github.com/SciML/MethodOfLines.jl/issues/537)
-where `discretize` fails with MTK v11 when the PDESystem has parameters
-(e.g. `v`, `k`, `D`). Only parameter-free systems are benchmarked below.
-
 ```julia
 N = 100
-n_skipped_params = 0
 for ex in PDESystemLibrary.all_systems
     try
         if ex.analytic_func === nothing
@@ -106,10 +99,6 @@ for ex in PDESystemLibrary.all_systems
         if length(ivs) == 0
             continue
         elseif length(ivs) == length(ex.ivs)
-            continue
-        elseif !(ex.ps isa SciMLBase.NullParameters)
-            # Skip systems with parameters due to MethodOfLines.jl#537
-            n_skipped_params += 1
             continue
         else
             @parameters t
@@ -174,5 +163,4 @@ for ex in PDESystemLibrary.all_systems
         println(e)
     end
 end
-println("\nSkipped $n_skipped_params systems with parameters (MethodOfLines.jl#537)")
 ```
