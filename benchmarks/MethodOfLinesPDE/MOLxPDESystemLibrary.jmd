@@ -103,17 +103,20 @@ for ex in PDESystemLibrary.all_systems
         else
             @parameters t
             # Create discretizations
+            # Note: Chebyshev (non-uniform) grids with UpwindScheme fail for
+            # parameterized advection terms due to a MethodOfLines pattern matching
+            # bug. Only use uniform grids for now.
             advection = false
             discuu1 = uniformupwind1(ex, ivs, t, N)
             discuu2 = uniformupwind2(ex, ivs, t, N)
-            discnu1 = chebyupwind1(ex, ivs, t, N)
-            discnu2 = chebyupwind2(ex, ivs, t, N)
-            discs = [discuu1, discuu2, discnu1, discnu2]
+            discs = [discuu1, discuu2]
+            disc_names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align"]
             if "Advection" in ex.metadata
                 advection = true
                 discw1 = discweno1(ex, ivs, t, N)
                 discw2 = discweno2(ex, ivs, t, N)
                 push!(discs, discw1, discw2)
+                push!(disc_names, "Uniform WENO, center_align", "Uniform WENO, edge_align")
             end
 
             # Create problems
@@ -123,40 +126,15 @@ for ex in PDESystemLibrary.all_systems
 
             title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
             println("Running $title")
-            if advection
-                dummy_appxsol = [nothing for i in 1:length(probs)]
-                abstols = 1.0 ./ 10.0 .^ (5:8)
-                reltols = 1.0 ./ 10.0 .^ (1:4);
-                setups = [Dict(:alg => solver, :prob_choice => 1),
-                    Dict(:alg => solver, :prob_choice => 2),
-                    Dict(:alg => solver, :prob_choice => 3),
-                    Dict(:alg => solver, :prob_choice => 4),
-                    Dict(:alg => solver, :prob_choice => 5),
-                    Dict(:alg => solver, :prob_choice => 6)]
-                names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align",
-                    "Chebyshev Upwind, center_align", "Chebyshev Upwind, edge_align",
-                    "Uniform WENO, center_align", "Uniform WENO, edge_align"];
+            dummy_appxsol = [nothing for i in 1:length(probs)]
+            abstols = 1.0 ./ 10.0 .^ (5:8)
+            reltols = 1.0 ./ 10.0 .^ (1:4);
+            setups = [Dict(:alg => solver, :prob_choice => i) for i in 1:length(probs)]
 
-                wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
-                    save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
-                    numruns = 10, wrap = Val(false))
-                plot(wp, title = title)
-            else
-                dummy_appxsol = [nothing for i in 1:length(probs)]
-                abstols = 1.0 ./ 10.0 .^ (5:8)
-                reltols = 1.0 ./ 10.0 .^ (1:4);
-                setups = [Dict(:alg => solver, :prob_choice => 1),
-                    Dict(:alg => solver, :prob_choice => 2),
-                    Dict(:alg => solver, :prob_choice => 3),
-                    Dict(:alg => solver, :prob_choice => 4)]
-                names = ["Uniform, center_align", "Uniform, edge_align",
-                    "Chebyshev, center_align", "Chebyshev, edge_align"];
-
-                wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
-                    save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
-                    numruns = 10, wrap = Val(false))
-                plot(wp, title = title)
-            end
+            wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = disc_names,
+                save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
+                numruns = 10, wrap = Val(false))
+            plot(wp, title = title)
         end
     catch e
         println("Failed on $(ex.name):")
