@@ -18,7 +18,7 @@ function old_sparsejacobian_vals(ops::AbstractVector, vars::AbstractVector, I::A
 end
 
 
-function old_expand_derivatives(O::SymbolicUtils.Symbolic, simplify=false; throw_no_derivative=false)
+function old_expand_derivatives(O::SymbolicUtils.BasicSymbolic, simplify=false; throw_no_derivative=false)
     if iscall(O) && isa(operation(O), Differential)
         arg = only(arguments(O))
         arg = old_expand_derivatives(arg, false; throw_no_derivative)
@@ -38,6 +38,14 @@ function old_expand_derivatives(n::Num, simplify=false; kwargs...)
 end
 
 function old_occursin_info(x, expr, fail = true)
+    # Handle plain symbols (previously dispatched on ::Sym)
+    if SymbolicUtils.issym(expr)
+        if SymbolicUtils.symtype(expr) <: AbstractArray && fail
+            error("Differentiation of expressions involving arrays and array variables is not yet supported.")
+        end
+        return isequal(x, expr)
+    end
+
     if SymbolicUtils.symtype(expr) <: AbstractArray
         if fail
             error("Differentiation with array expressions is not yet supported")
@@ -77,26 +85,24 @@ function old_occursin_info(x, expr, fail = true)
         if all(_isfalse, args)
             return false
         end
-        Term{Real}(true, args)
+        SymbolicUtils.term(true, args...; type = Real)
     end
-end
-
-function old_occursin_info(x, expr::Sym, fail)
-    if SymbolicUtils.symtype(expr) <: AbstractArray && fail
-            error("Differentiation of expressions involving arrays and array variables is not yet supported.")
-    end
-    isequal(x, expr)
 end
 
 _isfalse(occ::Bool) = occ === false
-_isfalse(occ::SymbolicUtils.Symbolic) = iscall(occ) && _isfalse(operation(occ))
+function _isfalse(occ::SymbolicUtils.BasicSymbolic)
+    oc = SymbolicUtils.unwrap_const(occ)
+    oc isa Bool && return oc === false
+    iscall(occ) && return _isfalse(operation(occ))
+    return false
+end
 
 _iszero(x) = false
 _isone(x) = false
 _iszero(x::Number) = iszero(x)
 _isone(x::Number) = isone(x)
-_iszero(::SymbolicUtils.Symbolic) = false
-_isone(::SymbolicUtils.Symbolic) = false
+_iszero(::SymbolicUtils.BasicSymbolic) = false
+_isone(::SymbolicUtils.BasicSymbolic) = false
 _iszero(x::Num) = _iszero(value(x))::Bool
 _isone(x::Num) = _isone(value(x))::Bool
 
@@ -104,6 +110,15 @@ _isone(x::Num) = _isone(value(x))::Bool
 function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_derivative=false)
     if occurrences == nothing
         occurrences = old_occursin_info(D.x, arg)
+    end
+
+    # In SymbolicUtils v4, Bool values stored as term arguments become Const nodes.
+    # Unwrap them so the Bool checks below work correctly.
+    if occurrences isa SymbolicUtils.BasicSymbolic
+        oc_unwrapped = SymbolicUtils.unwrap_const(occurrences)
+        if oc_unwrapped isa Bool
+            occurrences = oc_unwrapped
+        end
     end
 
     _isfalse(occurrences) && return 0
@@ -189,7 +204,7 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
             t2
         elseif _isone(t2)
             d = Symbolics.derivative_idx(arg, i)
-            if d isa Symbolics.NoDeriv
+            if d === nothing
                 throw_no_derivative && error((arg, i))
                 D(arg)
             else
@@ -197,7 +212,7 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
             end
         else
             t1 = Symbolics.derivative_idx(arg, i)
-            t1 = if t1 isa Symbolics.NoDeriv
+            t1 = if t1 === nothing
                 throw_no_derivative && error((arg, i))
                 D(arg)
             else
@@ -208,7 +223,7 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
 
         if _iszero(x)
             continue
-        elseif x isa SymbolicUtils.Symbolic
+        elseif x isa SymbolicUtils.BasicSymbolic
             push!(exprs, x)
         else
             c += x
