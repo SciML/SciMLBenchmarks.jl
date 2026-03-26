@@ -10,8 +10,10 @@ using Pkg
 # Rev fixes precompilation https://github.com/hzgzh/XSteam.jl/pull/2
 Pkg.add(Pkg.PackageSpec(; name = "XSteam", rev = "f2a1c589054cfd6bba307985a3a534b6f5a1863b"))
 
-using ModelingToolkit, JuliaSimCompiler, Symbolics, XSteam, Polynomials, BenchmarkTools,
+using ModelingToolkit, Symbolics, XSteam, Polynomials, BenchmarkTools,
       CairoMakie, OrdinaryDiffEq
+using ModelingToolkit: t_nounits as t, D_nounits as D
+using OrdinaryDiffEq: NoInit
 using OMJulia
 ```
 
@@ -25,12 +27,10 @@ using OMJulia
 #Source -> o--o--o--o--o--o--o -> Sink
 #       advection diff source PDE
 
-@variables t
-D = Differential(t)
 m_flow_source(t) = 2.75
 T_source(t) = (t > 12 * 3600) * 56.0 + 12.0
-@register_symbolic m_flow_source(t)
-@register_symbolic T_source(t)
+# @register_symbolic m_flow_source(t)
+# @register_symbolic T_source(t)
 
 #build polynomial liquid-water property only dependent on Temperature
 p_l = 5 #bar
@@ -43,11 +43,11 @@ T_vec = collect(1:1:150);
 @generated rho_T(t) = :(Base.evalpoly(t, $(fit(T_vec, rho_pT.(p_l, T_vec), 4).coeffs...,)))
 @generated rhocp_T(t) = :(Base.evalpoly(
     t, $(fit(T_vec, 1000 * rho_pT.(p_l, T_vec) .* Cp_pT.(p_l, T_vec), 5).coeffs...,)))
-@register_symbolic kin_visc_T(t)
-@register_symbolic lambda_T(t)
-@register_symbolic Pr_T(t)
-@register_symbolic rho_T(t)
-@register_symbolic rhocp_T(t)
+# @register_symbolic kin_visc_T(t)
+# @register_symbolic lambda_T(t)
+# @register_symbolic Pr_T(t)
+# @register_symbolic rho_T(t)
+# @register_symbolic rhocp_T(t)
 
 @connector function FluidPort(; name, p = 101325.0, m = 0.0, T = 0.0)
     sts = @variables p(t)=p m(t)=m [connect=Flow] T(t)=T [connect=Stream]
@@ -55,7 +55,7 @@ T_vec = collect(1:1:150);
 end
 
 @connector function VectorHeatPort(; name, N = 100, T0 = 0.0, Q0 = 0.0)
-    sts = @variables (T(t))[1:N]=T0 (Q(t))[1:N]=Q0 [connect=Flow]
+    sts = @variables (T(t))[1:N]=fill(T0, N) (Q(t))[1:N]=fill(Q0, N) [connect=Flow]
     ODESystem(Equation[], t, [T; Q], []; name = name)
 end
 
@@ -263,27 +263,15 @@ function TestBenchPreinsulated(; name, L = 1.0, dn = 0.05, t_layer = [0.0056, 0.
     compose(ODESystem(eqs, t, [], []; name = name), subs)
 end
 
-function build_system(fsys, N)
-    N >= 4 || throw("Problem sizes smaller than 4 not supported; received $N.")
-    @named testbench = TestBenchPreinsulated(; L = 470, N, dn = 0.3127, t_layer = [
-        0.0056, 0.058])
-    t0 = time()
-    sys = structural_simplify(fsys(testbench))
-    return time() - t0, sys
-end
-
-function compile_run_problem(sys; target = JuliaSimCompiler.JuliaTarget(),
-        solver = FBDF(; autodiff = target===JuliaSimCompiler.JuliaTarget()),
+function compile_run_problem(sys;
+        solver = FBDF(; autodiff = true),
         duref = nothing)
     tspan = (0.0, 19 * 3600.0)
     t0 = time()
-    prob = if target === JuliaSimCompiler.JuliaTarget()
-        ODEProblem(sys, [], tspan; sparse = true)
-    else
-        ODEProblem(sys, target, [], tspan; sparse = true)
-    end
+    u0map = [v => 12.0 for v in unknowns(sys)]
+    prob = ODEProblem(sys, u0map, tspan; sparse = true,
+        warn_initialize_determined = false, initializealg = NoInit())
     (; f, u0, p) = prob
-    fill!(u0, 12.0)
     ff = f.f
     du = similar(u0)
     ff(du, u0, p, 0.0)
@@ -295,52 +283,35 @@ function compile_run_problem(sys; target = JuliaSimCompiler.JuliaTarget(),
     (t_fode, t_run, t_solve), du
 end
 
-const C = JuliaSimCompiler.CTarget();
-const LLVM = JuliaSimCompiler.llvm.LLVMTarget();
-
-function run_and_time_julia!(ss_times, times, max_sizes, i, N)
+function run_and_time_julia!(ss_times, times, total_times, i, N)
     @named testbench = TestBenchPreinsulated(L = 470, N = N, dn = 0.3127, t_layer = [
         0.0056, 0.058])
-    if N <= max_sizes[1]
-        ss_times[i, 1] = @elapsed sys_mtk = structural_simplify(testbench)
-        times[i, 1], _ = compile_run_problem(sys_mtk)
-    end
-    ss_times[i, 2] = @elapsed sys_jsir_scalar = structural_simplify(IRSystem(testbench), loop = false)
-    oderef = daeref = nothing
-    N <= max_sizes[2] &&
-        ((times[i, 2], oderef) = compile_run_problem(sys_jsir_scalar; duref = oderef))
-    N <= max_sizes[3] && ((times[i, 3],
-        oderef) = compile_run_problem(sys_jsir_scalar; target = C, duref = oderef))
-    N <= max_sizes[4] && ((times[i, 4],
-        oderef) = compile_run_problem(sys_jsir_scalar; target = LLVM, duref = oderef))
-    for j in 1:4
-        ss_time = ss_times[i, 1 + (j > 1)]
-        t_fode, t_run, t_solve = times[i, j]
-        total_times[i, j] = ss_time + t_fode + t_solve
-    end
+    ss_times[i] = @elapsed sys_mtk = mtkcompile(testbench)
+    times[i], _ = compile_run_problem(sys_mtk)
+    t_fode, t_run, t_solve = times[i]
+    total_times[i, 1] = ss_times[i] + t_fode + t_solve
 end
 ```
 
 ```julia
 N = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 960, 1280];
 N_states = 4 .* N; # x-axis for plots
-# max size we run per method, including Julia methods and OpenModelica
-# we do not run Dymola in this script, therefore it is excluded
-max_sizes = [480, last(N), last(N), last(N), last(N)];
+# max size we run per method, including OpenModelica
+max_sizes = [last(N), last(N)];
 # NaN-initialize so Makie will ignore incomplete
-ss_times = fill(NaN, length(N), 2);
+ss_times = fill(NaN, length(N));
 # more indepth Julia-times
-times = fill((NaN, NaN, NaN), length(N), length(max_sizes) - 1);
-# all times, including Dymola
-total_times = fill(NaN, length(N), length(max_sizes) + 1); # +1 for Dymola
+times = fill((NaN, NaN, NaN), length(N));
+# all times: MTK, OpenModelica, Dymola
+total_times = fill(NaN, length(N), 3);
 ```
 
 ## Julia Timings
 
 ```julia
-@time run_and_time_julia!(ss_times, times, max_sizes, 1, 4); # precompile
+@time run_and_time_julia!(ss_times, times, total_times, 1, 4); # precompile
 for (i, n) in enumerate(N)
-    @time run_and_time_julia!(ss_times, times, max_sizes, i, n)
+    @time run_and_time_julia!(ss_times, times, total_times, i, n)
 end
 ```
 
@@ -366,11 +337,11 @@ for i in eachindex(N)
     end
     #runtime = res["timeTotal"]
     @assert res["messages"][1:11] == "LOG_SUCCESS"
-    total_times[i, 5] = totaltime
+    total_times[i, 2] = totaltime
 end
 
 OMJulia.quit(mod)
-total_times[:, 5]
+total_times[:, 2]
 ```
 
 ## Time Dymola
@@ -392,28 +363,20 @@ translation_and_total_times = [1.802 1.921
                                9.707 14.393
                                11.411 17.752
                                15.094 27.268]
-total_times[:, 6] = translation_and_total_times[1:length(N), 2]
+total_times[:, 3] = translation_and_total_times[1:length(N), 2]
 ```
 
 ## Generate Final Plots
 
 ```julia
-f = Figure(size = (800, 1200));
-ss_names = ["MTK", "JSIR"];
+f = Figure(size = (800, 800));
 let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title = "Structural Simplify Time")
-    _lines = map(eachcol(ss_times)) do ts
-        lines!(N, ts)
-    end
-    Legend(f[1, 2], _lines, ss_names)
+    lines!(N, ss_times)
 end
-method_names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM"];
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
     title = timecat * " Time"
     ax = Axis(f[i + 1, 1]; yscale = log10, xscale = log10, title)
-    _lines = map(eachcol(times)) do ts
-        lines!(N, getindex.(ts, i))
-    end
-    Legend(f[i + 1, 2], _lines, method_names)
+    lines!(N, getindex.(times, i))
 end
 f
 ```
@@ -422,7 +385,7 @@ f
 f2 = Figure(size = (800, 400));
 title = "Total Time: Thermal Fluid Benchmark"
 ax = Axis(f2[1, 1]; yscale = log10, xscale = log10, title)
-names = ["MTK", "JSIR - Julia", "JSIR - C", "JSIR - LLVM", "OpenModelica", "Dymola"]
+names = ["MTK", "OpenModelica", "Dymola"]
 _lines = map(enumerate(names)) do (j, label)
     ts = @view(total_times[:, j])
     lines!(N_states, ts)
