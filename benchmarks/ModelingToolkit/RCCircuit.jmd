@@ -3,22 +3,20 @@ title: RC Circuit
 author: Avinash Subramanian, Yingbo Ma, Chris Elrod
 ---
 
-When a model is defined using repeated components, JuliaSimCompiler is able to take advantage of this
-to scale efficiently by rerolling equations into loops. This option can be disabled by setting `loop=false`.
 Here, we build an RC circuit model with variable numbers of components to show scaling of compile and
-runtimes of MTK vs JuliaSimCompiler's three backends with and without loop rerolling.
+runtimes of MTK vs OpenModelica and Dymola.
 
 ## Setup Model Code
 
 ```julia
-using JuliaSimCompiler, ModelingToolkit, OrdinaryDiffEq, BenchmarkTools,
+using ModelingToolkit, OrdinaryDiffEq, BenchmarkTools,
       ModelingToolkitStandardLibrary, OMJulia, CairoMakie
 using ModelingToolkitStandardLibrary.Blocks
 using ModelingToolkitStandardLibrary.Electrical
 ```
 
 ```julia
-# ModelingToolkit and JuliaSimCompiler
+# ModelingToolkit
 const t = Blocks.t
 
 function build_system(n)
@@ -44,15 +42,10 @@ function build_system(n)
     return sys, u0, ps
 end
 
-function compile_run_problem(
-        sys, u0, ps; target = JuliaSimCompiler.JuliaTarget(), duref = nothing)
+function compile_run_problem(sys, u0, ps; duref = nothing)
     tspan = (0.0, 10.0)
     t0 = time()
-    prob = if target === JuliaSimCompiler.JuliaTarget()
-        ODEProblem(sys, u0, tspan, ps; sparse = true)
-    else
-        ODEProblem(sys, target, u0, tspan, ps; sparse = true)
-    end
+    prob = ODEProblem(sys, merge(Dict(u0), Dict(ps)), tspan; sparse = true)
     (; f, u0, p) = prob
     ff = f.f
     du = similar(u0)
@@ -65,35 +58,13 @@ function compile_run_problem(
     (t_fode, t_run, t_solve), du
 end
 
-const C = JuliaSimCompiler.CTarget();
-const LLVM = JuliaSimCompiler.llvm.LLVMTarget();
-
-function run_and_time_julia!(ss_times, times, max_sizes, i, n)
+function run_and_time_julia!(ss_times, times, total_times, max_sizes, i, n)
     sys, u0, ps = build_system(n);
     if n <= max_sizes[1]
-        ss_times[i, 1] = @elapsed sys_mtk = structural_simplify(sys)
-        times[i, 1], _ = compile_run_problem(sys_mtk, u0, ps)
-    end
-    ss_times[i, 2] = @elapsed sys_jsir_scalar = structural_simplify(IRSystem(sys), loop = false)
-    ss_times[i, 3] = @elapsed sys_jsir_loop = structural_simplify(JuliaSimCompiler.compressed_connection_expansion(sys))
-    oderef = daeref = nothing
-    n <= max_sizes[2] && ((times[i, 2],
-        oderef) = compile_run_problem(sys_jsir_scalar, u0, ps; duref = oderef))
-    n <= max_sizes[3] && ((times[i, 3],
-        oderef) = compile_run_problem(sys_jsir_scalar, u0, ps; target = C, duref = oderef))
-    n <= max_sizes[4] && ((times[i, 4],
-        oderef) = compile_run_problem(
-        sys_jsir_scalar, u0, ps; target = LLVM, duref = oderef))
-    n <= max_sizes[5] &&
-        ((times[i, 5], daeref) = compile_run_problem(sys_jsir_loop, u0, ps; duref = daeref))
-    n <= max_sizes[6] && ((times[i, 6],
-        daeref) = compile_run_problem(sys_jsir_loop, u0, ps; target = C, duref = daeref))
-    n <= max_sizes[7] && ((times[i, 7],
-        daeref) = compile_run_problem(sys_jsir_loop, u0, ps; target = LLVM, duref = daeref))
-    for j in 1:7
-        ss_time = j == 1 ? ss_times[i, 1] : ss_times[i, 2 + (j >= 5)]
-        t_fode, t_run, t_solve = times[i, j]
-        total_times[i, j] = ss_time + t_fode + t_solve
+        ss_times[i] = @elapsed sys_mtk = structural_simplify(sys)
+        times[i], _ = compile_run_problem(sys_mtk, u0, ps)
+        t_fode, t_run, t_solve = times[i]
+        total_times[i, 1] = ss_times[i] + t_fode + t_solve
     end
 end
 ```
@@ -103,20 +74,21 @@ N = [5, 10, 20, 40, 60, 80, 160, 320, 480, 640, 800, 1000, 2000,
     3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 20000];
 
 # max size we test per method
-max_sizes = [4_000, 8_000, 20_000, 20_000, 20_000, 20_000, 20_000, 9000];
+max_sizes = [4_000, 9000];
 
 # NaN-initialize so Makie will ignore incomplete
-ss_times = fill(NaN, length(N), 3);
-times = fill((NaN, NaN, NaN), length(N), length(max_sizes) - 1);
-total_times = fill(NaN, length(N), length(max_sizes) + 1);
+ss_times = fill(NaN, length(N));
+times = fill((NaN, NaN, NaN), length(N));
+# columns: MTK, OpenModelica, Dymola
+total_times = fill(NaN, length(N), 3);
 ```
 
 ## Julia Timings
 
 ```julia
-@time run_and_time_julia!(ss_times, times, max_sizes, 1, 4); # precompile
+@time run_and_time_julia!(ss_times, times, total_times, max_sizes, 1, 4); # precompile
 for (i, n) in enumerate(N)
-    @time run_and_time_julia!(ss_times, times, max_sizes, i, n)
+    @time run_and_time_julia!(ss_times, times, total_times, max_sizes, i, n)
 end
 ```
 
@@ -138,15 +110,14 @@ function time_open_modelica(n::Int)
     return totaltime
 end
 
-function run_and_time_om!(ss_times, times, max_sizes, i, n)
-    if n <= max_sizes[8]
-        total_times[i, end] = time_open_modelica(n)
+function run_and_time_om!(total_times, max_sizes, i, n)
+    if n <= max_sizes[2]
+        total_times[i, 2] = time_open_modelica(n)
     end
-    @views println("n = $(n)\nstructural_simplify_times = $(ss_times[i,:])\ncomponent times = $(times[i, :])\ntotal times = $(total_times[i, :])")
 end
 
 for (i, n) in enumerate(N)
-    @time run_and_time_om!(ss_times, times, max_sizes, i, n)
+    @time run_and_time_om!(total_times, max_sizes, i, n)
 end
 
 OMJulia.quit(omod)
@@ -181,29 +152,20 @@ translation_and_total_times = [5 2.428 2.458
                                10000 NaN NaN
                                20000 NaN NaN]
 
-total_times[:, 9] = translation_and_total_times[:, 3]
+total_times[:, 3] = translation_and_total_times[:, 3]
 ```
 
 ## Results
 
 ```julia
-f = Figure(size = (800, 1200));
-ss_names = ["MTK", "JSIR-Scalar", "JSIR-Loop"];
+f = Figure(size = (800, 800));
 let ax = Axis(f[1, 1]; yscale = log10, xscale = log10, title = "Structural Simplify Time")
-    _lines = map(eachcol(ss_times)) do ts
-        lines!(N, ts)
-    end
-    Legend(f[1, 2], _lines, ss_names)
+    lines!(N, ss_times)
 end
-method_names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C", "JSIR - Scalar - LLVM",
-    "JSIR - Loop - Julia", "JSIR - Loop - C", "JSIR - Loop - LLVM"];
 for (i, timecat) in enumerate(("ODEProblem + f!", "Run", "Solve"))
     title = timecat * " Time"
     ax = Axis(f[i + 1, 1]; yscale = log10, xscale = log10, title)
-    _lines = map(eachcol(times)) do ts
-        lines!(N, getindex.(ts, i))
-    end
-    Legend(f[i + 1, 2], _lines, method_names)
+    lines!(N, getindex.(times, i))
 end
 f
 ```
@@ -212,9 +174,7 @@ f
 f2 = Figure(size = (800, 400));
 title = "Total Time: RC Circuit Benchmark"
 ax = Axis(f2[1, 1]; yscale = log10, xscale = log10, title)
-names = ["MTK", "JSIR - Scalar - Julia", "JSIR - Scalar - C",
-    "JSIR - Scalar - LLVM", "JSIR - Loop - Julia", "JSIR - Loop - C",
-    "JSIR - Loop - LLVM", "OpenModelica", "Dymola"]
+names = ["MTK", "OpenModelica", "Dymola"]
 _lines = map(enumerate(names)) do (j, label)
     ts = @view(total_times[:, j])
     lines!(N, ts)
@@ -222,9 +182,6 @@ end
 Legend(f2[1, 2], _lines, names)
 f2
 ```
-
-All three backends compiled more quickly with loops, but the C and LLVM backends are so much quicker to compile than the Julia backend that this made much less difference for them.
-The impact on runtime was more varied.
 
 ## Appendix
 
