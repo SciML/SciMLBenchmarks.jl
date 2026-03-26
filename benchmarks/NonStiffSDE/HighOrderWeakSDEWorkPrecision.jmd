@@ -1,0 +1,257 @@
+---
+title: High-Order Weak SDE Work-Precision Diagrams
+author: Frank Schäfer and Chris Rackauckas
+---
+
+# High-Order Weak SDE Work-Precision Diagrams
+
+This benchmark compares high-order weak SDE solvers (`DRI1`, `PL1WM`, `RDI1WM`, `RDI2WM`) against
+standard baselines (`EM`, `SimplifiedEM`) on problems with non-commutative noise.
+These methods target high-accuracy computation of expectations $\mathbb{E}[f(X(t))]$ rather than
+pathwise accuracy.
+
+## Non-Commutative Noise Problem
+
+We consider a 2-dimensional SDE with non-commutative noise:
+
+$$dX_t = f(X_t) dt + g(X_t) dW_t, \quad X_0 = [1, 1]$$
+
+with a known analytical result $\mathbb{E}[X_1(t)^2] = \exp(-t)$.
+
+```julia
+using StochasticDiffEq, DiffEqDevTools, Random, Plots
+gr()
+
+u₀ = [1.0, 1.0]
+function f_noncommutative!(du, u, p, t)
+    @inbounds begin
+        du[1] = -273 // 512 * u[1]
+        du[2] = -1 // 160 * u[1] - (-785 // 512 + sqrt(2) / 8) * u[2]
+    end
+    return nothing
+end
+function g_noncommutative!(du, u, p, t)
+    @inbounds begin
+        du[1, 1] = 1 // 4 * u[1]
+        du[1, 2] = 1 // 16 * u[1]
+        du[2, 1] = (1 - 2 * sqrt(2)) / 4 * u[1]
+        du[2, 2] = 1 // 10 * u[1] + 1 // 16 * u[2]
+    end
+    return nothing
+end
+tspan = (0.0, 3.0)
+
+prob = SDEProblem(f_noncommutative!, g_noncommutative!, u₀, tspan,
+    noise_rate_prototype = zeros(2, 2))
+```
+
+### Weak Convergence Order
+
+We verify the weak convergence order of the methods using $\mathbb{E}[X_1(T)^2]$ as the observable.
+The analytical solution is $\exp(-3)$.
+
+```julia
+numtraj = Int(1e5)
+seed = 100
+Random.seed!(seed)
+seeds = rand(UInt, numtraj)
+
+function prob_func(prob, i, repeat)
+    remake(prob, seed = seeds[i])
+end
+
+h2(z) = z^2
+
+ensemble_prob = EnsembleProblem(prob;
+    output_func = (sol, i) -> (h2(sol[end][1]), false),
+    prob_func = prob_func)
+
+dts = 1 .// 2 .^ (3:-1:0)
+
+sim_dri1 = test_convergence(dts, ensemble_prob, DRI1(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+sim_pl1wm = test_convergence(dts, ensemble_prob, PL1WM(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+sim_rdi1wm = test_convergence(dts, ensemble_prob, RDI1WM(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+sim_rdi2wm = test_convergence(dts, ensemble_prob, RDI2WM(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+sim_em = test_convergence(dts, ensemble_prob, EM(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+sim_simplified_em = test_convergence(dts, ensemble_prob, SimplifiedEM(),
+    save_everystep = false, trajectories = numtraj, save_start = false,
+    adaptive = false, weak_timeseries_errors = false,
+    weak_dense_errors = false, expected_value = exp(-3.0))
+
+plot(
+    plot(sim_dri1, title = "DRI1 (order 2.0)"),
+    plot(sim_rdi1wm, title = "RDI1WM (order 2.0)"),
+    plot(sim_rdi2wm, title = "RDI2WM (order 2.0)"),
+    plot(sim_pl1wm, title = "PL1WM (order 2.0)"),
+    plot(sim_em, title = "EM (order 1.0)"),
+    plot(sim_simplified_em, title = "SimplifiedEM (order 1.0)"),
+    layout = (3, 2), size = (800, 900))
+```
+
+### Work-Precision Diagram (Non-Commutative Noise)
+
+```julia
+reltols = 1.0 ./ 4.0 .^ (1:4)
+abstols = reltols
+
+setups = [
+    Dict(:alg => DRI1(), :dts => dts, :adaptive => false),
+    Dict(:alg => PL1WM(), :dts => dts, :adaptive => false),
+    Dict(:alg => RDI1WM(), :dts => dts, :adaptive => false),
+    Dict(:alg => RDI2WM(), :dts => dts, :adaptive => false),
+    Dict(:alg => EM(), :dts => dts, :adaptive => false),
+    Dict(:alg => SimplifiedEM(), :dts => dts, :adaptive => false)]
+
+test_dt = 1 // 10000
+appxsol_setup = Dict(:alg => EM(), :dt => test_dt)
+
+wp = WorkPrecisionSet(ensemble_prob,
+    abstols, reltols, setups, test_dt;
+    maxiters = 1e7, verbose = false,
+    save_everystep = false, save_start = false,
+    appxsol_setup = appxsol_setup,
+    expected_value = exp(-3.0),
+    trajectories = numtraj, error_estimate = :weak_final)
+plot(wp; legend = :bottomleft)
+```
+
+## Stochastic Brusselator
+
+The stochastic Brusselator equations with scalar noise serve as a more challenging benchmark.
+The system exhibits oscillatory behavior requiring careful step-size control.
+
+$$\begin{aligned}
+dX_1 &= \left[(p_1-1)X_1 + p_1 X_1^2 + (X_1+1)^2 X_2\right]dt + p_2 X_1(1+X_1) dW_t \\
+dX_2 &= \left[-p_1 X_1 - p_1 X_1^2 - (X_1+1)^2 X_2\right]dt - p_2 X_1(1+X_1) dW_t
+\end{aligned}$$
+
+with $X_0 = [-0.1, 0]$, $p = [1.9, 0.1]$, and $t \in [0, 100]$.
+
+```julia
+using DiffEqNoiseProcess
+
+function brusselator_f!(du, u, p, t)
+    @inbounds begin
+        du[1] = (p[1] - 1) * u[1] + p[1] * u[1]^2 + (u[1] + 1)^2 * u[2]
+        du[2] = -p[1] * u[1] - p[1] * u[1]^2 - (u[1] + 1)^2 * u[2]
+    end
+    nothing
+end
+
+function brusselator_scalar_noise!(du, u, p, t)
+    @inbounds begin
+        du[1] = p[2] * u[1] * (1 + u[1])
+        du[2] = -p[2] * u[1] * (1 + u[1])
+    end
+    nothing
+end
+
+seed = 100
+Random.seed!(seed)
+numtraj_bruss = 100
+seeds_bruss = rand(UInt, numtraj_bruss)
+
+function prob_func_bruss(prob, i, repeat)
+    Random.seed!(seeds_bruss[i])
+    W = WienerProcess(0.0, 0.0, 0.0)
+    remake(prob, noise = W)
+end
+
+u0_bruss = [-0.1, 0.0]
+tspan_bruss = (0.0, 100.0)
+p_bruss = [1.9, 0.1]
+
+W = WienerProcess(0.0, 0.0, 0.0)
+prob_bruss = SDEProblem(brusselator_f!, brusselator_scalar_noise!, u0_bruss,
+    tspan_bruss, p_bruss, noise = W)
+
+ensembleprob_bruss = EnsembleProblem(prob_bruss,
+    prob_func = prob_func_bruss)
+```
+
+### Adaptive vs Fixed Step-Size Comparison
+
+We compare `DRI1` with adaptive time-stepping against fixed step-size on the stochastic Brusselator.
+
+```julia
+sol_adaptive = solve(ensembleprob_bruss, DRI1(), dt = 0.1,
+    trajectories = numtraj_bruss)
+sol_fixed = solve(ensembleprob_bruss, DRI1(), dt = 0.8,
+    adaptive = false, trajectories = numtraj_bruss)
+
+summ = EnsembleSummary(sol_adaptive, 0.0:0.5:100.0)
+plot(summ, fillalpha = 0.5, xlabel = "time t", yaxis = "X(t)",
+    label = ["x₁(t)" "x₂(t)"], legend = true,
+    title = "Stochastic Brusselator (DRI1, adaptive)")
+```
+
+```julia
+summ_fixed = EnsembleSummary(sol_fixed, 0.0:0.5:100.0)
+plot(summ_fixed, fillalpha = 0.5, xlabel = "time t", yaxis = "X(t)",
+    label = ["x₁(t)" "x₂(t)"], legend = true,
+    title = "Stochastic Brusselator (DRI1, fixed step)")
+```
+
+### Solver Comparison on Brusselator
+
+```julia
+ensembleprob_bruss2 = EnsembleProblem(prob_bruss,
+    prob_func = prob_func_bruss)
+
+reltols_bruss = 1.0 ./ 4.0 .^ (1:4)
+abstols_bruss = reltols_bruss
+dts_bruss = 1.0 ./ 2.0 .^ (1:4)
+
+setups_bruss = [
+    Dict(:alg => DRI1(), :dts => dts_bruss, :adaptive => false),
+    Dict(:alg => PL1WM(), :dts => dts_bruss, :adaptive => false),
+    Dict(:alg => RDI1WM(), :dts => dts_bruss, :adaptive => false),
+    Dict(:alg => RDI2WM(), :dts => dts_bruss, :adaptive => false),
+    Dict(:alg => EM(), :dts => dts_bruss, :adaptive => false),
+    Dict(:alg => SimplifiedEM(), :dts => dts_bruss, :adaptive => false)]
+
+test_dt_bruss = 1 // 1000
+appxsol_setup_bruss = Dict(:alg => EM(), :dt => test_dt_bruss)
+
+wp_bruss = WorkPrecisionSet(ensembleprob_bruss2,
+    abstols_bruss, reltols_bruss, setups_bruss, test_dt_bruss;
+    maxiters = 1e7, verbose = false,
+    save_everystep = false, save_start = false,
+    appxsol_setup = appxsol_setup_bruss,
+    trajectories = numtraj_bruss, error_estimate = :weak_final)
+plot(wp_bruss; legend = :bottomleft,
+    title = "Stochastic Brusselator Work-Precision")
+```
+
+## Summary
+
+The high-order weak methods (`DRI1`, `PL1WM`, `RDI1WM`, `RDI2WM`) achieve significantly better
+weak error scaling than `EM` and `SimplifiedEM` on the non-commutative noise problem.
+`DRI1` in particular achieves the smallest errors for fixed timesteps.
+On the stochastic Brusselator, the adaptive time-stepping of `DRI1` provides more accurate
+trajectory descriptions compared to fixed step-size integration.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
