@@ -1,0 +1,208 @@
+---
+title: RADAR5 Hepatitis B Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+# RADAR5 Hepatitis B Virus Infection
+
+This is a stiff delay differential equation model of acute hepatitis B virus infection,
+taken from the RADAR5 test suite by Guglielmi and Hairer. The system has dimension 10
+with 5 constant delays ($\tau_1 = 0.6$, $\tau_2 = 0.6$, $\tau_3 = 2.0$, $\tau_4 = 2.0$,
+$\tau_5 = 3.0$ days).
+
+The model describes the dynamics of the immune response to hepatitis B virus infection,
+including free virus ($u_1$), infected hepatocytes ($u_2$), antibody-bound virus ($u_3$),
+CTL effector cells ($u_4$), and various immune cell populations ($u_5$--$u_{10}$). The
+delays represent the time lags in the immune response cascade.
+
+The problem is extremely stiff due to rate constants spanning over 50 orders of magnitude
+(from $O(10^{-22})$ to $O(10^{33})$), making it an excellent test case for stiff DDE
+solvers.
+
+## References
+
+Guglielmi, N. and Hairer, E. (2005). Users' Guide for the code RADAR5 - Version 2.1.
+
+```julia
+using DelayDiffEq, DiffEqDevTools, Plots
+gr()
+```
+
+## Problem Definition
+
+```julia
+function f_hepatitis!(du, u, h, p, t)
+    α = p
+    xi(z) = 1.0 - z / α[7]
+
+    # Delayed values for 5 delays
+    y4_τ1 = h(p, t - α[41]; idxs = 4)
+    y4_τ2 = h(p, t - α[42]; idxs = 4)
+    y4_τ3 = h(p, t - α[43]; idxs = 4)
+    y4_τ4 = h(p, t - α[44]; idxs = 4)
+    y4_τ5 = h(p, t - α[45]; idxs = 4)
+
+    y5_τ1 = h(p, t - α[41]; idxs = 5)
+    y5_τ3 = h(p, t - α[43]; idxs = 5)
+
+    y6_τ2 = h(p, t - α[42]; idxs = 6)
+    y6_τ4 = h(p, t - α[44]; idxs = 6)
+    y6_τ5 = h(p, t - α[45]; idxs = 6)
+
+    y7_τ3 = h(p, t - α[43]; idxs = 7)
+
+    y8_τ4 = h(p, t - α[44]; idxs = 8)
+    y8_τ5 = h(p, t - α[45]; idxs = 8)
+
+    du[1] = α[1] * u[2] + α[2] * α[3] * u[2] * u[7] - α[4] * u[1] * u[10] -
+            α[5] * u[1] - α[6] * u[1] * (α[7] - u[2] - u[3])
+    du[2] = α[8] * u[1] * (α[7] - u[2] - u[3]) - α[3] * u[2] * u[7] - α[9] * u[2]
+    du[3] = α[3] * u[2] * u[7] + α[9] * u[2] - α[10] * u[3]
+    du[4] = α[11] * α[12] * u[1] - α[13] * u[4]
+    du[5] = α[14] * (xi(u[3]) * α[15] * y4_τ1 * y5_τ1 - u[4] * u[5]) -
+            α[16] * u[4] * u[5] * u[7] + α[17] * (α[18] - u[5])
+    du[6] = α[19] * (xi(u[3]) * α[20] * y4_τ2 * y6_τ2 - u[4] * u[6]) -
+            α[21] * u[4] * u[6] * u[8] + α[22] * (α[23] - u[6])
+    du[7] = α[24] * (xi(u[3]) * α[25] * y4_τ3 * y5_τ3 * y7_τ3 -
+            u[4] * u[5] * u[7]) - α[26] * u[2] * u[7] + α[27] * (α[28] - u[7])
+    du[8] = α[29] * (xi(u[3]) * α[30] * y4_τ4 * y6_τ4 * y8_τ4 -
+            u[4] * u[6] * u[8]) + α[31] * (α[32] - u[8])
+    du[9] = α[33] * xi(u[3]) * α[34] * y4_τ5 * y6_τ5 * y8_τ5 +
+            α[35] * (α[36] - u[9])
+    du[10] = α[37] * u[9] - α[38] * u[10] * u[1] - α[39] * u[10]
+
+    nothing
+end
+
+α = zeros(45)
+# Kinetic parameters
+α[1] = 83.0;      α[2] = 5.0;     α[3] = 6.6e14;  α[4] = 3.0e11;  α[5] = 0.4
+α[6] = 2.5e7;     α[7] = 0.5e-12; α[8] = 2.3e9;   α[9] = 0.052;   α[10] = 0.15
+α[11] = 9.4e9;    α[12] = 1.0e-15; α[13] = 1.2;    α[14] = 2.7e16; α[15] = 2.0
+α[16] = 5.3e27;   α[17] = 1.0;    α[18] = 1.0e-18; α[19] = 2.7e16; α[20] = 2.0
+α[21] = 8.0e28;   α[22] = 1.0;    α[23] = 1.0e-19; α[24] = 5.3e33; α[25] = 16.0
+α[26] = 1.6e14;   α[27] = 0.4;    α[28] = 1.0e-18; α[29] = 8.0e32; α[30] = 16.0
+α[31] = 0.1;      α[32] = 1.0e-18; α[33] = 1.7e30; α[34] = 3.0;    α[35] = 0.4
+α[36] = 4.3e-22;  α[37] = 0.85e7; α[38] = 8.6e11;  α[39] = 0.043
+# Delays
+α[41] = 0.6; α[42] = 0.6; α[43] = 2.0; α[44] = 2.0; α[45] = 3.0
+
+function h_hepatitis(p, t; idxs::Union{Nothing, Int} = nothing)
+    α = p
+    u0 = [2.9e-16, 0.0, 0.0, 0.0, α[18], α[23], α[28], α[32], α[36],
+        α[37] * α[36] / α[39]]
+    if idxs === nothing
+        u0
+    else
+        u0[idxs]
+    end
+end
+
+prob = DDEProblem(f_hepatitis!, h_hepatitis, (0.0, 130.0), α;
+    constant_lags = [0.6, 2.0, 3.0])
+```
+
+## Reference Solution
+
+```julia
+sol = solve(prob, MethodOfSteps(Rodas5P());
+    reltol = 1e-12, abstol = 1e-20, dt = 1e-6)
+test_sol = TestSolution(sol)
+plot(sol; title = "Hepatitis B Solution")
+```
+
+We also plot the first three components (virus dynamics) separately:
+
+```julia
+plot(sol; idxs = [1, 2, 3], title = "Hepatitis B: Virus Dynamics")
+```
+
+## High Tolerances
+
+### Rosenbrock methods
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: Rosenbrock Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: Rosenbrock Methods (L2 error)")
+```
+
+### SDIRK methods
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Kvaerno4()))]
+names = ["TRBDF2", "KenCarp4", "Kvaerno4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: SDIRK Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: SDIRK Methods (L2 error)")
+```
+
+### All stiff methods comparison
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["Rosenbrock23", "Rodas5P", "TRBDF2", "KenCarp4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: All Stiff Methods (final error)")
+```
+
+## Low Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5P", "TRBDF2", "KenCarp4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: Low Tolerances (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Hepatitis B: Low Tolerances (L2 error)")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

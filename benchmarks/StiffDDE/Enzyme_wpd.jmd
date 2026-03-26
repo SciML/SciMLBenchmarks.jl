@@ -1,0 +1,172 @@
+---
+title: RADAR5 Enzyme Kinetics Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+# RADAR5 Enzyme Kinetics
+
+This is a stiff delay differential equation model of enzyme kinetics with an inhibitor
+molecule, taken from the RADAR5 test suite by Guglielmi and Hairer. The system has
+dimension 4 with one constant delay.
+
+The model describes the dynamics of a four-component system where the inhibitor enters
+through a delayed feedback on the fourth component:
+
+```math
+U(t) = \frac{1}{1 + K_1 \, u_4(t - \tau)^3}
+```
+```math
+u_1'(t) = 10.5 - u_1(t) \, U(t)
+```
+```math
+u_2'(t) = u_1(t) \, U(t) - u_2(t)
+```
+```math
+u_3'(t) = u_2(t) - u_3(t)
+```
+```math
+u_4'(t) = u_3(t) - 0.5 \, u_4(t)
+```
+
+for $t \in [0, 160]$ with constant history $\phi(t) = (60, 10, 10, 20)$ for $t \leq 0$,
+where $\tau = 4$ and $K_1 = 0.0005$.
+
+## References
+
+Guglielmi, N. and Hairer, E. (2005). Users' Guide for the code RADAR5 - Version 2.1.
+
+```julia
+using DelayDiffEq, DiffEqDevTools, Plots
+gr()
+```
+
+## Problem Definition
+
+```julia
+function f_enzyme!(du, u, h, p, t)
+    τ, K1 = p
+    y4_delayed = h(p, t - τ; idxs = 4)
+    U = 1.0 / (1.0 + K1 * y4_delayed^3)
+    du[1] = 10.5 - u[1] * U
+    du[2] = u[1] * U - u[2]
+    du[3] = u[2] - u[3]
+    du[4] = u[3] - 0.5 * u[4]
+    nothing
+end
+
+function h_enzyme(p, t; idxs::Union{Nothing, Int} = nothing)
+    if idxs === nothing
+        [60.0, 10.0, 10.0, 20.0]
+    elseif idxs == 1
+        60.0
+    elseif idxs == 2
+        10.0
+    elseif idxs == 3
+        10.0
+    elseif idxs == 4
+        20.0
+    else
+        error("index must be between 1 and 4")
+    end
+end
+
+τ = 4.0
+K1 = 0.0005
+prob = DDEProblem(f_enzyme!, h_enzyme, (0.0, 160.0), (τ, K1); constant_lags = [τ])
+```
+
+## Reference Solution
+
+```julia
+sol = solve(prob, MethodOfSteps(Rodas5P()); reltol = 1e-14, abstol = 1e-14)
+test_sol = TestSolution(sol)
+plot(sol; title = "Enzyme Kinetics Solution")
+```
+
+## High Tolerances
+
+### Rosenbrock methods
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Enzyme: Rosenbrock Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Enzyme: Rosenbrock Methods (L2 error)")
+```
+
+### SDIRK methods
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(SDIRK2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Kvaerno4())),
+    Dict(:alg => MethodOfSteps(Kvaerno5()))]
+names = ["TRBDF2", "SDIRK2", "KenCarp4", "Kvaerno4", "Kvaerno5"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Enzyme: SDIRK Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Enzyme: SDIRK Methods (L2 error)")
+```
+
+### Stiff vs Non-Stiff Comparison
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Tsit5())),
+    Dict(:alg => MethodOfSteps(DP5())),
+    Dict(:alg => MethodOfSteps(OwrenZen5()))]
+names = ["Rodas5P", "TRBDF2", "KenCarp4", "Tsit5", "DP5", "OwrenZen5"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e6), error_estimate = :final)
+plot(wp; title = "Enzyme: Stiff vs Non-Stiff (final error)")
+```
+
+## Low Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Enzyme: Low Tolerances (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Enzyme: Low Tolerances (L2 error)")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
