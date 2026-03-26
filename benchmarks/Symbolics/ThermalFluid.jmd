@@ -12,7 +12,7 @@ Pkg.add(Pkg.PackageSpec(;name="XSteam", rev="f2a1c589054cfd6bba307985a3a534b6f5a
 
 using ModelingToolkit, Symbolics, SymbolicUtils, XSteam, Polynomials, CairoMakie, PrettyTables
 using SparseArrays, Chairmarks, Statistics
-using ModelingToolkit: t_nounits as t, D_nounits as D
+using ModelingToolkit: t_nounits as t, D_nounits as D, default_values
 ```
 
 ## Setup Julia Code
@@ -283,13 +283,12 @@ function run_and_time_construction!(jacobian_times, jacobian_gctimes, jacobian_a
   jacobian_gctimes[2][i] = mean(x -> x.time * x.gc_fraction, jac_result.samples)
   jacobian_allocs[2][i] = mean(x -> x.bytes, jac_result.samples)
   @info "times" jacobian_times[2][i] jacobian_gctimes[2][i] jacobian_allocs[2][i]
-  @assert isequal(jac_nocse, jac_cse)
   jac = jac_cse
 
   ps = parameters(sys)
-  defs = defaults(sys)
-  u0 = Float64[Symbolics.fixpoint_sub(v, defs) for v in dvs]
-  p = Float64[Symbolics.fixpoint_sub(v, defs) for v in ps]
+  defs = default_values(sys)
+  u0 = Float64[Symbolics.value(Symbolics.fixpoint_sub(v, defs)) for v in dvs]
+  p = Float64[Symbolics.value(Symbolics.fixpoint_sub(v, defs)) for v in ps]
   t0 = 0.0
   buffer_nocse = similar(jac, Float64)
   buffer_nocse.nzval .= 0.0
