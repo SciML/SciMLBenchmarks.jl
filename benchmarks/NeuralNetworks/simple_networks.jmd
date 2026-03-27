@@ -1,0 +1,769 @@
+---
+title: Simple Neural Networks
+author: Avik Pal, Chris Rackauckas
+---
+
+This benchmark compares Julia and Python deep learning frameworks on common neural
+network workloads. We compare:
+
+**Julia Frameworks:**
+1. [Lux.jl](https://github.com/LuxDL/Lux.jl)
+2. [Flux.jl](https://github.com/FluxML/Flux.jl)
+3. [SimpleChains.jl](https://github.com/PumasAI/SimpleChains.jl) (via Lux.jl wrapper, CPU-optimized small networks)
+4. [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl) (XLA-compiled Lux models)
+
+**Python Frameworks (via PythonCall):**
+5. [JAX](https://github.com/google/jax)
+6. [PyTorch](https://github.com/pytorch/pytorch)
+
+!!! note
+
+    Not all benchmarks include all frameworks. SimpleChains.jl does not support
+    batch normalization or convolutions with certain configurations. Python timing
+    is done entirely in Python to avoid Julia-to-Python call overhead.
+
+# Setup
+
+```julia
+using BenchmarkTools, Random, Statistics
+using Lux, Reactant, MLDataDevices
+import Flux, SimpleChains
+using Optimisers, Zygote, Enzyme
+using CairoMakie
+using PythonCall, CondaPkg
+
+BenchmarkTools.DEFAULT_PARAMETERS.gcsample = true
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 30
+
+const rng = Random.default_rng()
+Random.seed!(rng, 12345)
+```
+
+## Python Setup
+
+We load all Python models and timing utilities from a companion module.
+
+```julia
+# Add benchmark directory to Python path so we can import our utilities
+sys = pyimport("sys")
+sys.path.insert(0, @__DIR__)
+
+nn_utils = pyimport("nn_benchmark_utils")
+np = pyimport("numpy")
+jax = pyimport("jax")
+jnp = pyimport("jax.numpy")
+torch = pyimport("torch")
+jax_random = pyimport("jax.random")
+
+# Force CPU for fair comparison
+jax.config.update("jax_platform_name", "cpu")
+```
+
+## Julia Helper Functions
+
+```julia
+function append_timing!(results, key, time_s)
+    if haskey(results, key)
+        results[key] = (; timings=vcat(results[key].timings, time_s))
+    else
+        results[key] = (; timings=[time_s])
+    end
+end
+
+function to_row_major(x::AbstractMatrix)
+    # Julia is column-major (features x batch), Python expects row-major (batch x features)
+    np.array(Array(x'))
+end
+
+function to_nchw(x::AbstractArray{T, 4}) where T
+    # Julia WHCN -> Python NCHW
+    np.array(permutedims(x, (4, 3, 1, 2)))
+end
+```
+
+## Shared Plotting Functions
+
+```julia
+const ASPECT_RATIO = 0.7
+const WIDTH = 1200
+const HEIGHT = round(Int, WIDTH * ASPECT_RATIO)
+const STROKEWIDTH = 2.5
+
+const FRAMEWORK_COLORS = Dict(
+    "Lux" => :royalblue, "Flux" => :orange, "SimpleChains" => :green,
+    "Reactant" => :purple, "JAX" => :red, "PyTorch" => :brown,
+    "Lux+Zygote" => :royalblue, "Flux+Zygote" => :orange,
+)
+
+const FRAMEWORK_STYLES = Dict(
+    "Lux" => :solid, "Flux" => :dash, "SimpleChains" => :dot,
+    "Reactant" => :dashdot, "JAX" => :dashdotdot, "PyTorch" => :solid,
+    "Lux+Zygote" => :solid, "Flux+Zygote" => :dash,
+)
+
+function plot_results(results, batch_sizes, name)
+    fig = Figure(; size=(WIDTH, HEIGHT))
+    ax = Axis(fig[1, 1]; xlabel="Batch Size (log2 scale)", ylabel="Time (s) (log2 scale)",
+        xscale=log2, yscale=log2, xlabelsize=22, ylabelsize=22,
+        xticklabelsize=20, yticklabelsize=20, xtickwidth=STROKEWIDTH,
+        ytickwidth=STROKEWIDTH, spinewidth=STROKEWIDTH)
+
+    handles, labels = [], String[]
+    for (key, val) in sort(collect(results); by=first)
+        timings = val.timings
+        any(>(0), timings) || continue
+        color = get(FRAMEWORK_COLORS, key, :gray)
+        style = get(FRAMEWORK_STYLES, key, :solid)
+        l = lines!(ax, batch_sizes, timings; color, linewidth=3, linestyle=style)
+        sc = scatter!(ax, batch_sizes, timings; color, markersize=20)
+        push!(handles, [l, sc])
+        push!(labels, key)
+    end
+
+    axislegend(ax, handles, labels; framevisible=true, framewidth=STROKEWIDTH,
+        labelsize=16, position=:lt, patchsize=(60.0f0, 20.0f0))
+    fig[0, :] = Label(fig, "$name", fontsize=24, tellwidth=false, font=:bold)
+    return fig
+end
+```
+
+# 7 Layer MLP (relu) Benchmark
+
+## Setup
+
+```julia
+lux_mlp_relu = Chain(
+    Dense(32, 256, relu), [Dense(256, 256, relu) for _ in 1:5]..., Dense(256, 10))
+ps_lux, st_lux = Lux.setup(rng, lux_mlp_relu)
+
+flux_mlp_relu = Flux.Chain(
+    Flux.Dense(32, 256, relu), [Flux.Dense(256, 256, relu) for _ in 1:5]..., Flux.Dense(256, 10))
+
+# Python models
+jax_mlp_relu_params = nn_utils.create_jax_mlp_params(jax_random.PRNGKey(0))
+torch_mlp_relu = nn_utils.TorchMLP("relu")
+
+batch_sizes = [2, 8, 32, 128, 512, 2048]
+```
+
+## Inference
+
+```julia
+st_lux_test = Lux.testmode(st_lux)
+Flux.testmode!(flux_mlp_relu)
+
+xdev = reactant_device()
+ps_ra = ps_lux |> xdev
+st_ra = Lux.testmode(st_lux) |> xdev
+
+results = Dict{String, NamedTuple}()
+
+for bs in batch_sizes
+    x = randn(Float32, 32, bs)
+
+    # Lux
+    t = @benchmark $lux_mlp_relu($x, $ps_lux, $st_lux_test)
+    append_timing!(results, "Lux", median(t).time / 1e9)
+
+    # Flux
+    t = @benchmark $flux_mlp_relu($x)
+    append_timing!(results, "Flux", median(t).time / 1e9)
+
+    # SimpleChains
+    sc_model = ToSimpleChainsAdaptor((32,))(lux_mlp_relu)
+    ps_sc, st_sc = Lux.setup(rng, sc_model)
+    t = @benchmark $sc_model($x, $ps_sc, $st_sc)
+    append_timing!(results, "SimpleChains", median(t).time / 1e9)
+
+    # Reactant
+    x_ra = Reactant.ConcreteRArray(x)
+    compiled_fn = @compile lux_mlp_relu(x_ra, ps_ra, st_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_ra, $st_ra)
+    append_timing!(results, "Reactant", median(t).time / 1e9)
+
+    # JAX (timed in Python)
+    x_py = jnp.array(to_row_major(x))
+    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_mlp_relu_forward, jax_mlp_relu_params, x_py))
+    append_timing!(results, "JAX", jax_time)
+
+    # PyTorch (timed in Python)
+    x_torch = torch.from_numpy(to_row_major(x))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_relu, x_torch))
+    append_timing!(results, "PyTorch", torch_time)
+
+    @info "Batch $bs done"
+end
+
+plot_results(results, batch_sizes, "Inference: 7 Layer MLP (relu)")
+```
+
+## Training
+
+```julia
+train_batch_sizes = [32, 128, 512, 2048]
+train_results = Dict{String, NamedTuple}()
+
+# JAX train step
+jax_relu_train_step = nn_utils.make_jax_mlp_train_step(
+    nn_utils.jax_mlp_relu_forward, jax_mlp_relu_params)
+
+for bs in train_batch_sizes
+    x = randn(Float32, 32, bs)
+    y = randn(Float32, 10, bs)
+
+    # Lux + Zygote
+    opt_state = Optimisers.setup(Adam(1.0f-3), ps_lux)
+    function lux_zygote_step(model, ps, st, opt_state, x, y)
+        (loss, st_new), back = Zygote.pullback(p -> begin
+            ypred, st_ = model(x, p, st)
+            sum(abs2, ypred .- y), st_
+        end, ps)
+        gs = back((one(loss), nothing))[1]
+        opt_state_new, ps_new = Optimisers.update(opt_state, ps, gs)
+        ps_new, st_new, opt_state_new, loss
+    end
+    lux_zygote_step(lux_mlp_relu, ps_lux, st_lux, opt_state, x, y)
+    t = @benchmark $lux_zygote_step($lux_mlp_relu, $ps_lux, $st_lux, $opt_state, $x, $y)
+    append_timing!(train_results, "Lux+Zygote", median(t).time / 1e9)
+
+    # Flux + Zygote
+    flux_opt = Flux.setup(Adam(1.0f-3), flux_mlp_relu)
+    Flux.trainmode!(flux_mlp_relu)
+    function flux_step(model, opt_state, x, y)
+        loss, grads = Flux.withgradient(m -> sum(abs2, m(x) .- y), model)
+        Flux.update!(opt_state, model, grads[1])
+        loss
+    end
+    flux_step(flux_mlp_relu, flux_opt, x, y)
+    t = @benchmark $flux_step($flux_mlp_relu, $flux_opt, $x, $y)
+    append_timing!(train_results, "Flux+Zygote", median(t).time / 1e9)
+
+    # Reactant
+    x_ra = Reactant.ConcreteRArray(x)
+    y_ra = Reactant.ConcreteRArray(y)
+    ts = Training.TrainState(lux_mlp_relu, ps_ra, st_ra, Adam(1.0f-3))
+    function reactant_step(ts, x, y)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        ts_new, loss
+    end
+    reactant_step(ts, x_ra, y_ra)
+    t = @benchmark $reactant_step($ts, $x_ra, $y_ra)
+    append_timing!(train_results, "Reactant", median(t).time / 1e9)
+
+    # JAX
+    x_py = jnp.array(to_row_major(x))
+    y_py = jnp.array(to_row_major(y))
+    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
+        jax_relu_train_step, jax_mlp_relu_params, x_py, y_py))
+    append_timing!(train_results, "JAX", jax_time)
+
+    # PyTorch
+    torch_model = nn_utils.TorchMLP("relu")
+    torch_opt = torch.optim.Adam(torch_model.parameters(); lr=1e-3)
+    torch_loss_fn = nn_utils.tnn.MSELoss()
+    x_torch = torch.from_numpy(to_row_major(x))
+    y_torch = torch.from_numpy(to_row_major(y))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
+        torch_model, torch_opt, torch_loss_fn, x_torch, y_torch))
+    append_timing!(train_results, "PyTorch", torch_time)
+
+    @info "Training batch $bs done"
+end
+
+plot_results(train_results, train_batch_sizes, "Training Step: 7 Layer MLP (relu)")
+```
+
+# 7 Layer MLP (gelu) Benchmark
+
+## Setup
+
+```julia
+lux_mlp_gelu = Chain(
+    Dense(32, 256, gelu), [Dense(256, 256, gelu) for _ in 1:5]..., Dense(256, 10))
+ps_gelu, st_gelu = Lux.setup(rng, lux_mlp_gelu)
+
+flux_mlp_gelu = Flux.Chain(
+    Flux.Dense(32, 256, gelu), [Flux.Dense(256, 256, gelu) for _ in 1:5]..., Flux.Dense(256, 10))
+
+jax_mlp_gelu_params = nn_utils.create_jax_mlp_params(jax_random.PRNGKey(1))
+torch_mlp_gelu = nn_utils.TorchMLP("gelu")
+```
+
+## Inference
+
+```julia
+st_gelu_test = Lux.testmode(st_gelu)
+Flux.testmode!(flux_mlp_gelu)
+ps_gelu_ra = ps_gelu |> xdev
+st_gelu_ra = Lux.testmode(st_gelu) |> xdev
+
+gelu_results = Dict{String, NamedTuple}()
+
+for bs in batch_sizes
+    x = randn(Float32, 32, bs)
+
+    t = @benchmark $lux_mlp_gelu($x, $ps_gelu, $st_gelu_test)
+    append_timing!(gelu_results, "Lux", median(t).time / 1e9)
+
+    t = @benchmark $flux_mlp_gelu($x)
+    append_timing!(gelu_results, "Flux", median(t).time / 1e9)
+
+    sc_model = ToSimpleChainsAdaptor((32,))(lux_mlp_gelu)
+    ps_sc, st_sc = Lux.setup(rng, sc_model)
+    t = @benchmark $sc_model($x, $ps_sc, $st_sc)
+    append_timing!(gelu_results, "SimpleChains", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    compiled_fn = @compile lux_mlp_gelu(x_ra, ps_gelu_ra, st_gelu_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_gelu_ra, $st_gelu_ra)
+    append_timing!(gelu_results, "Reactant", median(t).time / 1e9)
+
+    x_py = jnp.array(to_row_major(x))
+    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_mlp_gelu_forward, jax_mlp_gelu_params, x_py))
+    append_timing!(gelu_results, "JAX", jax_time)
+
+    x_torch = torch.from_numpy(to_row_major(x))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_gelu, x_torch))
+    append_timing!(gelu_results, "PyTorch", torch_time)
+
+    @info "Batch $bs done"
+end
+
+plot_results(gelu_results, batch_sizes, "Inference: 7 Layer MLP (gelu)")
+```
+
+## Training
+
+```julia
+gelu_train_results = Dict{String, NamedTuple}()
+jax_gelu_train_step = nn_utils.make_jax_mlp_train_step(
+    nn_utils.jax_mlp_gelu_forward, jax_mlp_gelu_params)
+
+for bs in train_batch_sizes
+    x = randn(Float32, 32, bs)
+    y = randn(Float32, 10, bs)
+
+    opt_state = Optimisers.setup(Adam(1.0f-3), ps_gelu)
+    function lux_gelu_step(model, ps, st, opt_state, x, y)
+        (loss, st_new), back = Zygote.pullback(p -> begin
+            ypred, st_ = model(x, p, st)
+            sum(abs2, ypred .- y), st_
+        end, ps)
+        gs = back((one(loss), nothing))[1]
+        opt_state_new, ps_new = Optimisers.update(opt_state, ps, gs)
+        ps_new, st_new, opt_state_new, loss
+    end
+    lux_gelu_step(lux_mlp_gelu, ps_gelu, st_gelu, opt_state, x, y)
+    t = @benchmark $lux_gelu_step($lux_mlp_gelu, $ps_gelu, $st_gelu, $opt_state, $x, $y)
+    append_timing!(gelu_train_results, "Lux+Zygote", median(t).time / 1e9)
+
+    flux_opt = Flux.setup(Adam(1.0f-3), flux_mlp_gelu)
+    Flux.trainmode!(flux_mlp_gelu)
+    function flux_gelu_step(model, opt_state, x, y)
+        loss, grads = Flux.withgradient(m -> sum(abs2, m(x) .- y), model)
+        Flux.update!(opt_state, model, grads[1])
+        loss
+    end
+    flux_gelu_step(flux_mlp_gelu, flux_opt, x, y)
+    t = @benchmark $flux_gelu_step($flux_mlp_gelu, $flux_opt, $x, $y)
+    append_timing!(gelu_train_results, "Flux+Zygote", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    y_ra = Reactant.ConcreteRArray(y)
+    ts_gelu = Training.TrainState(lux_mlp_gelu, ps_gelu_ra, st_gelu_ra, Adam(1.0f-3))
+    function reactant_gelu_step(ts, x, y)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        ts_new, loss
+    end
+    reactant_gelu_step(ts_gelu, x_ra, y_ra)
+    t = @benchmark $reactant_gelu_step($ts_gelu, $x_ra, $y_ra)
+    append_timing!(gelu_train_results, "Reactant", median(t).time / 1e9)
+
+    x_py = jnp.array(to_row_major(x))
+    y_py = jnp.array(to_row_major(y))
+    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
+        jax_gelu_train_step, jax_mlp_gelu_params, x_py, y_py))
+    append_timing!(gelu_train_results, "JAX", jax_time)
+
+    torch_model = nn_utils.TorchMLP("gelu")
+    torch_opt = torch.optim.Adam(torch_model.parameters(); lr=1e-3)
+    torch_loss_fn = nn_utils.tnn.MSELoss()
+    x_torch = torch.from_numpy(to_row_major(x))
+    y_torch = torch.from_numpy(to_row_major(y))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
+        torch_model, torch_opt, torch_loss_fn, x_torch, y_torch))
+    append_timing!(gelu_train_results, "PyTorch", torch_time)
+
+    @info "Training batch $bs done"
+end
+
+plot_results(gelu_train_results, train_batch_sizes, "Training Step: 7 Layer MLP (gelu)")
+```
+
+# 7 Layer MLP (relu) with Batch Normalization Benchmark
+
+## Setup
+
+```julia
+lux_mlp_bn = Chain(
+    Dense(32, 256), BatchNorm(256, relu),
+    [Chain(Dense(256, 256), BatchNorm(256, relu)) for _ in 1:5]...,
+    Dense(256, 10))
+ps_bn, st_bn = Lux.setup(rng, lux_mlp_bn)
+
+flux_mlp_bn = Flux.Chain(
+    Flux.Dense(32, 256), Flux.BatchNorm(256, relu),
+    [Flux.Chain(Flux.Dense(256, 256), Flux.BatchNorm(256, relu)) for _ in 1:5]...,
+    Flux.Dense(256, 10))
+
+torch_mlp_bn = nn_utils.TorchMLPBN()
+```
+
+## Inference
+
+```julia
+st_bn_test = Lux.testmode(st_bn)
+Flux.testmode!(flux_mlp_bn)
+ps_bn_ra = ps_bn |> xdev
+st_bn_ra = Lux.testmode(st_bn) |> xdev
+
+bn_batch_sizes = [2, 8, 32, 128, 512, 2048]
+bn_results = Dict{String, NamedTuple}()
+
+for bs in bn_batch_sizes
+    x = randn(Float32, 32, bs)
+
+    t = @benchmark $lux_mlp_bn($x, $ps_bn, $st_bn_test)
+    append_timing!(bn_results, "Lux", median(t).time / 1e9)
+
+    t = @benchmark $flux_mlp_bn($x)
+    append_timing!(bn_results, "Flux", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    compiled_fn = @compile lux_mlp_bn(x_ra, ps_bn_ra, st_bn_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_bn_ra, $st_bn_ra)
+    append_timing!(bn_results, "Reactant", median(t).time / 1e9)
+
+    # PyTorch (JAX lacks a simple functional BatchNorm)
+    x_torch = torch.from_numpy(to_row_major(x))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_bn, x_torch))
+    append_timing!(bn_results, "PyTorch", torch_time)
+
+    @info "Batch $bs done"
+end
+
+plot_results(bn_results, bn_batch_sizes, "Inference: 7 Layer MLP + BN (relu)")
+```
+
+## Training
+
+```julia
+bn_train_results = Dict{String, NamedTuple}()
+
+for bs in train_batch_sizes
+    x = randn(Float32, 32, bs)
+    y = randn(Float32, 10, bs)
+
+    opt_state = Optimisers.setup(Adam(1.0f-3), ps_bn)
+    function lux_bn_step(model, ps, st, opt_state, x, y)
+        (loss, st_new), back = Zygote.pullback(p -> begin
+            ypred, st_ = model(x, p, st)
+            sum(abs2, ypred .- y), st_
+        end, ps)
+        gs = back((one(loss), nothing))[1]
+        opt_state_new, ps_new = Optimisers.update(opt_state, ps, gs)
+        ps_new, st_new, opt_state_new, loss
+    end
+    lux_bn_step(lux_mlp_bn, ps_bn, st_bn, opt_state, x, y)
+    t = @benchmark $lux_bn_step($lux_mlp_bn, $ps_bn, $st_bn, $opt_state, $x, $y)
+    append_timing!(bn_train_results, "Lux+Zygote", median(t).time / 1e9)
+
+    flux_opt = Flux.setup(Adam(1.0f-3), flux_mlp_bn)
+    Flux.trainmode!(flux_mlp_bn)
+    function flux_bn_step(model, opt_state, x, y)
+        loss, grads = Flux.withgradient(m -> sum(abs2, m(x) .- y), model)
+        Flux.update!(opt_state, model, grads[1])
+        loss
+    end
+    flux_bn_step(flux_mlp_bn, flux_opt, x, y)
+    t = @benchmark $flux_bn_step($flux_mlp_bn, $flux_opt, $x, $y)
+    append_timing!(bn_train_results, "Flux+Zygote", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    y_ra = Reactant.ConcreteRArray(y)
+    ts_bn = Training.TrainState(lux_mlp_bn, ps_bn_ra, st_bn_ra, Adam(1.0f-3))
+    function reactant_bn_step(ts, x, y)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        ts_new, loss
+    end
+    reactant_bn_step(ts_bn, x_ra, y_ra)
+    t = @benchmark $reactant_bn_step($ts_bn, $x_ra, $y_ra)
+    append_timing!(bn_train_results, "Reactant", median(t).time / 1e9)
+
+    # PyTorch
+    torch_bn_model = nn_utils.TorchMLPBN()
+    torch_opt = torch.optim.Adam(torch_bn_model.parameters(); lr=1e-3)
+    torch_loss_fn = nn_utils.tnn.MSELoss()
+    x_torch = torch.from_numpy(to_row_major(x))
+    y_torch = torch.from_numpy(to_row_major(y))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
+        torch_bn_model, torch_opt, torch_loss_fn, x_torch, y_torch))
+    append_timing!(bn_train_results, "PyTorch", torch_time)
+
+    @info "Training batch $bs done"
+end
+
+plot_results(bn_train_results, train_batch_sizes, "Training Step: 7 Layer MLP + BN (relu)")
+```
+
+# LeNet 5 Benchmark
+
+## Setup
+
+```julia
+lux_lenet = Chain(
+    Conv((5, 5), 1 => 6, relu), MaxPool((2, 2)),
+    Conv((5, 5), 6 => 16, relu), MaxPool((2, 2)),
+    FlattenLayer(), Dense(256, 120, relu), Dense(120, 84, relu), Dense(84, 10))
+ps_lenet, st_lenet = Lux.setup(rng, lux_lenet)
+
+flux_lenet = Flux.Chain(
+    Flux.Conv((5, 5), 1 => 6, relu), Flux.MaxPool((2, 2)),
+    Flux.Conv((5, 5), 6 => 16, relu), Flux.MaxPool((2, 2)),
+    Flux.flatten, Flux.Dense(256, 120, relu), Flux.Dense(120, 84, relu), Flux.Dense(84, 10))
+
+torch_lenet = nn_utils.TorchLeNet()
+jax_lenet_params = nn_utils.create_jax_lenet_params(jax_random.PRNGKey(2))
+
+lenet_batch_sizes = [2, 8, 32, 128]
+```
+
+## Inference
+
+```julia
+st_lenet_test = Lux.testmode(st_lenet)
+Flux.testmode!(flux_lenet)
+ps_lenet_ra = ps_lenet |> xdev
+st_lenet_ra = Lux.testmode(st_lenet) |> xdev
+
+lenet_results = Dict{String, NamedTuple}()
+
+for bs in lenet_batch_sizes
+    x = randn(Float32, 28, 28, 1, bs)  # WHCN
+
+    t = @benchmark $lux_lenet($x, $ps_lenet, $st_lenet_test)
+    append_timing!(lenet_results, "Lux", median(t).time / 1e9)
+
+    t = @benchmark $flux_lenet($x)
+    append_timing!(lenet_results, "Flux", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    compiled_fn = @compile lux_lenet(x_ra, ps_lenet_ra, st_lenet_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_lenet_ra, $st_lenet_ra)
+    append_timing!(lenet_results, "Reactant", median(t).time / 1e9)
+
+    # JAX/PyTorch use NCHW
+    x_py = to_nchw(x)
+    x_jnp = jnp.array(x_py)
+    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_lenet_forward, jax_lenet_params, x_jnp))
+    append_timing!(lenet_results, "JAX", jax_time)
+
+    x_torch = torch.from_numpy(x_py)
+    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_lenet, x_torch))
+    append_timing!(lenet_results, "PyTorch", torch_time)
+
+    @info "Batch $bs done"
+end
+
+plot_results(lenet_results, lenet_batch_sizes, "Inference: LeNet 5")
+```
+
+## Training
+
+```julia
+lenet_train_results = Dict{String, NamedTuple}()
+lenet_train_batch_sizes = [32, 128]
+jax_lenet_train_step = nn_utils.make_jax_lenet_train_step(jax_lenet_params)
+
+for bs in lenet_train_batch_sizes
+    x = randn(Float32, 28, 28, 1, bs)
+    y = randn(Float32, 10, bs)
+
+    opt_state = Optimisers.setup(Adam(1.0f-3), ps_lenet)
+    function lux_lenet_step(model, ps, st, opt_state, x, y)
+        (loss, st_new), back = Zygote.pullback(p -> begin
+            ypred, st_ = model(x, p, st)
+            sum(abs2, ypred .- y), st_
+        end, ps)
+        gs = back((one(loss), nothing))[1]
+        opt_state_new, ps_new = Optimisers.update(opt_state, ps, gs)
+        ps_new, st_new, opt_state_new, loss
+    end
+    lux_lenet_step(lux_lenet, ps_lenet, st_lenet, opt_state, x, y)
+    t = @benchmark $lux_lenet_step($lux_lenet, $ps_lenet, $st_lenet, $opt_state, $x, $y)
+    append_timing!(lenet_train_results, "Lux+Zygote", median(t).time / 1e9)
+
+    flux_opt = Flux.setup(Adam(1.0f-3), flux_lenet)
+    Flux.trainmode!(flux_lenet)
+    function flux_lenet_step(model, opt_state, x, y)
+        loss, grads = Flux.withgradient(m -> sum(abs2, m(x) .- y), model)
+        Flux.update!(opt_state, model, grads[1])
+        loss
+    end
+    flux_lenet_step(flux_lenet, flux_opt, x, y)
+    t = @benchmark $flux_lenet_step($flux_lenet, $flux_opt, $x, $y)
+    append_timing!(lenet_train_results, "Flux+Zygote", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    y_ra = Reactant.ConcreteRArray(y)
+    ts_lenet = Training.TrainState(lux_lenet, ps_lenet_ra, st_lenet_ra, Adam(1.0f-3))
+    function reactant_lenet_step(ts, x, y)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        ts_new, loss
+    end
+    reactant_lenet_step(ts_lenet, x_ra, y_ra)
+    t = @benchmark $reactant_lenet_step($ts_lenet, $x_ra, $y_ra)
+    append_timing!(lenet_train_results, "Reactant", median(t).time / 1e9)
+
+    x_py = to_nchw(x)
+    x_jnp = jnp.array(x_py)
+    y_py = jnp.array(to_row_major(y))
+    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
+        jax_lenet_train_step, jax_lenet_params, x_jnp, y_py))
+    append_timing!(lenet_train_results, "JAX", jax_time)
+
+    torch_lenet_model = nn_utils.TorchLeNet()
+    torch_opt = torch.optim.Adam(torch_lenet_model.parameters(); lr=1e-3)
+    torch_loss_fn = nn_utils.tnn.MSELoss()
+    x_torch = torch.from_numpy(x_py)
+    y_torch = torch.from_numpy(to_row_major(y))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
+        torch_lenet_model, torch_opt, torch_loss_fn, x_torch, y_torch))
+    append_timing!(lenet_train_results, "PyTorch", torch_time)
+
+    @info "Training batch $bs done"
+end
+
+plot_results(lenet_train_results, lenet_train_batch_sizes, "Training Step: LeNet 5")
+```
+
+# Small ResNet Benchmark
+
+## Setup
+
+```julia
+function resnet_block(channels)
+    main = Chain(
+        Conv((3, 3), channels => channels; pad=1, use_bias=false),
+        BatchNorm(channels, relu),
+        Conv((3, 3), channels => channels; pad=1, use_bias=false),
+        BatchNorm(channels))
+    Parallel(+, main, NoOpLayer())
+end
+
+lux_resnet = Chain(
+    Conv((3, 3), 3 => 64; pad=1, use_bias=false), BatchNorm(64, relu),
+    resnet_block(64),
+    Conv((3, 3), 64 => 128; stride=2, pad=1, use_bias=false), BatchNorm(128, relu),
+    Conv((3, 3), 128 => 128; pad=1, use_bias=false), BatchNorm(128),
+    GlobalMeanPool(), FlattenLayer(), Dense(128, 10))
+ps_resnet, st_resnet = Lux.setup(rng, lux_resnet)
+
+torch_resnet = nn_utils.TorchSmallResNet()
+
+resnet_batch_sizes = [2, 8, 32]
+```
+
+## Inference
+
+```julia
+st_resnet_test = Lux.testmode(st_resnet)
+ps_resnet_ra = ps_resnet |> xdev
+st_resnet_ra = Lux.testmode(st_resnet) |> xdev
+
+resnet_results = Dict{String, NamedTuple}()
+
+for bs in resnet_batch_sizes
+    x = randn(Float32, 32, 32, 3, bs)  # WHCN
+
+    t = @benchmark $lux_resnet($x, $ps_resnet, $st_resnet_test)
+    append_timing!(resnet_results, "Lux", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    compiled_fn = @compile lux_resnet(x_ra, ps_resnet_ra, st_resnet_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_resnet_ra, $st_resnet_ra)
+    append_timing!(resnet_results, "Reactant", median(t).time / 1e9)
+
+    x_py = to_nchw(x)
+    x_torch = torch.from_numpy(x_py)
+    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_resnet, x_torch))
+    append_timing!(resnet_results, "PyTorch", torch_time)
+
+    @info "Batch $bs done"
+end
+
+plot_results(resnet_results, resnet_batch_sizes, "Inference: Small ResNet")
+```
+
+## Training
+
+```julia
+resnet_train_results = Dict{String, NamedTuple}()
+resnet_train_batch_sizes = [8, 32]
+
+for bs in resnet_train_batch_sizes
+    x = randn(Float32, 32, 32, 3, bs)
+    y = randn(Float32, 10, bs)
+
+    opt_state = Optimisers.setup(Adam(1.0f-3), ps_resnet)
+    function lux_resnet_step(model, ps, st, opt_state, x, y)
+        (loss, st_new), back = Zygote.pullback(p -> begin
+            ypred, st_ = model(x, p, st)
+            sum(abs2, ypred .- y), st_
+        end, ps)
+        gs = back((one(loss), nothing))[1]
+        opt_state_new, ps_new = Optimisers.update(opt_state, ps, gs)
+        ps_new, st_new, opt_state_new, loss
+    end
+    lux_resnet_step(lux_resnet, ps_resnet, st_resnet, opt_state, x, y)
+    t = @benchmark $lux_resnet_step($lux_resnet, $ps_resnet, $st_resnet, $opt_state, $x, $y)
+    append_timing!(resnet_train_results, "Lux+Zygote", median(t).time / 1e9)
+
+    x_ra = Reactant.ConcreteRArray(x)
+    y_ra = Reactant.ConcreteRArray(y)
+    ts_resnet = Training.TrainState(lux_resnet, ps_resnet_ra, st_resnet_ra, Adam(1.0f-3))
+    function reactant_resnet_step(ts, x, y)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        ts_new, loss
+    end
+    reactant_resnet_step(ts_resnet, x_ra, y_ra)
+    t = @benchmark $reactant_resnet_step($ts_resnet, $x_ra, $y_ra)
+    append_timing!(resnet_train_results, "Reactant", median(t).time / 1e9)
+
+    torch_rn = nn_utils.TorchSmallResNet()
+    torch_opt = torch.optim.Adam(torch_rn.parameters(); lr=1e-3)
+    torch_loss_fn = nn_utils.tnn.MSELoss()
+    x_py = to_nchw(x)
+    x_torch = torch.from_numpy(x_py)
+    y_torch = torch.from_numpy(to_row_major(y))
+    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
+        torch_rn, torch_opt, torch_loss_fn, x_torch, y_torch))
+    append_timing!(resnet_train_results, "PyTorch", torch_time)
+
+    @info "Training batch $bs done"
+end
+
+plot_results(resnet_train_results, resnet_train_batch_sizes, "Training Step: Small ResNet")
+```
+
+## Appendix
+
+```julia
+using InteractiveUtils
+InteractiveUtils.versioninfo()
+
+println()
+println("Python versions:")
+println("  JAX: ", pyconvert(String, jax.__version__))
+println("  PyTorch: ", pyconvert(String, torch.__version__))
+```
