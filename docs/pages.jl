@@ -73,6 +73,7 @@ section_titles = [
     "MethodOfLinesPDE" => "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
     "PINNErrorsVsTime" => "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
     "PINNOptimizers" => "Physics-Informed Neural Network (Neural Network PDE Solver) Optimizer Benchmarks",
+    "NeuralNetworks" => "Neural Network Framework Benchmarks",
     "AdaptiveSDE" => "SDE Adaptivity Benchmarks",
     "Surrogates" => "Surrogate Benchmarks",
     "Symbolics" => "Symbolic Manipulation Benchmarks"
