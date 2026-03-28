@@ -27,7 +27,7 @@ gr()
 using OptimizationBBO, OptimizationOptimJL, OptimizationNLopt, OptimizationSciPy
 
 using ParallelParticleSwarms
-using OpenCL
+using KernelAbstractions: CPU
 using StaticArrays, LinearAlgebra
 
 const PSOKernel     = ParallelParticleSwarms.ParallelPSOKernel
@@ -35,7 +35,7 @@ const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
 const SerPSO        = ParallelParticleSwarms.SerialPSO
 const HPso          = ParallelParticleSwarms.HybridPSO
 
-const BACKEND = OpenCLBackend()
+const BACKEND = CPU()
 ```
 ```julia
 function make_success_tracker(f_raw, f_opt, Δf)
@@ -220,17 +220,18 @@ num_particles  = 1024
 PSO_KEYS = Set(["SerialPSO", "PSOKernel", "SyncPSOKernel", "HybridPSO_LBFGS"])
 
 setup = Dict(
+    # Baseline global optimizers 
     "NelderMead"                               => NelderMead(),
     "NLopt_GN_CRS2_LM"                        => chain(NLopt.GN_CRS2_LM(), isboxed = true),
     "BBO_adaptive_de_rand_1_bin"               => chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
     "BBO_adaptive_de_rand_1_bin_radiuslimited" => chain(BBO_adaptive_de_rand_1_bin_radiuslimited(), isboxed = true),
     "BBO_de_rand_2_bin"                        => chain(BBO_de_rand_2_bin(), isboxed = true),
     "ScipyDifferentialEvolution"               => chain(ScipyDifferentialEvolution(), isboxed = true),
-    # PSO
-    "SerialPSO"       => SerPSO(num_particles),
-    "PSOKernel"       => PSOKernel(num_particles; backend = BACKEND, global_update = true),
-    "SyncPSOKernel"   => SyncPSOKernel(num_particles; backend = BACKEND),
-    "HybridPSO_LBFGS" => HPso(pso = PSOKernel(num_particles; backend = BACKEND); backend = BACKEND),
+    # PSO variants 
+    "SerialPSO"        => SerPSO(num_particles),
+    "PSOKernel"        => PSOKernel(num_particles; backend = BACKEND, global_update = true),
+    "SyncPSOKernel"    => SyncPSOKernel(num_particles; backend = BACKEND),
+    "HybridPSO_LBFGS"  => HPso(pso = PSOKernel(num_particles; backend = BACKEND); backend = BACKEND),
 )
 
 @memoize run_bench(algo) = algo in PSO_KEYS ?
@@ -252,11 +253,7 @@ const LINESTYLES = [:solid, :dash, :dot, :dashdot, :dashdotdot]
 labels  = collect(keys(setup))
 results = Array{BBOB.BenchmarkResults}(undef, length(setup))
 
-Threads.@threads for (i, algo) in collect(enumerate(labels))
-    algo in PSO_KEYS && continue
-    results[i] = run_bench(algo)
-end
-
+# PSO variants first
 for (i, algo) in enumerate(labels)
     algo in PSO_KEYS || continue
     @info "PSO: $algo ..."
@@ -266,6 +263,12 @@ for (i, algo) in enumerate(labels)
     catch err
         @warn "$algo failed" exception = (err, catch_backtrace())
     end
+end
+
+# Baseline optimizers (threaded)
+Threads.@threads for (i, algo) in collect(enumerate(labels))
+    algo in PSO_KEYS && continue
+    results[i] = run_bench(algo)
 end
 
 results
@@ -297,7 +300,15 @@ each trial, from which we build a CDF.
 ```julia
 tts_results = Dict{String, Vector{Float64}}()
 
+# PSO variants first
 for algo in labels
+    algo in PSO_KEYS || continue
+    tts_results[algo] = run_tts(algo)
+end
+
+# Baseline optimizers
+for algo in labels
+    algo in PSO_KEYS && continue
     tts_results[algo] = run_tts(algo)
 end
 ```
