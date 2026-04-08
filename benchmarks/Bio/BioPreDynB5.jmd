@@ -1,0 +1,448 @@
+---
+title: BioPreDyn-bench B5 Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+The following benchmark is of 26 ODEs modeling a signal transduction logic
+network from the [BioPreDyn-bench](https://doi.org/10.1186/s12918-015-0144-4)
+benchmark suite (Problem B5). The model describes signaling downstream of
+EGF and TNFa receptors using a logic-based ODE formalism with normalized
+Hill functions. State values range from 0 to 1 representing normalized
+protein activity levels.
+
+The model includes 86 kinetic parameters (Hill coefficients, half-maximal
+activations, and rate constants) plus 34 logic gate weights. The ODE system
+is translated from the original C implementation in the BioPreDyn-bench files.
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots,
+      LSODA, LinearAlgebra, BenchmarkTools,
+      SciMLBenchmarks
+
+gr()
+```
+
+## Define the ODE system
+
+The logic-based ODE uses normalized Hill functions of the form:
+`h(x, n, k) = (x^n / (k^n + x^n)) * (1 + k^n)`
+which maps 0 -> 0, 1 -> 1 (approximately), with steepness controlled by n.
+
+Each ODE has the form: `dx/dt = (activation(inputs) - x) * tau`
+
+```julia
+function biopredyn_b5!(du, u, p, t)
+    # State variables
+    nik, mkk4, ask1, map3k7, mkk7, tnfr, egfr, ph, ex, mek,
+    ras, traf2, ikk, akt, pi3k, ikb, nfkb, cjun, jnk, map3k1,
+    erk, raf1, sos, p38, gsk3, ap1 = u
+
+    # External inputs (piecewise-constant stimuli, encoded in parameters)
+    egf = p[87]
+    tnfa = p[88]
+    pi3k_inh = p[89]
+    raf1_inh = p[90]
+
+    # Kinetic parameters (n=Hill coefficient, k=half-maximal, tau=rate)
+    map3k7_n_nik    = p[1];  map3k7_k_nik    = p[2];  tau_nik    = p[3]
+    map3k7_n_mkk4   = p[4];  map3k7_k_mkk4   = p[5];  map3k1_n_mkk4 = p[6]
+    map3k1_k_mkk4   = p[7];  tau_mkk4        = p[8];  traf2_n_ask1  = p[9]
+    traf2_k_ask1    = p[10]; tau_ask1        = p[11]; traf2_n_map3k7 = p[12]
+    traf2_k_map3k7  = p[13]; tau_map3k7      = p[14]; ask1_n_mkk7   = p[15]
+    ask1_k_mkk7     = p[16]; map3k1_n_mkk7   = p[17]; map3k1_k_mkk7 = p[18]
+    tau_mkk7        = p[19]; tnfa_n_tnfr     = p[20]; tnfa_k_tnfr   = p[21]
+    tau_tnfr        = p[22]; egf_n_egfr      = p[23]; egf_k_egfr    = p[24]
+    tau_egfr        = p[25]; erk_n_ph        = p[26]; erk_k_ph      = p[27]
+    tau_ph          = p[28]; nfkb_n_ex       = p[29]; nfkb_k_ex     = p[30]
+    tau_ex          = p[31]; raf1_n_mek      = p[32]; raf1_k_mek    = p[33]
+    tau_mek         = p[34]; sos_n_ras       = p[35]; sos_k_ras     = p[36]
+    tau_ras         = p[37]; tnfr_n_traf2    = p[38]; tnfr_k_traf2  = p[39]
+    tau_traf2       = p[40]; nik_n_ikk       = p[41]; nik_k_ikk     = p[42]
+    tau_ikk         = p[43]; pi3k_n_akt      = p[44]; pi3k_k_akt    = p[45]
+    tau_akt         = p[46]; egfr_n_pi3k     = p[47]; egfr_k_pi3k   = p[48]
+    tau_pi3k        = p[49]; ex_n_ikb        = p[50]; ex_k_ikb      = p[51]
+    ikk_n_ikb       = p[52]; ikk_k_ikb       = p[53]; tau_ikb       = p[54]
+    ikb_n_nfkb      = p[55]; ikb_k_nfkb      = p[56]; tau_nfkb      = p[57]
+    jnk_n_cjun      = p[58]; jnk_k_cjun      = p[59]; tau_cjun      = p[60]
+    mkk7_n_jnk      = p[61]; mkk7_k_jnk      = p[62]; tau_jnk       = p[63]
+    ras_n_map3k1    = p[64]; ras_k_map3k1    = p[65]; tau_map3k1    = p[66]
+    mek_n_erk       = p[67]; mek_k_erk       = p[68]; tau_erk       = p[69]
+    ras_n_raf1      = p[70]; ras_k_raf1      = p[71]; tau_raf1      = p[72]
+    egfr_n_sos      = p[73]; egfr_k_sos      = p[74]; ph_n_sos      = p[75]
+    ph_k_sos        = p[76]; tau_sos         = p[77]; mkk4_n_p38    = p[78]
+    mkk4_k_p38      = p[79]; tau_p38         = p[80]; akt_n_gsk3    = p[81]
+    akt_k_gsk3      = p[82]; tau_gsk3        = p[83]; cjun_n_ap1    = p[84]
+    cjun_k_ap1      = p[85]; tau_ap1         = p[86]
+
+    # Logic gate weights (w parameters)
+    # These define how logical inputs combine (OR/AND gates)
+    w = @view p[91:124]
+    # w indices: 1=map3k7_nik, 2=map3k7_mkk4, 3=map3k1_mkk4, 4=map3k7_map3k1_mkk4_AND
+    # 5=traf2_ask1, 6=traf2_map3k7, 7=ask1_mkk7, 8=map3k1_mkk7, 9=ask1_map3k1_mkk7_AND
+    # 10=tnfa_tnfr, 11=egf_egfr, 12=erk_ph, 13=nfkb_ex, 14=raf1_mek, 15=sos_ras
+    # 16=tnfr_traf2, 17=nik_ikk, 18=pi3k_akt, 19=egfr_pi3k
+    # 20=ex_ikb, 21=ikk_ikb, 22=ex_ikk_ikb_AND
+    # 23=ikb_nfkb, 24=jnk_cjun, 25=mkk7_jnk, 26=ras_map3k1, 27=mek_erk, 28=ras_raf1
+    # 29=egfr_sos, 30=ph_sos, 31=egfr_ph_sos_AND
+    # 32=mkk4_p38, 33=akt_gsk3, 34=cjun_ap1
+
+    # Normalized Hill function: h(x,n,k) = x^n/(k^n + x^n) * (1 + k^n)
+    # Clamp x to avoid DomainError with negative values during adaptive steps
+    @inline fhill(x, n, k) = (xc = max(x, zero(x)); (xc^n / (k^n + xc^n)) * (1 + k^n))
+
+    # OR gate for three inputs
+    @inline function OR3(x1, x2, x3)
+        (1-x1)*(1-x2)*x3 + (1-x1)*x2*(1-x3) + (1-x1)*x2*x3 +
+        x1*(1-x2)*(1-x3) + x1*(1-x2)*x3 + x1*x2*(1-x3) + x1*x2*x3
+    end
+
+    # Compute Hill function activations
+    h_map3k7_nik = fhill(map3k7, map3k7_n_nik, map3k7_k_nik)
+    h_map3k7_mkk4 = fhill(map3k7, map3k7_n_mkk4, map3k7_k_mkk4)
+    h_map3k1_mkk4 = fhill(map3k1, map3k1_n_mkk4, map3k1_k_mkk4)
+    h_traf2_ask1 = fhill(traf2, traf2_n_ask1, traf2_k_ask1)
+    h_traf2_map3k7 = fhill(traf2, traf2_n_map3k7, traf2_k_map3k7)
+    h_ask1_mkk7 = fhill(ask1, ask1_n_mkk7, ask1_k_mkk7)
+    h_map3k1_mkk7 = fhill(map3k1, map3k1_n_mkk7, map3k1_k_mkk7)
+    h_tnfa_tnfr = fhill(tnfa, tnfa_n_tnfr, tnfa_k_tnfr)
+    h_egf_egfr = fhill(egf, egf_n_egfr, egf_k_egfr)
+    h_erk_ph = fhill(erk, erk_n_ph, erk_k_ph)
+    h_nfkb_ex = fhill(nfkb, nfkb_n_ex, nfkb_k_ex)
+    h_raf1_mek = fhill(raf1, raf1_n_mek, raf1_k_mek)
+    h_sos_ras = fhill(sos, sos_n_ras, sos_k_ras)
+    h_tnfr_traf2 = fhill(tnfr, tnfr_n_traf2, tnfr_k_traf2)
+    h_nik_ikk = fhill(nik, nik_n_ikk, nik_k_ikk)
+    h_pi3k_akt = fhill(pi3k, pi3k_n_akt, pi3k_k_akt)
+    h_egfr_pi3k = fhill(egfr, egfr_n_pi3k, egfr_k_pi3k)
+    h_ex_ikb = fhill(ex, ex_n_ikb, ex_k_ikb)
+    h_ikk_ikb = fhill(ikk, ikk_n_ikb, ikk_k_ikb)
+    h_ikb_nfkb = fhill(ikb, ikb_n_nfkb, ikb_k_nfkb)
+    h_jnk_cjun = fhill(jnk, jnk_n_cjun, jnk_k_cjun)
+    h_mkk7_jnk = fhill(mkk7, mkk7_n_jnk, mkk7_k_jnk)
+    h_ras_map3k1 = fhill(ras, ras_n_map3k1, ras_k_map3k1)
+    h_mek_erk = fhill(mek, mek_n_erk, mek_k_erk)
+    h_ras_raf1 = fhill(ras, ras_n_raf1, ras_k_raf1)
+    h_egfr_sos = fhill(egfr, egfr_n_sos, egfr_k_sos)
+    h_ph_sos = fhill(ph, ph_n_sos, ph_k_sos)
+    h_mkk4_p38 = fhill(mkk4, mkk4_n_p38, mkk4_k_p38)
+    h_akt_gsk3 = fhill(akt, akt_n_gsk3, akt_k_gsk3)
+    h_cjun_ap1 = fhill(cjun, cjun_n_ap1, cjun_k_ap1)
+
+    # ODEs: dx/dt = (activation - x) * tau
+    # nik: activated by map3k7 (single input)
+    du[1] = (w[1] * h_map3k7_nik - nik) * tau_nik
+
+    # mkk4: activated by map3k7 AND/OR map3k1 (2-input logic gate)
+    du[2] = (0*(1-h_map3k7_mkk4)*(1-h_map3k1_mkk4) +
+             w[3]*(1-h_map3k7_mkk4)*h_map3k1_mkk4 +
+             w[2]*h_map3k7_mkk4*(1-h_map3k1_mkk4) +
+             OR3(w[2],w[3],w[4])*h_map3k7_mkk4*h_map3k1_mkk4
+             - mkk4) * tau_mkk4
+
+    # ask1: activated by traf2 (single input)
+    du[3] = (w[5] * h_traf2_ask1 - ask1) * tau_ask1
+
+    # map3k7: activated by traf2 (single input)
+    du[4] = (w[6] * h_traf2_map3k7 - map3k7) * tau_map3k7
+
+    # mkk7: activated by ask1 AND/OR map3k1 (2-input logic gate)
+    du[5] = (0*(1-h_ask1_mkk7)*(1-h_map3k1_mkk7) +
+             w[8]*(1-h_ask1_mkk7)*h_map3k1_mkk7 +
+             w[7]*h_ask1_mkk7*(1-h_map3k1_mkk7) +
+             OR3(w[7],w[8],w[9])*h_ask1_mkk7*h_map3k1_mkk7
+             - mkk7) * tau_mkk7
+
+    # tnfr: activated by tnfa (single input)
+    du[6] = (w[10] * h_tnfa_tnfr - tnfr) * tau_tnfr
+
+    # egfr: activated by egf (single input)
+    du[7] = (w[11] * h_egf_egfr - egfr) * tau_egfr
+
+    # ph: activated by erk (single input)
+    du[8] = (w[12] * h_erk_ph - ph) * tau_ph
+
+    # ex: activated by nfkb (single input)
+    du[9] = (w[13] * h_nfkb_ex - ex) * tau_ex
+
+    # mek: activated by raf1 (single input)
+    du[10] = (w[14] * h_raf1_mek - mek) * tau_mek
+
+    # ras: activated by sos (single input)
+    du[11] = (w[15] * h_sos_ras - ras) * tau_ras
+
+    # traf2: activated by tnfr (single input)
+    du[12] = (w[16] * h_tnfr_traf2 - traf2) * tau_traf2
+
+    # ikk: activated by nik (single input)
+    du[13] = (w[17] * h_nik_ikk - ikk) * tau_ikk
+
+    # akt: activated by pi3k (single input)
+    du[14] = (w[18] * h_pi3k_akt - akt) * tau_akt
+
+    # pi3k: activated by egfr, inhibited by pi3k_inh
+    du[15] = (w[19] * h_egfr_pi3k - pi3k) * tau_pi3k * (1 - pi3k_inh)
+
+    # ikb: ex OR NOT ikk (2-input logic gate with NOT)
+    du[16] = (w[21]*(1-h_ex_ikb)*(1-h_ikk_ikb) +
+              0*(1-h_ex_ikb)*h_ikk_ikb +
+              OR3(w[20],w[21],w[22])*h_ex_ikb*(1-h_ikk_ikb) +
+              w[20]*h_ex_ikb*h_ikk_ikb
+              - ikb) * tau_ikb
+
+    # nfkb: activated by NOT ikb (inverted single input)
+    du[17] = (w[23]*(1-h_ikb_nfkb) - nfkb) * tau_nfkb
+
+    # cjun: activated by jnk (single input)
+    du[18] = (w[24] * h_jnk_cjun - cjun) * tau_cjun
+
+    # jnk: activated by mkk7 (single input)
+    du[19] = (w[25] * h_mkk7_jnk - jnk) * tau_jnk
+
+    # map3k1: activated by ras (single input)
+    du[20] = (w[26] * h_ras_map3k1 - map3k1) * tau_map3k1
+
+    # erk: activated by mek (single input)
+    du[21] = (w[27] * h_mek_erk - erk) * tau_erk
+
+    # raf1: activated by ras, inhibited by raf1_inh
+    du[22] = (w[28] * h_ras_raf1 - raf1) * tau_raf1 * (1 - raf1_inh)
+
+    # sos: egfr AND NOT ph (2-input logic gate with NOT)
+    du[23] = (w[30]*(1-h_egfr_sos)*(1-h_ph_sos) +
+              0*(1-h_egfr_sos)*h_ph_sos +
+              OR3(w[29],w[30],w[31])*h_egfr_sos*(1-h_ph_sos) +
+              w[29]*h_egfr_sos*h_ph_sos
+              - sos) * tau_sos
+
+    # p38: activated by mkk4 (single input)
+    du[24] = (w[32] * h_mkk4_p38 - p38) * tau_p38
+
+    # gsk3: activated by NOT akt (inverted single input)
+    du[25] = (w[33]*(1-h_akt_gsk3) - gsk3) * tau_gsk3
+
+    # ap1: activated by cjun (single input)
+    du[26] = (w[34] * h_cjun_ap1 - ap1) * tau_ap1
+
+    return nothing
+end
+```
+
+## Set up the problem
+
+Nominal parameters from the BioPreDyn-bench files:
+
+```julia
+# 86 kinetic parameters (n, k, tau triplets)
+nominal_pars = [
+    1.0, 0.0905, 7.1398,           # nik: n, k, tau
+    1.09, 0.95, 3.1526, 0.4721,    # mkk4: n1, k1, n2, k2
+    5.4167,                         # mkk4: tau
+    3.4873, 0.15, 5.2731,           # ask1: n, k, tau
+    1.0, 0.0918, 0.1,              # map3k7: n, k, tau
+    3.5966, 0.7772, 3.9788, 0.4026, # mkk7: n1, k1, n2, k2
+    10.0,                           # mkk7: tau
+    1.0188, 0.1173, 9.1369,         # tnfr: n, k, tau
+    4.892, 0.0905, 1.0937,          # egfr: n, k, tau
+    4.611, 0.1027, 0.106,           # ph: n, k, tau
+    4.9909, 0.4268, 0.6146,         # ex: n, k, tau
+    1.4875, 0.5195, 9.5228,         # mek: n, k, tau
+    1.454, 0.7119, 2.8385,          # ras: n, k, tau
+    4.1622, 0.5476, 9.9362,         # traf2: n, k, tau
+    4.997, 0.1029, 5.7463,          # ikk: n, k, tau
+    1.0726, 0.9486, 9.5917,         # akt: n, k, tau
+    4.4151, 0.0944, 7.7292,         # pi3k: n, k, tau
+    4.9991, 0.6852, 1.5451, 0.95,   # ikb: n1, k1, n2, k2
+    0.6778,                         # ikb: tau
+    4.9997, 0.2329, 0.9984,         # nfkb: n, k, tau
+    1.0759, 0.9496, 9.6513,         # cjun: n, k, tau
+    4.8747, 0.0913, 1.3215,         # jnk: n, k, tau
+    1.1997, 0.8298, 9.995,          # map3k1: n, k, tau
+    2.5354, 0.7099, 10.0,           # erk: n, k, tau
+    1.0, 0.2725, 0.8552,            # raf1: n, k, tau
+    1.0012, 0.9375, 1.4651, 0.72,   # sos: n1, k1, n2, k2
+    9.3196,                         # sos: tau
+    1.0032, 0.9329, 0.1,            # p38: n, k, tau
+    1.0608, 0.09, 0.2602,           # gsk3: n, k, tau
+    4.7985, 0.2653, 0.2045          # ap1: n, k, tau
+]
+
+# External inputs: egf, tnfa, pi3k_inh, raf1_inh
+# Experiment 1: EGF stimulus only
+inputs = [1.0, 0.0, 0.0, 0.0]
+
+# Logic gate weights
+gate_weights = [
+    1.0,  # map3k7_nik_w
+    0.0,  # map3k7_mkk4_w
+    0.0,  # map3k1_mkk4_w
+    1.0,  # map3k7_map3k1_mkk4_AND_w
+    1.0,  # traf2_ask1_w
+    1.0,  # traf2_map3k7_w
+    1.0,  # ask1_mkk7_w
+    1.0,  # map3k1_mkk7_w
+    0.0,  # ask1_map3k1_mkk7_AND_w
+    1.0,  # tnfa_tnfr_w
+    1.0,  # egf_egfr_w
+    1.0,  # erk_ph_w
+    1.0,  # nfkb_ex_w
+    1.0,  # raf1_mek_w
+    1.0,  # sos_ras_w
+    1.0,  # tnfr_traf2_w
+    1.0,  # nik_ikk_w
+    1.0,  # pi3k_akt_w
+    1.0,  # egfr_pi3k_w
+    1.0,  # ex_ikb_w
+    1.0,  # ikk_ikb_w
+    0.0,  # ex_ikk_ikb_AND_w
+    1.0,  # ikb_nfkb_w
+    1.0,  # jnk_cjun_w
+    1.0,  # mkk7_jnk_w
+    1.0,  # ras_map3k1_w
+    1.0,  # mek_erk_w
+    1.0,  # ras_raf1_w
+    0.0,  # egfr_sos_w
+    0.0,  # ph_sos_w
+    1.0,  # egfr_ph_sos_AND_w
+    1.0,  # mkk4_p38_w
+    1.0,  # akt_gsk3_w
+    1.0,  # cjun_ap1_w
+]
+
+p = vcat(nominal_pars, inputs, gate_weights)
+
+# All states start at 0 (inactive)
+u0 = zeros(26)
+
+tspan = (0.0, 120.0)  # 2 hours in minutes
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(biopredyn_b5!, u0, tspan, p)
+```
+
+## Picture of the solution
+
+```julia
+sol = solve(prob, Rodas5P(), abstol = 1e-8, reltol = 1e-8)
+plot(sol.t, Array(sol)'; legend = false, fmt = :png,
+     title = "BioPreDyn B5: Signal Transduction (EGF only)",
+     xlabel = "Time (min)", ylabel = "Activity")
+```
+
+## Generate Reference Solution
+
+```julia
+@time sol = solve(prob, Rodas5P(), abstol = 1/10^14, reltol = 1/10^14)
+test_sol = TestSolution(sol);
+```
+
+## Setups
+
+```julia
+default(legendfontsize = 7, framestyle = :box, gridalpha = 0.3, gridlinewidth = 2.5)
+```
+
+## Work-Precision Diagrams (High Tolerances)
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [
+    Dict(:alg => Rosenbrock23()),
+    Dict(:alg => TRBDF2()),
+    Dict(:alg => FBDF()),
+    Dict(:alg => QNDF()),
+    Dict(:alg => Rodas4()),
+    Dict(:alg => Rodas5()),
+    Dict(:alg => lsoda()),
+    Dict(:alg => RadauIIA5()),
+    Dict(:alg => CVODE_BDF()),
+]
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+
+names = ["Rosenbrock23" "TRBDF2" "FBDF" "QNDF" "Rodas4" "Rodas5" "lsoda" "RadauIIA5" "CVODE_BDF"]
+plot(wp; label = names, title = "BioPreDyn B5: High Tolerances")
+```
+
+## Work-Precision Diagrams (Low Tolerances)
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [
+    Dict(:alg => FBDF()),
+    Dict(:alg => QNDF()),
+    Dict(:alg => Rodas4()),
+    Dict(:alg => Rodas5P()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => KenCarp47()),
+    Dict(:alg => Kvaerno5()),
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => lsoda()),
+    Dict(:alg => RadauIIA5()),
+]
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+
+names = ["FBDF" "QNDF" "Rodas4" "Rodas5P" "KenCarp4" "KenCarp47" "Kvaerno5" "CVODE_BDF" "lsoda" "RadauIIA5"]
+plot(wp; label = names, title = "BioPreDyn B5: Low Tolerances")
+```
+
+## Work-Precision Diagrams (SDIRK Methods)
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:10)
+reltols = 1.0 ./ 10.0 .^ (2:7)
+
+setups = [
+    Dict(:alg => KenCarp3()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => KenCarp5()),
+    Dict(:alg => Kvaerno3()),
+    Dict(:alg => Kvaerno4()),
+    Dict(:alg => Kvaerno5()),
+    Dict(:alg => TRBDF2()),
+    Dict(:alg => RadauIIA5()),
+]
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+
+names = ["KenCarp3" "KenCarp4" "KenCarp5" "Kvaerno3" "Kvaerno4" "Kvaerno5" "TRBDF2" "RadauIIA5"]
+plot(wp; label = names, title = "BioPreDyn B5: SDIRK Methods")
+```
+
+## Summary of Results
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:12)
+reltols = 1.0 ./ 10.0 .^ (2:9)
+
+setups = [
+    Dict(:alg => CVODE_BDF()),
+    Dict(:alg => QNDF()),
+    Dict(:alg => FBDF()),
+    Dict(:alg => Rodas4()),
+    Dict(:alg => Rodas5P()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => lsoda()),
+    Dict(:alg => RadauIIA5()),
+]
+
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :l2,
+    saveat = tspan[2]/1000.0, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+
+names = ["CVODE_BDF" "QNDF" "FBDF" "Rodas4" "Rodas5P" "KenCarp4" "lsoda" "RadauIIA5"]
+plot(wp; label = names, title = "BioPreDyn B5: Summary",
+    left_margin = 10Plots.mm, right_margin = 10Plots.mm,
+    legendfontsize = 10, tickfontsize = 10, guidefontsize = 10,
+    legend = :topright, lw = 2, markersize = 6, size = (800, 600))
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
