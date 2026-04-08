@@ -97,7 +97,7 @@ sd1sys = let
     structural_simplify(ODESystem(sd1eqs, t; name=Symbol(gensym("sys"))))
 end
 
-sd1prob = ODEProblem{false}(sd1sys, y .=> 0.0, (0, 400.0), [β => 0.1], dt = 1.7e-2; u0_constructor = x -> SVector(x...))
+sd1prob = ODEProblem{false}(sd1sys, y .=> 0.0, (0, 400.0), dt = 1.7e-2; u0_constructor = x -> SVector(x...))
 
 sd2sys = let
     sd2eqs = [D(y[1]) ~ -0.04y[1] + 0.01 * (y[2] * y[3]),
