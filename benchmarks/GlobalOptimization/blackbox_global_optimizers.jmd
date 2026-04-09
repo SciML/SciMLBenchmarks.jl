@@ -5,21 +5,105 @@ author: Jonathan Bieler, Chris Rackauckas
 
 In this benchmark we will run the [BlackboxGlobalOptimization.jl](https://github.com/jonathanBieler/BlackBoxOptimizationBenchmarking.jl)
 benchmarks, a set of global optimization benchmarks on the [Optimization.jl](https://github.com/SciML/Optimization.jl)
-interface that test a wide variety of behaviors. This tests time and iterations vs accuracy,
-i.e. for a given amount of time to the optimizer, what percentage of problems from the set is
-it able to solve. This gives a global view of which methods are the most efficient at finding
-difficult global optima.
+interface that test a wide variety of behaviors. This tests both iterations and wall-clock
+time vs accuracy, i.e. for a given budget (in iterations or time), what percentage of
+problems from the set is a solver able to solve. This gives a global view of which methods
+are the most efficient at finding difficult global optima.
 
 ## Setup
 
 ```julia
 using BlackBoxOptimizationBenchmarking, Plots, Optimization, Memoize, Statistics
-import BlackBoxOptimizationBenchmarking.Chain
+import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
+    BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
 const BBOB = BlackBoxOptimizationBenchmarking
 
 using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
-using OptimizationMetaheuristics, OptimizationNOMAD, OptimizationPRIMA,
-      OptimizationOptimisers
+using OptimizationMetaheuristics, OptimizationNOMAD, OptimizationPRIMA, OptimizationOptimisers, OptimizationSciPy, OptimizationPyCMA
+```
+
+We define a time-to-success benchmarking framework. For each (optimizer, function, trial),
+we run the optimizer once with a large iteration budget and wrap the objective function to
+detect the first evaluation that achieves the success criterion. The wall-clock time at
+that moment is recorded as the "time to success". From these times we build a CDF:
+for a given wall-time budget T, what fraction of (function, trial) pairs were solved?
+
+```julia
+function make_success_tracker(f_raw, f_opt, Δf)
+    t0 = Ref(time())
+    time_to_success = Ref(Inf)
+    function tracked_f(u)
+        val = f_raw(u)
+        if val < Δf + f_opt && time_to_success[] == Inf
+            time_to_success[] = time() - t0[]
+        end
+        return val
+    end
+    return tracked_f, t0, time_to_success
+end
+
+function solve_problem_timed(optimizer::BenchmarkSetup, tracked_f, D::Int, run_length::Int;
+    u0 = pinit(D))
+    method = optimizer.method
+    optf = OptimizationFunction((u, _) -> tracked_f(u), AutoForwardDiff())
+    if optimizer.isboxed
+        prob = OptimizationProblem(optf, u0, lb = fill(-5.5, D), ub = fill(5.5, D))
+    else
+        prob = OptimizationProblem(optf, u0)
+    end
+    sol = solve(prob, method; maxiters = run_length)
+    sol
+end
+
+function solve_problem_timed(m::Chain, tracked_f, D::Int, run_length::Int)
+    rl1 = round(Int, m.p * run_length)
+    rl2 = run_length - rl1
+    sol = solve_problem_timed(m.first, tracked_f, D, rl1)
+    xinit = sol.u
+    sol = solve_problem_timed(m.second, tracked_f, D, rl2; u0 = xinit)
+end
+
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, f::BBOBFunction;
+    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
+)
+    times = Float64[]
+    for i in 1:Ntrials
+        tracked_f, t0_ref, tts_ref = make_success_tracker(f.f, f.f_opt, Δf)
+        try
+            t0_ref[] = time()
+            sol = solve_problem_timed(optimizer, tracked_f, dimension, max_run_length)
+            push!(times, tts_ref[])
+        catch err
+            push!(times, Inf)
+            @warn(string(optimizer, " failed: ", err))
+        end
+    end
+    return times
+end
+
+benchmark_time_to_success(optimizer, f; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), f; kwargs...)
+
+function benchmark_time_to_success(
+    optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{BBOBFunction};
+    Ntrials::Int = 20, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
+)
+    all_times = Float64[]
+    for f in funcs
+        append!(all_times, benchmark_time_to_success(
+            optimizer, f; Ntrials, dimension, Δf, max_run_length))
+    end
+    return all_times
+end
+
+benchmark_time_to_success(optimizer, funcs::Vector{BBOBFunction}; kwargs...) =
+    benchmark_time_to_success(BenchmarkSetup(optimizer), funcs; kwargs...)
+
+function success_rate_cdf(all_times::Vector{Float64}, time_thresholds::AbstractVector{Float64})
+    N = length(all_times)
+    return [count(x -> x <= t, all_times) / N for t in time_thresholds]
+end
 ```
 
 ```julia
@@ -36,6 +120,8 @@ run_length = round.(Int, 10 .^ LinRange(1, 5, 30))
 
 @memoize run_bench(algo) = BBOB.benchmark(
     setup[algo], test_functions, run_length, Ntrials = 40, dimension = dimension)
+@memoize run_tts(algo) = benchmark_time_to_success(
+    setup[algo], test_functions, Ntrials = 40, dimension = dimension)
 ```
 
 ```julia
@@ -56,12 +142,20 @@ setup = Dict(
     "BBO_separable_nes" => chain(BBO_separable_nes(), isboxed = true),
     "BBO_de_rand_2_bin" => chain(BBO_de_rand_2_bin(), isboxed = true),
     #"BBO_xnes" => chain(BBO_xnes(), isboxed=true), # good but slow
-    #"BBO_dxnes" => chain(BBO_dxnes(), isboxed=true), 
+    #"BBO_dxnes" => chain(BBO_dxnes(), isboxed=true),
     "OptimizationMetaheuristics.ECA" => chain(OptimizationMetaheuristics.ECA(), isboxed = true),
     #"OptimizationMetaheuristics.CGSA" => () -> chain(OptimizationMetaheuristics.CGSA(), isboxed=true), #give me strange results
-    "OptimizationMetaheuristics.DE" => chain(OptimizationMetaheuristics.DE(), isboxed = true),
-    "Optimisers.AdamW" => chain(Optimisers.AdamW(), isboxed = false),
-    "Optimisers.RMSProp" => chain(Optimisers.RMSProp(), isboxed = false)    # "NOMADOpt" => chain(NOMADOpt()), too much printing
+    "OptimizationMetaheuristics.DE" => chain(OptimizationMetaheuristics.DE(), isboxed=true),
+    "Optimisers.AdamW" => chain(Optimisers.AdamW(), isboxed=false),
+    "Optimisers.RMSProp" => chain(Optimisers.RMSProp(), isboxed=false),
+    # SciPy global optimizers
+    "ScipyDifferentialEvolution" => chain(ScipyDifferentialEvolution(), isboxed=true),
+    #"ScipyBasinhopping" => chain(ScipyBasinhopping(), isboxed=true),
+    #"ScipyDualAnnealing" => chain(ScipyDualAnnealing(), isboxed=true), # taking long time
+    "ScipyShgo" => chain(ScipyShgo(), isboxed=true),
+    "ScipyDirect" => chain(ScipyDirect(), isboxed=true),
+    "ScipyBrute" => chain(ScipyBrute(), isboxed=true),
+    # "NOMADOpt" => chain(NOMADOpt()), too much printing
     # "OptimizationPRIMA.UOBYQA()" => chain(OptimizationPRIMA.UOBYQA()), :StackOverflowError?
     # "OptimizationPRIMA.NEWUOA()" => OptimizationPRIMA.UOBYQA(),
     #
@@ -98,7 +192,7 @@ end
 p
 ```
 
-## Test all
+## Test all (iterations)
 
 ```julia
 results = Array{BBOB.BenchmarkResults}(undef, length(setup))
@@ -110,18 +204,78 @@ end
 results
 ```
 
+## Success Rate vs. Iterations
+
 ```julia
+# Define marker shapes and line styles for accessibility (colorblind-friendly)
+const MARKERS = [:circle, :diamond, :utriangle, :square, :star5, :dtriangle, :pentagon,
+    :hexagon, :cross, :xcross, :rtriangle, :ltriangle, :star4, :star8, :heptagon, :octagon,
+    :vline, :hline, :+, :x]
+const LINESTYLES = [:solid, :dash, :dot, :dashdot, :dashdotdot]
+
 labels = collect(keys(setup))
 idx = sortperm([b.success_rate[end] for b in results], rev = true)
 
 p = plot(xscale = :log10, legend = :outerright,
     size = (700, 350), margin = 10Plots.px, dpi = 200)
-for i in idx
+for (j, i) in enumerate(idx)
     plot!(results[i], label = labels[i], showribbon = false,
-        lw = 2.5, xlim = (1, 1e5), x = :run_length)
+        lw = 2.5, xlim = (1, 1e5), x = :run_length,
+        markershape = MARKERS[mod1(j, length(MARKERS))],
+        linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+        markersize = 4, markerstrokewidth = 0)
 end
 p
 ```
+
+## Test all (wall-clock time to success)
+
+For the time-based benchmark, each optimizer is run once with a large iteration budget
+(100,000 iterations) per (function, trial) pair. The objective function is wrapped to
+detect the first evaluation that achieves the success criterion (objective < Δf + f_opt)
+and record the wall-clock time at that moment. This gives a true "time to success" for
+each trial, from which we build a CDF.
+
+```julia
+tts_results = Dict{String, Vector{Float64}}()
+
+for algo in keys(setup)
+    tts_results[algo] = run_tts(algo)
+end
+```
+
+## Success Rate vs. Wall-Clock Time
+
+This plot is the time-based analog of the iteration plot above. The x-axis is a wall-clock
+time budget; for each budget T, the y-axis shows what fraction of (function, trial) pairs
+the optimizer solved within T seconds. Unlike the iteration plot, this accounts for
+per-iteration cost differences between algorithms.
+
+```julia
+labels = collect(keys(setup))
+
+# Determine time thresholds from data
+all_finite = filter(isfinite, vcat(values(tts_results)...))
+t_lo = minimum(all_finite) / 2
+t_hi = maximum(all_finite) * 2
+time_thresholds = 10 .^ range(log10(t_lo), log10(t_hi), length = 50)
+
+cdfs = Dict(algo => success_rate_cdf(tts_results[algo], time_thresholds) for algo in labels)
+idx = sortperm([cdfs[l][end] for l in labels], rev = true)
+
+p = plot(xscale = :log10, legend = :outerright,
+    size = (700, 350), margin = 10Plots.px, dpi = 200,
+    xlabel = "Wall time (s)", ylabel = "Success rate", ylim = (0, 1))
+for (j, i) in enumerate(idx)
+    plot!(time_thresholds, cdfs[labels[i]], label = labels[i], lw = 2.5,
+        markershape = MARKERS[mod1(j, length(MARKERS))],
+        linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+        markersize = 4, markerstrokewidth = 0)
+end
+p
+```
+
+## Success Rate per Function Heatmap
 
 ```julia
 success_rate_per_function = reduce(hcat, b.success_rate_per_function for b in results)
@@ -140,21 +294,28 @@ p = heatmap(
 )
 ```
 
+## Distance to Minimizer vs. Iterations
+
 ```julia
 labels = collect(keys(setup))
 idx = sortperm([b.distance_to_minimizer[end] for b in results], rev = false)
 
 p = plot(xscale = :log10, legend = :outerright,
     size = (900, 500), margin = 10Plots.px, ylim = (0, 5))
-for i in idx
+for (j, i) in enumerate(idx)
     plot!(
         results[i].run_length, results[i].distance_to_minimizer, label = labels[i],
         showribbon = false, lw = 2, xlim = (1, 1e5),
-        xlabel = "Iterations", ylabel = "Mean distance to minimum"
+        xlabel = "Iterations", ylabel = "Mean distance to minimum",
+        markershape = MARKERS[mod1(j, length(MARKERS))],
+        linestyle = LINESTYLES[mod1(j, length(LINESTYLES))],
+        markersize = 4, markerstrokewidth = 0
     )
 end
 p
 ```
+
+## Relative Runtime
 
 ```julia
 ref = findfirst("NelderMead" .== labels)

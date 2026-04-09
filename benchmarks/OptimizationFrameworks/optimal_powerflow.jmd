@@ -567,7 +567,7 @@ function build_opf_optimization_prob(dataset; adchoice = Optimization.AutoEnzyme
         optf, var_init; lb = var_lb, ub = var_ub, lcons = con_lbs, ucons = con_ubs)
 end
 
-function solve_opf_optimization(dataset; adchoice = Optimization.AutoSparseReverseDiff(true))
+function solve_opf_optimization(dataset; adchoice = Optimization.AutoSparse(Optimization.AutoReverseDiff(true)))
     model_build_time = @elapsed prob = build_opf_optimization_prob(dataset; adchoice)
 
     # Correctness tests
@@ -1486,8 +1486,10 @@ nlpmodels_test_res = test_nlpmodels_prob(dataset, test_u0)
 
 Implementation reference: https://julianonconvex.github.io/Nonconvex.jl/stable/problem/
 Currently does not converge due to an upstream issue with the AD backend Zygote: https://github.com/JuliaNonconvex/Nonconvex.jl/issues/130
+Note: Nonconvex.jl is incompatible with Symbolics v7 and has been removed from this benchmark.
 
 ```julia
+#=
 import Nonconvex
 Nonconvex.@load Ipopt
 
@@ -1761,22 +1763,16 @@ function test_nonconvex_prob(dataset, test_u0)
     cons = vcat(model.eq_constraints(u0), model.ineq_constraints(u0))
     obj, cons
 end
+=#
 ```
 
 ```julia
+#= Nonconvex tests disabled - package incompatible with Symbolics v7
 nonconvex_test_res = test_nonconvex_prob(dataset, test_u0)
-```
-
-```julia
 @assert nonconvex_test_res[1] ≈ test_obj
-```
-
-```julia
 @assert sort(abs.(nonconvex_test_res[2])) ≈ sort(abs.(test_cons))
-```
-
-```julia
 println(sort(abs.(nonconvex_test_res[2])))
+=#
 ```
 
 ```julia
@@ -2350,8 +2346,9 @@ res
 ```
 
 ```julia
-model, res = solve_opf_nonconvex(dataset);
-res
+# Nonconvex disabled - incompatible with Symbolics v7
+# model, res = solve_opf_nonconvex(dataset);
+# res
 ```
 
 ```julia
@@ -2380,8 +2377,9 @@ res
 ```
 
 ```julia
-model, res = solve_opf_nonconvex(dataset);
-res
+# Nonconvex disabled - incompatible with Symbolics v7
+# model, res = solve_opf_nonconvex(dataset);
+# res
 ```
 
 ```julia
@@ -2401,28 +2399,24 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
     mtk_time = Float64[]
     jump_time = Float64[]
     nlpmodels_time = Float64[]
-    nonconvex_time = Float64[]
     optim_time = Float64[]
 
     optimization_time_modelbuild = Float64[]
     mtk_time_modelbuild = Float64[]
     jump_time_modelbuild = Float64[]
     nlpmodels_time_modelbuild = Float64[]
-    nonconvex_time_modelbuild = Float64[]
     optim_time_modelbuild = Float64[]
 
     optimization_time_compilation = Float64[]
     mtk_time_compilation = Float64[]
     jump_time_compilation = Float64[]
     nlpmodels_time_compilation = Float64[]
-    nonconvex_time_compilation = Float64[]
     optim_time_compilation = Float64[]
 
     optimization_cost = Float64[]
     mtk_cost = Float64[]
     jump_cost = Float64[]
     nlpmodels_cost = Float64[]
-    nonconvex_cost = Float64[]
     optim_cost = Float64[]
 
     for file in dataset_files
@@ -2523,8 +2517,8 @@ timing_data = multidata_multisolver_benchmark(test_datasets)
 ```julia; wrap = false; results = "md2html"
 io = IOBuffer()
 println(io, "```@raw html")
-pretty_table(io, timing_data; backend = Val(:html))
-# show(io, "text/html", pretty_table(timing_data; backend = Val(:html)))
+pretty_table(io, timing_data; backend = :html)
+# show(io, "text/html", pretty_table(timing_data; backend = :html))
 println(io, "```")
 Text(String(take!(io)))
 ```
@@ -2547,8 +2541,8 @@ timing_data = multidata_multisolver_benchmark(benchmark_datasets)
 ```julia; wrap = false; results = "md2html"
 io = IOBuffer()
 println(io, "```@raw html")
-pretty_table(io, timing_data; backend = Val(:html))
-# show(io, "text/html", pretty_table(timing_data; backend = Val(:html)))
+pretty_table(io, timing_data; backend = :html)
+# show(io, "text/html", pretty_table(timing_data; backend = :html))
 println(io, "```")
 Text(String(take!(io)))
 ```

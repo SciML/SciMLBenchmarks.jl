@@ -1,0 +1,524 @@
+---
+title: EMEP Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+```julia
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using LinearAlgebra, RecursiveFactorization, Polyester, PreallocationTools, OrdinaryDiffEqCore
+gr()
+
+# EMEP MSC-W Ozone Model Chemistry problem from the IVP Test Set
+# 66-species atmospheric chemistry model with time-dependent rate coefficients
+# Exact translation from Fortran feval and EMEPCF subroutines at:
+# http://archimede.dm.uniba.it/~testset/src/problems/emep.f
+
+const NSPEC_emep = 66
+const NRC_emep = 266
+const NDJ_emep = 16
+const HMIX_emep = 1.2e5
+
+# Distribution of VOC emissions among species
+const FRAC6 = 0.07689
+const FRAC7 = 0.41444
+const FRAC8 = 0.03642
+const FRAC9 = 0.03827
+const FRAC10 = 0.24537
+const FRAC13 = 0.13957
+const VEKT6 = 30.0
+const VEKT7 = 58.0
+const VEKT8 = 28.0
+const VEKT9 = 42.0
+const VEKT10 = 106.0
+const VEKT13 = 46.0
+const VMHC = 1.0 / (FRAC6/VEKT6 + FRAC7/VEKT7 + FRAC8/VEKT8 +
+              FRAC9/VEKT9 + FRAC10/VEKT10 + FRAC13/VEKT13)
+
+# NOx and HC emissions in molecules/cm^2/s
+const EMNOX = 2.5e11
+const EMHC = 2.5e11
+const FACISO = 1.0
+const FACHC = 1.0
+const FACNOX = 1.0
+
+const EMIS1 = EMNOX * FACNOX
+const EMIS3 = EMNOX * FACNOX
+const EMIS4 = EMHC * 10.0 * FACHC
+const EMIS5 = 0.0
+const EMIS6 = EMHC * FRAC6/VEKT6 * VMHC * FACHC
+const EMIS7 = EMHC * FRAC7/VEKT7 * VMHC * FACHC
+const EMIS8 = EMHC * FRAC8/VEKT8 * VMHC * FACHC
+const EMIS9 = EMHC * FRAC9/VEKT9 * VMHC * FACHC
+const EMIS10 = EMHC * FRAC10/VEKT10 * VMHC * FACHC
+const EMIS11 = 0.5 * FACISO * EMHC
+const EMIS13 = EMHC * FRAC13/VEKT13 * VMHC * FACHC
+
+# Photolysis A and B coefficients
+const A_emep = [1.23e-3, 2.00e-4, 1.45e-2, 2.20e-5, 3.00e-6,
+                5.40e-5, 6.65e-5, 1.35e-5, 2.43e-5, 5.40e-4,
+                2.16e-4, 5.40e-5, 3.53e-2, 8.94e-2, 3.32e-5,
+                2.27e-5]
+const B_emep = [0.60, 1.40, 0.40, 0.75, 1.25,
+                0.79, 0.60, 0.94, 0.88, 0.79,
+                0.79, 0.79, 0.081, 0.059, 0.57,
+                0.62]
+
+function emepcf!(time, rc, dj)
+    timeh = time / 3600.0
+    timeod = mod(timeh, 24.0)
+
+    pi_val = 4.0 * atan(1.0)
+    xlha = (1.0 + timeod * 3600.0 / 4.32e4) * pi_val
+    fi = 50.0 * pi_val / 180.0
+    dekl = 23.5 * pi_val / 180.0
+    sec_val = 1.0 / (cos(xlha)*cos(fi)*cos(dekl) + sin(fi)*sin(dekl))
+    t_temp = 298.0
+
+    xq = -7.93e-5 * timeod * 3600.0 + 2.43
+    rh = 23.0 * sin(xq) + 66.5
+
+    xz = (597.3 - 0.57*(t_temp - 273.16)) * 18.0 / 1.986 *
+         (1.0/t_temp - 1.0/273.16)
+    h2o = 6.1078 * exp(-xz) * 10.0 / (1.38e-16 * t_temp) * rh
+
+    # Photolysis rates
+    if timeod < 4.0 || timeod >= 20.0
+        for i in 1:NDJ_emep
+            dj[i] = 1.0e-40
+        end
+    else
+        for i in 1:NDJ_emep
+            dj[i] = A_emep[i] * exp(-B_emep[i] * sec_val)
+        end
+    end
+
+    # Rate coefficients
+    fill!(rc, zero(eltype(rc)))
+    m = 2.55e19
+    o2 = 5.2e18
+    xn2 = 1.99e19
+
+    rc[1]  = 5.7e-34 * (t_temp/300.0)^(-2.8) * m * o2
+    rc[5]  = 9.6e-32 * (t_temp/300.0)^(-1.6) * m
+    rc[7]  = 2.0e-11 * exp(100.0/t_temp) * m
+    rc[8]  = 2.2e-10
+    rc[11] = 1.8e-12 * exp(-1370.0/t_temp)
+    rc[12] = 1.2e-13 * exp(-2450.0/t_temp)
+    rc[13] = 1.9e-12 * exp(-1000.0/t_temp)
+    rc[14] = 1.4e-14 * exp(-600.0/t_temp)
+    rc[15] = 1.8e-11 * exp(110.0/t_temp)
+    rc[17] = 3.7e-12 * exp(240.0/t_temp)
+    rc[19] = 7.2e-14 * exp(-1414.0/t_temp)
+    rc[20] = 1.4e-12
+    rc[21] = 1.4e-11
+    rc[26] = 4.1e-16
+    rc[29] = 7.1e14 * exp(-11080.0/t_temp)
+    rc[30] = 4.8e-11 * exp(250.0/t_temp)
+    rc[31] = 2.9e-12 * exp(-160.0/t_temp)
+    rc[33] = 7.7e-12 * exp(-2100.0/t_temp)
+    rc[35] = 1.0e-14 * exp(785.0/t_temp)
+    rc[36] = 2.3e-13 * exp(600.0/t_temp)
+    rc[36] = rc[36] + m * 1.7e-33 * exp(1000.0/t_temp)
+    rc[36] = rc[36] * (1.0 + 1.4e-21 * h2o * exp(2200.0/t_temp))
+    rc[39] = 1.35e-12
+    rc[40] = 4.0e-17
+    rc[59] = 3.9e-12 * exp(-1885.0/t_temp)
+    rc[60] = 4.2e-12 * exp(180.0/t_temp)
+    rc[61] = 5.5e-14 * exp(365.0/t_temp)
+    rc[62] = 5.5e-14 * exp(365.0/t_temp)
+    rc[63] = 3.3e-12 * exp(-380.0/t_temp)
+    rc[64] = 3.2e-12
+    rc[65] = 3.8e-13 * exp(780.0/t_temp)
+    rc[66] = 9.6e-12
+    rc[67] = 1.0e-12 * exp(190.0/t_temp)
+    rc[68] = 1.9e-12 * exp(190.0/t_temp)
+    rc[69] = 5.8e-16
+    rc[70] = 2.4e-13
+    rc[71] = 7.8e-12 * exp(-1020.0/t_temp)
+    rc[72] = 8.9e-12
+    rc[74] = 6.5e-13 * exp(650.0/t_temp)
+    rc[75] = 5.6e-12 * exp(310.0/t_temp)
+    rc[76] = 5.8e-12 * exp(190.0/t_temp)
+    rc[77] = 1.0e-11
+    rc[78] = 1.34e16 * exp(-13330.0/t_temp)
+    rc[79] = 2.0e-11
+    rc[80] = 1.1e-11
+    rc[81] = 1.64e-11 * exp(-559.0/t_temp)
+    rc[83] = rc[60]
+    rc[85] = 1.0e-11
+    rc[86] = 1.15e-12
+    rc[87] = 4.8e-12
+    rc[88] = 1.3e-13 * exp(1040.0/t_temp)
+    rc[89] = 3.0e-13 * exp(1040.0/t_temp)
+    rc[90] = 8.0e-13
+    rc[94] = 2.8e-12 * exp(530.0/t_temp)
+    rc[105] = rc[60]
+    rc[109] = 1.66e-12 * exp(474.0/t_temp)
+    rc[110] = rc[60]
+    rc[112] = 1.2e-14 * exp(-2630.0/t_temp)
+    rc[123] = 6.5e-15 * exp(-1880.0/t_temp)
+    rc[125] = 2.86e-11
+    rc[126] = rc[60]
+    rc[146] = 3.2e-11
+    rc[147] = 2.0e-11
+    rc[148] = 2.2e-11
+    rc[149] = 3.7e-11
+    rc[150] = 12.3e-15 * exp(-2013.0/t_temp)
+    rc[151] = 2.54e-11 * exp(410.0/t_temp)
+    rc[152] = rc[60]
+    rc[153] = 4.13e-12 * exp(452.0/t_temp)
+    rc[154] = rc[60]
+    rc[155] = rc[85]
+    rc[156] = 2.0e-11
+    rc[157] = 8.0e-18
+    rc[158] = 1.86e-11 * exp(175.0/t_temp)
+    rc[159] = rc[60]
+    rc[160] = 4.32e-15 * exp(-2016.0/t_temp)
+    rc[161] = 3.35e-11
+    rc[162] = rc[60]
+    rc[163] = 7.8e-13
+    rc[164] = rc[60]
+    rc[219] = 2.0e-11
+    rc[220] = rc[60]
+    rc[221] = 1.1e-11
+    rc[222] = 1.7e-11
+    rc[223] = 2.4e-11
+    rc[234] = 1.37e-11
+    rc[235] = 1.7e-11
+    rc[236] = rc[60]
+
+    # Aerosol formation and deposition
+    rc[43] = 5.0e-6
+    if rh > 0.90
+        rc[43] = 1.0e-4
+    end
+    rc[44] = rc[43]
+    rc[45] = rc[43]
+
+    # Deposition loss rate coefficients vd/hmix
+    delta = 1.0
+    if timeod >= 20.0 || timeod < 4.0
+        delta = 0.25
+    end
+    rc[46] = 2.0 * delta / HMIX_emep
+    rc[47] = 0.5 * delta / HMIX_emep
+    rc[48] = 0.2 * delta / HMIX_emep
+    rc[49] = 0.5 * delta / HMIX_emep
+    rc[50] = 0.2 * delta / HMIX_emep
+    rc[51] = 0.1 * delta / HMIX_emep
+    rc[52] = 0.5 * delta / HMIX_emep
+    rc[53] = 0.3 * delta / HMIX_emep
+    return h2o
+end
+
+# Pre-allocate work buffers using DiffCache for ForwardDiff compatibility
+const _emep_rc = DiffCache(zeros(NRC_emep))
+const _emep_dj = DiffCache(zeros(NDJ_emep))
+
+function emep!(dy, y, p, t)
+    rc = get_tmp(_emep_rc, dy)
+    dj = get_tmp(_emep_dj, dy)
+    h2o = emepcf!(t, rc, dj)
+
+    m = 2.55e19
+    o2 = 5.2e18
+    xn2 = 1.99e19
+    rpath3 = 0.65
+    rpath4 = 0.35
+
+    dy[1] = dj[3]*y[2]+dj[13]*y[39]+rc[19]*y[2]*y[39]+EMIS1/HMIX_emep-(rc[5]*y[36]+rc[11]*y[14]+rc[17]*y[15]+rc[72]*y[23]+rc[79]*(y[24]+y[57])+rc[15]*y[39]+rc[60]*(y[19]+y[26]+y[27]+y[29]+y[31]+y[33]+y[35]+y[43]+y[45]+y[59]+y[61]+y[60]))*y[1]
+
+    dy[2] = y[1]*(rc[5]*y[36]+rc[11]*y[14]+rc[17]*y[15]+rc[72]*y[23]+rc[79]*(y[24]+y[57])+2.0*rc[15]*y[39])+rc[60]*y[1]*(y[19]+y[26]+y[27]+y[29]+y[31]+y[33]+y[35]+y[59])+rc[60]*y[1]*(0.86*y[43]+1.9*y[61]+1.1*y[60]+0.95*y[45])+dj[14]*y[39]+dj[5]*y[16]+dj[15]*y[40]+rc[29]*y[40]+rc[78]*(y[25]+y[58])-(dj[3]+rc[12]*y[14]+rc[20]*y[39]+rc[21]*y[37]+rc[48]+rc[77]*(y[24]+y[57]))*y[2]
+
+    dy[3] = EMIS3/HMIX_emep-(rc[39]*y[37]+rc[40]*y[19]+rc[47])*y[3]
+
+    dy[4] = EMIS4/HMIX_emep+y[37]*(rc[66]*y[11]+2.0*rc[221]*y[32]+rc[222]*y[30])+y[14]*(0.44*rc[112]*y[8]+0.4*rc[123]*y[9]+0.05*rc[160]*y[44]+0.05*rc[150]*y[41])+y[11]*(dj[6]+dj[7]+rc[69]*y[39])+dj[8]*y[12]+dj[11]*y[30]+2.0*dj[7]*y[32]-rc[70]*y[37]*y[4]
+
+    dy[5] = EMIS5/HMIX_emep+0.07*rc[123]*y[14]*y[9]-rc[59]*y[37]*y[5]
+
+    dy[6] = EMIS6/HMIX_emep-rc[71]*y[37]*y[6]
+    dy[7] = EMIS7/HMIX_emep-rc[81]*y[37]*y[7]
+    dy[8] = EMIS8/HMIX_emep-(rc[109]*y[37]+rc[112]*y[14])*y[8]
+    dy[9] = EMIS9/HMIX_emep+0.07*rc[150]*y[14]*y[41]-(rc[123]*y[14]+rc[125]*y[37])*y[9]
+    dy[10] = EMIS10/HMIX_emep-rc[234]*y[37]*y[10]
+
+    dy[11] = y[19]*(rc[60]*y[1]+(2.0*rc[61]+rc[62])*y[19]+rc[80]*y[24]+rc[40]*y[3])+y[37]*(rc[63]*y[46]+rc[67]*y[22])+y[1]*rc[60]*(2.0*y[29]+y[31]+0.74*y[43]+0.266*y[45]+0.15*y[60])+y[14]*(0.5*rc[123]*y[9]+rc[112]*y[8]+0.7*rc[157]*y[56]+0.8*rc[160]*y[44]+0.8*rc[150]*y[41])+2.0*dj[7]*y[32]+dj[16]*(y[22]+1.56*y[50]+y[51])-(rc[66]*y[37]+dj[6]+dj[7]+rc[69]*y[39]+rc[53])*y[11]
+
+    dy[12] = y[1]*(rc[72]*y[23]+rc[83]*y[26]*rpath4+rc[105]*y[27]+rc[126]*y[31]+0.95*rc[162]*y[61]+0.684*rc[154]*y[45])+y[37]*(rc[64]*y[20]+rc[76]*y[28]+rc[76]*y[50])+0.5*rc[123]*y[14]*y[9]+0.04*rc[160]*y[14]*y[44]+dj[16]*(y[28]+0.22*y[50]+0.35*y[49]+y[51]+y[52])-(dj[8]+rc[75]*y[37]+rc[53])*y[12]
+
+    dy[13] = rc[83]*y[1]*y[26]*rpath3+(0.65*dj[16]+rc[76]*y[37])*y[49]+rc[76]*y[37]*y[51]+(rc[159]*y[1]+dj[16])*y[59]+0.95*rc[162]*y[1]*y[61]-(dj[9]+rc[86]*y[37]+rc[53])*y[13]
+
+    dy[14] = rc[1]*y[36]+rc[89]*y[15]*y[24]-(rc[11]*y[1]+rc[12]*y[2]+rc[13]*y[37]+rc[14]*y[15]+rc[49]+rc[112]*y[8]+rc[123]*y[9]+rc[157]*y[56]+rc[160]*y[44]+rc[150]*y[41]+dj[1]+dj[2])*y[14]
+
+    s1 = y[37]*(rc[13]*y[14]+rc[31]*y[17]+rc[33]*y[18]+rc[39]*y[3]+rc[63]*y[46]+rc[64]*y[20]+rc[66]*y[11]+rc[70]*y[4]+rc[221]*y[32])+y[19]*(rc[40]*y[3]+2.0*rc[61]*y[19]+0.5*rc[80]*y[24])+dj[11]*y[30]+y[1]*rc[60]*(y[19]+y[29]+y[31]+y[33]+y[35]+0.95*y[45]+y[26]*rpath3+0.78*y[43]+y[59]+0.05*y[61]+0.8*y[60])+rc[72]*y[1]*y[23]+dj[8]*y[12]
+
+    dy[15] = s1+2.0*dj[6]*y[11]+dj[16]*(y[22]+y[28]+0.65*y[49]+y[50]+y[51]+y[48]+y[53])+y[39]*(rc[26]*y[17]+rc[69]*y[11])+y[14]*(0.12*rc[112]*y[8]+0.28*rc[123]*y[9]+0.06*rc[160]*y[44])+0.06*rc[150]*y[14]*y[41]-(rc[14]*y[14]+rc[17]*y[1]+rc[30]*y[37]+2.0*rc[36]*y[15]+rc[65]*y[19]+rc[74]*y[23]+(rc[88]+rc[89])*y[24]+rc[85]*(y[26]+y[29]+y[31]+y[27]+y[57]+y[45]+y[61]+y[59]+y[33]+y[35]+y[43]+y[60]))*y[15]
+
+    dy[16] = rc[21]*y[2]*y[37]+y[39]*(rc[26]*y[17]+rc[69]*y[11])-(rc[35]*y[37]+dj[5]+rc[45])*y[16]
+
+    dy[17] = rc[36]*y[15]^2-(rc[31]*y[37]+dj[4]+rc[43]+rc[26]*y[39]+rc[47])*y[17]
+
+    dy[18] = dj[7]*y[11]+y[14]*(0.13*rc[112]*y[8]+0.07*rc[123]*y[9])-rc[33]*y[37]*y[18]
+
+    dy[19] = y[37]*(rc[59]*y[5]+rc[68]*y[22])+y[24]*(rc[79]*y[1]+2.0*rc[94]*y[24])+dj[8]*y[12]+dj[16]*y[47]+0.31*rc[123]*y[14]*y[9]-(rc[40]*y[3]+rc[60]*y[1]+2.0*rc[61]*y[19]+2.0*rc[62]*y[19]+rc[65]*y[15]+0.5*rc[80]*y[24])*y[19]
+
+    dy[20] = EMIS13/HMIX_emep-rc[64]*y[37]*y[20]
+    dy[21] = (rc[40]*y[19]+rc[39]*y[37])*y[3]+0.05*EMIS3/HMIX_emep-rc[51]*y[21]
+    dy[22] = rc[65]*y[15]*y[19]-(rc[43]+dj[16]+(rc[67]+rc[68])*y[37])*y[22]
+    dy[23] = y[37]*(rc[71]*y[6]+rc[68]*y[28])+0.35*dj[16]*y[49]+rc[83]*y[1]*y[26]*rpath4+dj[9]*y[13]-(rc[72]*y[1]+rc[74]*y[15])*y[23]
+    dy[24] = y[37]*(rc[75]*y[12]+rc[222]*y[30]+rc[68]*y[47])+rc[105]*y[1]*y[27]+rc[78]*y[25]+dj[11]*y[30]+dj[9]*y[13]+dj[16]*y[52]+0.684*rc[154]*y[1]*y[45]-(rc[77]*y[2]+rc[79]*y[1]+rc[80]*y[19]+2.0*rc[94]*y[24]+(rc[88]+rc[89])*y[15])*y[24]
+    dy[25] = rc[77]*y[24]*y[2]-(rc[50]+rc[78])*y[25]
+    dy[26] = y[37]*(rc[81]*y[7]+rc[68]*y[49])-(rc[83]*y[1]+rc[85]*y[15])*y[26]
+    dy[27] = y[37]*(rc[86]*y[13]+rc[87]*y[52])-(rc[105]*y[1]+rc[85]*y[15])*y[27]
+    dy[28] = rc[74]*y[15]*y[23]-((rc[76]+rc[68])*y[37]+dj[16]+rc[52])*y[28]
+    dy[29] = y[37]*(rc[109]*y[8]+rc[68]*y[50])-(rc[110]*y[1]+rc[85]*y[15])*y[29]
+    dy[30] = rc[236]*y[1]*y[33]+rc[220]*y[1]*y[35]+0.266*rc[154]*y[1]*y[45]+0.82*rc[160]*y[14]*y[44]+dj[16]*(y[48]+y[53])-(dj[11]+rc[222]*y[37])*y[30]
+    dy[31] = y[37]*(rc[125]*y[9]+rc[68]*y[51])-(rc[126]*y[1]+rc[85]*y[15])*y[31]
+    dy[32] = rc[220]*y[1]*y[35]+dj[16]*y[53]-(2.0*dj[7]+rc[221]*y[37])*y[32]
+    dy[33] = y[37]*(rc[234]*y[10]+rc[235]*y[48])-(rc[236]*y[1]+rc[85]*y[15])*y[33]
+    dy[34] = rc[236]*y[1]*y[33]+dj[16]*y[48]-rc[219]*y[37]*y[34]
+    dy[35] = y[37]*(rc[219]*y[34]+rc[223]*y[53])-(rc[220]*y[1]+rc[85]*y[15])*y[35]
+    dy[36] = dj[1]*y[14]+dj[3]*y[2]+dj[14]*y[39]+rc[7]*y[38]+0.2*rc[160]*y[14]*y[44]+0.3*rc[150]*y[14]*y[41]-(rc[1]+rc[5]*y[1])*y[36]
+
+    s1 = 2.0*rc[8]*h2o*y[38]+y[15]*(rc[14]*y[14]+rc[17]*y[1])+2.0*dj[4]*y[17]+dj[5]*y[16]
+    s2 = s1+dj[16]*(y[22]+y[28]+y[47]+y[49]+y[50]+y[52]+y[48]+y[53])
+    s3 = s2+y[14]*(0.15*rc[123]*y[9]+0.08*rc[160]*y[44])
+    s4 = s3+0.55*rc[150]*y[14]*y[41]
+    s5 = -(rc[222]*y[30]+rc[75]*y[12]+rc[81]*y[7]+rc[87]*y[52]+rc[86]*y[13]+rc[235]*y[48]+rc[109]*y[8]+rc[125]*y[9]+rc[234]*y[10]+rc[223]*y[53]+rc[219]*y[34]+rc[31]*y[17]+rc[21]*y[2]+rc[148]*y[62]+rc[64]*y[20]+rc[39]*y[3]+rc[71]*y[6]+rc[30]*y[15]+rc[59]*y[5]+rc[70]*y[4]+rc[35]*y[16]+rc[13]*y[14]+rc[221]*y[32]+rc[68]*(y[22]+y[28]+y[47]+y[50]+y[51]+y[49])+rc[66]*y[11]+rc[151]*y[41]+rc[153]*y[44]+rc[63]*y[46]+rc[33]*y[18]+rc[158]*y[54]+rc[146]*y[63]+rc[149]*(y[65]+y[66])+rc[147]*y[64]+rc[161]*y[55])*y[37]
+    dy[37] = s4 + s5
+
+    dy[38] = dj[2]*y[14]-(rc[7]+rc[8]*h2o)*y[38]
+    dy[39] = (rc[29]+dj[15])*y[40]+rc[12]*y[14]*y[2]+rc[35]*y[37]*y[16]-(rc[15]*y[1]+rc[26]*y[17]+rc[163]*y[41]+rc[19]*y[2]+rc[20]*y[2]+dj[13]+dj[14]+rc[69]*y[11])*y[39]
+    dy[40] = rc[20]*y[39]*y[2]-(rc[29]+dj[15]+rc[45])*y[40]
+    dy[41] = EMIS11/HMIX_emep-(rc[151]*y[37]+rc[163]*y[39]+rc[150]*y[14])*y[41]
+    dy[42] = rc[45]*y[16]+2.0*rc[44]*y[40]-rc[51]*y[42]
+    dy[43] = y[37]*(rc[151]*y[41]+rc[156]*y[56])+0.12*rc[152]*y[1]*y[43]-(rc[152]*y[1]+rc[155]*y[15])*y[43]
+    dy[44] = rc[60]*y[1]*(0.42*y[43]+0.05*y[60])+0.26*rc[150]*y[14]*y[41]-(rc[153]*y[37]+rc[160]*y[14])*y[44]
+    dy[45] = rc[153]*y[44]*y[37]+rc[148]*y[37]*y[62]-(rc[154]*y[1]+rc[85]*y[15])*y[45]
+    dy[46] = rc[62]*y[19]^2-rc[63]*y[37]*y[46]
+    dy[47] = rc[88]*y[15]*y[24]-(rc[68]*y[37]+dj[16]+rc[52])*y[47]
+    dy[48] = rc[85]*y[15]*y[33]-(rc[235]*y[37]+dj[16]+rc[52])*y[48]
+    dy[49] = rc[85]*y[15]*y[26]-((rc[76]+rc[68])*y[37]+dj[16]+rc[52])*y[49]
+    dy[50] = rc[85]*y[15]*y[29]-((rc[76]+rc[68])*y[37]+dj[16]+rc[52])*y[50]
+    dy[51] = rc[85]*y[15]*y[31]-((rc[76]+rc[68])*y[37]+dj[16]+rc[52])*y[51]
+    dy[52] = rc[85]*y[15]*y[27]-(rc[87]*y[37]+dj[16]+rc[52])*y[52]
+    dy[53] = rc[85]*y[15]*y[35]-(rc[223]*y[37]+dj[16]+rc[52])*y[53]
+    dy[54] = rc[60]*y[1]*(0.32*y[43]+0.1*y[60])+0.67*rc[150]*y[14]*y[41]-rc[158]*y[37]*y[54]
+    dy[55] = rc[60]*y[1]*(0.14*y[43]+0.05*y[45]+0.85*y[60])-rc[161]*y[37]*y[55]
+    dy[56] = rc[155]*y[15]*y[43]-(rc[156]*y[37]+rc[157]*y[14]+rc[52])*y[56]
+    dy[57] = 0.5*rc[158]*y[37]*y[54]+rc[78]*y[58]+rc[149]*y[37]*y[66]-(rc[77]*y[2]+rc[79]*y[1]+rc[85]*y[15])*y[57]
+    dy[58] = rc[77]*y[57]*y[2]-(rc[50]+rc[78])*y[58]
+    dy[59] = rc[79]*y[1]*y[57]+rc[146]*y[37]*y[63]-(rc[159]*y[1]+rc[85]*y[15])*y[59]
+    dy[60] = rc[163]*y[39]*y[41]+rc[147]*y[37]*y[64]-(rc[164]*y[1]+rc[85]*y[15])*y[60]
+    dy[61] = rc[161]*y[37]*y[55]+rc[149]*y[37]*y[65]-(rc[162]*y[1]+rc[85]*y[15])*y[61]
+    dy[62] = rc[85]*y[15]*y[45]-(rc[148]*y[37]+rc[52])*y[62]
+    dy[63] = rc[85]*y[15]*y[59]-(rc[146]*y[37]+rc[52])*y[63]
+    dy[64] = rc[85]*y[15]*y[60]-(rc[147]*y[37]+rc[52])*y[64]
+    dy[65] = rc[85]*y[15]*y[61]-(rc[149]*y[37]+rc[52])*y[65]
+    dy[66] = rc[85]*y[15]*y[57]-(rc[149]*y[37]+rc[52])*y[66]
+end
+
+# Initial conditions from Fortran init subroutine
+u0 = zeros(NSPEC_emep)
+for i in 1:13
+    u0[i] = 1.0e7
+end
+for i in 14:NSPEC_emep
+    u0[i] = 100.0
+end
+u0[1] = 1.0e9
+u0[2] = 5.0e9
+u0[3] = 5.0e9
+u0[4] = 3.8e12
+u0[5] = 3.5e13
+u0[14] = 5.0e11
+u0[38] = 1.0e-3
+
+# Time span: 4 hours to hour 116 (417600 seconds)
+# With 8 discontinuities at day/night transitions (dawn at 4:00, dusk at 20:00)
+# T(0) = 4*3600 = 14400, T(end) = 20*3600 + 4*24*3600 = 417600
+tspan = (4.0*3600.0, 20.0*3600.0 + 4.0*24.0*3600.0)
+
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan)
+
+# Discontinuity times at dawn (4:00) and dusk (20:00) transitions
+# The photolysis rates and deposition coefficients change discontinuously at these times
+# T(1)=72000 (dusk day 0), then for days 1-4: T(2i)=dawn, T(2i+1)=dusk
+disc_times = [72000.0, 100800.0, 158400.0, 187200.0, 244800.0, 273600.0, 331200.0, 360000.0]
+
+# Generate reference solution - requires tstops at discontinuities for solver stability
+sol = solve(prob, CVODE_BDF(), abstol=1/10^8, reltol=1/10^8, maxiters=Int(1e7), tstops=disc_times)
+test_sol = TestSolution(sol)
+
+abstols = 1.0 ./ 10.0 .^ (4:11)
+reltols = 1.0 ./ 10.0 .^ (1:8);
+```
+
+The EMEP MSC-W Ozone Model Chemistry describes atmospheric chemistry with 66 species,
+266 reaction rate coefficients, and 16 photolysis reactions. The rate coefficients
+depend on time through the solar zenith angle and day/night cycling, creating
+discontinuities at dawn (4:00) and dusk (20:00) transitions. All solvers require
+`tstops` at the 8 discontinuity times for reliable integration.
+
+```julia
+# Plot key species matching reference: NO, NO2, SO2, CH4, O3, N2O5
+p1 = plot(sol, idxs=[1], title="NO", legend=false)
+p2 = plot(sol, idxs=[2], title="NO2", legend=false)
+p3 = plot(sol, idxs=[3], title="SO2", legend=false)
+p4 = plot(sol, idxs=[5], title="CH4", legend=false)
+p5 = plot(sol, idxs=[14], title="O3", legend=false)
+p6 = plot(sol, idxs=[40], title="N2O5", legend=false)
+plot(p1, p2, p3, p4, p5, p6, layout=(2,3), size=(1200,600))
+```
+
+## Omissions
+
+The following were omitted from the tests due to convergence failures.
+
+```julia
+#sol = solve(prob,ROCK2()); # Unstable
+#sol = solve(prob,ROCK4()); # Unstable
+```
+
+## High Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:8)
+reltols = 1.0 ./ 10.0 .^ (1:4);
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>RadauIIA5()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                      tstops=disc_times)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>Kvaerno3()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>KenCarp3()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>lsoda()),
+          Dict(:alg=>radau())]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                      tstops=disc_times)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Rosenbrock23()),
+          Dict(:alg=>TRBDF2()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          Dict(:alg=>ABDF2()),
+          Dict(:alg=>FBDF()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                      tstops=disc_times)
+plot(wp)
+```
+
+### Low Tolerances
+
+This is the speed at lower tolerances, measuring what's good when accuracy is needed.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (7:12)
+reltols = 1.0 ./ 10.0 .^ (4:9)
+
+setups = [Dict(:alg=>FBDF()),
+          Dict(:alg=>QNDF()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>ddebdf()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>rodas()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda()),
+]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                      tstops=disc_times)
+plot(wp)
+```
+
+```julia
+setups = [Dict(:alg=>Kvaerno4()),
+          Dict(:alg=>Kvaerno5()),
+          Dict(:alg=>CVODE_BDF()),
+          Dict(:alg=>KenCarp4()),
+          Dict(:alg=>KenCarp5()),
+          Dict(:alg=>Rodas4()),
+          Dict(:alg=>Rodas5P()),
+          Dict(:alg=>radau()),
+          Dict(:alg=>ImplicitEulerExtrapolation()),
+          Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation()),
+          ]
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                      tstops=disc_times)
+plot(wp)
+```
+
+Multithreading benchmarks with Parallel Extrapolation Methods
+
+```julia
+#Setting BLAS to one thread to measure gains
+LinearAlgebra.BLAS.set_num_threads(1)
+
+abstols = 1.0 ./ 10.0 .^ (10:12)
+reltols = 1.0 ./ 10.0 .^ (7:9)
+
+setups = [
+            Dict(:alg=>CVODE_BDF()),
+            Dict(:alg=>KenCarp4()),
+            Dict(:alg=>Rodas4()),
+            Dict(:alg=>Rodas5P()),
+            Dict(:alg=>QNDF()),
+            Dict(:alg=>lsoda()),
+            Dict(:alg=>radau()),
+            Dict(:alg=>seulex()),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEqCore.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
+            ]
+
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+            "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
+
+wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=false,
+                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+                    tstops=disc_times)
+
+plot(wp, title = "Implicit Methods: EMEP",legend=:outertopleft,size = (1000,500),
+     xticks = 10.0 .^ (-15:1:1),
+     yticks = 10.0 .^ (-6:0.3:5),
+     bottom_margin= 5Plots.mm)
+```
+
+### Conclusion
+
+The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients. The day/night discontinuities make it challenging for adaptive methods. `CVODE_BDF` performs best here due to the moderate dimension and complex time dependence. `Rodas4` and `radau` are good alternatives from the Julia ecosystem.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```

@@ -6,7 +6,7 @@ author: Chris Rackauckas
 ```julia
 using OrdinaryDiffEq, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA,
       DiffEqDevTools, Sundials
-using LinearAlgebra, StaticArrays, RecursiveFactorization
+using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester, OrdinaryDiffEqCore
 
 gr() #gr(fmt=:png)
 
@@ -49,10 +49,9 @@ plot(sol, tspan = (0.0, 5.0))
 ## Omissions
 
 The following were omitted from the tests due to convergence failures. ODE.jl's
-adaptivity is not able to stabilize its algorithms, while
-GeometricIntegratorsDiffEq has not upgraded to Julia 1.0.
-GeometricIntegrators.jl's methods used to be either fail to converge at
-comparable dts (or on some computers errors due to type conversions).
+adaptivity is not able to stabilize its algorithms.
+GeometricIntegrators.jl's methods used to either fail to converge at
+comparable dts (or on some computers had errors due to type conversions).
 
 ```julia
 #sol = solve(prob,ode23s()); println("Total ODE.jl steps: $(length(sol))")
@@ -308,13 +307,13 @@ setups = [
     Dict(:alg=>radau()),
     Dict(:alg=>seulex()),
     Dict(:alg=>ImplicitEulerExtrapolation(
-        min_order = 4, init_order = 7, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 4, init_order = 7, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerExtrapolation(min_order = 4, init_order = 7, threading = false)),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
-        min_order = 4, init_order = 7, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 4, init_order = 7, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 4, init_order = 7, threading = false)),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(
-        min_order = 3, init_order = 6, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 3, init_order = 6, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(min_order = 3, init_order = 6, threading = false))
 ]
 

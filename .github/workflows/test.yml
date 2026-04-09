@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**/*.jl'
+      - '*.toml'
+  pull_request:
+    paths:
+      - 'src/**/*.jl'
+      - '*.toml'
+
+jobs:
+  test:
+    name: Julia Tests
+    runs-on: [self-hosted, benchmark]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.10'
+
+      - uses: julia-actions/cache@v3
+
+      - uses: julia-actions/julia-runtest@v1
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: |
+            html/Testing/
+            markdown/Testing/
+            notebook/Testing/
+            pdf/Testing/
+            script/Testing/
+          retention-days: 7

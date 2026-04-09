@@ -113,7 +113,7 @@ obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short
     tstops = t_short, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
 @btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
-# using the moe accurate Vern9() reduces the fitness marginally and leads to some increase in time taken
+# using the more accurate Vern9() reduces the fitness marginally and leads to some increase in time taken
 ```
 
 # Using NLopt
@@ -146,7 +146,7 @@ opt = Opt(:GN_ESCH, 4)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
-Now local optimization algorithms are used to check the global ones, these use the local constraints, different initial values and time step
+Now local optimization algorithms are used to verify the global ones. These use the local constraints, different initial values and time step.
 
 ```julia
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
@@ -199,7 +199,7 @@ opt = Opt(:LD_TNEWTON_PRECOND_RESTART, 4)
 
 ## Now the longer problem is solved for a global solution
 
-Vern9 solver with reltol=1e-9 and abstol=1e-9 is used and the dataset is increased to 3000 observations per variable with the same integration time step of 0.01.
+The Vern9 solver with reltol=1e-9 and abstol=1e-9 is used, and the dataset is increased to 3000 observations per variable with the same integration time step of 0.01.
 
 ```julia
 t_concrete = collect(0.0:dt:tf)
@@ -259,7 +259,7 @@ opt = Opt(:LD_SLSQP, 4)
 
 # Conclusion
 
-In general we observe that lower tolerance lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLOpt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In case of global optimization of the longer problem  there is some difference in the performance amongst the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worse, BBO also gives a bit high fitness in comparison. QuadDIRECT gives accurate results in the case of the shorter problem but doesn't perform very well in the longer problem case.
+In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLOpt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison. QuadDIRECT gives accurate results in the case of the shorter problem but doesn't perform very well in the longer problem case.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -1,0 +1,153 @@
+---
+title: RADAR5 Robertson Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+# RADAR5 Robertson Chemical Reaction
+
+This is a stiff delay differential equation model of a chemical reaction with a
+steady state solution, taken from the RADAR5 test suite by Guglielmi and Hairer. The
+system has dimension 3 with one constant delay.
+
+```math
+u_1'(t) = -a \, u_1(t) + b \, u_2(t - \tau) \, u_3(t)
+```
+```math
+u_2'(t) = a \, u_1(t) - b \, u_2(t - \tau) \, u_3(t) - c \, u_2(t)^2
+```
+```math
+u_3'(t) = c \, u_2(t)^2
+```
+
+for $t \in [0, 1]$ with initial conditions $u_1(0) = 1$, $u_2(t) = 0$ for
+$t \in [-\tau, 0]$, and $u_3(0) = 0$, where $a = 0.04$, $b = 10000$, $c = 3 \times 10^7$,
+and $\tau = 0.01$.
+
+This is the DDE analogue of the classic Robertson ODE problem. The extreme stiffness
+arises from the ratio $c/a = 7.5 \times 10^8$ between the fastest and slowest time
+scales. In the original RADAR5 formulation the problem is integrated up to $t = 10^{10}$,
+but this is currently not achievable with the method of steps approach in DelayDiffEq.jl.
+We benchmark on the interval $[0, 1]$ which already demonstrates the stiffness challenges.
+
+## References
+
+Guglielmi, N. and Hairer, E. (2001). Implementing Radau IIA methods for stiff delay
+differential equations, Computing (67), pp. 1-12.
+
+```julia
+using DelayDiffEq, DiffEqDevTools, DDEProblemLibrary, Plots
+import DDEProblemLibrary: prob_dde_RADAR5_robertson
+gr()
+```
+
+## Problem Setup
+
+We use a truncated time span of $[0, 1]$ for benchmarking:
+
+```julia
+prob = remake(prob_dde_RADAR5_robertson; tspan = (0.0, 1.0))
+```
+
+## Reference Solution
+
+Due to the extreme stiffness and the small scale of the second component ($u_2 \sim O(10^{-5})$),
+we use component-wise absolute tolerances to compute the reference solution:
+
+```julia
+sol = solve(prob, MethodOfSteps(Rodas5P());
+    reltol = 1e-14, abstol = [1e-14, 1e-20, 1e-14], dt = 1e-6)
+test_sol = TestSolution(sol)
+plot(sol; title = "Robertson DDE Solution (t ∈ [0, 1])")
+```
+
+## High Tolerances
+
+### Rosenbrock methods
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Robertson: Rosenbrock Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Robertson: Rosenbrock Methods (L2 error)")
+```
+
+### SDIRK methods
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(SDIRK2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["TRBDF2", "SDIRK2", "KenCarp4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Robertson: SDIRK Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Robertson: SDIRK Methods (L2 error)")
+```
+
+### Stiff vs Non-Stiff Comparison
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Tsit5())),
+    Dict(:alg => MethodOfSteps(DP5()))]
+names = ["Rodas5P", "TRBDF2", "KenCarp4", "Tsit5", "DP5"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e6), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Robertson: Stiff vs Non-Stiff (final error)")
+```
+
+## Low Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final,
+    dt = 1e-6)
+plot(wp; title = "Robertson: Low Tolerances (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2,
+    dt = 1e-6)
+plot(wp; title = "Robertson: Low Tolerances (L2 error)")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

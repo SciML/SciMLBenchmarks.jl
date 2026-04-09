@@ -1,0 +1,152 @@
+---
+title: RADAR5 Oregonator Work-Precision Diagrams
+author: Chris Rackauckas
+---
+
+# RADAR5 Oregonator
+
+This is a stiff delay differential equation model from chemical kinetics, taken from the
+RADAR5 test suite by Guglielmi and Hairer. The problem is given by
+
+```math
+u_1'(t) = k_1 A u_2(t) - k_2 u_1(t) u_2(t - \tau) + k_3 B u_1(t) - 2 k_4 u_1(t)^2
+```
+```math
+u_2'(t) = -k_1 A u_2(t) - k_2 u_1(t) u_2(t - \tau) + f k_3 B u_1(t)
+```
+
+for $t \in [0, 100.5]$ with history function $\phi_1(t) = 10^{-10}$, $\phi_2(t) = 10^{-5}$
+for $t \leq 0$, where $k_1 = 1.34$, $k_2 = 1.6 \times 10^9$, $k_3 = 8000$,
+$k_4 = 4 \times 10^7$, $f = 1$, $A = 0.06$, $B = 0.06$, and $\tau = 0.15$.
+
+This problem is extremely stiff due to the large rate constants ($k_2 = 1.6 \times 10^9$,
+$k_4 = 4 \times 10^7$). Explicit methods require hundreds of thousands of steps while
+implicit methods solve it in around 10 steps.
+
+## References
+
+Epstein, I. and Luo, Y. (1991). Differential delay equations in chemical kinetics. Nonlinear
+models, Journal of Chemical Physics (95), pp. 244-254.
+
+Guglielmi, N. and Hairer, E. (2001). Implementing Radau IIA methods for stiff delay
+differential equations, Computing (67), pp. 1-12.
+
+```julia
+using DelayDiffEq, DiffEqDevTools, DDEProblemLibrary, Plots
+import DDEProblemLibrary: prob_dde_RADAR5_oregonator
+gr()
+```
+
+## Reference Solution
+
+We compute a reference solution using `Rodas5P` at very tight tolerances.
+
+```julia
+sol = solve(prob_dde_RADAR5_oregonator, MethodOfSteps(Rodas5P());
+    reltol = 1e-14, abstol = 1e-14)
+test_sol = TestSolution(sol)
+plot(sol; title = "RADAR5 Oregonator Solution")
+```
+
+## Qualitative Comparisons
+
+First we compare the quality of the solutions for different algorithms at default tolerances.
+
+### Rosenbrock methods
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (4:7)
+reltols = 1.0 ./ 10.0 .^ (1:4)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P"]
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Oregonator: Rosenbrock Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Oregonator: Rosenbrock Methods (L2 error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L∞)
+plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
+```
+
+### SDIRK methods
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(SDIRK2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Kvaerno4())),
+    Dict(:alg => MethodOfSteps(Kvaerno5()))]
+names = ["TRBDF2", "SDIRK2", "KenCarp4", "Kvaerno4", "Kvaerno5"]
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Oregonator: SDIRK Methods (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Oregonator: SDIRK Methods (L2 error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L∞)
+plot(wp; title = "Oregonator: SDIRK Methods (L∞ error)")
+```
+
+### Stiff vs Non-Stiff Comparison
+
+```julia
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4())),
+    Dict(:alg => MethodOfSteps(Tsit5())),
+    Dict(:alg => MethodOfSteps(BS3())),
+    Dict(:alg => MethodOfSteps(DP5()))]
+names = ["Rosenbrock23", "Rodas5P", "TRBDF2", "KenCarp4", "Tsit5", "BS3", "DP5"]
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e6), error_estimate = :final)
+plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
+```
+
+### Low Tolerances
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (8:11)
+reltols = 1.0 ./ 10.0 .^ (5:8)
+
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
+    Dict(:alg => MethodOfSteps(Rodas5())),
+    Dict(:alg => MethodOfSteps(Rodas5P())),
+    Dict(:alg => MethodOfSteps(TRBDF2())),
+    Dict(:alg => MethodOfSteps(KenCarp4()))]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+plot(wp; title = "Oregonator: Low Tolerances (final error)")
+```
+
+```julia
+wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
+    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+plot(wp; title = "Oregonator: Low Tolerances (L2 error)")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

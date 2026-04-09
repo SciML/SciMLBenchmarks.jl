@@ -15,23 +15,39 @@ using ModelingToolkit: t_nounits as t, D_nounits as D
 eqs = [D(y1) ~ p1*(y2+y1*(1-p2*y1-y2))
        D(y2) ~ (y3-(1+y1)*y2)/p1
        D(y3) ~ p3*(y1-y3)]
-@mtkbuild sys = ODESystem(eqs, t)
+@mtkcompile sys = System(eqs, t)
 mtkprob = ODEProblem(sys, [], (0.0, 30.0))
 daeprob = DAEProblem(
     sys, [D(y1)=>77.26935286375,
         D(y2)=>-0.012941633234114146,
-        D(y3)=>-0.322], [], (0.0, 30.0))
-odaeprob = ODAEProblem(sys, [], (0.0, 30.0))
+        D(y3)=>-0.322], (0.0, 30.0))
+odaeprob = ODEProblem(sys, [], (0.0, 30.0))
 
-ref_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14);
 ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14);
 
 probs = [mtkprob, daeprob, odaeprob]
-refs = [ref_sol, ref_sol, ode_ref_sol];
+refs = [ode_ref_sol, ode_ref_sol, ode_ref_sol];
+```
+
+## IDA Reference Solve (DAE form)
+
+IDA on the DAE formulation goes unstable near the end of integration
+(t ≈ 29.4 out of [0, 30]).  With the Sundials 7 C library (Sundials.jl v5)
+the error-test failure is not recoverable at high precision, so we use the
+ODE reference from CVODE_BDF above instead.
+
+```julia
+try
+    ida_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14)
+    println("IDA retcode: ", ida_sol.retcode,
+            ", t_final: ", ida_sol.t[end], " (tspan ends at 30.0)")
+catch e
+    println("IDA solve failed: ", e)
+end
 ```
 
 ```julia
-plot(ref_sol)
+plot(ode_ref_sol)
 ```
 
 ## High Tolerances

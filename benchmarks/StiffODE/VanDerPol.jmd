@@ -6,7 +6,7 @@ author: Chris Rackauckas
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA
 gr()
-using LinearAlgebra, StaticArrays, RecursiveFactorization
+using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester, OrdinaryDiffEqCore
 
 van = @ode_def begin
   dy = μ*((1-x^2)*y - x)
@@ -38,10 +38,9 @@ plot(sol)
 ## Omissions And Tweaking
 
 The following were omitted from the tests due to convergence failures. ODE.jl's
-adaptivity is not able to stabilize its algorithms, while
-GeometricIntegratorsDiffEq has not upgraded to Julia 1.0.
-GeometricIntegrators.jl's methods used to be either fail to converge at
-comparable dts (or on some computers errors due to type conversions).
+adaptivity is not able to stabilize its algorithms.
+GeometricIntegrators.jl's methods used to either fail to converge at
+comparable dts (or on some computers had errors due to type conversions).
 
 ```julia
 #sol = solve(prob,ode23s()); println("Total ODE.jl steps: $(length(sol))")
@@ -103,9 +102,13 @@ setups = [
 The EPIRK and exponential methods also fail:
 
 ```julia
-sol = solve(prob,EXPRB53s3(),dt=2.0^(-8));
-sol = solve(prob,EPIRK4s3B(),dt=2.0^(-8));
-sol = solve(prob,EPIRK5P2(),dt=2.0^(-8));
+for alg in [EXPRB53s3(), EPIRK4s3B(), EPIRK5P2()]
+    try
+        sol = solve(prob, alg, dt=2.0^(-8))
+    catch e
+        println("$(nameof(typeof(alg))) failed: $e")
+    end
+end
 ```
 
 ## Low Order and High Tolerance
@@ -368,7 +371,7 @@ abstols = 1.0 ./ 10.0 .^ (7:11)
 reltols = 1.0 ./ 10.0 .^ (4:8)
 setups = [Dict(:alg=>ImplicitHairerWannerExtrapolation()),
 		      Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = true)),
-          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+          Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEqCore.PolyesterThreads())),
           ]
 
 names = ["unthreaded","threaded","Polyester"];

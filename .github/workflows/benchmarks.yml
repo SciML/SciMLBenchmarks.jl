@@ -1,0 +1,132 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'benchmarks/**'
+  pull_request:
+    paths:
+      - 'benchmarks/**'
+  workflow_dispatch:
+    inputs:
+      benchmark_target:
+        description: 'Specific benchmark target to run (e.g. benchmarks/NonStiffODE or benchmarks/NonStiffODE/linear_wpd.jmd). Leave empty to detect from changes.'
+        required: false
+        type: string
+
+# Cancel in-progress PR runs (but not master — benchmarks are long-running)
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  detect-changes:
+    name: Detect Changed Benchmarks
+    runs-on: ubuntu-latest
+    # Skip change detection if a manual target is provided
+    if: ${{ github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null }}
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Detect changed benchmarks
+        id: detect
+        run: .github/scripts/detect-changed-benchmarks.sh
+
+  # When manually triggered with a specific target
+  manual-matrix:
+    name: Manual Target
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.benchmark_target != '' && github.event.inputs.benchmark_target != null }}
+    outputs:
+      matrix: ${{ steps.manual.outputs.matrix }}
+      has_changes: ${{ steps.manual.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set manual target
+        id: manual
+        run: |
+          target="${{ github.event.inputs.benchmark_target }}"
+          source .github/scripts/read-benchmark-config.sh
+          config=$(get_benchmark_config "${target}")
+          runner=$(echo "${config}" | cut -d'|' -f1)
+          timeout=$(echo "${config}" | cut -d'|' -f2)
+          julia_version=$(echo "${config}" | cut -d'|' -f3)
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "matrix=[{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout},\"julia_version\":\"${julia_version}\"}]" >> "$GITHUB_OUTPUT"
+
+  benchmark:
+    name: "Run: ${{ matrix.target }}"
+    needs: [detect-changes, manual-matrix]
+    # Run if either job produced changes (the other will be skipped)
+    if: |
+      always() && (
+        (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.has_changes == 'true') ||
+        (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
+      )
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
+      fail-fast: false
+    timeout-minutes: ${{ matrix.timeout }}
+    env:
+      JULIA_NUM_THREADS: auto
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia_version }}
+
+      - uses: julia-actions/cache@v3
+
+      - name: Build benchmark
+        run: .github/scripts/build_benchmark.sh "${{ matrix.target }}"
+        env:
+          JULIAHUB_TOKEN: ${{ secrets.JULIAHUB_TOKEN }}
+
+      - name: Sanitize artifact name
+        if: always()
+        id: artifact-name
+        run: |
+          name=$(echo "${{ matrix.target }}" | tr '/' '-' | tr '.' '-')
+          echo "name=benchmark-${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload benchmark artifacts
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: |
+            markdown/
+            notebook/
+            pdf/
+            script/
+          retention-days: 30
+
+  publish:
+    name: Publish Results
+    needs: benchmark
+    if: always() && github.ref == 'refs/heads/master' && needs.benchmark.result == 'success'
+    runs-on: [self-hosted, benchmark]
+    concurrency:
+      group: scimlbenchmarks-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all benchmark artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: benchmark-*
+          merge-multiple: true
+
+      - name: Publish to SciMLBenchmarksOutput
+        run: .github/scripts/publish_benchmark_output.sh
+        env:
+          DEPLOY_KEY: ${{ secrets.SCIML_BENCHMARKS_DEPLOY_KEY }}
