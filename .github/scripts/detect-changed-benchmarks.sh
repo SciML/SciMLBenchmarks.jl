@@ -22,8 +22,32 @@ if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
     CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/')
 else
-    # Push event: compare with parent commit
-    CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
+    # Push event: compare against the last commit that was successfully published
+    # to SciMLBenchmarksOutput. This makes change detection cumulative — if a
+    # previous master push run was cancelled (because rapid merges queue and
+    # GHA cancels queued runs), this run still picks up its changes.
+    #
+    # The output repo's build commits have format "build based on <SHA>" or
+    # "Published by build of: SciML/SciMLBenchmarks.jl@<SHA>". We fetch the
+    # most recent one and diff against that SHA.
+    LAST_BUILT_SHA=""
+    if command -v curl >/dev/null 2>&1; then
+        LAST_BUILT_SHA=$(curl -s -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/SciML/SciMLBenchmarksOutput/commits?per_page=20" 2>/dev/null \
+            | grep -oE '"message":[^"]*"[^"]*"' \
+            | grep -oE 'SciMLBenchmarks\.jl@[a-f0-9]{40}' \
+            | head -1 \
+            | sed 's/SciMLBenchmarks\.jl@//')
+    fi
+
+    if [[ -n "${LAST_BUILT_SHA}" ]] && git cat-file -e "${LAST_BUILT_SHA}^{commit}" 2>/dev/null; then
+        echo "Diffing against last published SHA: ${LAST_BUILT_SHA}" >&2
+        CHANGED_FILES=$(git diff --name-only "${LAST_BUILT_SHA}" HEAD -- 'benchmarks/' 2>/dev/null || true)
+    else
+        # Fallback: compare with parent commit (original behavior)
+        echo "Last published SHA not available; falling back to HEAD~1 diff" >&2
+        CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
+    fi
 fi
 
 declare -A FILES     # .jmd file -> its project directory
