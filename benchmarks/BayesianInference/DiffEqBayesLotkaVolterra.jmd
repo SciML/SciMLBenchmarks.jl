@@ -8,9 +8,6 @@ author: Vaibhav Dixit, Chris Rackauckas
 
 ```julia
 using DiffEqBayes, StanSample, DynamicHMC, Turing
-```
-
-```julia
 using Distributions, BenchmarkTools, StaticArrays
 using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions
 using Plots, LinearAlgebra
@@ -107,9 +104,9 @@ We use `adapt_delta = 0.85` (Stan's default) consistently across all backends fo
 Stan infers a separate noise parameter (`sigma`) per data dimension via the `vars` specification.
 
 ```julia
-bayesian_result_stan = @time stan_inference(
+elapsed_stan = @elapsed bayesian_result_stan = stan_inference(
     prob, :rk45, t, data, priors; print_summary = false,
-    sample_kwargs = Dict(:delta => 0.85, :num_samples => 10_000),
+    sample_kwargs = (delta = 0.85, num_samples = 10_000),
     vars = (DiffEqBayes.StanODEData(), InverseGamma(2, 3)))
 ```
 
