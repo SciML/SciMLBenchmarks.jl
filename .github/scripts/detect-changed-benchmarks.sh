@@ -32,12 +32,24 @@ else
     # most recent one and diff against that SHA.
     LAST_BUILT_SHA=""
     if command -v curl >/dev/null 2>&1; then
-        LAST_BUILT_SHA=$(curl -s -H "Accept: application/vnd.github+json" \
+        # Use GITHUB_TOKEN when available to bypass the 60-req/hour anonymous
+        # rate limit (the unauth limit is shared per IP across all GHA runners
+        # and gets hit easily — when it does, the API returns a JSON error,
+        # the SciMLBenchmarks.jl@<sha> grep finds nothing, pipefail trips, and
+        # `set -e` aborts the script before fallback can kick in).
+        AUTH_HEADER=()
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+        fi
+        # Wrap in `|| true` so a non-matching grep (e.g. rate limited, network
+        # blip, or output repo briefly empty) cleanly falls through to the
+        # HEAD~1 fallback rather than aborting the whole workflow.
+        LAST_BUILT_SHA=$( { curl -s "${AUTH_HEADER[@]}" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/SciML/SciMLBenchmarksOutput/commits?per_page=20" 2>/dev/null \
             | grep -oE '"message":[^"]*"[^"]*"' \
             | grep -oE 'SciMLBenchmarks\.jl@[a-f0-9]{40}' \
             | head -1 \
-            | sed 's/SciMLBenchmarks\.jl@//')
+            | sed 's/SciMLBenchmarks\.jl@//'; } || true)
     fi
 
     if [[ -n "${LAST_BUILT_SHA}" ]] && git cat-file -e "${LAST_BUILT_SHA}^{commit}" 2>/dev/null; then
