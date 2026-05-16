@@ -71,10 +71,30 @@ jobs:
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
     runs-on: ${{ matrix.runner }}
+    # Serialize all benchmark jobs across all workflow runs to one at a time.
+    # Background: amdci3-1 corrupts its workspace under rapid dispatch — when
+    # multiple jobs arrive within seconds, all but one die with errors like
+    # "Missing file at path: ..._runner_file_commands/..." and "Can't find
+    # action.yml under .../_actions/actions/checkout/...". Single jobs run
+    # cleanly; the bug is purely a concurrency-on-same-runner issue.
+    #
+    # Job-level concurrency with a constant group + cancel-in-progress:false
+    # makes every matrix entry across every Benchmarks run queue behind any
+    # other in-flight matrix entry. The detect-changes / manual-matrix /
+    # publish jobs are unaffected (they're separate jobs and run normally).
+    #
+    # Throughput cost: even when both self-hosted runners are healthy and
+    # idle, only one benchmark job runs at a time. When the runner pool's
+    # rapid-dispatch bug is fixed, this can be relaxed (e.g. parameterized
+    # by matrix.runner to allow one job per runner concurrently).
+    concurrency:
+      group: benchmark-runner-pool
+      cancel-in-progress: false
     strategy:
       matrix:
         include: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
       fail-fast: false
+      max-parallel: 1
     timeout-minutes: ${{ matrix.timeout }}
     env:
       JULIA_NUM_THREADS: auto
