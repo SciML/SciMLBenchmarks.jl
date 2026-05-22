@@ -286,22 +286,22 @@ plot(sol, idxs = 10)
 ### OrdinaryDiffEq
 
 ```julia
-function incompletelu(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = ilu(convert(AbstractMatrix, W), τ = 50.0)
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function incompletelu(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+
+    Pl = ilu(W; τ = 50.0)
+
+    return Pl, I
 end
 
-function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+
+    Pl = aspreconditioner(ruge_stuben(W))
+
+    return Pl, I
 end
 ```
 
@@ -420,14 +420,16 @@ setups = [
     Dict(
         :alg=>KenCarp47(linsolve = KrylovJL_GMRES(; precs = incompletelu), concrete_jac = true),
         :prob_choice => 2),
-    Dict(:alg=>KenCarp47(linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
-    Dict(
-        :alg=>KenCarp47(linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true),
-        :prob_choice => 2)]
+    #Dict(:alg=>KenCarp47(linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true)),
+    #Dict(
+    #    :alg=>KenCarp47(linsolve = KrylovJL_GMRES(; precs = algebraicmultigrid), concrete_jac = true),
+    #    :prob_choice => 2)
+]
 names = ["KenCarp47 KLU", "KenCarp47 KLU MTK", "KenCarp47 UMFPACK",
     "KenCarp47 UMFPACK MTK", "KenCarp47 GMRES",
-    "KenCarp47 GMRES MTK", "KenCarp47 iLU GMRES", "KenCarp47 iLU GMRES MTK", "KenCarp47 AMG GMRES",
-    "KenCarp47 AMG GMRES MTK"];
+    "KenCarp47 GMRES MTK", "KenCarp47 iLU GMRES", "KenCarp47 iLU GMRES MTK"
+    #, "KenCarp47 AMG GMRES", "KenCarp47 AMG GMRES MTK"
+];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 plot(wp)
