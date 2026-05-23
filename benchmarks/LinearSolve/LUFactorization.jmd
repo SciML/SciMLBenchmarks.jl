@@ -13,13 +13,8 @@ BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
 function luflop(m, n = m; innerflop = 2)
     sum(1:min(m, n)) do k
         invflop = 1
-        scaleflop = isempty((k + 1):m) ? 0 : sum((k + 1):m)
-        updateflop = isempty((k + 1):n) ? 0 :
-                     sum((k + 1):n) do j
-            isempty((k + 1):m) ? 0 : sum((k + 1):m) do i
-                innerflop
-            end
-        end
+        scaleflop = max(m - k, 0)
+        updateflop = innerflop * max(m - k, 0) * max(n - k, 0)
         invflop + scaleflop + updateflop
     end
 end
