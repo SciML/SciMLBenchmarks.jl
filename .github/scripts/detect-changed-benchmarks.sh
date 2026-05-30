@@ -20,7 +20,15 @@ source "${SCRIPT_DIR}/read-benchmark-config.sh"
 if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
-    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/')
+    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/' 2>/dev/null || true)
+    if [[ -z "${CHANGED_FILES}" ]]; then
+        # The three-dot range needs a merge base, which a shallow (--depth=1)
+        # fetch of the base lacks once master advances past the PR's branch
+        # point — git then aborts with "no merge base". PR builds check out
+        # refs/pull/N/merge, so HEAD~1 is the base tip; diffing against it
+        # yields exactly the PR's changes without requiring a merge base.
+        CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'benchmarks/' 2>/dev/null || true)
+    fi
 else
     # Push event: compare against the last commit that was successfully published
     # to SciMLBenchmarksOutput. This makes change detection cumulative — if a
