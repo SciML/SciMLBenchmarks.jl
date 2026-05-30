@@ -1,0 +1,58 @@
+---
+title: CUTEst Unbounded Constrained Optimization.jl Benchmarks
+author: Prashant Andoriya
+---
+
+# CUTEst Unbounded Constrained Optimization.jl Benchmarks
+
+This benchmark runs constrained CUTEst problems with free variables through the
+Optimization.jl interface using `OptimizationNLPModels`.
+
+```julia
+ENV["GKSwstype"] = "100"
+
+using CUTEst
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
+using Statistics
+using Printf
+
+include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
+    "cutest_benchmark_utils.jl"))
+
+unbounded_equality_problems = select_safe_problems(
+    collect(CUTEst.select_sif_problems(min_con = 1, only_equ_con = true,
+        only_free_var = true))
+)
+
+unbounded_inequality_problems = select_safe_problems(
+    collect(CUTEst.select_sif_problems(min_con = 1, only_ineq_con = true,
+        only_free_var = true))
+)
+
+println("Selected unbounded equality-constrained problems: ",
+    length(unbounded_equality_problems))
+println("Selected unbounded inequality-constrained problems: ",
+    length(unbounded_inequality_problems))
+
+unbounded_results = vcat(
+    run_benchmarks("unbounded equality constrained", unbounded_equality_problems,
+        CONSTRAINED_SOLVERS),
+    run_benchmarks("unbounded inequality constrained", unbounded_inequality_problems,
+        CONSTRAINED_SOLVERS),
+)
+
+display(unbounded_results)
+unbounded_summary = summarize_results(unbounded_results)
+
+plot_solve_times(unbounded_results, "CUTEst unbounded constrained Optimization.jl solve time")
+plot_success_rates(unbounded_summary,
+    "CUTEst unbounded constrained Optimization.jl success rate")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

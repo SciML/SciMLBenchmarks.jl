@@ -1,0 +1,48 @@
+---
+title: CUTEst Quadratic Optimization.jl Benchmarks
+author: Prashant Andoriya
+---
+
+# CUTEst Quadratic Optimization.jl Benchmarks
+
+This benchmark runs CUTEst quadratic problems with linear constraints through the
+Optimization.jl interface using `OptimizationNLPModels`.
+
+```julia
+ENV["GKSwstype"] = "100"
+
+using CUTEst
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
+using Statistics
+using Printf
+
+include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
+    "cutest_benchmark_utils.jl"))
+
+quadratic_linear_problems = select_safe_problems(
+    collect(CUTEst.select_sif_problems(objtype = "quadratic", contype = "linear"))
+)
+
+println("Selected quadratic problems with linear constraints: ",
+    length(quadratic_linear_problems))
+
+quadratic_results = run_benchmarks(
+    "quadratic linear",
+    quadratic_linear_problems,
+    CONSTRAINED_SOLVERS,
+)
+
+display(quadratic_results)
+quadratic_summary = summarize_results(quadratic_results)
+
+plot_solve_times(quadratic_results, "CUTEst quadratic Optimization.jl solve time")
+plot_success_rates(quadratic_summary, "CUTEst quadratic Optimization.jl success rate")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

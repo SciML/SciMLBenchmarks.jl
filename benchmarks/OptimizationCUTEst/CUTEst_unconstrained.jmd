@@ -1,0 +1,47 @@
+---
+title: CUTEst Unconstrained Optimization.jl Benchmarks
+author: Prashant Andoriya
+---
+
+# CUTEst Unconstrained Optimization.jl Benchmarks
+
+This benchmark runs unconstrained CUTEst problems through the Optimization.jl interface
+using `OptimizationNLPModels`.
+
+```julia
+ENV["GKSwstype"] = "100"
+
+using CUTEst
+using DataFrames
+using Plots
+using StatsPlots
+using StatsBase: countmap
+using Statistics
+using Printf
+
+include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
+    "cutest_benchmark_utils.jl"))
+
+unconstrained_problems = select_safe_problems(
+    collect(CUTEst.select_sif_problems(contype = "unc"))
+)
+
+println("Selected unconstrained problems: ", length(unconstrained_problems))
+
+unc_results = run_benchmarks(
+    "unconstrained",
+    unconstrained_problems,
+    UNCONSTRAINED_SOLVERS,
+)
+
+display(unc_results)
+unc_summary = summarize_results(unc_results)
+
+plot_solve_times(unc_results, "CUTEst unconstrained Optimization.jl solve time")
+plot_success_rates(unc_summary, "CUTEst unconstrained Optimization.jl success rate")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

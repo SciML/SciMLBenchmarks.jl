@@ -1,25 +1,7 @@
----
-title: CUTEst Optimization.jl Benchmarks
-author: Prashant Andoriya
----
-
-# CUTEst Optimization.jl Benchmarks
-
-This benchmark uses CUTEst problems through `OptimizationNLPModels`, which converts
-`NLPModels` problems into the `Optimization.jl` interface. The benchmark compares
-Optimization.jl-wrapped solvers across unconstrained, constrained and quadratic CUTEst
-problem classes.
-
-```julia
-ENV["GKSwstype"] = "100"
-
-using CUTEst
+using Printf
 using DataFrames
-using Plots
-using StatsPlots
 using StatsBase: countmap
 using Statistics
-using Printf
 
 const MAX_PROBLEMS_PER_CATEGORY = 20
 const MAX_NVAR = 1_000
@@ -58,14 +40,18 @@ function select_safe_problems(candidates; max_problems = MAX_PROBLEMS_PER_CATEGO
     selected = String[]
 
     for name in candidates
+
         lowercase(name) in KNOWN_BAD_PROBLEMS && continue
 
         meta = problem_metadata(name)
+
+
         meta.ok || continue
         meta.nvar <= MAX_NVAR || continue
         meta.ncon <= MAX_NCON || continue
 
         push!(selected, name)
+
         length(selected) >= max_problems && break
     end
 
@@ -155,6 +141,11 @@ function run_benchmarks(category, problems, solvers)
         end
     end
 
+    if isempty(rows)
+        return DataFrame(category = String[], problem = String[], solver = String[],
+            n_vars = Int[], secs = Float64[], retcode = String[], status = String[])
+    end
+
     return DataFrame(rows)
 end
 
@@ -181,46 +172,18 @@ function summarize_results(results)
     return summary
 end
 
-unconstrained_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(contype = "unc"))
-)
+function plot_solve_times(results, title)
+    if nrow(results) == 0
+        return nothing
+    end
 
-bounded_constrained_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(min_con = 1, only_free_var = false))
-)
-
-unbounded_constrained_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(min_con = 1, only_free_var = true))
-)
-
-quadratic_linear_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(objtype = "quadratic", contype = "linear"))
-)
-
-println("Selected problem counts:")
-println("  unconstrained: ", length(unconstrained_problems))
-println("  bounded constrained: ", length(bounded_constrained_problems))
-println("  unbounded constrained: ", length(unbounded_constrained_problems))
-println("  quadratic linear: ", length(quadratic_linear_problems))
-
-results = vcat(
-    run_benchmarks("unconstrained", unconstrained_problems, UNCONSTRAINED_SOLVERS),
-    run_benchmarks("bounded constrained", bounded_constrained_problems, CONSTRAINED_SOLVERS),
-    run_benchmarks("unbounded constrained", unbounded_constrained_problems, CONSTRAINED_SOLVERS),
-    run_benchmarks("quadratic linear", quadratic_linear_problems, CONSTRAINED_SOLVERS),
-)
-
-display(results)
-summary = summarize_results(results)
-
-if nrow(results) > 0
     solve_time_plot = @df results scatter(
         :n_vars,
         :secs,
         group = :solver,
         xlabel = "Number of variables",
         ylabel = "Seconds",
-        title = "CUTEst Optimization.jl solve time",
+        title = title,
         yscale = :log10,
         legend = :topleft,
         size = (900, 600),
@@ -229,14 +192,18 @@ if nrow(results) > 0
     display(solve_time_plot)
 end
 
-if nrow(summary) > 0
+function plot_success_rates(summary, title)
+    if nrow(summary) == 0
+        return nothing
+    end
+
     success_rate_plot = @df summary groupedbar(
         :category,
         :success_rate,
         group = :solver,
         xlabel = "Problem category",
         ylabel = "Success rate (%)",
-        title = "CUTEst Optimization.jl solver success rate",
+        title = title,
         xrotation = 30,
         legend = :topright,
         size = (900, 600),
@@ -244,10 +211,3 @@ if nrow(summary) > 0
 
     display(success_rate_plot)
 end
-```
-
-
-```julia, echo = false
-using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
-```
