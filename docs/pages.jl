@@ -2,23 +2,26 @@
 
 dir = @__DIR__() * "/.."
 
-cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force=true)
-cp(joinpath(dir, "docs", "extrasrc", "assets"), joinpath(dir, "docs", "src", "assets"), force=true)
-cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force=true)
+cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force = true)
+cp(joinpath(dir, "docs", "extrasrc", "assets"), joinpath(dir, "docs", "src", "assets"), force = true)
+cp(joinpath(dir, "README.md"), joinpath(dir, "docs", "src", "index.md"), force = true)
 benchmarksdir = joinpath(dir, "docs", "src")
 
 @show readdir(benchmarksdir)
 
-pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science"=>"index.md"]
+pages = Any["SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML), Equation Solvers, and AI for Science" => "index.md"]
 
 for folder in readdir(benchmarksdir)
     newpages = Any[]
-    if folder[end-2:end] != ".md" && folder != "Testing" && folder != "figures" && folder != "assets"
-        for file in filter(x -> x[end-2:end] == ".md", readdir(
-            joinpath(benchmarksdir, folder)))
+    if folder[(end - 2):end] != ".md" && folder != "Testing" && folder != "figures" && folder != "assets"
+        for file in filter(
+                x -> x[(end - 2):end] == ".md", readdir(
+                    joinpath(benchmarksdir, folder)
+                )
+            )
             try
                 filecontents = readlines(joinpath(benchmarksdir, folder, file))
-                title = filecontents[3][9:end-1]
+                title = filecontents[3][9:(end - 1)]
 
                 # Cut out the first 5 lines from the file to remove the Weave header stuff
                 open(joinpath(benchmarksdir, folder, file), "w") do output
@@ -76,12 +79,12 @@ section_titles = [
     "NeuralNetworks" => "Neural Network Framework Benchmarks",
     "AdaptiveSDE" => "SDE Adaptivity Benchmarks",
     "Surrogates" => "Surrogate Benchmarks",
-    "Symbolics" => "Symbolic Manipulation Benchmarks"
+    "Symbolics" => "Symbolic Manipulation Benchmarks",
 ]
 
 renamed_index = "SciMLBenchmarks.jl: Benchmarks for Scientific Machine Learning (SciML) and Equation Solvers" =>
-                pages[1][2]
-remaining_pages = Dict{String,Any}(pages[2:end])
+    pages[1][2]
+remaining_pages = Dict{String, Any}(pages[2:end])
 ordered_pages = Any[renamed_index]
 
 for (folder, title) in section_titles

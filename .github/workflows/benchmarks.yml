@@ -36,6 +36,8 @@ jobs:
       - name: Detect changed benchmarks
         id: detect
         run: .github/scripts/detect-changed-benchmarks.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # When manually triggered with a specific target
   manual-matrix:
@@ -112,7 +114,12 @@ jobs:
   publish:
     name: Publish Results
     needs: benchmark
-    if: always() && github.ref == 'refs/heads/master' && needs.benchmark.result == 'success'
+    # Publish whenever the benchmark stage actually ran (success OR failure),
+    # so one folder's failure doesn't block other folders' artifacts from
+    # reaching SciMLBenchmarksOutput. download-artifact pulls only artifacts
+    # that were actually uploaded (only successful builds upload), and
+    # publish_benchmark_output.sh is a no-op when there's nothing new.
+    if: always() && github.ref == 'refs/heads/master' && (needs.benchmark.result == 'success' || needs.benchmark.result == 'failure')
     runs-on: [self-hosted, benchmark]
     concurrency:
       group: scimlbenchmarks-deploy
@@ -125,6 +132,7 @@ jobs:
         with:
           pattern: benchmark-*
           merge-multiple: true
+        continue-on-error: true
 
       - name: Publish to SciMLBenchmarksOutput
         run: .github/scripts/publish_benchmark_output.sh

@@ -20,7 +20,15 @@ source "${SCRIPT_DIR}/read-benchmark-config.sh"
 if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
-    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/')
+    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/' 2>/dev/null || true)
+    if [[ -z "${CHANGED_FILES}" ]]; then
+        # The three-dot range needs a merge base, which a shallow (--depth=1)
+        # fetch of the base lacks once master advances past the PR's branch
+        # point — git then aborts with "no merge base". PR builds check out
+        # refs/pull/N/merge, so HEAD~1 is the base tip; diffing against it
+        # yields exactly the PR's changes without requiring a merge base.
+        CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'benchmarks/' 2>/dev/null || true)
+    fi
 else
     # Push event: compare against the last commit that was successfully published
     # to SciMLBenchmarksOutput. This makes change detection cumulative — if a
@@ -32,12 +40,24 @@ else
     # most recent one and diff against that SHA.
     LAST_BUILT_SHA=""
     if command -v curl >/dev/null 2>&1; then
-        LAST_BUILT_SHA=$(curl -s -H "Accept: application/vnd.github+json" \
+        # Use GITHUB_TOKEN when available to bypass the 60-req/hour anonymous
+        # rate limit (the unauth limit is shared per IP across all GHA runners
+        # and gets hit easily — when it does, the API returns a JSON error,
+        # the SciMLBenchmarks.jl@<sha> grep finds nothing, pipefail trips, and
+        # `set -e` aborts the script before fallback can kick in).
+        AUTH_HEADER=()
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+        fi
+        # Wrap in `|| true` so a non-matching grep (e.g. rate limited, network
+        # blip, or output repo briefly empty) cleanly falls through to the
+        # HEAD~1 fallback rather than aborting the whole workflow.
+        LAST_BUILT_SHA=$( { curl -s "${AUTH_HEADER[@]}" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/SciML/SciMLBenchmarksOutput/commits?per_page=20" 2>/dev/null \
             | grep -oE '"message":[^"]*"[^"]*"' \
             | grep -oE 'SciMLBenchmarks\.jl@[a-f0-9]{40}' \
             | head -1 \
-            | sed 's/SciMLBenchmarks\.jl@//')
+            | sed 's/SciMLBenchmarks\.jl@//'; } || true)
     fi
 
     if [[ -n "${LAST_BUILT_SHA}" ]] && git cat-file -e "${LAST_BUILT_SHA}^{commit}" 2>/dev/null; then
