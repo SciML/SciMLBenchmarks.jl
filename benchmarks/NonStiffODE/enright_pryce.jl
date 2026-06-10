@@ -257,7 +257,7 @@ sf1sys = let
     k = exp(20.7 - 1500 / y[1])
     sf1eqs = [
         D(y[1]) ~ 1.3 * (y[3] - y[1]) + 10400 * k * y[2],
-        D(y[2]) ~ 1880 * [y[4] - y[2] * (1 + k)],
+        D(y[2]) ~ 1880 * (y[4] - y[2] * (1 + k)),
         D(y[3]) ~ 1752 - 269 * y[3] + 267 * y[1],
         D(y[4]) ~ 0.1 + 320 * y[2] - 321 * y[4],
     ]
@@ -528,8 +528,6 @@ const NC_PROBLEMS = [nc1prob, nc2prob, nc3prob, nc4prob] # nc5prob temporarily d
 
 @variables y(t)[1:4]
 y = collect(y)
-@parameters ε
-# Use intermediate variable to avoid complex symbolic expansion
 # r_cubed = (x^2 + y^2)^(3/2) for the gravitational force law
 r_squared = y[1]^2 + y[2]^2
 r_cubed = r_squared * sqrt(r_squared)
@@ -545,7 +543,7 @@ nd1sys = structural_simplify(nd1sys_raw)
 function make_ds(nd1sys, e)
     y = collect(@nonamespace nd1sys.y)
     y0 = [y[1] => 1 - e; y[2:3] .=> 0.0; y[4] => sqrt((1 + e) / (1 - e))]
-    return ODEProblem{false}(nd1sys, y0, (0, 20.0), [ε => e])
+    return ODEProblem{false}(nd1sys, y0, (0, 20.0))
 end
 nd1prob = make_ds(nd1sys, 0.1)
 nd2prob = make_ds(nd1sys, 0.3)
