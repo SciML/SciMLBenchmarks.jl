@@ -674,8 +674,14 @@ refs  = [ref_sol, ref_sol, mtk_ref]
 ## High Tolerances
 
 ```julia
+# Tightened reltols (was 10.0.^-(1:4)) so that IDA/DASKR are not asked for the
+# loose (abstol=1e-5, reltol=1e-1) pairing — Sundials grinds with repeated
+# error-test failures for hours on that pairing. Pairing abstol with reltol
+# 4 orders of magnitude tighter keeps the per-step error control sane.
+# `verbose=false` silences Sundials' repeated-error-test warnings on the still
+# moderately-loose end of the grid.
 abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
+reltols = 1.0 ./ 10.0 .^ (4:7)
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -683,8 +689,8 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
     Dict(:prob_choice => 3, :alg => Rodas4()),
     Dict(:prob_choice => 3, :alg => FBDF()),
@@ -725,8 +731,11 @@ plot(wp, title = "Fekete Problem: MM vs DAE vs MTK (High Tol)")
 ### Timeseries Errors
 
 ```julia
+# Same tightening as above (was reltols = 10.0.^-(1:4)) and verbose=false on
+# IDA/DASKR so the loose abstol/reltol pairings don't fail Sundials' error test
+# repeatedly.
 abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (1:4)
+reltols = 1.0 ./ 10.0 .^ (4:7)
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -734,8 +743,8 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 1, :alg => RadauIIA5()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
     Dict(:prob_choice => 3, :alg => Rodas4()),
     Dict(:prob_choice => 3, :alg => FBDF()),
