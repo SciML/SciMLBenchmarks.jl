@@ -8,9 +8,7 @@ qs = 1.0 .+ 2.0 .^ (-5:2)
 times = Array{Float64}(undef, length(qs), 4)
 means = Array{Float64}(undef, length(qs), 4)
 
-using StochasticDiffEq, SDEProblemLibrary, Random,
-      Plots, ParallelDataTransfer, DiffEqMonteCarlo, Distributed
-using SciMLLogging
+using StochasticDiffEq, SDEProblemLibrary, DiffEqBase, Random, Plots, SciMLLogging
 Random.seed!(99)
 
 full_prob = SDEProblemLibrary.oval2ModelExample(largeFluctuations = true, useBigs = false)
@@ -40,17 +38,15 @@ println("Setup Complete")
 
 ## Timing Runs
 
-function runAdaptive(i, k)
-    sol = solve(prob, SRIW1(), dt = 1/2^(8), abstol = 2.0^(-15), reltol = 2.0^(-10),
-        verbose = SciMLLogging.None(), maxIters = Int(1e12), qmax = qs[k])
-    Int(any(isnan, sol[end]) || sol.t[end] != 1)
-end
+# Multithreaded ensemble over the Oval2 model; each trajectory gets its own seed
+# so the runs are independent and reproducible across qmax values.
+oval2_ensemble = EnsembleProblem(prob, prob_func = (p, ctx) -> remake(p, seed = ctx.sim_id))
 
 #Compile
 monte_prob = EnsembleProblem(probs[1])
-test_mc = solve(monte_prob, SRIW1(), dt = 1/2^(4), adaptive = true,
+test_mc = solve(monte_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
     trajectories = 1000, abstol = 2.0^(-1), reltol = 0)
-DiffEqBase.calculate_monte_errors(test_mc);
+DiffEqBase.calculate_ensemble_errors(test_mc);
 ```
 
 ## qmax test on Oval2 Model
@@ -59,7 +55,10 @@ DiffEqBase.calculate_monte_errors(test_mc);
 for k in eachindex(qs)
     global times
     Random.seed!(99)
-    adaptiveTime = @elapsed numFails = sum(map((i)->runAdaptive(i, k), 1:num_runs))
+    adaptiveTime = @elapsed sol = solve(oval2_ensemble, SRIW1(), EnsembleThreads();
+        dt = 1/2^(8), abstol = 2.0^(-15), reltol = 2.0^(-10), verbose = SciMLLogging.None(),
+        maxiters = Int(1e12), qmax = qs[k], trajectories = num_runs)
+    numFails = sum(Int(any(isnan, sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:num_runs)
     println("k was $k. The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
     times[k, 4] = adaptiveTime
 end
@@ -72,12 +71,12 @@ for k in eachindex(probs)
     global probs, times, means, qs
     println("Problem $k")
     ## Setup
-    prob = probs[k]
+    ens_prob = EnsembleProblem(probs[k])
 
     for i in eachindex(qs)
-        msim = solve(monte_prob, dt = 1/2^(4), SRIW1(), adaptive = true,
+        msim = solve(ens_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
             trajectories = num_runs, abstol = 2.0^(-13), reltol = 0, qmax = qs[i])
-        test_msim = DiffEqBase.calculate_monte_errors(msim)
+        test_msim = DiffEqBase.calculate_ensemble_errors(msim)
         times[i, k] = test_msim.elapsedTime
         means[i, k] = test_msim.error_means[:final]
         println("for k=$k and i=$i, we get that the error was $(means[i,k]) and it took $(times[i,k]) seconds")

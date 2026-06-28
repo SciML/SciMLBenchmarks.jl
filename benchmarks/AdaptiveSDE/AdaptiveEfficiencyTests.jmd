@@ -4,24 +4,13 @@ author: Chris Rackauckas
 ---
 
 ```julia
-
-using Distributed
-addprocs(2)
+using StochasticDiffEq, SDEProblemLibrary, DiffEqNoiseProcess, DiffEqBase, Plots
+import SDEProblemLibrary: prob_sde_additive,
+                          prob_sde_linear, prob_sde_wave
 
 p1 = Vector{Any}(undef, 3)
 p2 = Vector{Any}(undef, 3)
 p3 = Vector{Any}(undef, 3)
-
-@everywhere begin
-    using StochasticDiffEq, SDEProblemLibrary, DiffEqNoiseProcess, Plots,
-          ParallelDataTransfer
-    import SDEProblemLibrary: prob_sde_additive,
-                              prob_sde_linear, prob_sde_wave
-end
-
-using StochasticDiffEq, SDEProblemLibrary, DiffEqNoiseProcess, Plots, ParallelDataTransfer
-import SDEProblemLibrary: prob_sde_additive,
-                          prob_sde_linear, prob_sde_wave
 
 probs = Matrix{SDEProblem}(undef, 3, 3)
 ## Problem 1
@@ -59,7 +48,8 @@ Ns = [17, 23,
     17]
 ```
 
-Timings are only valid if no workers die. Workers die if you run out of memory.
+The Monte Carlo runs use multithreaded ensembles (`EnsembleThreads()`), so start Julia
+with multiple threads (e.g. `julia -t auto`) for parallel timing.
 
 ```julia
 for k in 1:size(probs, 1)
@@ -76,16 +66,15 @@ for k in 1:size(probs, 1)
 
     #Compile
     prob = probs[k, 1]
-    ParallelDataTransfer.sendto(workers(), prob = prob)
     monte_prob = EnsembleProblem(prob)
-    solve(monte_prob, SRIW1(), dt = 1/2^(4), adaptive = true,
+    solve(monte_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
         trajectories = 1000, abstol = 2.0^(-1), reltol = 0)
 
     println("RSwM1")
     for i in (1 + offset):(N + offset)
         tols[i - offset, 1] = 2.0^(-i-1)
-        msims[i - offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob, SRIW1(),
-            trajectories = 1000, abstol = 2.0^(-i-1),
+        msims[i - offset] = DiffEqBase.calculate_ensemble_errors(solve(monte_prob, SRIW1(),
+            EnsembleThreads(), trajectories = 1000, abstol = 2.0^(-i-1),
             reltol = 0, force_dtmin = true))
         elapsed[i - offset, 1] = msims[i - offset].elapsedTime
         medians[i - offset, 1] = msims[i - offset].error_medians[:final]
@@ -95,15 +84,14 @@ for k in 1:size(probs, 1)
     println("RSwM2")
     prob = probs[k, 2]
 
-    ParallelDataTransfer.sendto(workers(), prob = prob)
     monte_prob = EnsembleProblem(prob)
-    solve(monte_prob, SRIW1(), dt = 1/2^(4), adaptive = true,
+    solve(monte_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
         trajectories = 1000, abstol = 2.0^(-1), reltol = 0)
 
     for i in (1 + offset):(N + offset)
         tols[i - offset, 2] = 2.0^(-i-1)
-        msims[i - offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob, SRIW1(),
-            trajectories = 1000, abstol = 2.0^(-i-1),
+        msims[i - offset] = DiffEqBase.calculate_ensemble_errors(solve(monte_prob, SRIW1(),
+            EnsembleThreads(), trajectories = 1000, abstol = 2.0^(-i-1),
             reltol = 0, force_dtmin = true))
         elapsed[i - offset, 2] = msims[i - offset].elapsedTime
         medians[i - offset, 2] = msims[i - offset].error_medians[:final]
@@ -112,15 +100,14 @@ for k in 1:size(probs, 1)
 
     println("RSwM3")
     prob = probs[k, 3]
-    ParallelDataTransfer.sendto(workers(), prob = prob)
     monte_prob = EnsembleProblem(prob)
-    solve(monte_prob, SRIW1(), dt = 1/2^(4), adaptive = true,
+    solve(monte_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
         trajectories = 1000, abstol = 2.0^(-1), reltol = 0)
 
     for i in (1 + offset):(N + offset)
         tols[i - offset, 3] = 2.0^(-i-1)
-        msims[i - offset] = DiffEqBase.calculate_monte_errors(solve(monte_prob, SRIW1(),
-            adaptive = true, trajectories = 1000, abstol = 2.0^(-i-1),
+        msims[i - offset] = DiffEqBase.calculate_ensemble_errors(solve(monte_prob, SRIW1(),
+            EnsembleThreads(), adaptive = true, trajectories = 1000, abstol = 2.0^(-i-1),
             reltol = 0, force_dtmin = true))
         elapsed[i - offset, 3] = msims[i - offset].elapsedTime
         medians[i - offset, 3] = msims[i - offset].error_medians[:final]
