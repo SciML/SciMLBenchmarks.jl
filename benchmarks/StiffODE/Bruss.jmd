@@ -286,22 +286,14 @@ plot(sol, idxs = 10)
 ### OrdinaryDiffEq
 
 ```julia
-function incompletelu(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = ilu(convert(AbstractMatrix, W), τ = 50.0)
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function incompletelu(newW, p)
+    Pl = ilu(convert(AbstractMatrix, newW), τ = 50.0)
+    Pl, I
 end
 
-function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid(newW, p)
+    Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, newW)))
+    Pl, I
 end
 ```
 
