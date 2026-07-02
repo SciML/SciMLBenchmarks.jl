@@ -9,6 +9,7 @@ times = Array{Float64}(undef, length(qs), 4)
 means = Array{Float64}(undef, length(qs), 4)
 
 using StochasticDiffEq, SDEProblemLibrary, DiffEqBase, Random, Plots, SciMLLogging
+import OrdinaryDiffEqCore: PIController
 Random.seed!(99)
 
 full_prob = SDEProblemLibrary.oval2ModelExample(largeFluctuations = true, useBigs = false)
@@ -57,7 +58,8 @@ for k in eachindex(qs)
     Random.seed!(99)
     adaptiveTime = @elapsed sol = solve(oval2_ensemble, SRIW1(), EnsembleThreads();
         dt = 1/2^(8), abstol = 2.0^(-15), reltol = 2.0^(-10), verbose = SciMLLogging.None(),
-        maxiters = Int(1e12), qmax = qs[k], trajectories = num_runs)
+        maxiters = Int(1e12), controller = PIController(SRIW1(); qmax = qs[k]),
+        trajectories = num_runs)
     numFails = sum(Int(any(isnan, sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:num_runs)
     println("k was $k. The number of Adaptive Fails is $numFails. Elapsed time was $adaptiveTime")
     times[k, 4] = adaptiveTime
@@ -75,7 +77,8 @@ for k in eachindex(probs)
 
     for i in eachindex(qs)
         msim = solve(ens_prob, SRIW1(), EnsembleThreads(), dt = 1/2^(4), adaptive = true,
-            trajectories = num_runs, abstol = 2.0^(-13), reltol = 0, qmax = qs[i])
+            trajectories = num_runs, abstol = 2.0^(-13), reltol = 0,
+            controller = PIController(SRIW1(); qmax = qs[i]))
         test_msim = DiffEqBase.calculate_ensemble_errors(msim)
         times[i, k] = test_msim.elapsedTime
         means[i, k] = test_msim.error_means[:final]
