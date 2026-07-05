@@ -53,7 +53,7 @@ end
 
 function benchmark_time_to_success(
     optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{<:BBOBFunction};
-    Ntrials::Int = 15, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 50_000
+    Ntrials::Int = 15, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
 )
     all_times = Float64[]
     for f in funcs
@@ -164,7 +164,7 @@ function pso_benchmark(opt, funcs, run_length;
 end
 
 function pso_tts(opt, funcs; Ntrials = 15, dimension = 3, Δf = 1e-6,
-        local_maxiters = 50, max_run_length = 50_000)
+        local_maxiters = 50, max_run_length = 100_000)
     all_times = Float64[]
     D = dimension
     for f in funcs
@@ -198,7 +198,6 @@ test_functions = BBOB.bbob_suite(Val(dimension))
 run_length     = round.(Int, 10 .^ LinRange(1, 5, 15))
 Ntrials        = 15
 num_particles  = 5_000
-max_run_length = 50_000
 
 const SUCCESS_Δf = 1e-6
 
@@ -232,9 +231,9 @@ setup = Dict(
 
 @memoize run_tts(algo) = algo in PSO_KEYS ?
     pso_tts(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length) :
+        Ntrials, dimension, Δf = SUCCESS_Δf) :
     benchmark_time_to_success(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length)
+        Ntrials, dimension, Δf = SUCCESS_Δf)
 ```
 
 ## Test all (iterations)
