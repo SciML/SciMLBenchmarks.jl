@@ -27,10 +27,10 @@ tf = 100000.0
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(datadir, "bcr.net"))
 show(to)
-rn = complete(prnbng.rn)
+rn = complete(prnbng)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
+@timeit to "Create ODESys" osys = complete(Catalyst.ode_model(rn))
 show(to)
 
 tspan = (0.0, tf)
@@ -135,13 +135,9 @@ function precilu(z, r, p, t, y, fy, gamma, delta, lr)
     ldiv!(z, preccache[], r)
 end
 
-function incompletelu(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = ilu(convert(AbstractMatrix, W), τ = τ2)
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function incompletelu(A, p)
+    Pl = ilu(convert(AbstractMatrix, A); τ = τ2)
+    return Pl, I
 end;
 ```
 

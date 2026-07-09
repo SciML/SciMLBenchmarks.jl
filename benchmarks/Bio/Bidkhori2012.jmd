@@ -9,11 +9,12 @@ al.](https://doi.org/10.1371/journal.pone.0048004). It is referenced from [Biomo
 and the model was parsed to Julia are finally to ODEs using [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl).
 
 ```julia
-using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
+using DiffEqBase, OrdinaryDiffEq, OrdinaryDiffEqCore, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
       LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools, JLD2,
       RecursiveFactorization
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using ADTypes: AutoFiniteDiff
 
 gr()
 
@@ -1358,13 +1359,13 @@ setups = [
     Dict(:alg=>radau()),
     Dict(:alg=>seulex()),
     Dict(:alg=>ImplicitEulerExtrapolation(
-        min_order = 8, init_order = 9, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 8, init_order = 9, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerExtrapolation(min_order = 8, init_order = 9, threading = false)),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
-        min_order = 7, init_order = 8, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 7, init_order = 8, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 7, init_order = 8, threading = false)),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(
-        init_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+        init_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5, threading = false))
 ]
 
@@ -1405,13 +1406,13 @@ setups = [
     #Dict(:alg=>radau()),
     #Dict(:alg=>seulex()),
     Dict(:alg=>ImplicitEulerExtrapolation(
-        min_order = 8, init_order = 9, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 8, init_order = 9, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerExtrapolation(min_order = 8, init_order = 9, threading = false)),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
-        min_order = 7, init_order = 8, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 7, init_order = 8, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 7, init_order = 8, threading = false)),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(
-        init_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+        init_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5, threading = false))
 ]
 
@@ -1432,7 +1433,7 @@ plot(
 
 ## Sparse Jacobian
 
-Finally we test using the generated sparse analytic Jacobian function.
+We test using the generated sparse analytic Jacobian function.
 
 Note that the extrapolation methods currently do not support sparse Jacobians.
 
@@ -1444,11 +1445,11 @@ setups = [
     Dict(:alg=>QNDF(autodiff = AutoFiniteDiff()))    #Dict(:alg=>lsoda()),
     #Dict(:alg=>radau()),
     #Dict(:alg=>seulex()),
-    #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = false)),
-    #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = false)),
-    #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5, threading = false)),
 ]
 
@@ -1460,6 +1461,29 @@ wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups;
 
 plot(
     wp, title = "Implicit Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
+    xticks = 10.0 .^ (-15:1:1),
+    yticks = 10.0 .^ (-6:0.3:5),
+    bottom_margin = 5Plots.mm)
+```
+
+## Explicit stabilized methods (no Jacobian)
+
+```julia
+setups = [
+    Dict(:alg=>RKC()),
+    Dict(:alg=>ROCK2()),
+    Dict(:alg=>ROCK4()),
+    Dict(:alg=>TSRKC3()),
+]
+
+solnames = ["RKC", "ROCK2", "ROCK4", "TSRKC3"
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups;
+    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+
+plot(
+    wp, title = "Explicit Stabilized Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
     xticks = 10.0 .^ (-15:1:1),
     yticks = 10.0 .^ (-6:0.3:5),
     bottom_margin = 5Plots.mm)
