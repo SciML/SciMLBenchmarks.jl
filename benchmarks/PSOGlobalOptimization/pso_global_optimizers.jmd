@@ -195,7 +195,7 @@ chain = (t; isboxed = false) -> Chain(
 
 dimension      = 3
 test_functions = BBOB.bbob_suite(Val(dimension))
-run_length     = round.(Int, 10 .^ LinRange(1, 5, 15))
+run_length     = round.(Int, 10 .^ LinRange(1, 4, 15))
 Ntrials        = 15
 num_particles  = 5_000
 
@@ -217,7 +217,7 @@ setup = Dict(
     "OptimizationMetaheuristics.ECA"   => chain(OptimizationMetaheuristics.ECA(), isboxed = true),
     "OptimizationMetaheuristics.DE"    => chain(OptimizationMetaheuristics.DE(), isboxed = true),
     "ScipyDifferentialEvolution"       => chain(ScipyDifferentialEvolution(), isboxed = true),
-    "SerialPSO"        => SerPSO(num_particles),
+    "SerialPSO"        => SerPSO(512),
     "PSOKernel"        => PSOKernel(num_particles; backend = BACKEND, global_update = true),
     "SyncPSOKernel"    => SyncPSOKernel(num_particles; backend = BACKEND),
     "HybridPSO_LBFGS"  => HPso(pso = SyncPSOKernel(num_particles; backend = BACKEND); backend = BACKEND),
@@ -231,9 +231,9 @@ setup = Dict(
 
 @memoize run_tts(algo) = algo in PSO_KEYS ?
     pso_tts(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf) :
+        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length = 10_000) :
     benchmark_time_to_success(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf)
+        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length = 10_000)
 ```
 
 ## Test all (iterations)
