@@ -18,7 +18,7 @@ function optimizer_from_name(name)
         return MOI.OptimizerWithAttributes(
             Ipopt.Optimizer,
             "max_iter" => 1000,
-            "tol" => 1e-6,
+            "tol" => 1.0e-6,
             "print_level" => 0,
         )
     else
@@ -37,7 +37,7 @@ function solve_seconds(sol, fallback)
 end
 
 function print_result(problem, solver, n_vars, secs, retcode, status)
-    println("CUTEST_RESULT\t", join((problem, solver, n_vars, secs, retcode, status), '\t'))
+    return println("CUTEST_RESULT\t", join((problem, solver, n_vars, secs, retcode, status), '\t'))
 end
 
 function main()
@@ -47,7 +47,7 @@ function main()
     nlp = nothing
     started = time()
 
-    try
+    return try
         nlp = CUTEstModel(problem_name)
         prob = OptimizationNLPModels.OptimizationProblem(nlp, Optimization.AutoFiniteDiff())
         sol = solve(prob, optimizer_from_name(optimizer_name); maxiters = 1000, maxtime = 30.0)

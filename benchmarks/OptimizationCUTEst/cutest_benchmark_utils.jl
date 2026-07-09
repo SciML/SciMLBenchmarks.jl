@@ -10,11 +10,15 @@ const SOLVE_TIMEOUT_SECONDS = 90
 
 const SUCCESS_RETCODES = Set(["Success", "FirstOrderOptimal", "MaxIters", "MaxTime"])
 
-const KNOWN_BAD_PROBLEMS = Set(lowercase.(String[
-    "BLOWEYA", "CHARDIS1", "CLEUVEN4", "CMPC3", "CMPC10", "CVXQP2",
-    "DITTERT", "HIER13", "LUKVLE8", "LUKVLI7", "MPC2", "PATTERNNE",
-    "READING2", "READING6", "NINENEW", "MSS1"
-]))
+const KNOWN_BAD_PROBLEMS = Set(
+    lowercase.(
+        String[
+            "BLOWEYA", "CHARDIS1", "CLEUVEN4", "CMPC3", "CMPC10", "CVXQP2",
+            "DITTERT", "HIER13", "LUKVLE8", "LUKVLI7", "MPC2", "PATTERNNE",
+            "READING2", "READING6", "NINENEW", "MSS1",
+        ]
+    )
+)
 
 const UNCONSTRAINED_SOLVERS = ["LBFGS", "ConjugateGradient", "NelderMead"]
 const CONSTRAINED_SOLVERS = ["Ipopt"]
@@ -66,21 +70,25 @@ function parse_child_result(output, problem_name, solver_name, secs, status)
     result_lines = filter(line -> startswith(line, "CUTEST_RESULT\t"), split(output, '\n'))
 
     if isempty(result_lines)
-        return (; problem = problem_name,
+        return (;
+            problem = problem_name,
             solver = solver_name,
             n_vars = problem_metadata(problem_name).nvar,
             secs = secs,
             retcode = status,
-            status = status)
+            status = status,
+        )
     end
 
     fields = split(last(result_lines), '\t')
-    return (; problem = String(fields[2]),
+    return (;
+        problem = String(fields[2]),
         solver = String(fields[3]),
         n_vars = parse(Int, fields[4]),
         secs = parse(Float64, fields[5]),
         retcode = String(fields[6]),
-        status = String(fields[7]))
+        status = String(fields[7]),
+    )
 end
 
 function run_child_solve(problem_name, solver_name)
@@ -142,8 +150,10 @@ function run_benchmarks(category, problems, solvers)
     end
 
     if isempty(rows)
-        return DataFrame(category = String[], problem = String[], solver = String[],
-            n_vars = Int[], secs = Float64[], retcode = String[], status = String[])
+        return DataFrame(
+            category = String[], problem = String[], solver = String[],
+            n_vars = Int[], secs = Float64[], retcode = String[], status = String[]
+        )
     end
 
     return DataFrame(rows)
@@ -156,11 +166,13 @@ function summarize_results(results)
         println("  $code: $n")
     end
 
-    summary = combine(groupby(results, [:category, :solver]),
+    summary = combine(
+        groupby(results, [:category, :solver]),
         :status => (x -> count(==("OK"), x)) => :completed_runs,
         :retcode => (x -> count(in(SUCCESS_RETCODES), x)) => :successful_runs,
         :retcode => length => :total_runs,
-        :secs => median => :median_secs)
+        :secs => median => :median_secs
+    )
 
     summary.completion_rate = round.(summary.completed_runs ./ summary.total_runs .* 100; digits = 1)
     summary.success_rate = round.(summary.successful_runs ./ summary.total_runs .* 100; digits = 1)
@@ -189,7 +201,7 @@ function plot_solve_times(results, title)
         size = (900, 600),
     )
 
-    display(solve_time_plot)
+    return display(solve_time_plot)
 end
 
 function plot_success_rates(summary, title)
@@ -209,5 +221,5 @@ function plot_success_rates(summary, title)
         size = (900, 600),
     )
 
-    display(success_rate_plot)
+    return display(success_rate_plot)
 end
