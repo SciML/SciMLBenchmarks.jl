@@ -596,6 +596,100 @@ yaxis!(plt_sundials, "Runtime (s)", :log10);
 plot!(plt_sundials, legend = :outertopleft, size = (1200, 600))
 ```
 
+### Same-solver adjoint comparison
+
+The plot above conflates the forward solver choice with the adjoint method. To
+isolate the adjoint machinery itself, compare the CVODES C adjoint against the
+native `GaussAdjoint` with the **same** ODE solver: `CVODE_BDF` with dense and
+GMRES linear solvers, using `EnzymeVJP` for both adjoints. `FBDF` (the native
+Julia fixed-leading-coefficient BDF analogue of CVODE) with `GaussAdjoint` is
+included as the all-Julia BDF counterpart, with dense LU and matrix-free
+`KrylovJL_GMRES` linear solvers.
+
+`GaussAdjoint` with a Sundials solver currently requires a dense forward
+solution (with `saveat` the checkpointing path errors on the interpolation
+type), so the `GaussAdjoint` rows use `dense = true` forward solves while the
+`SundialsAdjoint` rows use the `saveat` forward solve plus the internal
+checkpointed `CVodeF` re-integration; each method is measured in its natural
+mode of use.
+
+```julia
+using LinearSolve
+
+function diffeq_sen_l2_dense(df, u0, tspan, p, t, alg;
+        abstol = 1e-5, reltol = 1e-7, sensalg, kwargs...)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(df, u0, tspan, p)
+    sol = solve(prob, alg, abstol = abstol, reltol = reltol, dense = true; kwargs...)
+    dg(out, u, p, t, i) = (out.=u .- 1.0)
+    adjoint_sensitivities(sol, alg; t, abstol = abstol, dgdu_discrete = dg,
+        reltol = reltol, sensealg = sensalg)
+end
+
+gauss_enz = GaussAdjoint(autodiff = AutoForwardDiff(), autojacvec = EnzymeVJP())
+sundials_enz = SundialsAdjoint(autojacvec = EnzymeVJP())
+
+same_solver_configs = [
+    ("CVODE_BDF Dense + SundialsAdjoint", CVODE_BDF(), sundials_enz, false),
+    ("CVODE_BDF Dense + GaussAdjoint", CVODE_BDF(), gauss_enz, true),
+    ("CVODE_BDF GMRES + SundialsAdjoint",
+        CVODE_BDF(linear_solver = :GMRES), sundials_enz, false),
+    ("CVODE_BDF GMRES + GaussAdjoint",
+        CVODE_BDF(linear_solver = :GMRES), gauss_enz, true),
+    ("FBDF + GaussAdjoint", FBDF(autodiff = AutoFiniteDiff()), gauss_enz, true),
+    ("FBDF GMRES + GaussAdjoint",
+        FBDF(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff()), gauss_enz, true),
+]
+
+function run_same_solver(bfun, b_u0, b_p, alg, sensealg, dense_forward)
+    return dense_forward ?
+        diffeq_sen_l2_dense(bfun, b_u0, tspan, b_p, bt, alg; sensalg = sensealg, tols...) :
+        diffeq_sen_l2(bfun, b_u0, tspan, b_p, bt, alg; sensalg = sensealg, tols...)
+end
+```
+
+```julia
+let n = first(csan)
+    bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+    solver = Rodas5(autodiff = AutoFiniteDiff())
+    du0_ref, dp_ref = diffeq_sen_l2(
+        bfun, b_u0, tspan, b_p, bt, solver; sensalg = gauss_enz, tols...)
+    for (name, alg, sensealg, dense_forward) in same_solver_configs
+        du0, dp = run_same_solver(bfun, b_u0, b_p, alg, sensealg, dense_forward)
+        err_du0 = norm(du0 - du0_ref) / norm(du0_ref)
+        err_dp = norm(vec(dp) - vec(dp_ref)) / norm(vec(dp_ref))
+        @show name, err_du0, err_dp
+    end
+end
+```
+
+```julia
+csa_same_solver = map(csan) do n
+    bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+    @time ts = map(same_solver_configs) do (name, alg, sensealg, dense_forward)
+        @info "Running $name"
+        @time run_same_solver(bfun, b_u0, b_p, alg, sensealg, dense_forward)
+        t = @elapsed run_same_solver(bfun, b_u0, b_p, alg, sensealg, dense_forward)
+        return t
+    end
+    @show n, ts
+    ts
+end
+```
+
+```julia
+csadata_same_solver = [[csa_same_solver[j][i] for j in eachindex(csa_same_solver)]
+                       for i in eachindex(csa_same_solver[1])]
+
+plt_same = plot(title = "Brusselator same-solver adjoint comparison (EnzymeVJP)");
+for (i, (name, _, _, _)) in enumerate(same_solver_configs)
+    plot!(plt_same, n_to_param.(csan), csadata_same_solver[i], lab = name,
+        lw = lw, marksize = ms, linestyle = :auto, marker = :auto)
+end
+xaxis!(plt_same, "Number of Parameters", :log10);
+yaxis!(plt_same, "Runtime (s)", :log10);
+plot!(plt_same, legend = :outertopleft, size = (1200, 600))
+```
+
 ## Peak Memory Benchmarks
 
 Measures the memory consumed by each sensitivity computation. Each configuration runs
