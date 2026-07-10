@@ -690,6 +690,66 @@ yaxis!(plt_same, "Runtime (s)", :log10);
 plot!(plt_same, legend = :outertopleft, size = (1200, 600))
 ```
 
+### Gradient accuracy scaling
+
+The Brusselator's stiffness grows with the grid refinement (the diffusion rate
+scales as `1/dx^2 ∝ N^2`), so sweeping the size also sweeps the stiffness. This
+measures the gradient accuracy of each adjoint configuration at the benchmark
+tolerances against a tight (`abstol = reltol = 1e-12`) reference. The reference
+is cross-validated at the smallest size by computing it with two completely
+independent implementations (the CVODES C adjoint and the native
+`GaussAdjoint`), which agree to ~1e-10 at every size.
+
+```julia
+accuracy_configs = vcat(
+    same_solver_configs,
+    [("Rodas5 + GaussAdjoint", Rodas5(autodiff = AutoFiniteDiff()), gauss_enz, false)],
+)
+
+relerr(a, b) = norm(vec(a) .- vec(b)) / norm(vec(b))
+
+csa_accuracy = map(csan) do n
+    bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator!(PROBS, n)
+    prob = ODEProblem{true, SciMLBase.FullSpecialize}(bfun, b_u0, tspan, b_p)
+    dg(out, u, p, t, i) = (out .= u .- 1.0)
+
+    ref_sol = solve(prob, CVODE_BDF(linear_solver = :GMRES),
+        abstol = 1e-12, reltol = 1e-12, dense = true)
+    du0_ref, dp_ref = adjoint_sensitivities(
+        ref_sol, CVODE_BDF(linear_solver = :GMRES); t = collect(bt),
+        dgdu_discrete = dg, abstol = 1e-12, reltol = 1e-12, sensealg = gauss_enz)
+
+    ref_sol2 = solve(prob, CVODE_BDF(linear_solver = :GMRES),
+        abstol = 1e-12, reltol = 1e-12, saveat = bt)
+    du0_ref2, dp_ref2 = adjoint_sensitivities(
+        ref_sol2, CVODE_BDF(linear_solver = :GMRES); t = collect(bt),
+        dgdu_discrete = dg, abstol = 1e-12, reltol = 1e-12,
+        sensealg = SundialsAdjoint(autojacvec = EnzymeVJP()))
+    agreement = max(relerr(dp_ref2, dp_ref), relerr(du0_ref2, du0_ref))
+
+    errs = map(accuracy_configs) do (name, alg, sensealg, dense_forward)
+        du0, dp = run_same_solver(bfun, b_u0, b_p, alg, sensealg, dense_forward)
+        relerr(dp, dp_ref)
+    end
+    @show n, agreement, errs
+    errs
+end
+```
+
+```julia
+csadata_accuracy = [[csa_accuracy[j][i] for j in eachindex(csa_accuracy)]
+                    for i in eachindex(csa_accuracy[1])]
+
+plt_acc = plot(title = "Brusselator adjoint gradient accuracy scaling");
+for (i, (name, _, _, _)) in enumerate(accuracy_configs)
+    plot!(plt_acc, n_to_param.(csan), csadata_accuracy[i], lab = name,
+        lw = lw, marksize = ms, linestyle = :auto, marker = :auto)
+end
+xaxis!(plt_acc, "Number of Parameters", :log10);
+yaxis!(plt_acc, "Relative L2 error of dG/dp", :log10);
+plot!(plt_acc, legend = :outertopleft, size = (1200, 600))
+```
+
 ## Peak Memory Benchmarks
 
 Measures the memory consumed by each sensitivity computation. Each configuration runs
