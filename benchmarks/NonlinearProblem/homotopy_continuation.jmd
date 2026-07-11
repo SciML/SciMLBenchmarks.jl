@@ -1,0 +1,424 @@
+---
+title: Homotopy Continuation vs Direct Nonlinear Solvers
+author: Chris Rackauckas
+---
+
+Homotopy continuation is a *globalization* strategy for hard nonlinear rootfinding
+problems. Instead of attacking the target system ``f(u) = 0`` directly from the initial
+guess ``u_0``, one embeds it in a one-parameter family
+
+```math
+H(u, \lambda) = 0, \qquad \lambda \in [0, 1]
+```
+
+where ``H(u, 0) = 0`` is an easy ("simplified") system that is reliably solvable from
+``u_0``, and ``H(u, 1) = f(u)``. A continuation solver sweeps ``\lambda`` from 0 to 1,
+warm-starting each step from the previous solution, so every inner solve starts close to
+a root. This is the strategy used by OpenModelica-style homotopy initialization and by
+classic path trackers.
+
+When should you reach for it instead of plain Newton or trust-region methods?
+
+  - When the direct solve **diverges** from the available initial guess (bad basin of
+    attraction, residual growing without bound).
+  - When the direct solve **stalls at a spurious stationary point** of
+    ``\|f(u)\|^2`` that is not a root (a classic failure mode for damped Newton and
+    trust-region methods on non-convex residuals).
+  - When you need the root that is **path-connected** to a known configuration — e.g.
+    following a physical branch through folds — rather than *any* root that Newton
+    happens to jump to.
+
+The cost is that the solver must traverse the whole ``\lambda`` path, so on problems
+where a direct method converges from ``u_0``, homotopy pays a large constant-factor
+overhead. This benchmark quantifies both sides of that tradeoff by comparing
+NonlinearSolve.jl's homotopy solvers ([`HomotopySweep`](https://docs.sciml.ai/NonlinearSolve/stable/)
+natural-parameter continuation and `ArcLengthContinuation` pseudo-arclength
+continuation, both operating on a `SciMLBase.HomotopyProblem`) against direct methods
+(`NewtonRaphson`, `TrustRegion`, `LevenbergMarquardt`, `Broyden`, and the default
+polyalgorithm) applied to the target ``\lambda = 1`` system from the **same starting
+point**.
+
+Note on API coverage: this benchmark uses the registered homotopy API surface
+(`HomotopyProblem`, `HomotopySweep`, `ArcLengthContinuation`, and the default
+`solve(::HomotopyProblem)` dispatch). `SimpleHomotopySweep` and `HomotopyPolyAlgorithm`
+exist on NonlinearSolve.jl master but are not yet in a registered release, so they are
+not benchmarked here yet. `ArcLengthContinuation` currently requires an
+`AbstractArray` state, so the scalar test problems are formulated as 1-element vectors.
+
+# Setup
+
+Fetch required packages.
+
+```julia
+using NonlinearSolve, LinearAlgebra, BenchmarkTools, CairoMakie, PrettyTables
+
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5;
+```
+
+A shared residual-call counter. Every test function bumps this `Ref` on each call, so
+the reported "residual calls" for a solve counts *every* evaluation of the residual,
+including those triggered by automatic differentiation for Jacobians. That makes it an
+honest measure of total function work rather than of outer iterations.
+
+```julia
+const CALLS = Ref(0)
+reset_calls!() = (CALLS[] = 0)
+```
+
+# Test Problems
+
+Each problem is defined twice from the same initial guess ``u_0``:
+
+  - a `HomotopyProblem` with residual ``H(u, p, \lambda)`` (the homotopy solvers sweep
+    ``\lambda`` across `λspan = (0, 1)`), and
+  - the direct `NonlinearProblem` for the target system ``H(u, p, 1) = 0``.
+
+## Problem 1: Monotone quadratic (easy)
+
+```math
+H(u, \lambda) = (1 - \lambda)(u - 4) + \lambda(u^2 - 4)
+```
+
+from ``u_0 = 4``. The direct problem is ``u^2 = 4`` from ``u_0 = 4``, which every
+sensible method solves without drama; the homotopy path is monotone and fold-free. This
+problem measures the pure *overhead* of path traversal when globalization is not needed.
+The target root is ``u = 2``.
+
+```julia
+h_quad(u, p, λ) = (CALLS[] += 1; [(1 - λ) * (u[1] - 4.0) + λ * (u[1]^2 - 4.0)])
+d_quad(u, p) = (CALLS[] += 1; [u[1]^2 - 4.0])
+u0_quad = [4.0]
+uref_quad = [2.0]
+```
+
+## Problem 2: S-curve with folds
+
+```math
+H(u, \lambda) = u^3 - 3u - (-3 + 6\lambda)
+```
+
+from ``u_0 \approx -2.1038`` (the exact root of the ``\lambda = 0`` system on the lower
+sheet). The zero set of ``H`` in the ``(\lambda, u)`` plane is an S-shaped curve with two
+turning points (folds) at ``(\lambda, u) = (5/6, -1)`` and ``(1/6, 1)``: starting on the
+lower sheet, the branch connected to ``u_0`` folds back in ``\lambda`` twice before
+arriving at the unique ``\lambda = 1`` root ``u \approx +2.1038`` on the upper sheet.
+
+```julia
+h_fold(u, p, λ) = (CALLS[] += 1; [u[1]^3 - 3u[1] - (-3 + 6λ)])
+d_fold(u, p) = (CALLS[] += 1; [u[1]^3 - 3u[1] - 3.0])
+u0_fold = [-2.1038034027355366]
+uref_fold = [2.1038034027355366]
+```
+
+The direct ``\lambda = 1`` problem, ``u^3 - 3u - 3 = 0`` from ``u_0 = -2.1038``, is the
+interesting one: between the initial guess and the root lie both critical points of the
+cubic (``u = \pm 1``), where ``f'(u) = 0`` and ``\|f(u)\|^2`` has a spurious interior
+stationary point. Undamped Newton takes a wild step across this region and only reaches
+the root by an uncontrolled basin jump, while methods that enforce decrease of the
+residual norm can get trapped. We can visualize the solution curve (here ``\lambda``
+expressed as a function of ``u`` along the path):
+
+```julia
+us = range(-2.5, 2.5; length = 500)
+λs = @. (us^3 - 3us + 3) / 6
+fig = Figure(; size = (800, 500))
+ax = Axis(fig[1, 1]; xlabel = "λ", ylabel = "u",
+    title = "S-curve homotopy path: H(u, λ) = u³ - 3u - (-3 + 6λ) = 0")
+lines!(ax, λs, us; linewidth = 3)
+vlines!(ax, [0.0, 1.0]; color = :gray, linestyle = :dash)
+scatter!(ax, [0.0], [-2.1038034027355366]; color = :blue, markersize = 16,
+    label = "start (λ=0)")
+scatter!(ax, [1.0], [2.1038034027355366]; color = :green, markersize = 16,
+    label = "target (λ=1)")
+scatter!(ax, [5 / 6, 1 / 6], [-1.0, 1.0]; color = :red, marker = :xcross,
+    markersize = 16, label = "folds")
+axislegend(ax; position = :lt)
+fig
+```
+
+## Problem 3: n = 50 coupled cubic (in-place), good and bad starts
+
+```math
+r_i = u_i + \tfrac{1}{4} u_{i-1} + \tfrac{1}{4} u_{i+1} + \lambda u_i^3 - c_i,
+\qquad u_0 = u_{n+1} = 0
+```
+
+with ``c`` chosen so that ``u = \mathbf{1}`` solves the ``\lambda = 1`` system exactly.
+At ``\lambda = 0`` the system is *linear*, so the homotopy anchor solve always succeeds
+regardless of the starting point. We benchmark from the good start ``u_0 = \mathbf{1}``
+(already the target root — the best case for direct methods) and from the bad start
+``u_0 = 10 \cdot \mathbf{1}`` (far outside the region where the cubic term is tame) to
+stress globalization.
+
+```julia
+const N_CUBIC = 50
+const c_cubic = [1.0 + 0.25 * (i > 1) + 0.25 * (i < N_CUBIC) + 1.0 for i in 1:N_CUBIC]
+function h_cubic!(du, u, p, λ)
+    CALLS[] += 1
+    for i in 1:N_CUBIC
+        du[i] = u[i] + 0.25 * (i > 1 ? u[i - 1] : 0.0) +
+                0.25 * (i < N_CUBIC ? u[i + 1] : 0.0) + λ * u[i]^3 - c_cubic[i]
+    end
+    return nothing
+end
+d_cubic!(du, u, p) = h_cubic!(du, u, p, 1.0)
+uref_cubic = ones(N_CUBIC)
+```
+
+## Problem 4: Hard ramp from a far-away start
+
+```math
+H(u, \lambda) = u^3 - 1 - 7\lambda
+```
+
+from ``u_0 = 100``. The ``\lambda = 0`` system ``u^3 = 1`` pulls the iterate from the
+far-away start down to ``u = 1``, and the path then ramps gently to the target root
+``u = \sqrt[3]{8} = 2``. The direct problem ``u^3 - 8 = 0`` from ``u_0 = 100`` forces
+Newton-type methods through a long sequence of damped steps (Newton on a cubic contracts
+by only ``\approx 2/3`` per step far from the root).
+
+```julia
+h_ramp(u, p, λ) = (CALLS[] += 1; [u[1]^3 - 1.0 - 7λ])
+d_ramp(u, p) = (CALLS[] += 1; [u[1]^3 - 8.0])
+u0_ramp = [100.0]
+uref_ramp = [2.0]
+```
+
+# Solvers
+
+```julia
+homotopy_solvers = [
+    (; name = "HomotopySweep (default inner)", alg = HomotopySweep()),
+    (; name = "HomotopySweep (NewtonRaphson)", alg = HomotopySweep(inner = NewtonRaphson())),
+    (; name = "ArcLengthContinuation (secant)", alg = ArcLengthContinuation()),
+    (; name = "ArcLengthContinuation (tangent)",
+        alg = ArcLengthContinuation(predictor = :tangent)),
+    (; name = "solve(prob) default", alg = nothing),
+];
+
+direct_solvers = [
+    (; name = "NewtonRaphson", alg = NewtonRaphson()),
+    (; name = "TrustRegion", alg = TrustRegion()),
+    (; name = "LevenbergMarquardt", alg = LevenbergMarquardt()),
+    (; name = "Broyden", alg = Broyden()),
+    (; name = "Default PolyAlgorithm", alg = nothing),
+];
+```
+
+Benchmark helpers. For each solver we record the return code, whether the solver reached
+the reference root, the number of residual calls of a single solve, and the minimum wall
+time over repeated runs (via BenchmarkTools).
+
+```julia
+function run_solver(prob, alg, uref)
+    reset_calls!()
+    local sol
+    try
+        sol = alg === nothing ? solve(prob) : solve(prob, alg)
+    catch err
+        Base.printstyled("[Warn] Solver threw $(typeof(err)).\n"; color = :red)
+        return (; retcode = "exception", success = false, correct = false,
+            calls = CALLS[], err = NaN, time = NaN)
+    end
+    calls = CALLS[]
+    success = SciMLBase.successful_retcode(sol.retcode)
+    err = norm(sol.u .- uref, Inf)
+    correct = success && err < 1e-6
+    time = alg === nothing ? (@belapsed solve($prob)) : (@belapsed solve($prob, $alg))
+    return (; retcode = string(sol.retcode), success, correct, calls, err, time)
+end
+
+function benchmark_case(hprob, dprob, uref)
+    results = []
+    for s in homotopy_solvers
+        push!(results, (; s.name, kind = "homotopy", run_solver(hprob, s.alg, uref)...))
+    end
+    for s in direct_solvers
+        push!(results, (; s.name, kind = "direct", run_solver(dprob, s.alg, uref)...))
+    end
+    return results
+end
+
+fmt_time(t) = isnan(t) ? "—" : t < 1e-3 ? string(round(t * 1e6; digits = 1), " μs") :
+              string(round(t * 1e3; digits = 2), " ms")
+fmt_err(e) = isnan(e) ? "—" : string(round(e; sigdigits = 3))
+
+function result_table(results)
+    data = permutedims(reduce(hcat,
+        [[r.name, r.kind, r.retcode, r.correct ? "yes" : "no", r.calls,
+             fmt_err(r.err), fmt_time(r.time)] for r in results]))
+    io = IOBuffer()
+    println(io, "```@raw html")
+    pretty_table(io, data; backend = :html, alignment = :c,
+        column_labels = ["Solver", "Kind", "Return Code", "Correct Root",
+            "Residual Calls", "‖u - u*‖∞", "Time"])
+    println(io, "```")
+    return Base.Text(String(take!(io)))
+end
+```
+
+# Results
+
+## Problem 1: Monotone quadratic
+
+```julia
+res_quad = benchmark_case(HomotopyProblem(h_quad, copy(u0_quad)),
+    NonlinearProblem(d_quad, copy(u0_quad)), uref_quad);
+```
+
+```julia; wrap = false; results = "md2html"
+result_table(res_quad)
+```
+
+All solvers find the root. The direct methods are an order of magnitude cheaper both in
+residual calls and wall time — this is the constant-factor path-traversal overhead you
+pay for homotopy when the direct solve was never in danger.
+
+## Problem 2: S-curve with folds
+
+```julia
+res_fold = benchmark_case(HomotopyProblem(h_fold, copy(u0_fold)),
+    NonlinearProblem(d_fold, copy(u0_fold)), uref_fold);
+```
+
+```julia; wrap = false; results = "md2html"
+result_table(res_fold)
+```
+
+This is the problem homotopy methods exist for. Starting from the lower sheet, the
+iterate must cross the region containing both critical points of the cubic. Methods
+that enforce residual decrease get trapped at the spurious stationary point near
+``u = -1`` (`TrustRegion` stalls; `LevenbergMarquardt` fails after a large number of
+residual calls). Undamped `NewtonRaphson` and `Broyden` reach the root only via an
+uncontrolled jump across the non-monotone region — that happens to work here because
+the ``\lambda = 1`` cubic has a single real root, but it is exactly the failure mode
+that returns a wrong-basin root when multiple roots exist. The continuation solvers
+follow the branch connected to the starting point: `ArcLengthContinuation` rounds both
+folds in the augmented ``(u, \lambda)`` space, and `HomotopySweep`'s adaptive bisection
+detects the fold and re-converges past it.
+
+## Problem 3: n = 50 coupled cubic, good start
+
+```julia
+res_cubic_good = benchmark_case(HomotopyProblem{true}(h_cubic!, ones(N_CUBIC)),
+    NonlinearProblem{true}(d_cubic!, ones(N_CUBIC)), uref_cubic);
+```
+
+```julia; wrap = false; results = "md2html"
+result_table(res_cubic_good)
+```
+
+From the good start (which is already the target root) the direct methods converge
+essentially immediately, while the homotopy solvers still traverse the entire
+``\lambda`` path — the worst case for continuation overhead.
+
+## Problem 3b: n = 50 coupled cubic, bad start
+
+```julia
+res_cubic_bad = benchmark_case(HomotopyProblem{true}(h_cubic!, 10 .* ones(N_CUBIC)),
+    NonlinearProblem{true}(d_cubic!, 10 .* ones(N_CUBIC)), uref_cubic);
+```
+
+```julia; wrap = false; results = "md2html"
+result_table(res_cubic_bad)
+```
+
+From the bad start the direct methods need several times more work than from the good
+start, but the globalization built into NonlinearSolve's damped methods still gets them
+home. The homotopy cost is nearly independent of the starting point: the ``\lambda = 0``
+anchor system is linear, so the anchor solve absorbs the bad guess and the rest of the
+path is traversed from warm starts.
+
+## Problem 4: Hard ramp
+
+```julia
+res_ramp = benchmark_case(HomotopyProblem(h_ramp, copy(u0_ramp)),
+    NonlinearProblem(d_ramp, copy(u0_ramp)), uref_ramp);
+```
+
+```julia; wrap = false; results = "md2html"
+result_table(res_ramp)
+```
+
+## Summary across problems
+
+```julia
+problem_names = ["Quadratic", "S-curve fold", "Cubic n=50 (good u₀)",
+    "Cubic n=50 (bad u₀)", "Hard ramp"]
+all_results = [res_quad, res_fold, res_cubic_good, res_cubic_bad, res_ramp]
+solver_names = [r.name for r in all_results[1]]
+solver_kinds = [r.kind for r in all_results[1]]
+
+fig = begin
+    nsolver = length(solver_names)
+    nprob = length(problem_names)
+    xs = Int[]
+    dodge = Int[]
+    ys = Float64[]
+    for (pi, res) in enumerate(all_results), (si, r) in enumerate(res)
+        # failed / wrong-root solves are omitted, leaving a visible gap in the group
+        r.correct || continue
+        push!(xs, pi)
+        push!(dodge, si)
+        push!(ys, r.time)
+    end
+    # log-scale axes cannot render bars that start at 0, so anchor them just below
+    # the smallest measured time
+    lo = 10.0^floor(log10(minimum(ys)) - 0.3)
+
+    colors = cgrad(:tableau_20, nsolver; categorical = true)
+    fig = Figure(; size = (1400, 700))
+    ax = Axis(fig[1, 1]; yscale = log10, ylabel = "Time (s), log scale",
+        title = "Homotopy continuation vs direct solvers (missing bar = wrong/failed solve)",
+        xticks = (1:nprob, problem_names), xticklabelrotation = π / 12)
+    barplot!(ax, xs, ys; dodge = dodge, n_dodge = nsolver, color = colors[dodge],
+        strokewidth = 1, fillto = lo)
+    ylims!(ax, lo, 10.0^ceil(log10(maximum(ys)) + 0.3))
+
+    elements = [PolyElement(; polycolor = colors[i]) for i in 1:nsolver]
+    Legend(fig[1, 2], elements,
+        [n * (k == "homotopy" ? " [H]" : " [D]")
+         for (n, k) in zip(solver_names, solver_kinds)],
+        "Solver"; framevisible = true)
+    fig
+end
+```
+
+```julia
+save("homotopy_summary.svg", fig)
+```
+
+# Discussion
+
+The takeaways match the theory of embedding homotopies:
+
+ 1. **Direct methods win when they work.** On the monotone quadratic and the coupled
+    cubic from a good start, direct Newton/quasi-Newton methods are 10–100x cheaper in
+    residual calls and wall time. Homotopy traverses the full ``\lambda`` path no matter
+    how easy the target problem is, so it should never be the default for problems where
+    a decent initial guess exists.
+ 2. **Homotopy pays off when the direct solve is fragile.** On the S-curve problem the
+    residual-decrease-enforcing methods (`TrustRegion`, `LevenbergMarquardt`) fail
+    outright from the lower-sheet start, and the methods that do succeed do so by an
+    uncontrolled basin jump that would silently return a wrong-basin root on problems
+    with multiple ``\lambda = 1`` roots. The continuation solvers reliably deliver the
+    root *connected to the starting configuration* — success here is a property of the
+    algorithm, not luck.
+ 3. **Sweep vs. arclength.** `HomotopySweep` is the cheaper of the two on every problem
+    where both succeed, and its adaptive ``\lambda`` bisection got it through this fold
+    — but only by re-converging onto a different point of the curve after the branch
+    folded back, which is again a (controlled) jump. `ArcLengthContinuation` follows the
+    actual solution curve through the folds in the augmented ``(u, \lambda)`` space and
+    is the branch-faithful choice, at the cost of solving an ``(n+1)``-dimensional
+    corrector per step (and, for the `:tangent` predictor, one augmented Jacobian per
+    step, which buys a higher-order prediction that is accurate from the very first
+    step).
+ 4. **The homotopy cost is start-insensitive.** Comparing the good-start and bad-start
+    cubic rows, the direct methods' cost grows several-fold with a bad guess while the
+    homotopy solvers' cost barely moves, since their entry point is the easy
+    ``\lambda = 0`` system.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
