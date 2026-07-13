@@ -16,6 +16,7 @@ using Random
 Random.seed!(42)
 
 using BlackBoxOptimizationBenchmarking, CairoMakie, Optimization, Memoize, Statistics
+CairoMakie.activate!()
 import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
     BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
 const BBOB = BlackBoxOptimizationBenchmarking
@@ -38,39 +39,9 @@ const BACKEND = CUDABackend()
 ```
 
 ```julia
-const MARKERS = [:circle, :diamond, :utriangle, :rect, :star5, :dtriangle, :pentagon,
-    :hexagon, :cross, :xcross, :star4, :star8, :vline, :hline, :+, :x]
-const LINESTYLES = [:solid, :dash, :dot, :dashdot, :dashdotdot]
-
-const PLOT_WIDTH = 1000
-const PLOT_HEIGHT = 400
-const STROKEWIDTH = 2.5
-
-function plot_success_curves(x_series, y_series, series_labels; xlabel, ylabel = "Success rate",
-        xlim = nothing, ylim = (0, 1), size = (PLOT_WIDTH, PLOT_HEIGHT))
-    fig = Figure(; size)
-    ax = Axis(fig[1, 1]; xlabel, ylabel, xscale = log10, spinewidth = STROKEWIDTH)
-    if xlim !== nothing
-        xlims!(ax; low = xlim[1], high = xlim[2])
-    end
-    ylims!(ax; low = ylim[1], high = ylim[2])
-
-    n = length(series_labels)
-    colors = cgrad(:seaborn_bright, n; categorical = true)
-    handles, leg_labels = [], String[]
-    for j in 1:n
-        marker = MARKERS[mod1(j, length(MARKERS))]
-        style = LINESTYLES[mod1(j, length(LINESTYLES))]
-        l = lines!(ax, x_series[j], y_series[j]; color = colors[j], linewidth = 2.5,
-            linestyle = style)
-        sc = scatter!(ax, x_series[j], y_series[j]; color = colors[j], markersize = 12,
-            marker = marker)
-        push!(handles, [l, sc])
-        push!(leg_labels, series_labels[j])
-    end
-    Legend(fig[1, 2], handles, leg_labels; framevisible = true, labelsize = 12)
-    fig
-end
+const MK_MARKERS = [:circle, :rect, :utriangle, :diamond, :dtriangle, :pentagon,
+    :cross, :xcross, :star4, :star5, :hexagon, :star6, :ltriangle, :rtriangle]
+const MK_LINESTYLES = [:solid, :dash, :dot, :dashdot, (:dot, :dense)]
 
 function solve_problem_baseline(optimizer::Union{Chain, BenchmarkSetup}, f, D::Int,
         run_length::Int)
@@ -220,7 +191,7 @@ chain = (t; isboxed = false) -> Chain(
     0.9)
 
 dimension      = 3
-test_functions = filter(f -> nameof(f.f) !== :f7, BBOB.bbob_suite(Val(dimension)))
+test_functions = BBOB.bbob_suite(Val(dimension))
 run_length     = round.(Int, 10 .^ LinRange(1, 4, 15))
 Ntrials        = 15
 num_particles  = 5_000
@@ -288,11 +259,17 @@ results
 labels = collect(keys(setup))
 idx = sortperm([b.success_rate[end] for b in results], rev = true)
 
-plot_success_curves(
-    [results[i].callcount for i in idx],
-    [results[i].success_rate for i in idx],
-    labels[idx];
-    xlabel = "Function evaluations", xlim = (1, 1e7))
+fig = Figure(size = (1100, 450))
+ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Function evaluations",
+    ylabel = "Success rate", limits = (1, 1e7, 0, 1))
+for (j, i) in enumerate(idx)
+    scatterlines!(ax, results[i].callcount, results[i].success_rate;
+        label = labels[i], linewidth = 2, markersize = 6,
+        marker = MK_MARKERS[mod1(j, length(MK_MARKERS))],
+        linestyle = MK_LINESTYLES[mod1(j, length(MK_LINESTYLES))])
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
 ```
 
 ## Success Rate vs. Iterations
@@ -301,11 +278,17 @@ plot_success_curves(
 labels = collect(keys(setup))
 idx = sortperm([b.success_rate[end] for b in results], rev = true)
 
-plot_success_curves(
-    [results[i].run_length for i in idx],
-    [results[i].success_rate for i in idx],
-    labels[idx];
-    xlabel = "Iterations", xlim = (1, 1e5))
+fig = Figure(size = (1100, 450))
+ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Iterations",
+    ylabel = "Success rate", limits = (1, 1e5, 0, 1))
+for (j, i) in enumerate(idx)
+    scatterlines!(ax, results[i].run_length, results[i].success_rate;
+        label = labels[i], linewidth = 2, markersize = 6,
+        marker = MK_MARKERS[mod1(j, length(MK_MARKERS))],
+        linestyle = MK_LINESTYLES[mod1(j, length(MK_LINESTYLES))])
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
 ```
 
 ## Test all (wall-clock time to success)
@@ -329,39 +312,42 @@ end
 ```julia
 labels = collect(keys(setup))
 
-all_finite      = filter(isfinite, vcat(values(tts_results)...))
-t_lo            = minimum(all_finite) / 2
-t_hi            = maximum(all_finite) * 2
-time_thresholds = 10 .^ range(log10(t_lo), log10(t_hi), length = 50)
+all_finite = filter(isfinite, vcat(values(tts_results)...))
+time_thresholds = 10 .^ range(log10(minimum(all_finite) / 2),
+    log10(maximum(all_finite) * 2), length = 50)
 
-cdfs = Dict(algo => success_rate_cdf(tts_results[algo], time_thresholds) for algo in labels)
-idx  = sortperm([cdfs[l][end] for l in labels], rev = true)
+cdfs = Dict(l => success_rate_cdf(tts_results[l], time_thresholds) for l in labels)
+idx = sortperm([cdfs[l][end] for l in labels], rev = true)
 
-plot_success_curves(
-    [time_thresholds for _ in idx],
-    [cdfs[labels[i]] for i in idx],
-    labels[idx];
-    xlabel = "Wall time (s)")
+fig = Figure(size = (1100, 450))
+ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Wall time (s)",
+    ylabel = "Success rate", limits = (nothing, nothing, 0, 1))
+for (j, i) in enumerate(idx)
+    scatterlines!(ax, time_thresholds, cdfs[labels[i]];
+        label = labels[i], linewidth = 2, markersize = 6,
+        marker = MK_MARKERS[mod1(j, length(MK_MARKERS))],
+        linestyle = MK_LINESTYLES[mod1(j, length(MK_LINESTYLES))])
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
 ```
 
 ## Success Rate per Function Heatmap
 
 ```julia
+labels = collect(keys(setup))
 success_rate_per_function = reduce(hcat, b.success_rate_per_function for b in results)
+idx = sortperm(vec(mean(success_rate_per_function, dims = 1)), rev = false)
 
-idx = sortperm(mean(success_rate_per_function, dims = 1)[:], rev = false)
-idxfunc = 1:length(test_functions)
+data = success_rate_per_function[:, idx]
+fnames = string.(test_functions)
+anames = labels[idx]
 
-n_func = length(idxfunc)
-n_algo = length(idx)
-data = success_rate_per_function[idxfunc, idx]
-
-fig = Figure(; size = (1100, 550))
-ax = Axis(fig[1, 1];
-    xticks = (1:n_func, string.(test_functions)[idxfunc]),
-    yticks = (1:n_algo, labels[idx]),
-    xticklabelrotation = π / 4)
-hm = heatmap!(ax, 1:n_func, 1:n_algo, data; colormap = :RdYlGn, colorrange = (0, 1))
+fig = Figure(size = (1150, 600))
+ax = Axis(fig[1, 1]; xticks = (1:length(fnames), fnames),
+    yticks = (1:length(anames), anames), xticklabelrotation = π / 4)
+hm = heatmap!(ax, 1:length(fnames), 1:length(anames), data;
+    colormap = :RdYlGn, colorrange = (0, 1))
 Colorbar(fig[1, 2], hm; label = "Success rate")
 fig
 ```
@@ -372,25 +358,30 @@ fig
 labels = collect(keys(setup))
 idx = sortperm([b.distance_to_minimizer[end] for b in results], rev = false)
 
-plot_success_curves(
-    [results[i].run_length for i in idx],
-    [results[i].distance_to_minimizer for i in idx],
-    labels[idx];
-    xlabel = "Iterations", ylabel = "Mean distance to minimum",
-    xlim = (1, 1e5), ylim = (0, 5), size = (PLOT_WIDTH, 500))
+fig = Figure(size = (1100, 500))
+ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Iterations",
+    ylabel = "Mean distance to minimum", limits = (1, 1e5, 0, 5))
+for (j, i) in enumerate(idx)
+    scatterlines!(ax, results[i].run_length, results[i].distance_to_minimizer;
+        label = labels[i], linewidth = 2, markersize = 6,
+        marker = MK_MARKERS[mod1(j, length(MK_MARKERS))],
+        linestyle = MK_LINESTYLES[mod1(j, length(MK_LINESTYLES))])
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
 ```
 
 ## Relative Runtime
 
 ```julia
 labels = collect(keys(setup))
-ref = findfirst("NelderMead" .== labels)
+ref = findfirst(==("NelderMead"), labels)
 runtimes = getfield.(results, :runtime)
 runtimes = runtimes ./ runtimes[ref]
 
-fig = Figure(; size = (PLOT_WIDTH, 500))
-ax = Axis(fig[1, 1]; ylabel = "Run time relative to NM", yscale = log10,
-    xticks = (1:length(labels), labels), xticklabelrotation = π / 4, spinewidth = STROKEWIDTH)
-barplot!(ax, 1:length(labels), runtimes; color = :steelblue, strokewidth = 1.5)
+fig = Figure(size = (1050, 520))
+ax = Axis(fig[1, 1]; yscale = log10, ylabel = "Run time relative to NM",
+    xticks = (1:length(labels), labels), xticklabelrotation = π / 4)
+barplot!(ax, 1:length(labels), runtimes)
 fig
 ```
