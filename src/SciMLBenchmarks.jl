@@ -16,6 +16,13 @@ macro subprocess(ex, wait = true)
     end
 end
 
+function manifest_julia_version(folder)
+    manifest_file = joinpath(folder, "Manifest.toml")
+    isfile(manifest_file) || return nothing
+    version_match = match(r"^julia_version\s*=\s*\"([^\"]+)\""m, read(manifest_file, String))
+    return isnothing(version_match) ? nothing : VersionNumber(only(version_match.captures))
+end
+
 function weave_file(folder, file, build_list = (:script, :github))
     Weave.set_chunk_defaults!(:error => false)
     target = joinpath(folder, file)
@@ -25,6 +32,13 @@ function weave_file(folder, file, build_list = (:script, :github))
         @info("Instantiating", folder)
         Pkg.activate(folder)
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
+            manifest_version = manifest_julia_version(folder)
+            # Older Julia releases cannot resolve stdlibs pinned by a newer manifest.
+            if manifest_version === nothing ||
+                    (VERSION.major, VERSION.minor) >=
+                    (manifest_version.major, manifest_version.minor)
+                Pkg.resolve()
+            end
             Pkg.instantiate()
         end
         Pkg.build()
