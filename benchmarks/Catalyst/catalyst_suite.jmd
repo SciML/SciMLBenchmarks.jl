@@ -1,0 +1,317 @@
+---
+title: Catalyst Chemical Reaction Network Benchmarks
+author: Chris Rackauckas
+---
+
+# Catalyst Chemical Reaction Network Benchmarks
+
+This benchmark suite evaluates the performance of Catalyst.jl for chemical reaction network (CRN) modeling.
+The benchmarks test ODE and jump process (SSA) solvers across models of increasing complexity,
+based on the study published in *PLOS Computational Biology* (2023).
+
+**Reference**: Loman, T. E., et al. (2023). "Catalyst: Fast and flexible modeling of reaction networks."
+*PLOS Computational Biology*, 19(10), e1011530.
+
+## Setup
+
+```julia
+using Catalyst, OrdinaryDiffEq, JumpProcesses, Sundials
+using Statistics, Plots
+using SciMLBenchmarks
+```
+
+## Model Definitions
+
+We define three reaction network models of increasing complexity using Catalyst's DSL.
+
+### Model 1: Multistate (9 species, 18 reactions)
+
+A simple multi-state protein system.
+
+```julia
+multistate = @reaction_network begin
+    (k1, k2), A0 <--> A1
+    (k3, k4), A1 <--> A2
+    (k5, k6), B0 <--> B1
+    (k7, k8), B1 <--> B2
+    (k9, k10), C0 <--> C1
+    (k11, k12), C1 <--> C2
+    k13, A1 + B1 --> D
+    k14, B1 + C1 --> E
+    k15, A1 + C1 --> F
+end
+
+multistate_p = [
+    :k1 => 1.0, :k2 => 0.5, :k3 => 0.8, :k4 => 0.3,
+    :k5 => 1.2, :k6 => 0.4, :k7 => 0.9, :k8 => 0.6,
+    :k9 => 1.1, :k10 => 0.7, :k11 => 0.5, :k12 => 0.2,
+    :k13 => 0.01, :k14 => 0.01, :k15 => 0.01
+]
+multistate_u0 = [:A0 => 100.0, :A1 => 0.0, :A2 => 0.0,
+                 :B0 => 100.0, :B1 => 0.0, :B2 => 0.0,
+                 :C0 => 100.0, :C1 => 0.0, :C2 => 0.0,
+                 :D => 0.0, :E => 0.0, :F => 0.0]
+multistate_tspan = (0.0, 10.0)
+```
+
+### Model 2: Repressilator (6 species, 6 reactions)
+
+A classic synthetic biology oscillator circuit.
+
+```julia
+repressilator = @reaction_network begin
+    hillr(P₃, α, K, n), ∅ --> m₁
+    hillr(P₁, α, K, n), ∅ --> m₂
+    hillr(P₂, α, K, n), ∅ --> m₃
+    (δ, γ), m₁ <--> ∅
+    (δ, γ), m₂ <--> ∅
+    (δ, γ), m₃ <--> ∅
+    β, m₁ --> m₁ + P₁
+    β, m₂ --> m₂ + P₂
+    β, m₃ --> m₃ + P₃
+    μ, P₁ --> ∅
+    μ, P₂ --> ∅
+    μ, P₃ --> ∅
+end
+
+repressilator_p = [:α => 50.0, :K => 40.0, :n => 2.0, :δ => 0.0,
+                   :γ => 0.0, :β => 0.2, :μ => 0.05]
+repressilator_u0 = [:m₁ => 0.0, :m₂ => 0.0, :m₃ => 0.0,
+                    :P₁ => 20.0, :P₂ => 0.0, :P₃ => 0.0]
+repressilator_tspan = (0.0, 200.0)
+```
+
+### Model 3: MAPK Cascade (8 species, 10 reactions)
+
+A mitogen-activated protein kinase signaling cascade.
+
+```julia
+mapk = @reaction_network begin
+    (k1 * E1 / (Km1 + MAPKKK), k2), MAPKKK <--> MAPKKKp
+    (k3 * MAPKKKp / (Km3 + MAPKK), k4), MAPKK <--> MAPKKp
+    (k5 * MAPKKKp / (Km5 + MAPKKp), k6), MAPKKp <--> MAPKKpp
+    (k7 * MAPKKpp / (Km7 + MAPK), k8), MAPK <--> MAPKp
+    (k9 * MAPKKpp / (Km9 + MAPKp), k10), MAPKp <--> MAPKpp
+end
+
+mapk_p = [:k1 => 0.02, :Km1 => 10.0, :E1 => 1.0,
+          :k2 => 0.01, :k3 => 0.032, :Km3 => 15.0,
+          :k4 => 0.01, :k5 => 0.025, :Km5 => 15.0,
+          :k6 => 0.01, :k7 => 0.025, :Km7 => 15.0,
+          :k8 => 0.01, :k9 => 0.025, :Km9 => 15.0,
+          :k10 => 0.01]
+mapk_u0 = [:MAPKKK => 100.0, :MAPKKKp => 0.0,
+           :MAPKK => 300.0, :MAPKKp => 0.0, :MAPKKpp => 0.0,
+           :MAPK => 300.0, :MAPKp => 0.0, :MAPKpp => 0.0]
+mapk_tspan = (0.0, 100.0)
+```
+
+## ODE Solver Benchmarks
+
+### Problem Setup
+
+```julia
+models = [
+    (name="Multistate", rn=multistate, u0=multistate_u0, p=multistate_p, tspan=multistate_tspan),
+    (name="Repressilator", rn=repressilator, u0=repressilator_u0, p=repressilator_p, tspan=repressilator_tspan),
+    (name="MAPK", rn=mapk, u0=mapk_u0, p=mapk_p, tspan=mapk_tspan),
+]
+
+ode_problems = Dict()
+for m in models
+    oprob = ODEProblem(m.rn, m.u0, m.tspan, m.p)
+    ode_problems[m.name] = oprob
+end
+```
+
+### Benchmark ODE Solvers
+
+```julia
+ode_solvers = [
+    (name="Tsit5", alg=Tsit5()),
+    (name="CVODE_BDF", alg=CVODE_BDF()),
+    (name="Rodas5P", alg=Rodas5P()),
+    (name="FBDF", alg=FBDF()),
+    (name="QNDF", alg=QNDF()),
+]
+
+function benchmark_ode(prob, solver; abstol=1e-8, reltol=1e-6, nruns=50)
+    try
+        sol = solve(prob, solver.alg; abstol, reltol, save_everystep=false)
+        # Warmup done above; now time repeated runs
+        times_ms = zeros(nruns)
+        for i in 1:nruns
+            times_ms[i] = @elapsed(solve(prob, solver.alg; abstol, reltol, save_everystep=false)) * 1e3
+        end
+        return (solver=solver.name, median_ms=median(times_ms), min_ms=minimum(times_ms),
+                success=true, retcode=sol.retcode)
+    catch e
+        return (solver=solver.name, median_ms=Inf, min_ms=Inf, success=false, retcode=:Error)
+    end
+end
+
+ode_results = Dict{String, Vector}()
+for m in models
+    prob = ode_problems[m.name]
+    println("\n--- ODE Benchmarks: $(m.name) ---")
+    results = []
+    for s in ode_solvers
+        r = benchmark_ode(prob, s)
+        push!(results, r)
+        status = r.success ? "$(round(r.median_ms, digits=3)) ms" : "FAILED"
+        println("  $(r.solver): $(status)")
+    end
+    ode_results[m.name] = results
+end
+```
+
+### ODE Performance Plot
+
+```julia
+function plot_ode_results(ode_results, models)
+    model_names = [m.name for m in models]
+    solver_names = [s.name for s in ode_solvers]
+    n_models = length(model_names)
+    n_solvers = length(solver_names)
+
+    p = plot(; ylabel="Time (ms)", title="ODE Solver Performance",
+             yscale=:log10, legend=:topright, size=(800, 500))
+
+    x = 1:n_models
+    width = 0.8 / n_solvers
+    for (j, sname) in enumerate(solver_names)
+        times = Float64[]
+        for mname in model_names
+            res = ode_results[mname]
+            r = filter(x -> x.solver == sname, res)
+            push!(times, isempty(r) || !r[1].success ? NaN : r[1].median_ms)
+        end
+        offset = (j - (n_solvers + 1) / 2) * width
+        bar!(p, x .+ offset, times; label=sname, bar_width=width)
+    end
+    xticks!(p, x, model_names)
+    p
+end
+
+plot_ode_results(ode_results, models)
+```
+
+## Jump Process (SSA) Benchmarks
+
+### Problem Setup
+
+```julia
+jump_problems = Dict()
+for m in models
+    u0_int = [k => Int(v) for (k, v) in m.u0]
+    dprob = DiscreteProblem(m.rn, u0_int, m.tspan, m.p)
+    jprob = JumpProblem(m.rn, dprob, Direct())
+    jump_problems[m.name] = (dprob=dprob, rn=m.rn, u0=u0_int, p=m.p, tspan=m.tspan)
+end
+```
+
+### Benchmark SSA Solvers
+
+```julia
+ssa_methods = [
+    (name="Direct", agg=Direct()),
+    (name="DirectFW", agg=DirectFW()),
+    (name="SortingDirect", agg=SortingDirect()),
+    (name="RSSA", agg=RSSA()),
+    (name="RSSACR", agg=RSSACR()),
+]
+
+function benchmark_ssa(jdata, agg_info; num_runs=50)
+    try
+        jprob = JumpProblem(jdata.rn, jdata.dprob, agg_info.agg)
+        sol = solve(jprob, SSAStepper())
+        # Warmup done above; now time repeated runs
+        times_ms = zeros(num_runs)
+        for i in 1:num_runs
+            times_ms[i] = @elapsed(solve(jprob, SSAStepper())) * 1e3
+        end
+        return (solver=agg_info.name, median_ms=median(times_ms), min_ms=minimum(times_ms),
+                success=true)
+    catch e
+        return (solver=agg_info.name, median_ms=Inf, min_ms=Inf, success=false)
+    end
+end
+
+ssa_results = Dict{String, Vector}()
+for m in models
+    jdata = jump_problems[m.name]
+    println("\n--- SSA Benchmarks: $(m.name) ---")
+    results = []
+    for agg in ssa_methods
+        r = benchmark_ssa(jdata, agg)
+        push!(results, r)
+        status = r.success ? "$(round(r.median_ms, digits=3)) ms" : "FAILED"
+        println("  $(r.solver): $(status)")
+    end
+    ssa_results[m.name] = results
+end
+```
+
+### SSA Performance Plot
+
+```julia
+function plot_ssa_results(ssa_results, models)
+    model_names = [m.name for m in models]
+    solver_names = [s.name for s in ssa_methods]
+    n_models = length(model_names)
+    n_solvers = length(solver_names)
+
+    p = plot(; ylabel="Time (ms)", title="SSA Solver Performance",
+             yscale=:log10, legend=:topright, size=(800, 500))
+
+    x = 1:n_models
+    width = 0.8 / n_solvers
+    for (j, sname) in enumerate(solver_names)
+        times = Float64[]
+        for mname in model_names
+            res = ssa_results[mname]
+            r = filter(x -> x.solver == sname, res)
+            push!(times, isempty(r) || !r[1].success ? NaN : r[1].median_ms)
+        end
+        offset = (j - (n_solvers + 1) / 2) * width
+        bar!(p, x .+ offset, times; label=sname, bar_width=width)
+    end
+    xticks!(p, x, model_names)
+    p
+end
+
+plot_ssa_results(ssa_results, models)
+```
+
+## Summary
+
+```julia
+println("\n=== ODE Performance Summary ===")
+for m in models
+    println("\n$(m.name):")
+    for r in ode_results[m.name]
+        if r.success
+            println("  $(r.solver): $(round(r.median_ms, digits=3)) ms (retcode=$(r.retcode))")
+        else
+            println("  $(r.solver): FAILED")
+        end
+    end
+end
+
+println("\n=== SSA Performance Summary ===")
+for m in models
+    println("\n$(m.name):")
+    for r in ssa_results[m.name]
+        if r.success
+            println("  $(r.solver): $(round(r.median_ms, digits=3)) ms")
+        else
+            println("  $(r.solver): FAILED")
+        end
+    end
+end
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+```
