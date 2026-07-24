@@ -200,16 +200,41 @@ names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Ve
 plot(wp; label = names)
 ```
 
-#### Additional explicit solvers
+## Loser methods (large cost in isolation)
 
-One additional explicit solver, `ROCK2`, performs noticeably worse as compared to the other ones.
+`ROCK2` is not competitive with the explicit set above. It is **not** folded into
+the multi-tolerance / multi-run work-precision suites; a single-tolerance isolation
+timing against a competitive explicit (`Vern6`) shows the wall-time gap.
 
 ```julia
-setups = [Dict(:alg=>ROCK2())];
-wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 200)
-names = ["ROCK2"]
-plot(wp; label = names)
+const _loser_tol = 1e-6
+const _loser_maxiters = Int(1e7)
+_solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
+    save_everystep = false)
+
+loser_labels = String[]
+loser_elapsed = Float64[]
+
+function _time_loser!(label, alg)
+    println("--- $label ---")
+    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    @show sol.retcode
+    println("elapsed = ", t, " s")
+    push!(loser_labels, label)
+    push!(loser_elapsed, t)
+    return sol
+end
+
+_time_loser!("Vern6 (reference)", Vern6())
+_time_loser!("ROCK2 (loser)", ROCK2())
+```
+
+```julia
+ref_t = loser_elapsed[1]
+bar(loser_labels, loser_elapsed ./ ref_t; legend = false,
+    ylabel = "wall time / Vern6 reference",
+    title = "multisite2 ROCK2 isolation (tol=$_loser_tol, one solve each)",
+    size = (600, 400))
 ```
 
 ## Summary of results
