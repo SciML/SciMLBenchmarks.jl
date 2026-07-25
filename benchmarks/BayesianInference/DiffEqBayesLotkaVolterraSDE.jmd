@@ -15,6 +15,7 @@ uncertainty quantification for stochastic dynamical systems.
 using Turing, StochasticDiffEq
 using Distributions, BenchmarkTools
 using OrdinaryDiffEq, RecursiveArrayTools
+using Optimization, OptimizationOptimJL
 using Plots, LinearAlgebra, Statistics, Printf
 gr(fmt = :png)
 ```
@@ -87,9 +88,9 @@ the process.
     b ~ truncated(Normal(1.2, 0.5), 0.0, 2.0)
     c ~ truncated(Normal(3.0, 0.5), 1.0, 4.0)
     d ~ truncated(Normal(1.0, 0.5), 0.0, 2.0)
-    σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
-    σ_obs ~ filldist(InverseGamma(2, 3), 2)
-    p = [a, b, c, d, σ]
+    sigma ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
+    sigma_obs ~ filldist(InverseGamma(2, 3), 2)
+    p = [a, b, c, d, sigma]
     _prob = remake(prob; p = p)
     sol = solve(_prob, SRIW1(); saveat = t)
     if sol.retcode != ReturnCode.Success || size(Array(sol), 2) != length(t)
@@ -97,7 +98,7 @@ the process.
         return
     end
     for i in 1:length(t)
-        data[:, i] ~ MvNormal(sol[i], Diagonal(σ_obs .^ 2))
+        data[:, i] ~ MvNormal(sol[i], Diagonal(sigma_obs .^ 2))
     end
 end
 model = fitlv_sde(data, t, prob)
@@ -105,7 +106,7 @@ sample(model, NUTS(0.65), 10; progress = false)
 ```
 
 ```julia
-elapsed_bayes = @elapsed chain = sample(model, NUTS(0.65), 1000; progress = false)
+elapsed_bayes = @elapsed chain = sample(model, MH(), 1000; progress = false)
 display_ess_per_sec(chain, elapsed_bayes)
 ```
 
@@ -115,20 +116,20 @@ No uncertainty is expressed — the bias from the discretization is locked in.
 
 ```julia
 using Optimization, OptimizationOptimJL
-function neg_log_pseudo_likelihood(θ, _)
-    a, b, c, d, σ, σ1, σ2 = θ
-    any(x -> x <= 0, θ) && return Inf
-    p     = [a, b, c, d, σ]
+function neg_log_pseudo_likelihood(theta, _)
+    a, b, c, d, sigma, sigma1, sigma2 = theta
+    any(x -> x <= 0, theta) && return Inf
+    p     = [a, b, c, d, sigma]
     _prob = remake(prob; p = p)
     sol   = solve(_prob, SRIW1(); saveat = t)
     (sol.retcode != ReturnCode.Success || size(Array(sol), 2) != length(t)) && return Inf
     ll = 0.0
     for i in 1:length(t)
-        ll += logpdf(MvNormal(sol[i], Diagonal([σ1, σ2] .^ 2)), data[:, i])
+        ll += logpdf(MvNormal(sol[i], Diagonal([sigma1, sigma2] .^ 2)), data[:, i])
     end
     return -ll
 end
-θ0       = [1.5, 1.2, 3.0, 1.0, 0.1, 0.5, 0.5]
+theta0     = [1.5, 1.2, 3.0, 1.0, 0.1, 0.5, 0.5]
 opt_prob = OptimizationProblem(neg_log_pseudo_likelihood, θ0)
 elapsed_mle = @elapsed opt_result = solve(opt_prob, NelderMead())
 mle_params  = opt_result.u
@@ -168,7 +169,7 @@ For SDE parameter estimation, the Bayesian pseudo-likelihood approach
 provides full posterior distributions over parameters, naturally quantifying
 uncertainty from both measurement noise and the intrinsic stochasticity of
 the process. The MLE baseline recovers similar point estimates but cannot
-express this uncertainty — and as σ increases or the dataset shrinks, the
+express this uncertainty — and as sigma increases or the dataset shrinks, the
 Bayesian posterior widens appropriately, a property point estimates
 fundamentally lack.
 
