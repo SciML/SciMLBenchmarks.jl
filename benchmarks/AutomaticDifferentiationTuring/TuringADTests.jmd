@@ -314,13 +314,28 @@ Markdown.parse(
 )
 ```
 
+The scaling behaviour is the clearest signal in the whole benchmark: forward
+mode costs a pass per parameter, so it climbs with the dimension of the model,
+while reverse mode is bounded by a constant multiple of the primal.
+
 ```julia
-bar(
-    BACKEND_NAMES,
-    [count(name -> measurement(name, b).status == "ok", MODEL_NAMES) for b in BACKEND_NAMES];
-    legend = false, xrotation = 30, ylabel = "models differentiated correctly",
-    title = "Coverage (out of $(length(MODEL_NAMES)) models)",
+scaling = plot(
+    xscale = :log10, yscale = :log10,
+    xlabel = "model dimension", ylabel = "gradient time / primal time",
+    title = "Cost of a gradient against the number of parameters",
+    legend = :outertopright, size = (900, 500),
 )
+for backend in BACKEND_NAMES
+    names = succeeded(backend)
+    isempty(names) && continue
+    scatter!(
+        scaling,
+        [max(runs[name].dimension, 1) for name in names],
+        [measurement(name, backend).relative for name in names];
+        label = backend, markersize = 4, markerstrokewidth = 0,
+    )
+end
+scaling
 ```
 
 ```julia
@@ -334,7 +349,7 @@ heatmap(
     yticks = (1:length(BACKEND_NAMES), BACKEND_NAMES),
     colorbar_title = "log10(gradient time / primal time)",
     title = "Relative gradient time (blank = failure)",
-    size = (1600, 450), bottom_margin = 35Plots.mm, left_margin = 12Plots.mm,
+    size = (1600, 620), bottom_margin = 60Plots.mm, left_margin = 12Plots.mm,
 )
 ```
 
