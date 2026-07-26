@@ -30,7 +30,7 @@ using ADTypes:
 using DynamicPPL: DynamicPPL, LogDensityFunction, getlogjoint_internal, LinkAll
 using DynamicPPL.TestUtils.AD: run_ad, ADIncorrectException, WithBackend
 using LogDensityProblems: LogDensityProblems
-using Random: Xoshiro
+using Random: Random, Xoshiro
 
 import FiniteDifferences: central_fdm
 import ForwardDiff
@@ -71,6 +71,11 @@ would obscure the model definition for a reader.
 function load_model(model_name::AbstractString)
     path = joinpath(@__DIR__, "models", model_name * ".jl")
     isfile(path) || error("no model file at $(path)")
+    # Several models synthesise their data at load time from the global RNG.
+    # Left unseeded, the reported status of a handful of models flips between
+    # runs: `control_flow` takes a different branch, and `dppl_hmm_semisup`
+    # draws a state sequence that some backends can and some cannot handle.
+    Random.seed!(468)
     modname = gensym(model_name)
     # `module` is only valid at top level, hence the `Expr(:toplevel, ...)`.
     Core.eval(
