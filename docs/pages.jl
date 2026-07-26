@@ -49,6 +49,7 @@ section_titles = [
     "NonlinearProblem" => "Nonlinear Solvers",
     "AutomaticDifferentiation" => "Automatic Differentiation",
     "AutomaticDifferentiationSparse" => "Sparse Automatic Differentiation",
+    "AutomaticDifferentiationTuring" => "Turing.jl Automatic Differentiation",
     "NonStiffODE" => "Non-Stiff Ordinary Differential Equations (ODEs)",
     "StiffODE" => "Stiff Ordinary Differential Equations (ODEs)",
     "Bio" => "Biological Differential Equations",
