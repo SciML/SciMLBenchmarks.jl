@@ -146,6 +146,9 @@ density evaluations for every reference gradient.
 runs = Dict{String, Any}()
 for (i, model_name) in enumerate(MODEL_NAMES)
     @info "[$i/$(length(MODEL_NAMES))] benchmarking $model_name"
+    # The workers write to the inherited file descriptor rather than through
+    # Julia, so without this the progress log lags hours behind their output.
+    flush(stderr)
     runs[model_name] = benchmark_model(model_name)
 end
 ```
