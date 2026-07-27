@@ -102,8 +102,10 @@ while IFS= read -r f; do
     fi
 done <<< "${CHANGED_FILES}"
 
-# Build target list: project directories first, then individual .jmd files
-# whose projects are not already being fully rebuilt
+# Build target list: project directories and individual .jmd files whose projects
+# are not already being fully rebuilt. Order is NOT insertion order of the
+# associative arrays (that is effectively random and lets BCR-class jobs grab
+# exclusive runners before multistate/Testing).
 BUILD_TARGETS=()
 
 if [[ ${#PROJECTS[@]} -gt 0 ]]; then
@@ -119,6 +121,95 @@ if [[ ${#FILES[@]} -gt 0 ]]; then
             BUILD_TARGETS+=("${f}")
         fi
     done
+fi
+
+# Estimate relative cost so the matrix is shortest-first. Exclusive runners
+# (only a handful) pick up jobs roughly in matrix order when capacity frees;
+# putting Testing / multistate ahead of BCR / whole-folder rebuilds keeps
+# the quick publishes moving.
+#
+# Cost proxy per .jmd:
+#   byte size * max(1, sum of numruns=N) * (1 + # WorkPrecisionSet)
+# then scale by known wall-clock heavies (large stiff chemistry, etc.) and
+# by whole-folder rebuilds.
+target_cost() {
+    local t="$1"
+    local f size runs nwp cost=0
+    local -a jmds=()
+    local is_dir=0
+
+    if [[ -f "${t}" && "${t}" == *.jmd ]]; then
+        jmds=("${t}")
+    elif [[ -d "${t}" ]]; then
+        is_dir=1
+        while IFS= read -r -d '' f; do
+            jmds+=("${f}")
+        done < <(find "${t}" -maxdepth 1 -type f -name '*.jmd' -print0 2>/dev/null | sort -z)
+    else
+        echo 999999999
+        return
+    fi
+
+    if [[ ${#jmds[@]} -eq 0 ]]; then
+        echo 999999999
+        return
+    fi
+
+    for f in "${jmds[@]}"; do
+        # Kilobytes keep products inside signed 64-bit for large folders.
+        size=$(wc -c < "${f}" | tr -d ' ')
+        size=$((size / 1024 + 1))
+        runs=$(grep -oE 'numruns[[:space:]]*=[[:space:]]*[0-9]+' "${f}" 2>/dev/null \
+            | grep -oE '[0-9]+$' \
+            | awk '{s+=$1} END{print s+0}')
+        if [[ -z "${runs}" || "${runs}" -eq 0 ]]; then
+            runs=1
+        fi
+        # Cap absurd numruns so a single typo cannot overflow.
+        if [[ "${runs}" -gt 10000 ]]; then
+            runs=10000
+        fi
+        nwp=$(grep -c 'WorkPrecisionSet' "${f}" 2>/dev/null || true)
+        [[ -z "${nwp}" ]] && nwp=0
+        cost=$((cost + size * runs * (1 + nwp)))
+
+        # Wall-clock multipliers: source size alone under-ranks huge stiff ODEs.
+        case "${f}" in
+            */BCR.jmd|*/fceri_gamma2.jmd)
+                cost=$((cost * 40))
+                ;;
+            */Bidkhori2012.jmd|*/egfr_net.jmd|*/liquid_argon*)
+                cost=$((cost * 8))
+                ;;
+            */SimpleHandwrittenPDE/*|*/SparsePDE.jmd)
+                cost=$((cost * 20))
+                ;;
+        esac
+    done
+
+    # Full-folder rebuilds are always heavier than a single file in the same tree.
+    if [[ "${is_dir}" -eq 1 ]]; then
+        cost=$((cost * 10))
+    fi
+    # Hard cap (still ranks all heavies after light targets).
+    if [[ "${cost}" -gt 1000000000 ]]; then
+        cost=1000000000
+    fi
+    echo "${cost}"
+}
+
+if [[ ${#BUILD_TARGETS[@]} -gt 0 ]]; then
+    # Decorate-sort-undecorate by cost ascending; stable name tie-break.
+    SORTED=()
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        SORTED+=("${line#*$'\t'}")
+    done < <(
+        for t in "${BUILD_TARGETS[@]}"; do
+            printf '%s\t%s\n' "$(target_cost "${t}")" "${t}"
+        done | sort -n -k1,1 -k2,2
+    )
+    BUILD_TARGETS=("${SORTED[@]}")
 fi
 
 # Output as JSON array of {target, runner, timeout, julia_version} objects for matrix include
@@ -143,9 +234,9 @@ else
     done
     JSON+="]"
     echo "matrix=${JSON}" >> "$GITHUB_OUTPUT"
-    echo "Detected benchmark targets:"
+    echo "Detected benchmark targets (shortest-first by cost proxy):"
     for t in "${BUILD_TARGETS[@]}"; do
         config=$(get_benchmark_config "${t}")
-        echo "  ${t} -> runner=$(echo "${config}" | cut -d'|' -f1) timeout=$(echo "${config}" | cut -d'|' -f2) julia=$(echo "${config}" | cut -d'|' -f3)"
+        echo "  cost=$(target_cost "${t}")  ${t} -> runner=$(echo "${config}" | cut -d'|' -f1) timeout=$(echo "${config}" | cut -d'|' -f2) julia=$(echo "${config}" | cut -d'|' -f3)"
     done
 fi
