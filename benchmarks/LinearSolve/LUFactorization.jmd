@@ -6,6 +6,11 @@ author: Chris Rackauckas
 ```julia
 using BenchmarkTools, Random, VectorizationBase
 using LinearAlgebra, LinearSolve, RecursiveFactorization, MKL_jll
+# FastLapackInterface backs FastLUFactorization: its `init_cacheval`/`solve!` live in
+# LinearSolveFastLapackInterfaceExt, so the algorithm silently has no method unless the
+# package is loaded here. Same reason RecursiveFactorization is loaded above (it backs
+# both RFLUFactorization and ButterflyFactorization).
+using FastLapackInterface
 nc = min(Int(VectorizationBase.num_cores()), Threads.nthreads())
 BLAS.set_num_threads(nc)
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
@@ -20,7 +25,8 @@ function luflop(m, n = m; innerflop = 2)
 end
 
 algs = [LUFactorization(), GenericLUFactorization(), RFLUFactorization(),
-    MKLLUFactorization(), FastLUFactorization(), SimpleLUFactorization()]
+    MKLLUFactorization(), FastLUFactorization(), SimpleLUFactorization(),
+    ButterflyFactorization(Val(true))]
 res = [Float64[] for i in 1:length(algs)]
 
 ns = 4:8:500
@@ -34,7 +40,8 @@ for i in 1:length(ns)
 
     for j in 1:length(algs)
         bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(
-            copy(A), copy(b); u0 = copy(u0), alias_A = true, alias_b = true))
+            copy(A), copy(b); u0 = copy(u0),
+            alias = LinearAliasSpecifier(alias_A = true, alias_b = true)))
         push!(res[j], luflop(n) / bt / 1e9)
     end
 end
