@@ -1,0 +1,179 @@
+---
+title: Distributed Linear Solvers — Strong Scaling (B1)
+author: Jash
+priority: 90
+---
+
+**Strong scaling** fixes the problem size and grows the number of MPI ranks. The
+question it answers is the one a prospective user asks first: *if I throw more cores at
+my linear solve, does it actually get faster — and how far does that hold before
+communication overhead eats the gains?*
+
+We solve a fixed 2-D finite-difference Laplacian with PETSc's CG via `LinearSolve.jl`'s
+`PETScAlgorithm`, on rank counts `1, 2, 4, 8`. The matrix is a replicated
+`SparseMatrixCSC`; each rank row-owns its slice, PETSc solves the distributed system, and
+the full solution is gathered back (the Weeks 1–2 GSoC deliverable). All correctness
+checking (residual `< 1e-6`) happens inside `run_solve.jl` on each worker — a nonzero exit
+would throw here, so any row that returns has already passed.
+
+**Preconditioner choice matters for a scaling study.** We use *unpreconditioned* CG
+(`pc = none`) deliberately: PETSc's default block-Jacobi preconditioning is
+*rank-dependent* — its block structure follows the row partition, so the iteration count
+(and thus the work) changes with the number of ranks. That silently corrupts strong
+scaling into "different algorithm per rank count," which shows up as impossible
+superlinear speedup. Plain CG does a fixed number of iterations regardless of `P`, so any
+speedup measured here is *real* parallel speedup. We print the iteration count in the
+table precisely so this invariance is visible and auditable.
+
+```julia
+using MPI            # provides mpiexec()
+using Plots
+
+const WORKER = joinpath(@__DIR__, "run_solve.jl")
+const PROJECT = Base.active_project()
+
+# MPICH_jll 5.x hydra fails to bootstrap PMI on a single node; `-launcher fork`
+# makes it spawn ranks with fork() instead. One place, reused by every mpiexec call.
+const MPIEXEC_ARGS = `-launcher fork`
+
+# Run run_solve.jl under `mpiexec -n P`, return the CSV line rank 0 prints:
+#   ranks,N,nnz,solver,pc,time_s,residual,iters,retcode
+# OMP_NUM_THREADS=1 forces one thread per rank so parallelism comes only from the
+# rank count — otherwise the -n 1 baseline oversubscribes all cores and fakes
+# superlinear speedup (see run_solve.jl for the full rationale).
+function run_ranks(P; N, solver = "cg", pc = "none")
+    cmd = `$(mpiexec()) $(MPIEXEC_ARGS) -n $P $(Base.julia_cmd()) --project=$(PROJECT) $(WORKER) $N $solver $pc`
+    out = read(addenv(cmd, "OMP_NUM_THREADS" => "1"), String)
+    line = strip(last(filter(!isempty, split(out, '\n'))))
+    fields = split(line, ',')
+    return (ranks = parse(Int, fields[1]),
+            N = parse(Int, fields[2]),
+            nnz = parse(Int, fields[3]),
+            time = parse(Float64, fields[6]),
+            residual = parse(Float64, fields[7]),
+            iters = parse(Int, fields[8]),
+            retcode = fields[9])
+end
+```
+
+## Run the rank sweep
+
+`N` here is the target number of unknowns. It is deliberately modest so the notebook
+runs in CI in minutes; on the benchmark hardware this is raised to expose scaling on
+larger systems (see the note at the end).
+
+We solve with PETSc's CG under **GAMG** (smoothed-aggregation algebraic multigrid).
+GAMG is the right preconditioner for a scaling study of an elliptic problem for two
+reasons. First, it is *algorithmically scalable*: iteration count stays roughly constant
+as `N` grows, instead of the `O(√N)` growth of unpreconditioned or Jacobi CG — so the
+solve cost tracks the parallel hardware, not the conditioning. Second, it makes the
+benchmark measure what a real user would actually run: nobody solves a large Laplacian
+with plain CG. (An earlier draft used unpreconditioned CG and produced impossible
+superlinear speedup; the root cause was a slow serial baseline — hundreds of iterations,
+each dominated by per-iteration overhead on this JLL PETSc build — being chipped away by
+parallelism. GAMG removes that confound by collapsing the iteration count.)
+
+```julia
+const N = 40_000           # ~200×200 grid; raise on the benchmark runner
+const RANKS = [1, 2, 4]    # capped: the replicated-matrix path holds a full copy
+                           # per rank, so high rank counts exhaust laptop RAM.
+                           # Raise on a machine with more memory / real nodes.
+
+results = [run_ranks(P; N = N, solver = "cg", pc = "gamg") for P in RANKS]
+```
+
+> **What this document does and does not show.** On a laptop this is a *harness and
+> correctness* check, not a marketing scaling curve. Two hardware limits make a clean
+> laptop curve impossible for this solver path: (1) at small `N` the per-iteration cost
+> is dominated by fixed overhead in the non-optimized JLL PETSc build, so efficiency can
+> read superlinearly from cache effects; (2) the Weeks 1–2 PETSc path replicates the full
+> `SparseMatrixCSC` on every rank, so memory grows with rank count and high rank counts
+> run out of RAM. The honest scaling numbers come from running this same document at
+> large `N` and higher `RANKS` on the SciML benchmark cluster (amdci) or a large Modal
+> container — see `FINDINGS.md` for the full analysis.
+
+## Speedup and efficiency
+
+Speedup is `T₁ / T_P`; parallel efficiency is `T₁ / (P · T_P)` — the fraction of ideal
+linear scaling actually achieved. Efficiency near 1.0 means near-perfect scaling; it
+falls as communication and the serial fraction (Amdahl) start to dominate.
+
+```julia
+t1 = results[1].time
+speedup    = [t1 / r.time for r in results]
+efficiency = [t1 / (r.ranks * r.time) for r in results]
+
+using Printf
+println("ranks |  time (s)  | iters | speedup | efficiency | residual  | retcode")
+println("------+------------+-------+---------+------------+-----------+--------")
+for (r, s, e) in zip(results, speedup, efficiency)
+    @printf("%5d | %10.4g | %5d | %7.2f | %9.1f%% | %9.2e | %s\n",
+            r.ranks, r.time, r.iters, s, 100 * e, r.residual, r.retcode)
+end
+
+# Sanity annotations (informational, not failures). Two things worth surfacing on
+# every run so a reader can judge the numbers rather than trust them blindly:
+#
+#  * iters spread: GAMG's aggregation is partition-dependent, so the iteration
+#    count can drift a little with rank count. A *small* spread is expected; a
+#    large one means the preconditioner strength is changing with P and the
+#    timing ratios are contaminated by algorithm change, not just parallel work.
+#  * superlinear efficiency: on a laptop with a non-optimized (JLL) PETSc, small
+#    problems can show >100% efficiency from cache/working-set effects (each
+#    rank's slice fits in a faster level of cache). It is a real effect but NOT a
+#    marketing number — the honest scaling curve needs large N on optimized PETSc
+#    (benchmark cluster / Modal), where compute dominates these constant factors.
+itset = [r.iters for r in results]
+iters_spread = maximum(itset) - minimum(itset)
+super = maximum(efficiency) > 1.10
+@info "iteration counts across ranks" iters = itset spread = iters_spread
+if iters_spread > 0.25 * minimum(itset)
+    @warn "GAMG iteration count varies >25% across ranks — preconditioner strength is " *
+          "partition-dependent here; treat speedup as approximate." iters = itset
+end
+if super
+    @warn "Superlinear efficiency (>110%) — expected for small N on non-optimized PETSc " *
+          "(cache effects). Reproduce at large N on optimized PETSc before quoting." efficiency
+end
+```
+
+## Plots
+
+```julia
+p1 = plot(RANKS, speedup;
+    marker = :circle, label = "PETSc CG + GAMG",
+    xlabel = "MPI ranks", ylabel = "speedup (T₁ / T_P)",
+    title = "Strong scaling: speedup (N = $N)", legend = :topleft)
+plot!(p1, RANKS, RANKS; linestyle = :dash, color = :gray, label = "ideal (linear)")
+p1
+```
+
+```julia
+p2 = plot(RANKS, 100 .* efficiency;
+    marker = :square, label = "PETSc CG + GAMG",
+    xlabel = "MPI ranks", ylabel = "parallel efficiency (%)",
+    title = "Strong scaling: efficiency (N = $N)",
+    ylims = (0, 130), legend = :bottomleft)
+hline!(p2, [100]; linestyle = :dash, color = :gray, label = "ideal (100%)")
+p2
+```
+
+## Reading the result
+
+The speedup curve against the dashed ideal line is the headline: how close to linear
+does adding ranks get, and where does it bend away? The efficiency plot restates the
+same data as "fraction of ideal retained" — the point where it drops below ~70% is a
+reasonable practical ceiling for this problem size on this hardware.
+
+A single fixed size only tells part of the story: larger systems have more work to
+amortize communication against, so they scale to higher rank counts. That size
+dependence is the subject of the crossover benchmark (B3) and weak scaling (B2). On the
+dedicated benchmark runner, rerun this document with `N` raised (e.g. `1_000_000` and
+`4_000_000`) and `RANKS` extended (`[1, 2, 4, 8, 16, 32]`) to chart the full envelope.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

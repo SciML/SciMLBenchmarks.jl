@@ -1,0 +1,75 @@
+---
+title: Distributed Linear Solvers — Smoke Test
+author: Jash
+priority: 100
+---
+
+This is the **Phase 0 smoke test** for the distributed `LinearSolve.jl` benchmark
+harness. It is deliberately tiny: its only job is to prove that the full toolchain —
+Weave → `mpiexec` → MPI.jl → PETSc → `PETScAlgorithm` on a replicated
+`SparseMatrixCSC` — runs end-to-end and returns a correct solution across multiple
+ranks. Once this is green locally *and* on Modal, the real scaling benchmarks (B1–B6)
+build on exactly this plumbing.
+
+The heavy lifting lives in `run_solve.jl`, which each MPI worker executes; this
+document only *orchestrates* the runs and tabulates what the workers print. That split
+mirrors how the LinearSolve.jl test suite drives its MPI tests.
+
+```julia
+using MPI            # provides mpiexec()
+
+const WORKER = joinpath(@__DIR__, "run_solve.jl")
+const PROJECT = Base.active_project()
+
+# MPICH_jll 5.x's default hydra process manager fails to bootstrap PMI on a
+# single node (PMI_Init returns -1 / "Broken pipe"). `-launcher fork` makes
+# hydra spawn ranks with plain fork() instead, which works. Every mpiexec call
+# in this benchmark folder routes through here so the flag lives in one place;
+# if a future runner needs a different bootstrap, change it once.
+const MPIEXEC_ARGS = `-launcher fork`
+
+# Run run_solve.jl under `mpiexec -n P` and return the single CSV line rank 0 prints:
+#   ranks,N,nnz,solver,pc,time_s,residual,retcode
+function run_ranks(P; N = 10_000, solver = "gmres", pc = "none")
+    cmd = `$(mpiexec()) $(MPIEXEC_ARGS) -n $P $(Base.julia_cmd()) --project=$(PROJECT) $(WORKER) $N $solver $pc`
+    out = read(cmd, String)
+    line = strip(last(filter(!isempty, split(out, '\n'))))
+    return line
+end
+```
+
+## Single vs. two ranks
+
+We solve the same 2-D Laplacian on 1 and 2 ranks. The correctness gate (residual
+`< 1e-6`) is asserted *inside* `run_solve.jl`, so if either run returns at all, it
+already passed — a nonzero exit would have thrown here.
+
+```julia
+rows = String[]
+for P in (1, 2)
+    push!(rows, run_ranks(P; N = 10_000, solver = "gmres", pc = "jacobi"))
+end
+rows
+```
+
+## Parsed results
+
+```julia
+using Printf
+println("ranks |     N   |   nnz   | solver | pc     |  time (s)  |  residual  | retcode")
+println("------+---------+---------+--------+--------+------------+------------+---------")
+for r in rows
+    ranks, N, nnz, solver, pc, t, res, rc = split(r, ',')
+    @printf("%5s | %7s | %7s | %-6s | %-6s | %10.4g | %10.2e | %s\n",
+            ranks, N, nnz, solver, pc, parse(Float64, t), parse(Float64, res), rc)
+end
+```
+
+If both rows show `retcode = Success` and a small residual, Phase 0 is complete: the
+distributed harness works. The next document (`StrongScaling.jmd`, B1) reuses
+`run_ranks` with a rank sweep and a plot.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
