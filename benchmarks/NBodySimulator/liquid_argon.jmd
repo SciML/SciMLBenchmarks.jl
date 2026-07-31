@@ -19,7 +19,11 @@ function setup(t)
     σ = 3.4e-10 # m
     ρ = 1374 # kg/m^3
     m = 39.95 * 1.6747 * 1e-27 # kg
-    N = 350
+    # N=128 keeps the relative-cost calibration in `c_symplectic`/`c_adaptive`
+    # below valid (per-step cost ratios are essentially N-independent) while
+    # keeping CI wall time tractable; the larger N=350 case took >40h per
+    # parameter sweep under the OrdinaryDiffEq v7 stack.
+    N = 128
     L = (m*N/ρ)^(1/3)
     R = 3.5σ
     v_dev = sqrt(kb * T / m) # m/s
@@ -153,7 +157,7 @@ c_symplectic = [
 Let us now benchmark the solvers for a fixed simulation time and variable timestep
 
 ```julia
-t = 40.0
+t = 10.0
 τs = 10 .^ range(-4, -3, length = 10)
 
 results = DataFrame(:integrator=>String[], :runtime=>Float64[], :τ=>Float64[],
@@ -200,7 +204,7 @@ end
 rt = Dict()
 ts = Dict()
 configs = config(symplectic_integrators, c_symplectic, 2.3e-4)
-benchmark(ΔE, rt, ts, 40.0, configs)
+benchmark(ΔE, rt, ts, 10.0, configs)
 
 plt = plot(xlabel = "Rescaled Time", ylabel = "Energy error", legend = :bottomleft);
 for c in configs
@@ -261,7 +265,7 @@ c_adaptive = [
 Let us now benchmark the solvers for a fixed simulation time and variable timestep
 
 ```julia
-t = 40.0
+t = 10.0
 
 results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
     :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
@@ -285,7 +289,7 @@ If we consider the number of function evaluations instead, we obtain
 We will now compare the best performing solvers
 
 ```julia
-t = 40.0
+t = 10.0
 
 symplectic_integrators = [
     VelocityVerlet,
