@@ -1,0 +1,228 @@
+---
+title: Sparse Direct Solver Comparison — Factorization and Cached Re-solve
+author: Jash
+---
+
+Which sparse direct solver should you use? This benchmark compares every sparse LU
+backend LinearSolve.jl ships — including the new pure-Julia
+`SupernodalLUFactorization` (Schenk–Gärtner supernodal LU) — on finite-difference
+matrices in 1, 2, and 3 space dimensions, across sizes from 10 to ~40,000 unknowns.
+
+Two costs are reported separately, because real workloads pay them differently:
+
+* **First solve** — `init` + numeric factorization + triangular solve. What you pay
+  the first time, or every time if you throw the factorization away.
+* **Cached re-solve** — a new right-hand side through the *existing* factorization
+  via `solve!` on the cache. This is the cost that dominates ODE/nonlinear workflows,
+  and the reason LinearSolve's `init`/`solve!` API exists.
+
+The **Default** line runs `LinearProblem` with no algorithm specified — it shows what
+LinearSolve's automatic selection actually picks for these matrices, so you can judge
+whether hand-picking is worth it.
+
+CI budget note: the size sweep is bounded by `kmax` below (~40k unknowns max per
+dimension). Expected wall time is well under two hours on the benchmark runner; if
+sizes are raised, raise the folder timeout to match.
+
+```julia
+using BenchmarkTools, Random
+using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
+import Pardiso
+import ParU_jll
+import SciMLBase
+using Plots
+
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
+BenchmarkTools.DEFAULT_PARAMETERS.samples = 10
+
+# Sparse matrix generation on an n-dimensional rectangular grid. After
+# https://discourse.julialang.org/t/seven-lines-of-julia-examples-sought/50416/135
+# by A. Braunstein (same generator as SparsePDE.jmd).
+
+A ⊕ B = kron(I(size(B, 1)), A) + kron(B, I(size(A, 1)))
+
+function lattice(n; Tv = Float64)
+    d = fill(2 * one(Tv), n)
+    d[1] = one(Tv)
+    d[end] = one(Tv)
+    spdiagm(1 => -ones(Tv, n - 1), 0 => d, -1 => -ones(Tv, n - 1))
+end
+
+lattice(L...; Tv = Float64) = lattice(L[1]; Tv) ⊕ lattice(L[2:end]...; Tv)
+
+#
+# Matrix like a finite difference discretization of ``-Δu + δu`` in a
+# `dim`-dimensional unit cube with approximately N unknowns; strictly diagonally
+# dominant, so every method here should succeed — and we verify that they do.
+#
+function fdmatrix(N; dim = 2, Tv = Float64, δ = 1.0e-2)
+    n = N^(1 / dim) |> ceil |> Int
+    lattice([n for i in 1:dim]...; Tv) + Tv(δ) * I
+end
+
+# `nothing` = LinearSolve's automatic default selection.
+algs = [
+    ("UMFPACK", UMFPACKFactorization()),
+    ("KLU", KLUFactorization()),
+    ("Pardiso", MKLPardisoFactorize()),
+    ("Sparspak", SparspakFactorization()),
+    ("ParU", ParUFactorization()),
+    ("SupernodalLU", SupernodalLUFactorization()),
+    ("SupernodalLU (threaded)", SupernodalLUFactorization(threaded = true)),
+    ("Default", nothing),
+]
+algnames = first.(algs)
+cols = [:red, :blue, :green, :magenta, :turquoise, :orange, :purple, :black]
+```
+
+## Methodology
+
+For each matrix and algorithm we measure:
+
+1. `t_first`: `init` + `solve!` from scratch, fresh per sample. Includes symbolic
+   analysis, numeric factorization, and one triangular solve.
+2. `t_resolve`: `solve!` on the already-factorized cache. LinearSolve only refactors
+   when the matrix changes, so this isolates the backsolve.
+
+Every timed configuration is first checked for correctness (relative residual
+`< 1e-8`); a failing method is recorded as `NaN` and reported, never silently
+plotted. A fast wrong answer must not appear in these curves.
+
+```julia
+function bench_alg(A, b, alg)
+    prob = LinearProblem(A, b)
+    mk() = alg === nothing ? SciMLBase.init(prob) : SciMLBase.init(prob, alg)
+
+    # Correctness gate before any timing.
+    cache = mk()
+    sol = solve!(cache)
+    res = norm(A * sol.u - b) / norm(b)
+    if !(res < 1e-8)
+        @warn "correctness gate failed — omitting from plot" alg res
+        return (first = NaN, resolve = NaN)
+    end
+
+    t_first = @belapsed solve!(c) setup=(c = $mk()) evals=1
+    # `cache` is factorized above; repeated solve! reuses the factorization.
+    t_resolve = @belapsed solve!($cache)
+
+    return (first = t_first, resolve = t_resolve)
+end
+
+# kmax=12 gives ≈ 40_000 unknowns max — the historical bound this folder's sweeps
+# have used (SparsePDE.jmd), chosen so 3-D KLU stays tractable.
+function sweep(dim; kmax = 12)
+    ns = [10 * 2^k for k in 0:kmax]
+    tfirst = fill(NaN, length(ns), length(algs))
+    tresolve = fill(NaN, length(ns), length(algs))
+    sizes = zeros(Int, length(ns))
+    for (i, N) in enumerate(ns)
+        rng = MersenneTwister(123)
+        A = fdmatrix(N; dim)
+        n = size(A, 1)
+        sizes[i] = n
+        b = rand(rng, n)
+        @info "dim=$dim: $n × $n, nnz=$(nnz(A))"
+        for (j, (name, alg)) in enumerate(algs)
+            try
+                r = bench_alg(A, b, alg)
+                tfirst[i, j] = r.first
+                tresolve[i, j] = r.resolve
+            catch e
+                @warn "$(name) failed at n=$(n)" exception=(e,)
+            end
+        end
+    end
+    return (; sizes, tfirst, tresolve)
+end
+
+function plot_sweep(sizes, times, dim, phase)
+    p = plot(;
+        ylabel = "Time / s", xlabel = "N",
+        yscale = :log10, xscale = :log10,
+        title = "$(phase), $(dim)D FD matrix",
+        legend = :outertopright)
+    for j in 1:length(algs)
+        mask = .!isnan.(times[:, j])
+        any(mask) && plot!(p, sizes[mask], times[mask, j];
+            linecolor = cols[j], marker = :circle, markersize = 2,
+            label = algnames[j])
+    end
+    p
+end
+```
+
+## 1D
+
+```julia
+r1 = sweep(1)
+plot_sweep(r1.sizes, r1.tfirst, 1, "Factor + first solve")
+```
+
+```julia
+plot_sweep(r1.sizes, r1.tresolve, 1, "Cached re-solve")
+```
+
+## 2D
+
+```julia
+r2 = sweep(2)
+plot_sweep(r2.sizes, r2.tfirst, 2, "Factor + first solve")
+```
+
+```julia
+plot_sweep(r2.sizes, r2.tresolve, 2, "Cached re-solve")
+```
+
+## 3D
+
+```julia
+r3 = sweep(3)
+plot_sweep(r3.sizes, r3.tfirst, 3, "Factor + first solve")
+```
+
+```julia
+plot_sweep(r3.sizes, r3.tresolve, 3, "Cached re-solve")
+```
+
+## Reading the result
+
+```julia
+using Printf
+# Winner-per-regime table: for each dimension, which algorithm is fastest at the
+# largest size, for each phase. A concrete recommendation, not just curves.
+println("dim | phase           | fastest at N=max | time (s)")
+println("----+-----------------+------------------+---------")
+for (dim, r) in ((1, r1), (2, r2), (3, r3))
+    for (phase, times) in (("first solve", r.tfirst), ("cached re-solve", r.tresolve))
+        row = times[end, :]
+        valid = findall(!isnan, row)
+        isempty(valid) && continue
+        j = valid[argmin(row[valid])]
+        @printf("%3d | %-15s | %-16s | %.3g\n", dim, phase, algnames[j], row[j])
+    end
+end
+```
+
+Two things to look for, beyond the raw winner:
+
+* **Does the Default line track the best hand-picked method?** LinearSolve routes
+  structured-sparse LU problems automatically; if the black line hugs the winner, the
+  automatic choice is doing its job and most users never need to pick by hand.
+* **First solve vs re-solve can have different winners.** A method with expensive
+  analysis but fast backsolves wins workloads that re-solve many times (ODE Jacobians,
+  Newton iterations); a method with cheap factorization wins one-shot solves. This is
+  why the two phases are plotted separately.
+
+What this document does *not* show: fill-in (factor nnz), peak memory, and
+non-grid sparsity structures (see the SuiteSparse benchmark in this folder for
+structure variety). Matrices here are diagonally dominant FD discretizations —
+well-conditioned, no pivoting stress; conclusions transfer to problems of similar
+structure, not to arbitrary sparse matrices.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
