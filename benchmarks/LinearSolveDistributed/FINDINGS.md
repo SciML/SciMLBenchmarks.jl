@@ -131,11 +131,73 @@ exceeds 110%. The document refuses to silently present a physically impossible c
 
 ---
 
+## Phase 1 addendum — Modal cloud runs (2026-07-31)
+
+The "large Modal container" follow-up proposed below has now been executed. Results
+and two new methodology findings. Full driver code and container notes live in
+`LinearSolve.jl/modal/`; raw results in `modal/results/scaling_n*.json`.
+
+### The scalability result (the one that matters)
+
+GAMG-CG iteration counts across problem size and rank count, all with
+`Success` retcodes and residuals ≤ 6.5e-9:
+
+| N | ranks | iters |
+|---|---|---|
+| 40k (laptop) | 1–4 | ~10 |
+| 250k (Modal, 64 GB) | 1, 2, 4, 8 | 15, 15, 15, 15 |
+| 1M (Modal, 64 GB) | 4, 8 | 17, 17 |
+
+Iteration count is **flat across partitions at fixed N and near-flat across a 25×
+size range**. This is the algorithmic-scalability property the strong-scaling
+benchmark is designed around, demonstrated at the size the published run will use
+— and it is immune to the timing artifacts below, because iteration counts don't
+depend on wall-clock. The 8-rank × 1M configuration (8 replicated copies of a
+5M-nnz matrix + 8 GAMG hierarchies) fits in 64 GB, resolving the Finding 2 memory
+question for the planned cluster sizes.
+
+### Finding 4 — Shared-cloud hosts cannot produce defensible timings
+
+Two independent artifacts, both caught by the guards this suite already carries:
+
+1. **Cross-run host variance:** the identical 1-rank N=250k solve measured 363 s
+   on one Modal container and 1127 s on another — 3.1× apart, same code, same
+   image, same iteration count. Pool-allocated hardware differs in CPU and (for a
+   bandwidth-bound sparse solve, decisively) memory subsystem.
+2. **Within-run superlinearity:** the N=250k sweep produced 9.2× "speedup" on 2
+   ranks and 130× on 8 (1635% efficiency). Iterations were flat at 15, so this is
+   not algorithm change (Finding 3.1) — it is the per-rank working set dropping
+   into cache on a bandwidth-starved host, amplified by host load drifting over an
+   hour-long sweep. The >110% efficiency guard fired exactly as designed.
+
+**Implication:** cloud containers are the right tier for correctness, memory
+feasibility, iteration-count behavior, and toolchain debugging — and the wrong
+tier for any timing claim, including "just the shape." The published curve needs
+amdci. This is now demonstrated with data, not asserted.
+
+### Finding 5 — Julia precompile caches are CPU-target-keyed (container trap)
+
+Modal builds images on different microarchitectures than it runs them. With the
+default `native` CPU target, bake-time precompilation silently invalidates at
+runtime — and the recompile happened *inside hydra's PMI handshake window*, so the
+symptom was `PMI_Init returned -1` / broken pipe, indistinguishable from an MPI
+bug. A launcher-config matrix (`modal/debug_mpi.py`) proved every launch mode
+works once compilation is out of the window. Fixes: set `JULIA_CPU_TARGET` to the
+portable multi-target string before baking caches, and warm the full package stack
+in singleton mode (no mpiexec) before the first `mpiexec` call. The same trap in
+reverse hit locally: a weave killed mid-precompile left stale `.ji` pidfile locks,
+and the restarted run silently executed the whole solver stack **interpreted**
+(~60× slower, diagnosable via `kill -USR1` showing GC-mark under interpreter
+frames). Clear `~/.julia/compiled/<ver>/**/*.pidfile` after killing Julia
+processes.
+
+---
+
 ## What's next
 
 - **Scale on real hardware.** Run `StrongScaling.jmd` at large `N` and higher `RANKS` on
-  amdci (canonical, production PETSc, per-node RAM) via SciMLBenchmarks CI, and/or a
-  large Modal container for fast iteration. That is where the honest "marketing" curve
-  comes from — the laptop's job (harness + correctness + finding bugs) is done.
+  amdci (canonical, production PETSc, per-node RAM) via SciMLBenchmarks CI. That is
+  where the honest "marketing" curve comes from. The Modal phase above de-risks it:
+  correctness, memory, and iteration behavior at N=1M are already verified.
 - **Consider the `PSparseMatrix` variant** for memory-scalable single-machine scaling.
 - **File Finding 1** as a LinearSolve.jl issue / small PR.
