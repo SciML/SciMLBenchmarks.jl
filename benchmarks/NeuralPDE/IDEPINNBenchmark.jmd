@@ -38,9 +38,9 @@ u_real = analytic.(ts)
 
 ```julia
 chains = [
-    ("Small (8)", Lux.Chain(Lux.Dense(1, 8, Lux.\sigma), Lux.Dense(8, 1))),
-    ("Medium (15)", Lux.Chain(Lux.Dense(1, 15, Lux.\sigma), Lux.Dense(15, 1))),
-    ("Large (30)", Lux.Chain(Lux.Dense(1, 30, Lux.\sigma), Lux.Dense(30, 1)))
+    ("Small (8)", Lux.Chain(Lux.Dense(1, 8, Lux.σ), Lux.Dense(8, 1))),
+    ("Medium (15)", Lux.Chain(Lux.Dense(1, 15, Lux.σ), Lux.Dense(15, 1))),
+    ("Large (30)", Lux.Chain(Lux.Dense(1, 30, Lux.σ), Lux.Dense(30, 1)))
 ]
 
 pinn_results = []
@@ -78,8 +78,12 @@ sol_rodas = solve(prob_ode, Rodas5(), saveat=0.01)
 l2_tsit5 = sqrt(sum((u_real .- sol_tsit5[1,:]).^2) / length(ts))
 l2_rodas = sqrt(sum((u_real .- sol_rodas[1,:]).^2) / length(ts))
 
-println("ODE Tsit5: L2=$l2_tsit5")
-println("ODE Rodas5: L2=$l2_rodas")
+# Benchmark ODE solve times
+t_ode_tsit5 = @belapsed solve($prob_ode, Tsit5(), saveat=0.01)
+t_ode_rodas = @belapsed solve($prob_ode, Rodas5(), saveat=0.01)
+
+println("ODE Tsit5: Time=$(t_ode_tsit5)s, L2=$l2_tsit5")
+println("ODE Rodas5: Time=$(t_ode_rodas)s, L2=$l2_rodas")
 ```
 
 ## Results and Plots
@@ -110,7 +114,7 @@ ylabel!(p2, "L2 Error")
 
 ```julia
 p3 = bar(["PINN Small", "PINN Medium", "PINN Large", "ODE Tsit5", "ODE Rodas5"],
-         [pinn_results[1][2], pinn_results[2][2], pinn_results[3][2], 2.3e-5, 3.8e-5],
+         [pinn_results[1][2], pinn_results[2][2], pinn_results[3][2], t_ode_tsit5, t_ode_rodas],
          yscale=:log10, legend=false, color=[:blue, :blue, :blue, :red, :red])
 title!(p3, "Solve Time Comparison (log scale, seconds)")
 ylabel!(p3, "Time (seconds)")
@@ -122,13 +126,17 @@ plot(p1, p2, p3, layout=(3,1), size=(800, 900))
 
 ## Summary Table
 
-| Method | Time (s) | L2 Error |
-|--------|----------|----------|
-| PINN (8 neurons) | ~163.5 | 5.94×10⁻⁵ |
-| PINN (15 neurons) | ~124.3 | 1.45×10⁻⁵ |
-| PINN (30 neurons) | ~154.3 | 1.35×10⁻⁴ |
-| ODE Tsit5 | ~2.3×10⁻⁵ | 1.23×10⁻⁶ |
-| ODE Rodas5 | ~3.8×10⁻⁵ | 3.73×10⁻⁷ |
+```julia; echo=false; results="asis"
+using Printf
+
+println("| Method | Time (s) | L2 Error |")
+println("|--------|----------|----------|")
+@printf("| PINN (8 neurons) | %.1f | %.2e |\n", pinn_results[1][2], pinn_results[1][3])
+@printf("| PINN (15 neurons) | %.1f | %.2e |\n", pinn_results[2][2], pinn_results[2][3])
+@printf("| PINN (30 neurons) | %.1f | %.2e |\n", pinn_results[3][2], pinn_results[3][3])
+@printf("| ODE Tsit5 | %.1e | %.2e |\n", t_ode_tsit5, l2_tsit5)
+@printf("| ODE Rodas5 | %.1e | %.2e |\n", t_ode_rodas, l2_rodas)
+```
 
 ## Conclusion
 
