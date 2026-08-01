@@ -66,7 +66,13 @@ algs = [
     ("KLU", KLUFactorization()),
     ("Pardiso", MKLPardisoFactorize()),
     ("Sparspak", SparspakFactorization()),
-    ("ParU", ParUFactorization()),
+    # ParU is EXCLUDED from this sweep. Its METIS-based analysis routes every
+    # allocation through Julia's counted-malloc path, and across many
+    # factorizations this ratchets the GC's allocation accounting upward
+    # irreversibly (GC.gc(true) does not reset it). Once tripped, EVERY
+    # allocation-heavy code path in the process crawls — a later sweep wedged
+    # inside SupernodalLU's symbolic analysis purely as collateral. Sub-second
+    # solves become hours. See the LinearSolve.jl issue for the reproducer.
     ("SupernodalLU", SupernodalLUFactorization()),
     ("SupernodalLU (threaded)", SupernodalLUFactorization(threaded = true)),
     ("Default", nothing),
@@ -216,7 +222,16 @@ Two things to look for, beyond the raw winner:
 
 What this document does *not* show: fill-in (factor nnz), peak memory, and
 non-grid sparsity structures (see the SuiteSparse benchmark in this folder for
-structure variety). Matrices here are diagonally dominant FD discretizations —
+structure variety). **ParU is omitted from this sweep entirely**: repeated ParU
+factorizations within one process ratchet Julia's GC allocation accounting
+upward irreversibly (its METIS ordering routes every allocation through the
+counted-malloc path, and `GC.gc(true)` does not reset the pressure). Once
+tripped, *every* allocation-heavy code path in the process slows to a crawl —
+one sweep run wedged inside a different solver's symbolic analysis purely as
+collateral damage. Standalone ParU solves are unaffected, and a capped variant
+(N ≤ 10,240) still poisoned the process for later sizes, so exclusion is the
+only honest option until the upstream issue is resolved. Found by this
+benchmark's own runs and reported upstream rather than silently plotted. Matrices here are diagonally dominant FD discretizations —
 well-conditioned, no pivoting stress; conclusions transfer to problems of similar
 structure, not to arbitrary sparse matrices.
 
