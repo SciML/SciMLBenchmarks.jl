@@ -43,10 +43,19 @@ algs = [
     UMFPACKFactorization(),
     KLUFactorization(),
     MKLPardisoFactorize(),
-    SparspakFactorization(),
-    ParUFactorization()
+    SparspakFactorization()
+    # ParUFactorization() is EXCLUDED: repeated ParU factorizations in one
+    # process ratchet Julia's GC allocation accounting irreversibly (ParU's
+    # METIS ordering allocates through the counted-malloc path; GC.gc(true)
+    # does not reset the pressure). This sweep's ~400 cumulative ParU
+    # factorizations at up to ~40k unknowns are far past the ~140 where a
+    # minimal reproducer wedges — sub-second solves become hours, and the
+    # slowdown also lands on other solvers' analysis phases as collateral.
+    # Two benchmark-runner CI runs of this folder wedged this way (9h and 23h)
+    # before diagnosis. Standalone ParU solves are unaffected. See the
+    # LinearSolve.jl issue for the reproducer and status.
 ]
-cols = [:red, :blue, :green, :magenta, :turquoise, :cyan] # one color per alg
+cols = [:red, :blue, :green, :magenta, :turquoise] # one color per alg
 
 __parameterless_type(T) = Base.typename(T).wrapper
 parameterless_type(x) = __parameterless_type(typeof(x))
