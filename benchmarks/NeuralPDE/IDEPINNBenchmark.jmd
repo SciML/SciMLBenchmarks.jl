@@ -79,8 +79,8 @@ l2_tsit5 = sqrt(sum((u_real .- sol_tsit5[1,:]).^2) / length(ts))
 l2_rodas = sqrt(sum((u_real .- sol_rodas[1,:]).^2) / length(ts))
 
 # Benchmark ODE solve times
-t_ode_tsit5 = @belapsed solve($prob_ode, Tsit5(), saveat=0.01)
-t_ode_rodas = @belapsed solve($prob_ode, Rodas5(), saveat=0.01)
+t_ode_tsit5 = @belapsed solve(prob_ode, Tsit5(), saveat=0.01)
+t_ode_rodas = @belapsed solve(prob_ode, Rodas5(), saveat=0.01)
 
 println("ODE Tsit5: Time=$(t_ode_tsit5)s, L2=$l2_tsit5")
 println("ODE Rodas5: Time=$(t_ode_rodas)s, L2=$l2_rodas")
@@ -126,16 +126,14 @@ plot(p1, p2, p3, layout=(3,1), size=(800, 900))
 
 ## Summary Table
 
-```julia; echo=false; results="asis"
-using Printf
-
+```julia; echo=false, results="asis"
 println("| Method | Time (s) | L2 Error |")
 println("|--------|----------|----------|")
-@printf("| PINN (8 neurons) | %.1f | %.2e |\n", pinn_results[1][2], pinn_results[1][3])
-@printf("| PINN (15 neurons) | %.1f | %.2e |\n", pinn_results[2][2], pinn_results[2][3])
-@printf("| PINN (30 neurons) | %.1f | %.2e |\n", pinn_results[3][2], pinn_results[3][3])
-@printf("| ODE Tsit5 | %.1e | %.2e |\n", t_ode_tsit5, l2_tsit5)
-@printf("| ODE Rodas5 | %.1e | %.2e |\n", t_ode_rodas, l2_rodas)
+for (name, t, l2, _, _) in pinn_results
+    println("| PINN $name | $(round(t, digits=1)) | $(round(l2, sigdigits=3)) |")
+end
+println("| ODE Tsit5 | $(round(t_ode_tsit5, sigdigits=2)) | $(round(l2_tsit5, sigdigits=3)) |")
+println("| ODE Rodas5 | $(round(t_ode_rodas, sigdigits=2)) | $(round(l2_rodas, sigdigits=3)) |")
 ```
 
 ## Conclusion
