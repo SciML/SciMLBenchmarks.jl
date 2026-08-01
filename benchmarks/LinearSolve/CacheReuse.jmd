@@ -29,7 +29,6 @@ using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
 using RecursiveFactorization, FastLapackInterface
 import Pardiso
 import ParU_jll
-import SciMLBase
 using Plots
 
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
@@ -92,7 +91,7 @@ function bench_reuse(family, alg)
     # destroyed. Others (LU) copy into an internal workspace. Always assign a copy
     # if you still need the matrix; this benchmark does, so its residual checks
     # test the solve rather than the wreckage.
-    cache = SciMLBase.init(LinearProblem(copy(A), b), alg)
+    cache = init(LinearProblem(copy(A), b), alg)
     u1 = copy(solve!(cache).u)
     cache.b = b2
     u2 = copy(solve!(cache).u)
@@ -109,13 +108,13 @@ function bench_reuse(family, alg)
     t_naive = @belapsed solve(LinearProblem($A, $b), $alg).u
 
     t_newb = @belapsed solve!(c).u setup=(
-        c = SciMLBase.init(LinearProblem($A, $b), $alg); solve!(c); c.b = $b2) evals=1
+        c = init(LinearProblem($A, $b), $alg); solve!(c); c.b = $b2) evals=1
 
     t_newA = @belapsed solve!(c).u setup=(
-        c = SciMLBase.init(LinearProblem($A, $b), $alg); solve!(c); c.A = copy($A2)) evals=1
+        c = init(LinearProblem($A, $b), $alg); solve!(c); c.A = copy($A2)) evals=1
 
     # Steady-state allocations: repeated solve! on a warm cache, same b.
-    warm = SciMLBase.init(LinearProblem(A, b), alg)
+    warm = init(LinearProblem(A, b), alg)
     solve!(warm); solve!(warm)
     allocs = @allocated solve!(warm)
 
@@ -182,7 +181,7 @@ db = 0.01 .* rand(rng, n)   # small perturbation: the "time-stepping" regime
 
 for (label, ws) in (("WarmStart.Previous", KrylovJL_GMRES(warm_start = WarmStart.Previous)),
                     ("WarmStart.None", KrylovJL_GMRES(warm_start = WarmStart.None)))
-    cache = SciMLBase.init(LinearProblem(A, b), ws; reltol = 1e-8)
+    cache = init(LinearProblem(A, b), ws; reltol = 1e-8)
     iters = Int[]
     for step in 1:5
         sol = solve!(cache)
