@@ -18,7 +18,7 @@ u(t) = \frac{1}{2} e^{-t} \sin(2t)
 
 ```julia
 using NeuralPDE, Lux, ModelingToolkit, Optimization, OptimizationOptimJL, DomainSets
-using OrdinaryDiffEq, Plots, BenchmarkTools
+using OrdinaryDiffEq, Plots
 
 @parameters t
 @variables i(..)
@@ -79,8 +79,13 @@ l2_tsit5 = sqrt(sum((u_real .- sol_tsit5[1,:]).^2) / length(ts))
 l2_rodas = sqrt(sum((u_real .- sol_rodas[1,:]).^2) / length(ts))
 
 # Benchmark ODE solve times
-t_ode_tsit5 = @belapsed solve(prob_ode, Tsit5(), saveat=0.01)
-t_ode_rodas = @belapsed solve(prob_ode, Rodas5(), saveat=0.01)
+t_start = time()
+solve(prob_ode, Tsit5(), saveat=0.01)
+t_ode_tsit5 = time() - t_start
+
+t_start = time()
+solve(prob_ode, Rodas5(), saveat=0.01)
+t_ode_rodas = time() - t_start
 
 println("ODE Tsit5: Time=$(t_ode_tsit5)s, L2=$l2_tsit5")
 println("ODE Rodas5: Time=$(t_ode_rodas)s, L2=$l2_rodas")
