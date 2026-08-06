@@ -364,3 +364,97 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerance
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
+
+#### Additional Benchmarks: Newton Solve vs Exponential Utilities - DT vs TOL Fair Comparison (New)
+
+This section extends the benchmark to compare Newton Solve (FBDF, KenCarp4) adaptive tol sweep vs Exponential Utilities fixed (ETDRK) dt sweep at same total error, plus true matvec counting via CountingMatrix to quantify ExponentialUtilities 1.33 improvements (adaptive early exit, IOP).
+
+```julia
+# For monorepo, MatrixOperator already used for split prob (same as our fix)
+using ADTypes: AutoFiniteDiff
+
+struct CountingMatrix <: AbstractMatrix{Float64}
+    A::SparseMatrixCSC{Float64,Int}
+    count::Base.RefValue{Int}
+end
+CountingMatrix(A) = CountingMatrix(A, Ref(0))
+Base.size(C::CountingMatrix) = size(C.A)
+Base.size(C::CountingMatrix,d::Int) = size(C.A,d)
+Base.getindex(C::CountingMatrix,i::Int,j::Int) = getindex(C.A,i,j)
+LinearAlgebra.mul!(y,C::CountingMatrix,x) = (C.count[] += 1; mul!(y,C.A,x))
+LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b) = (C.count[] += 1; mul!(y,C.A,x,a,b))
+Base.:*(C::CountingMatrix,x::AbstractVector) = (C.count[] += 1; C.A*x)
+
+abstols = 0.1 .^ (5:8)
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+
+setups = [
+    Dict(:alg => FBDF(), :abstols => 0.1 .^ (7:11), :reltols => 0.1 .^ (4:8)),
+    Dict(:alg => KenCarp4(), :abstols => 0.1 .^ (7:11), :reltols => 0.1 .^ (4:8)),
+    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=30), :abstols => 0.1 .^ (7:11), :reltols => 0.1 .^ (4:8)),
+    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(krylov=true, m=30), :dts => 1e-3 * multipliers),
+    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=30), :dts => 1e-3 * multipliers),
+]
+
+labels = hcat(
+    "FBDF (Newton, tol sweep)",
+    "KenCarp4 (Newton, tol)",
+    "Exprb43 (Exp Adaptive, tol, N<=32)",
+    "ETDRK2 m=30 (Exp Fixed, dt sweep)",
+    "ETDRK4 m=30 (Exp Fixed)",
+    "ETDRK4 m=30 iop=2 (Exp Fixed, orth saving)",
+    "HochOst4 m=30",
+    "EPIRK4s3A block (2 builds vs 5)",
+)
+
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Newton Solve vs Exponential - DT vs TOL Fair (New)\nLower-left Pareto Top, N=128")
+```
+
+#### Additional: True Matvec Counting vs Est and IOP Sweep (New)
+
+```julia
+function estimate_builds(name)
+    if occursin("ETDRK2",name); 2 elseif occursin("ETDRK4",name); 5 elseif occursin("HochOst4",name); 9 else; 2 end
+end
+
+abstols = 0.1 .^ (5:8)
+reltols = 0.1 .^ (1:4)
+multipliers = [0.05, 0.025, 0.0125, 0.005]
+
+setups = [
+    Dict(:alg => ETDRK2(krylov=true, m=15), :dts => multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=60), :dts => multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => multipliers),
+]
+
+labels = hcat(
+    "ETDRK2 m=15",
+    "ETDRK2 m=30",
+    "ETDRK2 m=60",
+    "ETDRK4 m=30 iop=0 (full)",
+    "ETDRK4 m=30 iop=2 (incomplete, 15x orth saving)",
+    "ETDRK4 m=30 iop=10",
+)
+
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="ExpUtil Improvements: m sweep and IOP sweep\nTrue vs Est matvecs shows adaptive early exit")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
