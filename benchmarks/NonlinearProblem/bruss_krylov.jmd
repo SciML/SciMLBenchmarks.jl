@@ -233,15 +233,15 @@ for (j, solver) in enumerate(solvers_scaling_jacobian_free)
     for (i, N) in enumerate(Ns)
         prob = generate_brusselator_problem(N; sparsity = TracerSparsityDetector())
 
+        # Cascade on -1 (timeout): leave -1 so later solvers at this N also skip.
         if (j > 1 && runtimes_scaling[j - 1, i] == -1)
-            # The last benchmark failed so skip this too
-            runtimes_scaling[j, i] = NaN
+            runtimes_scaling[j, i] = -1
             @warn "$(name): Would Have Timed out"
         else
             function benchmark_function()
                 termination_condition = (alg isa PETScSNES || alg isa KINSOL) ?
                                         nothing :
-                                        NonlinearSolveBase.AbsNormTerminationMode(Base.Fix1(maximum, abs))
+                                        AbsNormTerminationMode(Base.Fix1(maximum, abs))
                 # PETSc doesn't converge properly
                 tol = alg isa PETScSNES ? 1e-6 : 1e-4
                 sol = solve(prob, alg; abstol = tol, reltol = tol,
@@ -260,15 +260,18 @@ for (j, solver) in enumerate(solvers_scaling_jacobian_free)
 
             timeout(benchmark_function, 600)
 
+            # Keep -1 on timeout so subsequent solvers at this N cascade-skip.
             if runtimes_scaling[j, i] == -1
                 @warn "$(name): Timed out"
-                runtimes_scaling[j, i] = NaN
             end
         end
     end
 
     println()
 end
+
+# Normalize timeout sentinels for plotting (log-scale).
+runtimes_scaling = map(x -> x == -1 ? NaN : x, runtimes_scaling)
 ```
 
 Plot the results.
