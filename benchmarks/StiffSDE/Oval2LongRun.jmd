@@ -5,33 +5,36 @@ author: Chris Rackauckas
 
 ```julia
 using StochasticDiffEq, SDEProblemLibrary, Random
+import OrdinaryDiffEqCore: PIController
 prob = SDEProblemLibrary.oval2ModelExample(largeFluctuations=true,useBigs=false)
 ```
 
 ```julia
 Random.seed!(250)
 prob = remake(prob,tspan = (0.0,500.0))
-sol = solve(prob,SRIW1(),dt=(1/2)^(18),progress=true,qmax=1.125,
-          saveat=0.1,abstol=1e-5,reltol=1e-3,maxiters=1e7);
+sol = solve(prob,SOSRI(),dt=(1/2)^(18),progress=true,
+          saveat=0.1,abstol=1e-5,reltol=1e-3,maxiters=1e7,force_dtmin=true,
+          controller=PIController(SOSRI(); qmax=1.125));
 Random.seed!(250)
 prob = remake(prob,tspan = (0.0,500.0))
-@time sol = solve(prob,SRIW1(),dt=(1/2)^(18),progress=true,qmax=1.125,
-    saveat=0.1,abstol=1e-5,reltol=1e-3,maxiters=1e7);
+@time sol = solve(prob,SOSRI(),dt=(1/2)^(18),progress=true,
+    saveat=0.1,abstol=1e-5,reltol=1e-3,maxiters=1e7,force_dtmin=true,
+    controller=PIController(SOSRI(); qmax=1.125));
 ```
 
 ```julia
-println(maximum(sol[:,2]))
+println(maximum(@view sol[2, :]))
 using Plots; gr()
 lw = 2
 lw2 = 3
-p1 = plot(sol,vars=(0,16),
+p1 = plot(sol,idxs=(0,16),
           title="(A) Timeseries of Ecad Concentration",xguide="Time (s)",
           yguide="Concentration",guidefont=font(16),tickfont=font(16),
           linewidth=lw,leg=false)
 ```
 
 ```julia
-p2 = plot(sol,vars=(0,17),
+p2 = plot(sol,idxs=(0,17),
           title="(B) Timeseries of Vim Concentration",xguide="Time (s)",
           yguide="Concentration",guidefont=font(16),
           tickfont=font(16),linewidth=lw,leg=false)
@@ -41,39 +44,43 @@ p2 = plot(sol,vars=(0,17),
 prob = remake(prob,tspan = (0.0,1.0))
 ## Little Run
 sol = solve(prob,EM(),dt=(1/2)^(20),
-          progressbar=true,saveat=0.1)
+          progress=true,saveat=0.1)
 println("EM")
 @time sol = solve(prob,EM(),dt=(1/2)^(20),
-          progressbar=true,saveat=0.1)
+          progress=true,saveat=0.1)
 
 sol = solve(prob,SRI(),dt=(1/2)^(18),adaptive=false,
-            progressbar=true,save_everystep=false)
+            progress=true,save_everystep=false)
 println("SRI")
 @time sol = solve(prob,SRI(),dt=(1/2)^(18),adaptive=false,
-          progressbar=true,save_everystep=false)
+          progress=true,save_everystep=false)
 
 sol = solve(prob,SRIW1(),dt=(1/2)^(18),adaptive=false,
-          adaptivealg=:RSwM3,progressbar=false,qmax=4,saveat=0.1)
+          progress=false,saveat=0.1)
 println("SRIW1")
 @time sol = solve(prob,SRIW1(),dt=(1/2)^(18),adaptive=false,
-          adaptivealg=:RSwM3,progressbar=false,qmax=4,saveat=0.1)
+          progress=false,saveat=0.1)
 
 sol = solve(prob,SRI(),dt=(1/2)^(18),
-          adaptivealg=:RSwM3,progressbar=false,qmax=1.125,
-          saveat=0.1,abstol=1e-6,reltol=1e-4)
+          progress=false,force_dtmin=true,
+          saveat=0.1,abstol=1e-6,reltol=1e-4,
+          controller=PIController(SRI(); qmax=1.125))
 println("SRI Adaptive")
 @time sol = solve(prob,SRI(),dt=(1/2)^(18),
-          adaptivealg=:RSwM3,progressbar=false,qmax=1.125,
-          saveat=0.1,abstol=1e-6,reltol=1e-4)
+          progress=false,force_dtmin=true,
+          saveat=0.1,abstol=1e-6,reltol=1e-4,
+          controller=PIController(SRI(); qmax=1.125))
 @show length(sol.t)
 
 sol = solve(prob,SRIW1(),dt=(1/2)^(18),
-          adaptivealg=:RSwM3,progressbar=false,qmax=1.125,
-          saveat=0.1,abstol=1e-6,reltol=1e-4)
+          progress=false,force_dtmin=true,
+          saveat=0.1,abstol=1e-6,reltol=1e-4,
+          controller=PIController(SRIW1(); qmax=1.125))
 println("SRIW1 Adaptive")
 @time sol = solve(prob,SRIW1(),dt=(1/2)^(18),
-          adaptivealg=:RSwM3,progressbar=false,qmax=1.125,
-          saveat=0.1,abstol=1e-6,reltol=1e-4)
+          progress=false,force_dtmin=true,
+          saveat=0.1,abstol=1e-6,reltol=1e-4,
+          controller=PIController(SRIW1(); qmax=1.125))
 @show length(sol.t)
 ```
 
