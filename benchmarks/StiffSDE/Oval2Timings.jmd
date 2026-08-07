@@ -140,32 +140,29 @@ end
 ```
 
 ```julia
-js = 17:21
-dts = 1.0 ./2.0 .^ (js)
-for j in 1:6
+js_imp = 17:21
+dts_imp = 1.0 ./ 2.0 .^ (js_imp)
+for j in eachindex(dts_imp)
   println("j = $j")
-  sol =solve(prob,ImplicitEM(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=Threads.nthreads())
-  t1 = @elapsed sol = solve(prob,ImplicitEM(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=trajectories)
+  sol =solve(prob,ImplicitEM(),EnsembleThreads(),dt=dts_imp[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=Threads.nthreads())
+  t1 = @elapsed sol = solve(prob,ImplicitEM(),EnsembleThreads(),dt=dts_imp[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=trajectories)
   numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
   println("The number of Implicit-EM Fails is $numfails. Elapsed time was $t1")
 end
 ```
 
 ```julia
-js = 17:21
-dts = 1.0 ./ 2.0 .^(js)
-
-for j in 1:6
+for j in eachindex(dts_imp)
   println("j = $j")
-  sol =solve(prob,ImplicitRKMil(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=Threads.nthreads())
-  t1 = @elapsed sol = solve(prob,ImplicitRKMil(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=trajectories)
+  sol =solve(prob,ImplicitRKMil(),EnsembleThreads(),dt=dts_imp[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=Threads.nthreads())
+  t1 = @elapsed sol = solve(prob,ImplicitRKMil(),EnsembleThreads(),dt=dts_imp[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=trajectories)
   numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
   println("The number of Implicit-RKMil Fails is $numfails. Elapsed time was $t1")
 end
 ```
 
 ```julia
-for j in 1:6
+for j in eachindex(dts)
   println("j = $j")
   sol =solve(prob,RKMil(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=Threads.nthreads())
   t1 = @elapsed sol = solve(prob,RKMil(),EnsembleThreads(),dt=dts[j],maxiters=Int(1e11),save_everystep=false,verbose=SciMLLogging.None(),trajectories=trajectories)
@@ -177,10 +174,10 @@ end
 ```
 
 ```julia
-using Plots
+using Plots, LaTeXStrings
 lw = 3
-p2 = plot(dts,times,xscale=:log2,yscale=:log2,guidefont=font(16),tickfont=font(14),yguide="Elapsed Time (s)",xguide=L"Chosen $\Delta t$",top_margin=50px,linewidth=lw,lab=["Euler-Maruyama" "RK-Mil" "RosslerSRI"],legendfont=font(14))
-plot!(dts,fill(best_adaptive_time, 11),linewidth=lw,line=:dash,lab="ESRK+RSwM3",left_margin=75px)
+p2 = plot(dts,times,xscale=:log2,yscale=:log2,guidefont=font(16),tickfont=font(14),yguide="Elapsed Time (s)",xguide=L"Chosen $\Delta t$",linewidth=lw,lab=["Euler-Maruyama" "RK-Mil" "RosslerSRI"],legendfont=font(14))
+plot!(dts,fill(best_adaptive_time, length(dts)),linewidth=lw,line=:dash,lab="ESRK+RSwM3")
 scatter!([2.0^(-20);2.0^(-20);2.0^(-18)],[times[5,1];times[5,2];times[3,3]],markersize=20,c=:red,lab="")
 plot(p2,size=(800,800))
 ```
