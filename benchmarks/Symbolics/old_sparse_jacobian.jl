@@ -1,24 +1,24 @@
 function old_sparsejacobian(ops::AbstractVector, vars::AbstractVector)
     sp = Symbolics.jacobian_sparsity(ops, vars)
-    I,J,_ = findnz(sp)
+    I, J, _ = findnz(sp)
 
     exprs = old_sparsejacobian_vals(ops, vars, I, J)
 
-    sparse(I, J, exprs, length(ops), length(vars))
+    return sparse(I, J, exprs, length(ops), length(vars))
 end
 
-function old_sparsejacobian_vals(ops::AbstractVector, vars::AbstractVector, I::AbstractVector, J::AbstractVector; simplify::Bool=false, kwargs...)
+function old_sparsejacobian_vals(ops::AbstractVector, vars::AbstractVector, I::AbstractVector, J::AbstractVector; simplify::Bool = false, kwargs...)
     exprs = Num[]
     sizehint!(exprs, length(I))
 
-    for (i,j) in zip(I, J)
+    for (i, j) in zip(I, J)
         push!(exprs, Num(old_expand_derivatives(Differential(vars[j])(ops[i]), simplify; kwargs...)))
     end
-    exprs
+    return exprs
 end
 
 
-function old_expand_derivatives(O::SymbolicUtils.BasicSymbolic, simplify=false; throw_no_derivative=false)
+function old_expand_derivatives(O::SymbolicUtils.BasicSymbolic, simplify = false; throw_no_derivative = false)
     if iscall(O) && isa(operation(O), Differential)
         arg = only(arguments(O))
         arg = old_expand_derivatives(arg, false; throw_no_derivative)
@@ -28,13 +28,13 @@ function old_expand_derivatives(O::SymbolicUtils.BasicSymbolic, simplify=false; 
     elseif !Symbolics.hasderiv(O)
         return O
     else
-        args = map(a->old_expand_derivatives(a, false; throw_no_derivative), arguments(O))
+        args = map(a -> old_expand_derivatives(a, false; throw_no_derivative), arguments(O))
         O1 = operation(O)(args...)
         return simplify ? SymbolicUtils.simplify(O1) : O1
     end
 end
-function old_expand_derivatives(n::Num, simplify=false; kwargs...)
-    Symbolics.wrap(old_expand_derivatives(Symbolics.value(n), simplify; kwargs...))
+function old_expand_derivatives(n::Num, simplify = false; kwargs...)
+    return Symbolics.wrap(old_expand_derivatives(Symbolics.value(n), simplify; kwargs...))
 end
 
 function old_occursin_info(x, expr, fail = true)
@@ -56,20 +56,22 @@ function old_occursin_info(x, expr, fail = true)
 
     # Allow scalarized expressions
     function is_scalar_indexed(ex)
-        (iscall(ex) && operation(ex) == getindex && !(SymbolicUtils.symtype(ex) <: AbstractArray)) ||
-        (iscall(ex) && (SymbolicUtils.issym(operation(ex)) || iscall(operation(ex))) &&
-         is_scalar_indexed(operation(ex)))
+        return (iscall(ex) && operation(ex) == getindex && !(SymbolicUtils.symtype(ex) <: AbstractArray)) ||
+            (
+            iscall(ex) && (SymbolicUtils.issym(operation(ex)) || iscall(operation(ex))) &&
+                is_scalar_indexed(operation(ex))
+        )
     end
 
     # x[1] == x[1] but not x[2]
     if is_scalar_indexed(x) && is_scalar_indexed(expr) &&
-        isequal(first(arguments(x)), first(arguments(expr)))
+            isequal(first(arguments(x)), first(arguments(expr)))
         return isequal(operation(x), operation(expr)) &&
-               isequal(arguments(x), arguments(expr))
+            isequal(arguments(x), arguments(expr))
     end
 
     if is_scalar_indexed(x) && is_scalar_indexed(expr) &&
-        !occursin(first(arguments(x)), first(arguments(expr)))
+            !occursin(first(arguments(x)), first(arguments(expr)))
         return false
     end
 
@@ -78,10 +80,10 @@ function old_occursin_info(x, expr, fail = true)
     end
 
     !iscall(expr) && return isequal(x, expr)
-    if isequal(x, expr)
+    return if isequal(x, expr)
         true
     else
-        args = map(a->old_occursin_info(x, a, operation(expr) !== getindex), arguments(expr))
+        args = map(a -> old_occursin_info(x, a, operation(expr) !== getindex), arguments(expr))
         if all(_isfalse, args)
             return false
         end
@@ -107,7 +109,7 @@ _iszero(x::Num) = _iszero(value(x))::Bool
 _isone(x::Num) = _isone(value(x))::Bool
 
 
-function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_derivative=false)
+function old_executediff(D, arg, simplify = false; occurrences = nothing, throw_no_derivative = false)
     if occurrences == nothing
         occurrences = old_occursin_info(D.x, arg)
     end
@@ -131,9 +133,9 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
         if any(isequal(D.x), inner_args)
             return D(arg) # base case if any argument is directly equal to the i.v.
         else
-            return sum(inner_args, init=0) do a
+            return sum(inner_args, init = 0) do a
                 return old_executediff(Differential(a), arg; throw_no_derivative) *
-                old_executediff(D, a; throw_no_derivative)
+                    old_executediff(D, a; throw_no_derivative)
             end
         end
     elseif op === getindex
@@ -149,9 +151,11 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
         return old_expand_derivatives(c)
     elseif op === ifelse
         args = arguments(arg)
-        O = op(args[1], 
-            old_executediff(D, args[2], simplify; occurrences=arguments(occurrences)[2], throw_no_derivative), 
-            old_executediff(D, args[3], simplify; occurrences=arguments(occurrences)[3], throw_no_derivative))
+        O = op(
+            args[1],
+            old_executediff(D, args[2], simplify; occurrences = arguments(occurrences)[2], throw_no_derivative),
+            old_executediff(D, args[3], simplify; occurrences = arguments(occurrences)[3], throw_no_derivative)
+        )
         return O
     elseif isa(op, Differential)
         # The recursive expand_derivatives was not able to remove
@@ -179,12 +183,12 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
             if iscall(value(a))
                 t1 = SymbolicUtils.substitute(inner_function, Dict(op.domain.variables => value(a)))
                 t2 = D(a)
-                c -= t1*t2
+                c -= t1 * t2
             end
             if iscall(value(b))
                 t1 = SymbolicUtils.substitute(inner_function, Dict(op.domain.variables => value(b)))
                 t2 = D(b)
-                c += t1*t2
+                c += t1 * t2
             end
             inner = old_executediff(D, arguments(arg)[1]; throw_no_derivative)
             c += op(inner)
@@ -198,7 +202,7 @@ function old_executediff(D, arg, simplify=false; occurrences=nothing, throw_no_d
     c = 0
 
     for i in 1:l
-        t2 = old_executediff(D, inner_args[i],false; occurrences=arguments(occurrences)[i], throw_no_derivative)
+        t2 = old_executediff(D, inner_args[i], false; occurrences = arguments(occurrences)[i], throw_no_derivative)
 
         x = if _iszero(t2)
             t2

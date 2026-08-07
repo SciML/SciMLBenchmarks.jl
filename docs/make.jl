@@ -8,19 +8,20 @@ dir = @__DIR__() * "/.."
 include("pages.jl")
 
 makedocs(
-    sitename="The SciML Benchmarks",
-    authors="Chris Rackauckas",
-    modules=[SciMLBenchmarksOutput],
-    clean=true, doctest=false, warnonly=[:footnote],
-    format=Documenter.HTML(#analytics = "UA-90474609-3",
-        assets=["assets/favicon.ico"],
-        canonical="https://docs.sciml.ai/SciMLBenchmarksOutput/stable/",
-        size_threshold=nothing),
-    pages=pages
+    sitename = "The SciML Benchmarks",
+    authors = "Chris Rackauckas",
+    modules = [SciMLBenchmarksOutput],
+    clean = true, doctest = false, warnonly = [:footnote],
+    format = Documenter.HTML(#analytics = "UA-90474609-3",
+        assets = ["assets/favicon.ico"],
+        canonical = "https://docs.sciml.ai/SciMLBenchmarksOutput/stable/",
+        size_threshold = nothing
+    ),
+    pages = pages
 )
 
 deploydocs(;
-    repo="github.com/SciML/SciMLBenchmarksOutput",
-    devbranch="main",
-    branch="main"
+    repo = "github.com/SciML/SciMLBenchmarksOutput",
+    devbranch = "main",
+    branch = "main"
 )

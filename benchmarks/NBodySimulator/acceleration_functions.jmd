@@ -198,14 +198,14 @@ end
 function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
     (u0, v0, n) = gather_bodies_initial_coordinates(simulation)
 
-    (o_acelerations, h_acelerations) = gather_accelerations_for_potentials(simulation)
+    (o_accelerations, h_accelerations) = gather_accelerations_for_potentials(simulation)
     group_accelerations = gather_group_accelerations(simulation)
     simultaneous_acceleration = gather_simultaneous_acceleration(simulation)
 
     function soode_system!(dv, v, u, p, t)
         @inbounds for i in 1:n
             a = MVector(0.0, 0.0, 0.0)
-            for acceleration! in o_acelerations
+            for acceleration! in o_accelerations
                 acceleration!(a, u, v, t, 3 * (i - 1) + 1);
             end
             dv[:, 3 * (i - 1) + 1] .= a
@@ -213,7 +213,7 @@ function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
         @inbounds for i in 1:n, j in (2, 3)
 
             a = MVector(0.0, 0.0, 0.0)
-            for acceleration! in h_acelerations
+            for acceleration! in h_accelerations
                 acceleration!(a, u, v, t, 3 * (i - 1) + j);
             end
             dv[:, 3 * (i - 1) + j] .= a
