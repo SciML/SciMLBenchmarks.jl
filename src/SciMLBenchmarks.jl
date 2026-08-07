@@ -89,7 +89,7 @@ function weave_folder(folder, build_list = (:script, :github))
 
     weave_files = weave_files[sortperm(priorities; rev = true)]
 
-    failures = Tuple{String,String}[]
+    failures = Tuple{String, String}[]
     for file in weave_files
         try
             @eval @subprocess begin
