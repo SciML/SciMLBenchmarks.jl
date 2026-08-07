@@ -6,6 +6,10 @@ author: Jürgen Fuhrmann
 ```julia
 using BenchmarkTools, Random, VectorizationBase
 using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
+# PureUMFPACK backs PureUMFPACKFactorization via LinearSolvePureUMFPACKExt.
+# Use `import` (not `using`): PureUMFPACK ≤0.1 exports `solve`, which collides
+# with LinearSolve/CommonSolve. PureKLU / SupernodalLU need no extra load.
+import PureUMFPACK
 import Pardiso
 import ParU_jll
 using Plots
@@ -42,6 +46,9 @@ end
 algs = [
     UMFPACKFactorization(),
     KLUFactorization(),
+    PureKLUFactorization(),
+    PureUMFPACKFactorization(),
+    SupernodalLUFactorization(),
     MKLPardisoFactorize(),
     SparspakFactorization()
     # ParUFactorization() is EXCLUDED: repeated ParU factorizations in one
@@ -55,7 +62,7 @@ algs = [
     # before diagnosis. Standalone ParU solves are unaffected. See the
     # LinearSolve.jl issue for the reproducer and status.
 ]
-cols = [:red, :blue, :green, :magenta, :turquoise] # one color per alg
+cols = [:red, :blue, :green, :magenta, :turquoise, :orange, :purple] # one color per alg
 
 __parameterless_type(T) = Base.typename(T).wrapper
 parameterless_type(x) = __parameterless_type(typeof(x))
