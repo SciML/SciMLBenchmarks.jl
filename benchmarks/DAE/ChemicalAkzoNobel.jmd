@@ -45,59 +45,96 @@ eqs = [D(y₁) ~ -2.0 * r₁ + r₂ - r₃ - r₄
        D(y₅) ~ r₂ - r₃ + r₅
        0.0 ~ ks * y₁ * y₄ - y₆]
 
+# @mtkcompile drops y₆ (algebraic). Residual DAE form is hand-written so IDA
+# runs on the original 6-variable index-1 system (MTK DAEProblem + IDA hits a
+# KINSOL handle double-free on finalize for the reduced pure-ODE system).
 ModelingToolkit.@mtkcompile sys = ModelingToolkit.System(eqs, t)
 
 tspan = (0.0, 180.0)
-mtkprob = ODEProblem(sys, [], tspan)
-sol = solve(mtkprob, Rodas4(), abstol = 1/10^14, reltol = 1/10^14)
+mtkprob = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+sol = solve(mtkprob, Rodas4(), abstol = 1 / 10^14, reltol = 1 / 10^14)
 
-odaeprob = ODEProblem(sys, [], tspan)
-ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14);
-
-du = mtkprob.f(mtkprob.u0, mtkprob.p, 0.0)
-du0 = D.(unknowns(sys)) .=> du
-daeprob = DAEProblem(sys, du0, tspan)
-ref_sol = solve(daeprob, IDA(), abstol = 1/10^14, reltol = 1/10^14);
+odaeprob = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1 / 10^14, reltol = 1 / 10^14)
 
 function akzo(du, u, p, t)
     y₁, y₂, y₃, y₄, y₅, y₆ = u
-    k₁=18.7
-    k₂=0.58
-    k₃=0.09
-    k₄=0.42
-    kbig=34.4
-    kla=3.3
-    ks=115.83
-    po2=0.9
-    hen=737
+    k₁ = 18.7
+    k₂ = 0.58
+    k₃ = 0.09
+    k₄ = 0.42
+    kbig = 34.4
+    kla = 3.3
+    ks = 115.83
+    po2 = 0.9
+    hen = 737
 
     r₁ = k₁ * (y₁^4.0) * sqrt(abs(y₂))
     r₂ = k₂ * y₃ * y₄
-    r₃ = k₂/kbig * y₁ * y₅
-    r₄ = k₃*y₁*(y₄^2)
-    r₅ = k₄*(y₆^2)*sqrt(abs(y₂))
-    fin = kla*(po2/hen-y₂)
+    r₃ = k₂ / kbig * y₁ * y₅
+    r₄ = k₃ * y₁ * (y₄^2)
+    r₅ = k₄ * (y₆^2) * sqrt(abs(y₂))
+    fin = kla * (po2 / hen - y₂)
 
     du[1] = -2.0 * r₁ + r₂ - r₃ - r₄
-    du[2] = -0.5 * r₁ - r₄ - 0.5*r₅ + fin
+    du[2] = -0.5 * r₁ - r₄ - 0.5 * r₅ + fin
     du[3] = r₁ - r₂ + r₃
     du[4] = -r₂ + r₃ - 2.0 * r₄
     du[5] = r₂ - r₃ + r₅
     du[6] = ks * y₁ * y₄ - y₆
     nothing
 end
-M = Matrix{Float64}(I, 6, 6);
-M[6, 6] = 0;
+
+function akzo_dae!(res, du, u, p, t)
+    y₁, y₂, y₃, y₄, y₅, y₆ = u
+    k₁ = 18.7
+    k₂ = 0.58
+    k₃ = 0.09
+    k₄ = 0.42
+    kbig = 34.4
+    kla = 3.3
+    ks = 115.83
+    po2 = 0.9
+    hen = 737
+
+    r₁ = k₁ * (y₁^4.0) * sqrt(abs(y₂))
+    r₂ = k₂ * y₃ * y₄
+    r₃ = k₂ / kbig * y₁ * y₅
+    r₄ = k₃ * y₁ * (y₄^2)
+    r₅ = k₄ * (y₆^2) * sqrt(abs(y₂))
+    fin = kla * (po2 / hen - y₂)
+
+    res[1] = du[1] - (-2.0 * r₁ + r₂ - r₃ - r₄)
+    res[2] = du[2] - (-0.5 * r₁ - r₄ - 0.5 * r₅ + fin)
+    res[3] = du[3] - (r₁ - r₂ + r₃)
+    res[4] = du[4] - (-r₂ + r₃ - 2.0 * r₄)
+    res[5] = du[5] - (r₂ - r₃ + r₅)
+    res[6] = ks * y₁ * y₄ - y₆
+    nothing
+end
+
+u0_akzo = [0.444, 0.00123, 0.0, 0.007, 1.0, 115.83 * 0.444 * 0.007]
+du0_akzo = zeros(6)
+akzo(du0_akzo, u0_akzo, nothing, 0.0)
+du0_akzo[6] = 0.0
+daeprob = DAEProblem(akzo_dae!, du0_akzo, u0_akzo, tspan;
+    differential_vars = [true, true, true, true, true, false])
+ref_sol = solve(daeprob, IDA(), abstol = 1 / 10^14, reltol = 1 / 10^14)
+
+M = Matrix{Float64}(I, 6, 6)
+M[6, 6] = 0
 mmf = ODEFunction(akzo, mass_matrix = M)
-mmprob = ODEProblem(mmf, [0.444, 0.00123, 0.0, 0.007, 1.0, 115.83*0.444*0.007], tspan)
+mmprob = ODEProblem(mmf, u0_akzo, tspan)
 mm_refsol = solve(mmprob, Rodas5(), reltol = 1e-12, abstol = 1e-12)
 
+# mtkprob/odaeprob are the 5-state reduced ODE; daeprob/mmprob are the
+# original 6-state index-1 form. Pair each with a matching reference.
 probs = [mtkprob, daeprob, odaeprob, mmprob]
-refs = [ref_sol, ref_sol, ode_ref_sol, mm_refsol];
+refs = [ode_ref_sol, ref_sol, ode_ref_sol, mm_refsol]
 ```
 
 ```julia
-plot(ref_sol, idxs = [y₁, y₂, y₃, y₄, y₅, y₆])
+plot(ref_sol)
 ```
 
 ```julia

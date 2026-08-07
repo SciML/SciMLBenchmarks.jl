@@ -625,9 +625,11 @@ function wheelset_rhs_vec(state::AbstractVector)
     return delta
 end
 
+# ndims=1 so promote_symtype is Array{Float64,1} (DataType), not Array{Float64}.
 @register_array_symbolic wheelset_rhs_vec(state::AbstractVector) begin
     size = (17,)
-    eltype = Real
+    ndims = 1
+    eltype = Float64
 end
 
 @variables begin
@@ -666,7 +668,7 @@ eqs_mtk = [
     0 ~ delta_sym[16],  0 ~ delta_sym[17],
 ]
 
-@mtkbuild sys_wh = ODESystem(eqs_mtk, t)
+@mtkcompile sys_wh = System(eqs_mtk, t)
 prob_mtk = ODEProblem(sys_wh, [], tspan; warn_initialize_determined = false)
 ```
 
