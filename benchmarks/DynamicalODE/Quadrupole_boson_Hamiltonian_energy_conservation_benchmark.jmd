@@ -114,24 +114,33 @@ function compare(mode = :inplace, all = true, plt = nothing; tmax = 1e2)
     prob_taylor = ODEProblem{true, SciMLBase.FullSpecialize}(
         hamilton_iip!, vcat(iip_p0, iip_q0), (0.0, tmax))
 
+    # Cap saved points so energy-error plots stay CI-friendly. Default
+    # save_everystep+dense at long tmax stores millions of states per
+    # symplectic solve; TaylorMethod(50) alone allocated ~32 GiB at tmax=2e4
+    # in the previous published run. See CI run 30654781033.
+    nsave = clamp(Int(round(tmax)) + 1, 101, 1001)
+    saveat = range(0.0, tmax; length = nsave)
+    common = (; dense = false, saveat)
+
     GC.gc()
     (mode == :inplace && all) &&
-        @time sol1 = solve(prob, Vern9(), callback = cb, abstol = 1e-14, reltol = 1e-14)
+        @time sol1 = solve(prob, Vern9(), callback = cb, abstol = 1e-14, reltol = 1e-14;
+            common...)
     GC.gc()
-    @time sol2 = solve(prob, KahanLi8(), dt = 1e-2, maxiters = 1e10)
+    @time sol2 = solve(prob, KahanLi8(), dt = 1e-2, maxiters = 1e7; common...)
     GC.gc()
-    @time sol3 = solve(prob, SofSpa10(), dt = 1e-2, maxiters = 1e8)
+    @time sol3 = solve(prob, SofSpa10(), dt = 1e-2, maxiters = 1e7; common...)
     GC.gc()
-    @time sol4 = solve(prob, Vern9(), abstol = 1e-14, reltol = 1e-14)
+    @time sol4 = solve(prob, Vern9(), abstol = 1e-14, reltol = 1e-14; common...)
     GC.gc()
-    @time sol5 = solve(prob, DPRKN12(), abstol = 1e-14, reltol = 1e-14)
+    @time sol5 = solve(prob, DPRKN12(), abstol = 1e-14, reltol = 1e-14; common...)
     GC.gc()
     (mode == :inplace && all) &&
-        @time sol6 = solve(prob_linear, TaylorMethod(50), abstol = 1e-20)
+        @time sol6 = solve(prob_linear, TaylorMethod(50), abstol = 1e-20; common...)
     GC.gc()
     (mode == :inplace && all) &&
         @time sol7 = solve(prob_taylor, ExplicitTaylor(order = Val(8)),
-            abstol = 1e-14, reltol = 1e-14)
+            abstol = 1e-14, reltol = 1e-14; common...)
 
     (mode == :inplace && all) && println("Vern9 + ManifoldProjection max energy error:\t" *
             "$(maximum(abs_energy_err(sol1)))\tin\t$(length(sol1.u))\tsteps.")
@@ -185,11 +194,9 @@ compare(tmax = 1e3)
 ```
 
 ```julia
-compare(tmax = 1e4)
-```
-
-```julia
-compare(tmax = 2e4)
+# Long-horizon comparison without Taylor / ExplicitTaylor / ManifoldProjection.
+# TaylorMethod(50) alone allocated ~32 GiB at tmax=2e4 in the previous publish.
+compare(:inplace, false; tmax = 1e4)
 ```
 
 As we can see from the above plots, we can achieve a very low energy error for long time simulation by manifold projection and with very high order Taylor methods. In comparison with the Hénon-Heiles system we see that as the Hamiltonian got more complex, the energy error for the other integration methods increased significantly.
@@ -205,10 +212,11 @@ function in_vs_out(; all = false, tmax = 1e2)
 end
 ```
 
-First, here is a summary of all the available methods for `tmax = 1e3`:
+First, here is a summary of all the available methods for `tmax = 1e2`
+(kept short so Taylor / ExplicitTaylor stay in the CI budget):
 
 ```julia
-in_vs_out(all = true, tmax = 1e3)
+in_vs_out(all = true, tmax = 1e2)
 ```
 
 Now we will compare the in place and the out of place versions, but only for the integrators that are compatible with `StaticArrays`
@@ -219,14 +227,6 @@ in_vs_out(tmax = 1e2)
 
 ```julia
 in_vs_out(tmax = 1e3)
-```
-
-```julia
-in_vs_out(tmax = 1e4)
-```
-
-```julia
-in_vs_out(tmax = 2e4)
 ```
 
 As we see from the above comparisons, the `StaticArray` versions are significantly faster and use less memory. The speedup provided for the out of place version is more proeminent at larger values for `tmax`.
