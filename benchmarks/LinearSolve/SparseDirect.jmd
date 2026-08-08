@@ -27,6 +27,10 @@ sizes are raised, raise the folder timeout to match.
 ```julia
 using BenchmarkTools, Random
 using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
+# PureUMFPACK backs PureUMFPACKFactorization via LinearSolvePureUMFPACKExt.
+# Use `import` (not `using`): PureUMFPACK ≤0.1 exports `solve`, which collides
+# with LinearSolve/CommonSolve. PureKLU / SupernodalLU need no extra load.
+import PureUMFPACK
 import Pardiso
 import ParU_jll
 using Plots
@@ -65,6 +69,8 @@ algs = [
     ("KLU", KLUFactorization()),
     ("Pardiso", MKLPardisoFactorize()),
     ("Sparspak", SparspakFactorization()),
+    ("PureKLU", PureKLUFactorization()),
+    ("PureUMFPACK", PureUMFPACKFactorization()),
     # ParU is EXCLUDED from this sweep. Its METIS-based analysis routes every
     # allocation through Julia's counted-malloc path, and across many
     # factorizations this ratchets the GC's allocation accounting upward
