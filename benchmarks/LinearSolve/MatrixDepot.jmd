@@ -6,6 +6,10 @@ author: Jürgen Fuhrmann, Anastasia Dunca
 ```julia
 using BenchmarkTools, Random, VectorizationBase, Statistics
 using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
+# PureUMFPACK backs PureUMFPACKFactorization via LinearSolvePureUMFPACKExt.
+# Use `import` (not `using`): PureUMFPACK ≤0.1 exports `solve`, which collides
+# with LinearSolve/CommonSolve. PureKLU / SupernodalLU need no extra load.
+import PureUMFPACK
 import Pardiso
 import ParU_jll
 using Plots
@@ -19,17 +23,29 @@ BenchmarkTools.DEFAULT_PARAMETERS.samples = 10
 algs = [
     UMFPACKFactorization(),
     KLUFactorization(),
+    PureKLUFactorization(),
+    PureUMFPACKFactorization(),
+    SupernodalLUFactorization(),
     MKLPardisoFactorize(),
     SparspakFactorization(),
     ParUFactorization()
 ]
-algnames = ["UMFPACK", "KLU", "Pardiso", "Sparspak", "ParU"]
+algnames = ["UMFPACK", "KLU", "PureKLU", "PureUMFPACK", "SupernodalLU",
+    "Pardiso", "Sparspak", "ParU"]
 algnames_transpose = reshape(algnames, 1, length(algnames))
 
-cols = [:red, :blue, :green, :magenta, :turquoise, :cyan] # one color per alg
+cols = [:red, :blue, :green, :magenta, :turquoise, :orange, :purple, :cyan] # one color per alg
 
 # matrices = ["HB/1138_bus", "HB/494_bus", "HB/662_bus", "HB/685_bus", "HB/bcsstk01", "HB/bcsstk02", "HB/bcsstk03", "HB/bcsstk04",  "HB/bcsstk05", "HB/bcsstk06", "HB/bcsstk07", "HB/bcsstk08", "HB/bcsstk09", "HB/bcsstk10", "HB/bcsstk11", "HB/bcsstk12", "HB/bcsstk13", "HB/bcsstk14", "HB/bcsstk15", "HB/bcsstk16"]
-allmatrices_md = listnames("*/*")
+#
+# Filter on the (already-local) index metadata rather than downloading everything.
+# `listnames("*/*")` returns all 2905 remote matrices, and the loop below then
+# downloads each one only to discard it via `n > 100 && error(...)`. Applying the
+# same n <= 100 bound up front leaves 53 matrices — the exact set that was being
+# benchmarked anyway — so no reported number changes, but the document drops from
+# ~9 hours (it exceeded the CI runner's limit) to minutes. The `n > 100` guard
+# below is kept as a belt-and-suspenders check.
+allmatrices_md = listnames("*/*" & @pred(n <= 100))
 
 @info "Total number of matrices: $(allmatrices_md.content[1].rows)"
 
@@ -110,8 +126,7 @@ for z in 1:length(allmatrices_md.content[1].rows)
             bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
                 copy($b);
                 u0 = copy($u0),
-                alias_A = true,
-                alias_b = true))
+                alias = LinearAliasSpecifier(alias_A = true, alias_b = true)))
             times[z, j] = bt
         end
 
