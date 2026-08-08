@@ -45,6 +45,7 @@ end
 section_titles = [
     "MultiLanguage" => "Multi-Language Wrapper Benchmarks",
     "LinearSolve" => "Linear Solvers",
+    "LinearSolveGPU" => "Linear Solvers (GPU)",
     "IntervalNonlinearProblem" => "Interval Rootfinding",
     "NonlinearProblem" => "Nonlinear Solvers",
     "AutomaticDifferentiation" => "Automatic Differentiation",

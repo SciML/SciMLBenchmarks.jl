@@ -1,0 +1,141 @@
+---
+title: Dense GPU Offload — Where Does the GPU Start to Win?
+author: Jash
+---
+
+Should you move your dense solve to the GPU? The answer is size-dependent, and
+the honest accounting has to separate **transfer** from **compute**: offload
+pays PCIe both ways (H2D for the matrix, D2H for the solution), and below some
+`N` that overhead swamps any factorization speedup. This benchmark measures the
+crossover on the folder's GPU runner, with transfer cost reported explicitly —
+a GPU benchmark that hides transfer is marketing, not evidence
+(BENCHMARKING_PLAN.md B6).
+
+Compared, all through the same `LinearProblem` API:
+
+* `LUFactorization` — CPU baseline (BLAS, all cores)
+* `CudaOffloadLUFactorization` — full-precision GPU offload
+* `CudaOffloadQRFactorization` — QR variant
+* `CUDAOffload32MixedLUFactorization` — Float32 factorization with Float64
+  refinement of the result; its correctness gate is accordingly looser, and its
+  win condition (bandwidth-bound GPUs) is precisely what this document tests
+
+```julia
+using BenchmarkTools, Random, Printf
+using LinearAlgebra, LinearSolve
+using CUDA
+
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
+BenchmarkTools.DEFAULT_PARAMETERS.samples = 5
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+
+algs = [
+    ("CPU LU", LUFactorization(), 1e-10),
+    ("GPU LU offload", CudaOffloadLUFactorization(), 1e-10),
+    ("GPU QR offload", CudaOffloadQRFactorization(), 1e-10),
+    ("GPU 32-mixed LU", CUDAOffload32MixedLUFactorization(), 1e-4),
+]
+
+ns = [256, 512, 1024, 2048, 4096, 8192]
+```
+
+## Methodology
+
+Per size: a correctness gate against a reference solve, then the end-to-end
+solve time (`evals=1`, fresh problem per sample — the full cost a user pays),
+and separately the pure **round-trip transfer time** for the same data
+(`CuArray(A)` up, `Array(x)` down). Transfer is measured with `CUDA.@sync` so
+asynchronous copies can't hide.
+
+```julia
+res_time = fill(NaN, length(ns), length(algs))
+res_xfer = fill(NaN, length(ns))
+
+for (i, n) in enumerate(ns)
+    rng = MersenneTwister(123)
+    A = rand(rng, n, n) + n * I
+    b = rand(rng, n)
+    ref = A \ b
+    @info "n=$n"
+
+    for (j, (name, alg, tol)) in enumerate(algs)
+        try
+            sol = solve(LinearProblem(A, b), alg)
+            err = norm(sol.u - ref) / norm(ref)
+            if !(err < tol)
+                @warn "correctness gate failed — omitted" name n err
+                continue
+            end
+            res_time[i, j] = @belapsed solve(LinearProblem($A, $b), $alg).u evals=1
+        catch e
+            @warn "$name failed at n=$n" exception=(e,)
+        end
+    end
+
+    # Round-trip transfer for the same data, isolated.
+    res_xfer[i] = @belapsed begin
+        Ag = CuArray($A)
+        bg = CuArray($b)
+        CUDA.@sync Ag
+        Array(bg)
+    end evals=1
+end
+```
+
+## Results
+
+```julia
+using Plots
+p = plot(; xlabel = "N", ylabel = "time / s", xscale = :log2, yscale = :log10,
+    title = "Dense solve: CPU vs GPU offload", legend = :topleft)
+for (j, (name, _, _)) in enumerate(algs)
+    mask = .!isnan.(res_time[:, j])
+    any(mask) && plot!(p, ns[mask], res_time[mask, j];
+        marker = :circle, label = name)
+end
+plot!(p, ns, res_xfer; linestyle = :dash, color = :gray,
+    label = "transfer round-trip only")
+p
+```
+
+```julia
+println("   N   | CPU LU (s) | GPU LU (s) | 32-mixed (s) | transfer (s) | transfer % of GPU LU")
+println("-------+------------+------------+--------------+--------------+---------------------")
+for (i, n) in enumerate(ns)
+    tcpu, tgpu, tmix = res_time[i, 1], res_time[i, 2], res_time[i, 4]
+    @printf("%6d | %10.4g | %10.4g | %12.4g | %12.4g | %18.1f%%\n",
+        n, tcpu, tgpu, tmix, res_xfer[i],
+        isnan(tgpu) ? NaN : 100 * res_xfer[i] / tgpu)
+end
+
+# Crossover: first size where the best GPU variant beats CPU.
+best_gpu = [minimum(filter(!isnan, res_time[i, 2:end]); init = Inf) for i in 1:length(ns)]
+cross = findfirst(i -> best_gpu[i] < res_time[i, 1], 1:length(ns))
+println()
+println(cross === nothing ?
+    "No crossover in the measured range — CPU wins throughout." :
+    "Crossover: GPU offload first beats CPU at N = $(ns[cross]).")
+```
+
+## Reading the result
+
+The dashed transfer line is the floor no offload algorithm can beat: where a
+solver's curve approaches it, the algorithm is transfer-bound and further GPU
+speedup is irrelevant at that size. The stated crossover `N` is the actionable
+number — below it, stay on the CPU; above it, offload pays. The 32-mixed
+variant's gap to full-precision GPU LU shows what halving the factorization's
+memory traffic buys; its residual (gated at 1e-4) is the accuracy price.
+
+Caveats: one GPU model per run (the runner's), `Float64` inputs, well-conditioned
+random matrices (no pivoting stress). The size dependence of the crossover on
+GPU generation is deliberately out of scope — this document publishes from a
+fixed runner precisely so the number is stable.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
