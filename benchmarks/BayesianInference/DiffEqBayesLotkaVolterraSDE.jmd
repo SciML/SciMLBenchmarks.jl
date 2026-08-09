@@ -129,9 +129,10 @@ function neg_log_pseudo_likelihood(theta, _)
     end
     return -ll
 end
-theta0     = [1.5, 1.2, 3.0, 1.0, 0.1, 0.5, 0.5]
-opt_prob = OptimizationProblem(neg_log_pseudo_likelihood, θ0)
-elapsed_mle = @elapsed opt_result = solve(opt_prob, NelderMead())
+theta0 = [1.5, 1.2, 3.0, 1.0, 0.1, 0.5, 0.5]
+opt_f = OptimizationFunction(neg_log_pseudo_likelihood, Optimization.AutoForwardDiff())
+opt_prob = OptimizationProblem(opt_f, theta0)
+elapsed_mle = @elapsed opt_result = solve(opt_prob, LBFGS())
 mle_params  = opt_result.u
 @printf "MLE: a=%.3f  b=%.3f  c=%.3f  d=%.3f\n" mle_params[1] mle_params[2] mle_params[3] mle_params[4]
 ```
