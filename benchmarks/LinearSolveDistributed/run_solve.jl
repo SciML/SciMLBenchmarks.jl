@@ -9,7 +9,7 @@
 # The matrix is a replicated SparseMatrixCSC assembled identically on every rank;
 # PETScAlgorithm(comm = MPI.COMM_WORLD) then row-owns it across the communicator,
 # solves, and gathers the full solution back into sol.u on every rank (this is the
-# Weeks 1–2 GSoC deliverable). Rank 0 prints one CSV line:
+# replicated-SparseMatrixCSC path). Rank 0 prints one CSV line:
 #
 #   ranks,N,nnz,solver,pc,time_s,residual,retcode
 #

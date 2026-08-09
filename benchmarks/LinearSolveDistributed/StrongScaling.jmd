@@ -1,5 +1,5 @@
 ---
-title: Distributed Linear Solvers — Strong Scaling (B1)
+title: Distributed Linear Solvers — Strong Scaling
 author: Jash
 priority: 90
 ---
@@ -10,20 +10,19 @@ my linear solve, does it actually get faster — and how far does that hold befo
 communication overhead eats the gains?*
 
 We solve a fixed 2-D finite-difference Laplacian with PETSc's CG via `LinearSolve.jl`'s
-`PETScAlgorithm`, on rank counts `1, 2, 4, 8`. The matrix is a replicated
+`PETScAlgorithm`, across a range of rank counts. The matrix is a replicated
 `SparseMatrixCSC`; each rank row-owns its slice, PETSc solves the distributed system, and
-the full solution is gathered back (the Weeks 1–2 GSoC deliverable). All correctness
+the full solution is gathered back. All correctness
 checking (residual `< 1e-6`) happens inside `run_solve.jl` on each worker — a nonzero exit
 would throw here, so any row that returns has already passed.
 
-**Preconditioner choice matters for a scaling study.** We use *unpreconditioned* CG
-(`pc = none`) deliberately: PETSc's default block-Jacobi preconditioning is
-*rank-dependent* — its block structure follows the row partition, so the iteration count
-(and thus the work) changes with the number of ranks. That silently corrupts strong
-scaling into "different algorithm per rank count," which shows up as impossible
-superlinear speedup. Plain CG does a fixed number of iterations regardless of `P`, so any
-speedup measured here is *real* parallel speedup. We print the iteration count in the
-table precisely so this invariance is visible and auditable.
+**Preconditioner choice matters for a scaling study.** PETSc's default block-Jacobi
+preconditioning is *rank-dependent* — its block structure follows the row partition, so
+the iteration count (and thus the work) changes with the number of ranks. That silently
+corrupts strong scaling into "different algorithm per rank count," which shows up as
+impossible superlinear speedup. We therefore avoid it, use GAMG (whose strength is
+near partition-independent — see below), and print the iteration count in the table for
+every rank count precisely so this invariance is visible and auditable.
 
 ```julia
 using MPI            # provides mpiexec()
@@ -74,23 +73,22 @@ each dominated by per-iteration overhead on this JLL PETSc build — being chipp
 parallelism. GAMG removes that confound by collapsing the iteration count.)
 
 ```julia
-const N = 40_000           # ~200×200 grid; raise on the benchmark runner
+const N = 40_000           # ~200×200 grid; deliberately modest for the first runs
 const RANKS = [1, 2, 4]    # capped: the replicated-matrix path holds a full copy
-                           # per rank, so high rank counts exhaust laptop RAM.
-                           # Raise on a machine with more memory / real nodes.
+                           # per rank, so memory grows with the rank count.
+                           # Raise both once the pipeline is proven on the runner.
 
 results = [run_ranks(P; N = N, solver = "cg", pc = "gamg") for P in RANKS]
 ```
 
-> **What this document does and does not show.** On a laptop this is a *harness and
-> correctness* check, not a marketing scaling curve. Two hardware limits make a clean
-> laptop curve impossible for this solver path: (1) at small `N` the per-iteration cost
-> is dominated by fixed overhead in the non-optimized JLL PETSc build, so efficiency can
-> read superlinearly from cache effects; (2) the Weeks 1–2 PETSc path replicates the full
-> `SparseMatrixCSC` on every rank, so memory grows with rank count and high rank counts
-> run out of RAM. The honest scaling numbers come from running this same document at
-> large `N` and higher `RANKS` on the SciML benchmark cluster (amdci) or a large Modal
-> container — see `FINDINGS.md` for the full analysis.
+> **What this document does and does not show at small `N`.** At this problem size the
+> result is primarily a *harness and correctness* check rather than a definitive scaling
+> curve, for two reasons: (1) at small `N` the per-iteration cost is dominated by fixed
+> overhead in the generic JLL PETSc build, so efficiency can read superlinearly from
+> cache and working-set effects; (2) the replicated-`SparseMatrixCSC` path holds a full
+> matrix copy on every rank, so memory grows with rank count and bounds how far the
+> sweep can extend. The definitive numbers come from re-running this same document at
+> large `N` and higher `RANKS` on dedicated hardware, per the closing section.
 
 ## Speedup and efficiency
 
@@ -118,11 +116,11 @@ end
 #    count can drift a little with rank count. A *small* spread is expected; a
 #    large one means the preconditioner strength is changing with P and the
 #    timing ratios are contaminated by algorithm change, not just parallel work.
-#  * superlinear efficiency: on a laptop with a non-optimized (JLL) PETSc, small
+#  * superlinear efficiency: with the generic (JLL) PETSc build, small
 #    problems can show >100% efficiency from cache/working-set effects (each
 #    rank's slice fits in a faster level of cache). It is a real effect but NOT a
 #    marketing number — the honest scaling curve needs large N on optimized PETSc
-#    (benchmark cluster / Modal), where compute dominates these constant factors.
+#    (dedicated benchmark hardware), where compute dominates these constant factors.
 itset = [r.iters for r in results]
 iters_spread = maximum(itset) - minimum(itset)
 super = maximum(efficiency) > 1.10
@@ -167,7 +165,7 @@ reasonable practical ceiling for this problem size on this hardware.
 
 A single fixed size only tells part of the story: larger systems have more work to
 amortize communication against, so they scale to higher rank counts. That size
-dependence is the subject of the crossover benchmark (B3) and weak scaling (B2). On the
+dependence is the subject of planned crossover and weak-scaling companions. On the
 dedicated benchmark runner, rerun this document with `N` raised (e.g. `1_000_000` and
 `4_000_000`) and `RANKS` extended (`[1, 2, 4, 8, 16, 32]`) to chart the full envelope.
 
