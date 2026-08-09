@@ -52,10 +52,18 @@ function laplacian_2d(m::Int)
     @inbounds for j in 1:m, i in 1:m
         k = lin(i, j)
         push!(I, k); push!(J, k); push!(V, 4.0)
-        if i > 1; push!(I, k); push!(J, lin(i - 1, j)); push!(V, -1.0); end
-        if i < m; push!(I, k); push!(J, lin(i + 1, j)); push!(V, -1.0); end
-        if j > 1; push!(I, k); push!(J, lin(i, j - 1)); push!(V, -1.0); end
-        if j < m; push!(I, k); push!(J, lin(i, j + 1)); push!(V, -1.0); end
+        if i > 1
+            push!(I, k); push!(J, lin(i - 1, j)); push!(V, -1.0)
+        end
+        if i < m
+            push!(I, k); push!(J, lin(i + 1, j)); push!(V, -1.0)
+        end
+        if j > 1
+            push!(I, k); push!(J, lin(i, j - 1)); push!(V, -1.0)
+        end
+        if j < m
+            push!(I, k); push!(J, lin(i, j + 1)); push!(V, -1.0)
+        end
     end
     return sparse(I, J, V, n, n)
 end
@@ -76,8 +84,10 @@ function main()
     # reltol, but the true residual is looser — and LinearSolve's a-posteriori
     # safety check (which uses the true residual) then rejects the solve. Forcing
     # the unpreconditioned norm aligns PETSc's stopping test with the safety check.
-    alg = PETScAlgorithm(solver; comm = COMM, pc_type = pc,
-                         ksp_options = (ksp_norm_type = "unpreconditioned",))
+    alg = PETScAlgorithm(
+        solver; comm = COMM, pc_type = pc,
+        ksp_options = (ksp_norm_type = "unpreconditioned",)
+    )
 
     # Tolerances are env-overridable. Default reltol is deliberately loose (1e-8)
     # because preconditioned Krylov methods (e.g. GAMG-CG) converge in the
@@ -118,7 +128,7 @@ function main()
         s = solve!(c)
         $PETScExt.cleanup_petsc_cache!(c)
         s
-    end samples=bench_samples seconds=bench_seconds evals=1
+    end samples = bench_samples seconds = bench_seconds evals = 1
 
     # Recompute a residual + retcode + iteration count on a fresh solve for the
     # report line. sol.iters matters a lot for iterative solvers: the iteration
@@ -141,7 +151,7 @@ function main()
     # those run. Calling Finalize() ourselves finalizes MPI too early, so the
     # trailing GC hits "MPI routine after finalizing MPICH" and the rank exits
     # nonzero even though the solve succeeded. Let atexit handle it.
-    MPI.Barrier(COMM)
+    return MPI.Barrier(COMM)
 end
 
 main()
