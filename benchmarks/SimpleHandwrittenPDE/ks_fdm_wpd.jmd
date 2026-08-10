@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using ADTypes: AutoFiniteDiff
 using DiffEqDevTools
 using SciMLOperators
@@ -165,6 +165,134 @@ labels = hcat(
 
 plot(wp, label=labels, markershape=:auto, title="Stabilized Methods, High Tolerance")
 ```
+
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same
+`SplitODEProblem`: the first component (the linear term containing the fourth
+derivative operator) is advanced with `m` explicit substeps inside every macro
+step, while the nonlinear convection is evaluated only at the macro rate.
+Multirate integration is built for problems whose slow component is expensive
+per evaluation. Here the slow component costs two sparse matrix-vector
+products, no more than the fast one, so the substeps buy stability on a
+genuinely stiff operator without saving any slow work, and the comparison
+against `CNAB2` and `ETDRK2` measures what that costs relative to treating the
+stiff term implicitly or exactly.
+
+The linear operator has spectral radius about `1.4e4`. With macro steps up to
+`2e-3`, the choice `m = 32` puts the largest micro step at `2e-3 * 1.4e4 / 32`,
+about 0.9, inside the explicit micro stability bound of 2 with a factor of two
+margin. A scan from `m = 32` to `m = 128` left every error essentially
+unchanged, so the macro error dominates and larger `m` is pure cost. The
+methods are run at fixed macro steps, matching the other fixed step methods in
+this file.
+
+```julia
+abstols = 0.1 .^ (3:6) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (3:6)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => MREEF(m = 32, order = 4), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MIS(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The measured curves make this a much harder problem for the explicit
+multirate members than Burgers. At errors near `1e-4` the comparison is a
+tie: `MRIGARKERK33a` at `1.1e-4` and `CNAB2` at `9.5e-5` both spend about a
+tenth of a second. The references bottom out at `2.4e-5` within this step
+range, and the higher order multirate members do continue past that point
+(`MREEF` to `1e-8`, `MRIGARKERK33a` to `3.5e-7`), but every further decade
+carries the `m = 32` micro stepping tax, with the tightest points costing 0.7
+to 2.4 seconds per solve against under 0.2 seconds for `CNAB2`'s last point. `MRAB` is unusable on this problem: the convection it
+freezes over the macro step is not slow, and its error never falls below
+`1e-2` in the sweep. `MRIGARKERK45a` loses order at the loose end and sits
+above `MRIGARKERK33a` until the tightest step. With both components equally
+cheap there is nothing for the multirate structure to amortize; what these
+curves document is that the explicit members hold their stability and order
+on a strongly stiff fast operator, and where the cost boundary lies when the
+split does not favor them.
+
+The implicit multirate members treat the slow component implicitly, so for
+them the split is used in the reverse orientation: the stiff linear term
+becomes the implicitly handled slow part and the nonlinear convection is micro
+stepped explicitly. In this orientation the methods act as IMEX integrators
+whose explicit part is subdivided `m` times per stage; the convection is not
+fast, the substeps resolve nothing, and `m = 2` is kept at the smallest useful
+value. `KenCarp3` and `KenCarp4` on the original problem make the same
+implicit and explicit assignment of the two terms, which makes them the
+natural single rate references; they are given the Krylov linear solver here
+because their dense default costs minutes per solve on this problem at the
+tighter tolerances, as the low tolerance section below also shows. These
+methods are all adaptive, so this is a plain tolerance sweep.
+
+```julia
+Astiff = convert(AbstractMatrix, prob.f.f1.f)
+p_stiff = (; D1 = prob.p.D1, alpha = prob.p.alpha, A = Astiff)
+stiff_linear!(du, u, p, t) = mul!(du, p.A, u)
+prob_swapped = SplitODEProblem(nonlinear_convection!, stiff_linear!,
+                               prob.u0, prob.tspan, p_stiff)
+
+abstols = 0.1 .^ (4:8)
+reltols = 0.1 .^ (4:8)
+setups = [
+    Dict(:alg => MRIGARKIRK21a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => MRIGARKESDIRK34a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => MRIGARKESDIRK46a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => KenCarp3(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+]
+labels = hcat(
+    "MRIGARKIRK21a",
+    "MRIGARKESDIRK34a",
+    "MRIGARKESDIRK46a",
+    "KenCarp3 (Krylov)",
+    "KenCarp4 (Krylov)",
+)
+@time wp = WorkPrecisionSet([prob_swapped, prob], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e6));
+
+plot(wp, label=labels, markershape=:auto, title="Implicit Multirate Methods")
+```
+
+This orientation is where the multirate implicit members earn their keep on
+this problem. `MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines,
+the second order member from `3.8e-4` in 26 milliseconds down to `3.1e-8` in
+1.8 seconds and the third order member down to `6e-10` in about 6 seconds.
+`MRIGARKESDIRK46a` is the cheapest route to mid accuracies (`1.3e-7` in a
+quarter of a second) but its error stops responding at the tightest
+tolerance, rising back to about `1e-6`, so its tolerance cannot be trusted as
+a control knob at that end. The `KenCarp` references complete at every point
+but deliver two to four orders of magnitude less accuracy at the same
+tolerances in this range; at matched error the multirate members come out
+roughly 30 to 300 times faster, for example `MRIGARKESDIRK34a` at `3.3e-5` in
+0.08 seconds against `KenCarp4` at `4.4e-5` in 2.3 seconds. This figure is
+confined to loose and moderate tolerances, and the low tolerance section
+below drives the same `KenCarp` family much harder; the reading supported by
+these curves is that the solve-decoupled members are the better tool in this
+range on this split, not that they replace the IMEX family outright.
 
 #### Comparisons Between Families
 

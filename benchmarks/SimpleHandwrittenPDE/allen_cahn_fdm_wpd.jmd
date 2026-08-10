@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -138,6 +138,65 @@ labels = hcat(
 
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
+
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same
+`SplitODEProblem`, advancing the first component (the diffusion term) with `m`
+explicit substeps per macro step while the reaction term is evaluated at the
+macro rate. They are built for a stiff fast first component and an expensive
+slow second component, and this problem has neither: with `eps = 1e-3` the
+diffusion operator has spectral radius about 4, the same order as the reaction
+Jacobian, and both terms cost `O(N)` per evaluation. There is no rate to
+separate, so this is a null case for the family, included to document that
+boundary. `m = 2` is the smallest useful setting and anything larger repeats
+work; the macro steps below go up to `1e-1`, far inside every stability bound
+at this spectral radius. Fixed macro steps are used as elsewhere in this file,
+with `CNAB2`, `ETDRK2` and `Tsit5` from the other sections as references.
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => MREEF(m = 2, order = 4), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MIS(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => Tsit5(), :dts => 1e-5 * multipliers),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+    "Tsit5",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The measured curves confirm the null case. Every multirate member converges at
+its nominal order, and the family beats the fixed step references by wide
+margins (`MREEF` passes `1e-9` in about a millisecond where `CNAB2` spends a
+quarter of a second on its curve), but that only restates that the reference
+step sizes in this file are much smaller than these loose tolerances require.
+The telling comparison is adaptive `Tsit5`, which reaches matched errors two
+to five times faster than the best multirate member everywhere the curves
+overlap. With no scale separation to exploit, the micro substepping is
+overhead, and a plain adaptive explicit method is the right tool for this
+problem.
 
 #### Comparisons Between Families
 

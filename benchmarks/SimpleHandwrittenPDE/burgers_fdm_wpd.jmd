@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -139,6 +139,76 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
 
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same `SplitODEProblem`:
+the first component (the stiff linear diffusion) is advanced with `m` explicit
+substeps inside every macro step, while the second component (the nonlinear
+convection) is evaluated only at the macro rate. Multirate integration pays off
+when the slow component is expensive relative to the fast one. That is not the
+case here, since both terms cost a sparse matrix-vector product, so the
+substeps buy stability for the diffusion term without saving any slow work,
+and the comparison against `CNAB2` and `ETDRK2` from the sections above
+measures the price of buying stability this way rather than implicitly or
+exactly.
+
+The linear operator has spectral radius about 161 and the macro steps below go
+up to `2e-2`, so `m = 4` puts the largest micro step at `2e-2 * 161 / 4`, about
+0.8, half of the explicit micro stability bound. In a scan from `m = 2` to
+`m = 8` the errors changed by under two percent at every step size, so the
+macro error dominates and larger `m` only adds micro work. The multirate
+methods are adaptive by default but are run at fixed macro steps here, matching
+how the other fixed step methods in this file are measured. The implicit
+members of the family (`MRIGARKIRK21a`, `MRIGARKESDIRK34a`,
+`MRIGARKESDIRK46a`) treat the slow component implicitly and target a stiff
+slow part; the diffusion here is only mildly stiff, so they are benchmarked on
+the Kuramoto-Sivashinsky problem instead, where the linear operator is stiff
+enough for the implicit treatment to matter.
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => MREEF(m = 4, order = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MIS(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+On the measured curves the multirate members win this figure outright: `MREEF`
+reaches an l2 error of `2e-10` in about 9 milliseconds and `MRIGARKERK45a`
+does the same at roughly twice that cost, while `CNAB2` needs 0.4 to 0.5
+seconds to reach `1e-10` and `ETDRK2` needs over a tenth of a second for
+`6e-7`. That margin is a
+statement about step sizes rather than about multirate structure: the macro
+steps here are 200 times larger than the fixed steps the reference methods run
+at in this file, and four cheap substeps per macro step suffice to keep the
+mildly stiff diffusion stable at those macro steps, so the same result says
+any stabilized explicit treatment of this split would do well. `MRAB` is the
+weak member: freezing the slow rate over the macro step caps it at first
+order, which holds its error above `7e-4` across the sweep, the least accurate
+curve of the figure.
 
 #### Comparisons Between Families
 
