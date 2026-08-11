@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using ADTypes: AutoFiniteDiff
 using DiffEqDevTools
 using SciMLOperators
@@ -187,10 +187,32 @@ unchanged, so the macro error dominates and larger `m` is pure cost. The
 methods are run at fixed macro steps, matching the other fixed step methods in
 this file.
 
+For cross family context the same five reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, and `FBDF` on
+the joined right hand side (`FBDF` cannot consume the split form), `KenCarp4`
+on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
+for it elsewhere. On this problem `KenCarp4` gets the Krylov linear solver:
+its dense default spends minutes per solve even at loose tolerances here, the
+same cost problem the implicit block below documents. The adaptive sweep runs
+at `1e-4` to `1e-7` rather than this file's usual `1e-3` start because the
+Krylov `KenCarp4` solve stalls into a singular factorization at `1e-3` on
+this problem; the fixed step methods are unaffected by the tolerance values.
+
 ```julia
-abstols = 0.1 .^ (3:6) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (3:6)
+abstols = 0.1 .^ (4:7) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (4:7)
 multipliers = 0.5 .^ (0:3)
+# The joined problem calls f1 and f2 through its own buffer: a direct call of the
+# SplitFunction uses an internal scratch cache that aliases prob.u0, so it would
+# silently overwrite the initial condition of every later solve in the sweep.
+joined_rhs! = let stiff_cache = zero(prob.u0)
+    (du, u, p, t) -> begin
+        prob.f.f1(stiff_cache, u, p, t)
+        prob.f.f2(du, u, p, t)
+        du .+= stiff_cache
+    end
+end
+prob_joined = ODEProblem(joined_rhs!, copy(prob.u0), prob.tspan, prob.p)
 setups = [
     Dict(:alg => MREEF(m = 32, order = 4), :adaptive => false, :dts => 2e-3 * multipliers),
     Dict(:alg => MRAB(k = 2, m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
@@ -200,6 +222,11 @@ setups = [
     Dict(:alg => MRIGARKERK45a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
     Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
     Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES())),
+    Dict(:alg => Tsit5(), :prob_choice => 2),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
 ]
 labels = hcat(
     "MREEF",
@@ -210,29 +237,37 @@ labels = hcat(
     "MRIGARKERK45a",
     "CNAB2",
     "ETDRK2",
+    "ETDRK4",
+    "KenCarp4 (Krylov)",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF",
 )
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+@time wp = WorkPrecisionSet([prob, prob_joined], abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e6));
 
 plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
 ```
 
 The measured curves make this a much harder problem for the explicit
-multirate members than Burgers. At errors near `1e-4` the comparison is a
-tie: `MRIGARKERK33a` at `1.1e-4` and `CNAB2` at `9.5e-5` both spend about a
-tenth of a second. The references bottom out at `2.4e-5` within this step
-range, and the higher order multirate members do continue past that point
-(`MREEF` to `1e-8`, `MRIGARKERK33a` to `3.5e-7`), but every further decade
-carries the `m = 32` micro stepping tax, with the tightest points costing 0.7
-to 2.4 seconds per solve against under 0.2 seconds for `CNAB2`'s last point. `MRAB` is unusable on this problem: the convection it
-freezes over the macro step is not slow, and its error never falls below
-`1e-2` in the sweep. `MRIGARKERK45a` loses order at the loose end and sits
-above `MRIGARKERK33a` until the tightest step. With both components equally
-cheap there is nothing for the multirate structure to amortize; what these
-curves document is that the explicit members hold their stability and order
-on a strongly stiff fast operator, and where the cost boundary lies when the
-split does not favor them.
+multirate members than Burgers, and the cross family references decide it.
+`FBDF` dominates the figure outright: 7 to 9 milliseconds per solve across
+the whole sweep with errors from `6e-4` down to `1.4e-7`, one to two orders
+of magnitude cheaper than any other method at matched error. `Tsit5` on the
+joined problem runs at a stability capped, nearly constant 0.07 seconds while
+its error falls from `6e-6` to `1.1e-8` for free, and `Rodas5P` reaches
+`7.9e-8` in 0.16 seconds. Against that, the explicit multirate members are
+not competitive: `MREEF` needs 0.78 seconds for `1.1e-8`, eleven times
+`Tsit5`'s cost at the same error, and every decade carries the `m = 32` micro
+stepping tax. Within the fixed step family the old reading still holds
+(`MRIGARKERK33a` and `CNAB2` tie near `1e-4`, the multirate members extend
+below the references' `2.4e-5` floor), `MRAB` is unusable here since the
+convection it freezes is not slow, and `MRIGARKERK45a` loses order at the
+loose end. With both components equally cheap there is nothing for the
+multirate structure to amortize; what these curves document is that the
+explicit members hold stability and order on a strongly stiff fast operator,
+and that adaptive single rate stiff solvers own this problem.
 
 The implicit multirate members treat the slow component implicitly, so for
 them the split is used in the reverse orientation: the stiff linear term
@@ -244,8 +279,10 @@ value. `KenCarp3` and `KenCarp4` on the original problem make the same
 implicit and explicit assignment of the two terms, which makes them the
 natural single rate references; they are given the Krylov linear solver here
 because their dense default costs minutes per solve on this problem at the
-tighter tolerances, as the low tolerance section below also shows. These
-methods are all adaptive, so this is a plain tolerance sweep.
+tighter tolerances, as the low tolerance section below also shows. The cross
+family references from the figure above run here as well over this tolerance
+range. These methods are adaptive apart from `ETDRK4`, which keeps its fixed
+step convention.
 
 ```julia
 Astiff = convert(AbstractMatrix, prob.f.f1.f)
@@ -262,6 +299,10 @@ setups = [
     Dict(:alg => MRIGARKESDIRK46a(m = 2, autodiff = AutoFiniteDiff())),
     Dict(:alg => KenCarp3(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
     Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg => ETDRK4(), :prob_choice => 2, :dts => 1e-3 * 0.5 .^ (0:4)),
+    Dict(:alg => Tsit5(), :prob_choice => 3),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 3),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 3),
 ]
 labels = hcat(
     "MRIGARKIRK21a",
@@ -269,30 +310,37 @@ labels = hcat(
     "MRIGARKESDIRK46a",
     "KenCarp3 (Krylov)",
     "KenCarp4 (Krylov)",
+    "ETDRK4",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF",
 )
-@time wp = WorkPrecisionSet([prob_swapped, prob], abstols, reltols, setups;
+@time wp = WorkPrecisionSet([prob_swapped, prob, prob_joined], abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e6));
+    save_everystep=false, appxsol=[test_sol, test_sol, test_sol], maxiters=Int(1e6));
 
 plot(wp, label=labels, markershape=:auto, title="Implicit Multirate Methods")
 ```
 
-This orientation is where the multirate implicit members earn their keep on
-this problem. `MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines,
-the second order member from `3.8e-4` in 26 milliseconds down to `3.1e-8` in
-1.8 seconds and the third order member down to `6e-10` in about 6 seconds.
-`MRIGARKESDIRK46a` is the cheapest route to mid accuracies (`1.3e-7` in a
-quarter of a second) but its error stops responding at the tightest
-tolerance, rising back to about `1e-6`, so its tolerance cannot be trusted as
-a control knob at that end. The `KenCarp` references complete at every point
-but deliver two to four orders of magnitude less accuracy at the same
-tolerances in this range; at matched error the multirate members come out
-roughly 30 to 300 times faster, for example `MRIGARKESDIRK34a` at `3.3e-5` in
-0.08 seconds against `KenCarp4` at `4.4e-5` in 2.3 seconds. This figure is
-confined to loose and moderate tolerances, and the low tolerance section
-below drives the same `KenCarp` family much harder; the reading supported by
-these curves is that the solve-decoupled members are the better tool in this
-range on this split, not that they replace the IMEX family outright.
+Within the split constrained comparison the reversed orientation works:
+`MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines (the second
+order member from `3.8e-4` in 24 milliseconds to `3.1e-8` in 2.6 seconds,
+the third order member to `6.1e-10` at about 10 seconds), and against the
+`KenCarp` references making the same term assignment they come out 30 to 300
+times faster at matched error, for example `MRIGARKESDIRK34a` at `3.3e-5` in
+0.11 seconds against `KenCarp4` at `4.4e-5` in 2.3 seconds.
+`MRIGARKESDIRK46a` is the cheapest member at mid accuracies (`1.8e-6` in a
+quarter of a second) but its error stops responding at the tightest pairs,
+rising back toward `1e-6`, so its tolerance is not a trustworthy control knob
+at that end. The cross family references cap the claim, though: `FBDF` on the
+joined problem reaches `1.2e-7` in under 15 milliseconds and `Tsit5` reaches
+`9.3e-10` in 0.074 seconds, so at matched error the free choice single rate
+methods beat the best multirate member by one to two orders of magnitude.
+The reading these curves support is narrow: among methods constrained to
+treat this split implicitly and explicitly by term, the solve decoupled
+members are much cheaper than the IMEX family in this range; once that
+constraint is dropped, an adaptive BDF or a stability capped explicit method
+solves the problem faster than any of them.
 
 #### Comparisons Between Families
 
