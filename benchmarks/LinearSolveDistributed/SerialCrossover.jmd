@@ -1,0 +1,172 @@
+---
+title: Distributed Linear Solvers — When Does Distributed Beat Serial?
+author: Jash
+priority: 80
+---
+
+The most actionable question about a distributed linear solver is not how it
+scales but **when to reach for it at all**: below some problem size, a good
+serial sparse direct factorization wins outright, because the distributed solve
+pays MPI setup and communication that a single process never does. This document
+measures that crossover for 2-D finite-difference Laplacians: the best serial
+direct solvers available through `LinearSolve.jl` against the distributed
+PETSc GAMG-CG path at a fixed rank count, across a size sweep.
+
+The output is a rule of thumb of the form "below N, use a serial factorization;
+above it, the distributed solve pays." It is a property of this problem class and
+this hardware, not a universal constant, and the document says so.
+
+```julia
+using MPI            # provides mpiexec()
+using LinearAlgebra, SparseArrays, LinearSolve
+using BenchmarkTools
+using Plots
+using Printf
+
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
+BenchmarkTools.DEFAULT_PARAMETERS.samples = 5
+
+const WORKER = joinpath(@__DIR__, "run_solve.jl")
+const PROJECT = Base.active_project()
+const MPIEXEC_ARGS = `-launcher fork`   # MPICH_jll hydra PMI workaround; see run_solve.jl
+const P_DIST = 4                        # fixed rank count for the distributed line
+
+# Serial solves run in-process; one BLAS thread to match the one-thread-per-rank
+# discipline of the distributed worker, so the comparison is core-for-core fair:
+# 1 serial core against P_DIST distributed cores, which is exactly the tradeoff
+# a user weighs.
+BLAS.set_num_threads(1)
+
+# Same 2-D 5-point Laplacian the worker builds (kept in sync with run_solve.jl).
+function laplacian_2d(m::Int)
+    n = m * m
+    I_ = Int[]; J_ = Int[]; V = Float64[]
+    lin(i, j) = (j - 1) * m + i
+    @inbounds for j in 1:m, i in 1:m
+        k = lin(i, j)
+        push!(I_, k); push!(J_, k); push!(V, 4.0)
+        if i > 1
+            push!(I_, k); push!(J_, lin(i - 1, j)); push!(V, -1.0)
+        end
+        if i < m
+            push!(I_, k); push!(J_, lin(i + 1, j)); push!(V, -1.0)
+        end
+        if j > 1
+            push!(I_, k); push!(J_, lin(i, j - 1)); push!(V, -1.0)
+        end
+        if j < m
+            push!(I_, k); push!(J_, lin(i, j + 1)); push!(V, -1.0)
+        end
+    end
+    return sparse(I_, J_, V, n, n)
+end
+
+serial_algs = [
+    ("UMFPACK", UMFPACKFactorization()),
+    ("KLU", KLUFactorization()),
+    ("SupernodalLU", SupernodalLUFactorization()),
+]
+
+# Target unknown counts (the worker rounds to a square grid). Modest for CI;
+# the closing section describes raising the range on dedicated hardware.
+const SIZES = [10_000, 22_500, 40_000, 90_000]
+```
+
+## Methodology
+
+Serial entries time a full `solve` (setup + factorization + solve, fresh per
+sample) behind a correctness gate. The distributed entry launches the same
+worker the scaling documents use, which itself gates on the true residual and
+reports the end-to-end assemble/solve/gather time along with the iteration
+count. Both sides therefore pay their honest setup costs: factorization for the
+direct solvers, MPI launch + PETSc setup + communication for the distributed
+solve.
+
+```julia
+function bench_serial(A, b, alg)
+    ref = A \ b
+    sol = solve(LinearProblem(A, b), alg)
+    err = norm(sol.u - ref) / norm(ref)
+    err < 1e-8 || return NaN
+    return @belapsed solve(LinearProblem($A, $b), $alg).u evals=1
+end
+
+function bench_dist(N)
+    cmd = `$(mpiexec()) $(MPIEXEC_ARGS) -n $P_DIST $(Base.julia_cmd()) --project=$(PROJECT) $(WORKER) $N cg gamg`
+    out = read(addenv(cmd, "OMP_NUM_THREADS" => "1"), String)
+    f = split(strip(last(filter(!isempty, split(out, '\n')))), ',')
+    return (time = parse(Float64, f[6]), iters = parse(Int, f[8]),
+        n = parse(Int, f[2]), retcode = f[9])
+end
+
+rows = []
+for N in SIZES
+    m = round(Int, sqrt(N))
+    A = laplacian_2d(m)
+    n = size(A, 1)
+    rng_b = ones(n)   # deterministic RHS, matching the worker
+    @info "n=$n"
+    serial = [(name, bench_serial(A, rng_b, alg)) for (name, alg) in serial_algs]
+    dist = bench_dist(N)
+    push!(rows, (; n, serial, dist))
+end
+```
+
+## Results
+
+```julia
+println("    N    | " * join([rpad(name, 10) for (name, _) in serial_algs], "| ") *
+        "| dist P=$(P_DIST) | dist iters")
+println("-"^78)
+for r in rows
+    svals = join([@sprintf("%9.3g ", t) for (_, t) in r.serial], "| ")
+    @printf("%8d | %s| %9.3g | %d (%s)\n", r.n, svals, r.dist.time,
+        r.dist.iters, r.dist.retcode)
+end
+
+best_serial = [minimum(filter(!isnan, [t for (_, t) in r.serial]); init = Inf) for r in rows]
+dist_times = [r.dist.time for r in rows]
+ns = [r.n for r in rows]
+cross = findfirst(i -> dist_times[i] < best_serial[i], 1:length(rows))
+println()
+println(cross === nothing ?
+    "No crossover in the measured range: the best serial factorization wins throughout." :
+    "Crossover: the distributed solve first beats the best serial factorization at N = $(ns[cross]).")
+```
+
+```julia
+p = plot(; xlabel = "N", ylabel = "time / s", xscale = :log10, yscale = :log10,
+    title = "Serial direct vs distributed (P = $(P_DIST))", legend = :topleft)
+for (j, (name, _)) in enumerate(serial_algs)
+    ys = [r.serial[j][2] for r in rows]
+    mask = .!isnan.(ys)
+    any(mask) && plot!(p, ns[mask], ys[mask]; marker = :circle, label = name)
+end
+plot!(p, ns, dist_times; marker = :diamond, linewidth = 2,
+    label = "PETSc GAMG-CG, $(P_DIST) ranks")
+p
+```
+
+## Reading the result
+
+Where the diamond line crosses below the best serial curve is the size at which
+distribution starts paying on this problem class. Below it, the winning move is a
+serial factorization (and, for repeated solves, its cached reuse — see the
+CacheReuse document in the LinearSolve folder). The distributed iteration counts
+are printed so a reader can check that GAMG stays algorithmically flat across the
+sweep; if iterations grew, the crossover would be an artifact of solver strength
+rather than parallelism.
+
+Scope: 2-D FD Laplacians (SPD, well-conditioned, planar sparsity), one fixed rank
+count, modest sizes chosen to fit a CI budget. The conclusions transfer to
+problems of similar structure, not to arbitrary sparse systems. On dedicated
+hardware, extending `SIZES` upward and adding rank counts turns the single
+crossover point into a crossover *frontier*; that is the intended follow-up once
+this baseline is established.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
