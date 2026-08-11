@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -139,6 +139,110 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
 
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same `SplitODEProblem`:
+the first component (the stiff linear diffusion) is advanced with `m` explicit
+substeps inside every macro step, while the second component (the nonlinear
+convection) is evaluated only at the macro rate. Multirate integration pays off
+when the slow component is expensive relative to the fast one. That is not the
+case here, since both terms cost a sparse matrix-vector product, so the
+substeps buy stability for the diffusion term without saving any slow work,
+and the comparison against `CNAB2` and `ETDRK2` from the sections above
+measures the price of buying stability this way rather than implicitly or
+exactly.
+
+The linear operator has spectral radius about 161 and the macro steps below go
+up to `2e-2`, so `m = 4` puts the largest micro step at `2e-2 * 161 / 4`, about
+0.8, half of the explicit micro stability bound. In a scan from `m = 2` to
+`m = 8` the errors changed by under two percent at every step size, so the
+macro error dominates and larger `m` only adds micro work. The multirate
+methods are adaptive by default but are run at fixed macro steps here, matching
+how the other fixed step methods in this file are measured. The implicit
+members of the family (`MRIGARKIRK21a`, `MRIGARKESDIRK34a`,
+`MRIGARKESDIRK46a`) treat the slow component implicitly and target a stiff
+slow part; the diffusion here is only mildly stiff, so they are benchmarked on
+the Kuramoto-Sivashinsky problem instead, where the linear operator is stiff
+enough for the implicit treatment to matter.
+
+For cross family context the same five reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, and `FBDF` on
+the joined right hand side (`FBDF` cannot consume the split form), `KenCarp4`
+on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
+for it elsewhere. `CNAB2` and `ETDRK2` from the sections above stay in as
+local references.
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+# The joined problem calls f1 and f2 through its own buffer: a direct call of the
+# SplitFunction uses an internal scratch cache that aliases prob.u0, so it would
+# silently overwrite the initial condition of every later solve in the sweep.
+joined_rhs! = let stiff_cache = zero(prob.u0)
+    (du, u, p, t) -> begin
+        prob.f.f1(stiff_cache, u, p, t)
+        prob.f.f2(du, u, p, t)
+        du .+= stiff_cache
+    end
+end
+prob_joined = ODEProblem(joined_rhs!, copy(prob.u0), prob.tspan, prob.p)
+setups = [
+    Dict(:alg => MREEF(m = 4, order = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MIS(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Tsit5(), :prob_choice => 2),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+    "ETDRK4",
+    "KenCarp4",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF",
+)
+@time wp = WorkPrecisionSet([prob, prob_joined], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The cross family view narrows the earlier reading of this figure. Adaptive
+`Tsit5` on the joined problem is the fastest method in the practical middle of
+the range: it holds a near constant 0.4 to 0.5 milliseconds per solve while
+its error falls from `9e-3` to `1.3e-7`, because the mild diffusion caps its
+step at the stability limit and tightening the tolerance costs it nothing
+until error control takes over. `FBDF` runs a clean curve to `2e-6` at about 3
+milliseconds and `Rodas5P` to `1.2e-7` at about 12 milliseconds. The multirate
+members' real estate is the tight end: `MREEF` reaches `2.2e-10` in about 10
+milliseconds and `MRIGARKERK45a` matches it at twice the cost, errors that no
+adaptive reference here touches, with fixed step `ETDRK4` the only method
+going deeper (`1.1e-11` at a quarter of a second, 25 times slower than
+`MREEF` at matched `2e-10`). That tight end margin is still a statement about
+step economics rather than multirate structure: the macro steps are 200 times
+larger than the fixed steps the older references run at, and four cheap
+substeps keep the diffusion stable, so any stabilized explicit treatment of
+this split would do as well. `KenCarp4` only reaches `1e-4` at these pairs
+and is slower than every multirate member at matched error. `MRAB` remains
+the weak member: freezing the slow rate over the macro step caps it at first
+order and holds its error above `7e-4` across the sweep.
 
 #### Comparisons Between Families
 
