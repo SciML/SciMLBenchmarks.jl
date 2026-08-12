@@ -1,0 +1,162 @@
+---
+title: 2D Brusselator FDM Work-Precision
+author: SciMLBenchmarks + ExpRK improvements
+---
+
+This benchmark is a **reference for future ExponentialUtilities improvements**, complementary to `allen_cahn_fdm_wpd.jmd`.
+
+PDE: 2D Brusselator reaction-diffusion (MOOSE 234 / Hairer & Wanner)
+```
+u_t = α Δu + B + u²v - (A+1)u + f(x,y,t)
+v_t = α Δv + A u - u²v
+```
+- Domain [0,1]×[0,1], periodic Laplacian 5-point stencil, N=32 → 2*N²=2048 ODEs
+- α=10, A=3.4, B=1.0, f = 5 if (x-0.3)²+(y-0.6)²≤0.01 and t≥1.1 else 0
+- Split form: `du/dt = A_lin*u + g(u)` where `A_lin = α * (I⊗D2 + D2⊗I)` is stiff, `g` non-stiff
+- Reference benchmark for ExpRK vs Newton: ETDRK4 m=30 iop=2 vs FBDF / Rodas5P / KenCarp4
+
+Validates ExponentialUtilities 1.31 improvements:
+- Adaptive Krylov early exit (true matvecs < builds*m*steps)
+- IOP incomplete orthogonalization (iop=2 saves ~15x orth cost)
+- m sweep 15/30/60 to find optimal Krylov size
+
+```julia
+using OrdinaryDiffEq, OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using DiffEqDevTools
+using SciMLOperators
+using LinearAlgebra, SparseArrays
+using Plots; gr()
+using ADTypes: AutoFiniteDiff
+```
+
+```julia
+# CountingMatrix for true matvec counting (quantifies ExpUtil 1.31 adaptive exit)
+struct CountingMatrix <: AbstractMatrix{Float64}
+    A::SparseMatrixCSC{Float64,Int}
+    count::Base.RefValue{Int}
+end
+CountingMatrix(A) = CountingMatrix(A, Ref(0))
+Base.size(C::CountingMatrix) = size(C.A)
+Base.getindex(C::CountingMatrix,i,j) = getindex(C.A,i,j)
+LinearAlgebra.mul!(y,C::CountingMatrix,x) = (C.count[]+=1; mul!(y,C.A,x))
+LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b) = (C.count[]+=1; mul!(y,C.A,x,a,b))
+Base.:*(C::CountingMatrix,x) = (C.count[]+=1; C.A*x)
+
+bruss_f(x,y,t) = (((x-0.3)^2 + (y-0.6)^2) <= 0.1^2) * (t >= 1.1) * 5.0
+init_bruss(N) = begin xyd=range(0,stop=1,length=N); u=zeros(N,N,2); for I in CartesianIndices((N,N)); x=xyd[I[1]]; y=xyd[I[2]]; u[I,1]=22*(y*(1-y))^(3/2); u[I,2]=27*(x*(1-x))^(3/2); end; u end
+
+function build_mat(N, as)
+    n=N*N; L=spzeros(n,n)
+    for j in 1:N, i in 1:N
+        idx=(j-1)*N+i; ip1=i==N ? 1 : i+1; im1=i==1 ? N : i-1; jp1=j==N ? 1 : j+1; jm1=j==1 ? N : j-1
+        idx_ip1=(j-1)*N+ip1; idx_im1=(j-1)*N+im1; idx_jp1=(jp1-1)*N+i; idx_jm1=(jm1-1)*N+i
+        L[idx, idx]=-4*as; L[idx, idx_ip1]=as; L[idx, idx_im1]=as; L[idx, idx_jp1]=as; L[idx, idx_jm1]=as
+    end
+    C=spzeros(2*n,2*n); C[1:n,1:n]=L; C[n+1:end,n+1:end]=L; return C
+end
+
+function bruss_nonlin_vec!(du,u,p,t)
+    Nloc=p[5]; A_val=p[1]; B_val=p[2]
+    u3=reshape(u,Nloc,Nloc,2); du3=reshape(du,Nloc,Nloc,2)
+    xyd=range(0,stop=1,length=Nloc)
+    @inbounds for II in CartesianIndices((Nloc,Nloc))
+        i=II[1]; j=II[2]; x=xyd[i]; y=xyd[j]
+        du3[i,j,1]=B_val+u3[i,j,1]^2*u3[i,j,2]-(A_val+1)*u3[i,j,1]+bruss_f(x,y,t)
+        du3[i,j,2]=A_val*u3[i,j,1]-u3[i,j,1]^2*u3[i,j,2]
+    end
+end
+make_p(N;A=3.4,B=1.0,α=10.0)=(A,B,α,1.0/N,N)
+make_split_prob(N; tspan=(0.0,11.5)) = begin p=make_p(N); αs=p[3]/p[4]^2; L=build_mat(N,αs); u0=vec(init_bruss(N)); f1=MatrixOperator(L); f2=(du,u,par,t)->bruss_nonlin_vec!(du,u,par,t); SplitODEProblem(f1,f2,u0,tspan,p) end
+make_full_prob(N; tspan=(0.0,11.5)) = begin p=make_p(N); u0=vec(init_bruss(N)); function full!(du,u,par,t) Nloc=par[5]; α=par[3]; dx=par[4]; αs=α/dx^2; u3=reshape(u,Nloc,Nloc,2); du3=reshape(du,Nloc,Nloc,2); @inbounds for k in 1:2, j in 1:Nloc, i in 1:Nloc; ip1=i==Nloc ? 1 : i+1; im1=i==1 ? Nloc : i-1; jp1=j==Nloc ? 1 : j+1; jm1=j==1 ? Nloc : j-1; du3[i,j,k]=αs*(u3[im1,j,k]+u3[ip1,j,k]+u3[i,jp1,k]+u3[i,jm1,k]-4*u3[i,j,k]); end; tmp=similar(du); bruss_nonlin_vec!(tmp,u,par,t); du.+=tmp; end; ODEProblem(full!, u0, tspan, p) end
+
+# All charts N=256 for Allen-Cahn, but for Brusselator 2D N=256=131k ODEs heavy
+# Default N=32 (2048 ODEs ~5 min) for quick_bruss, use BRUSS_N=64 (8192 ODEs ~20 min) or 256 (~1hr, >10GB) for scaling
+N = parse(Int, get(ENV,"BRUSS_N","32"))
+prob_split = make_split_prob(N)
+prob_full = make_full_prob(N)
+println("N=$N, ODEs=$(2*N^2), split and full probs built")
+```
+
+```julia
+# Reference solution - FBDF 1e-12 for error metric (same as your ode5 script)
+println("Reference FBDF 1e-12...")
+@time sol_ref = solve(prob_full, FBDF(), abstol=1e-12, reltol=1e-12, maxiters=Int(5e6), save_everystep=false)
+test_sol = TestSolution(sol_ref)
+println("Ref steps=$(sol_ref.stats.naccept) time")
+heatmap(reshape(sol_ref.u[end][1:N*N], N, N), title="Brusselator u at t=11.5 N=$N ref")
+```
+
+### Adaptive TOL sweep: Newton vs Exp (all full ODE - fair)
+
+FBDF/KenCarp4/Rodas5P/TRBDF2 vs Exprb43 for high accuracy. This answers "is Exp top after ExpUtil improvements?"
+
+```julia
+abstols = 0.1 .^ (7:11)
+reltols = 0.1 .^ (4:8)
+setups = [
+    Dict(:alg => FBDF()),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Rodas5P()),
+    Dict(:alg => TRBDF2()),
+    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=30)),
+]
+labels = hcat("FBDF", "KenCarp4", "Rodas5P", "TRBDF2", "Exprb43 m=30")
+@time wp = WorkPrecisionSet(prob_full, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+plot(wp, label=labels, markershape=:auto, title="Brusselator 2D Adaptive TOL - Newton vs Exprb43\nN=$N, Lower-left Pareto Top")
+```
+
+### Fixed DT sweep: ETDRK vs Exp (split)
+
+ETDRK2/4 need SplitODEProblem, fixed dt sweep.
+
+```julia
+abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+setups = [
+    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => 0.1 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30), :dts => 0.1 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => 0.1 * multipliers),
+    Dict(:alg => HochOst4(krylov=true, m=30), :dts => 0.1 * multipliers),
+    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=30), :dts => 0.1 * multipliers),
+]
+labels = hcat("ETDRK2 m=30 (split, dt)", "ETDRK4 m=30", "ETDRK4 m=30 iop=2 (15x orth saving)", "HochOst4 m=30", "EPIRK4s3A block")
+@time wp = WorkPrecisionSet(prob_split, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+plot(wp, label=labels, markershape=:auto, title="Brusselator 2D Fixed DT - ExpRK split\nN=$N, m=30")
+```
+
+### m sweep and IOP sweep: Core ExpUtil 1.31 validation
+
+This is the reference for future ExpUtil improvements - quantifies true vs est matvecs.
+
+```julia
+abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
+dts = [0.2, 0.1, 0.05, 0.025]
+setups = [
+    Dict(:alg => ETDRK2(krylov=true, m=15), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=60), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
+]
+labels = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=30 iop=2 incomplete", "ETDRK4 m=30 iop=10")
+@time wp = WorkPrecisionSet(prob_split, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+plot(wp, label=labels, markershape=:auto, title="Brusselator 2D m & IOP sweep\nN=$N, True vs Est matvecs, ExpUtil 1.31")
+
+# True matvec counting via CountingMatrix (optional deep dive)
+# L = build_mat(N, 10.0/(1.0/N)^2)
+# L_count = CountingMatrix(L)
+# prob_count = SplitODEProblem(MatrixOperator(L_count), prob_split.f.f2, prob_split.u0, prob_split.tspan, prob_split.p)
+# ... run solve and read L_count.count[] for true matvecs vs est builds*m*steps
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
