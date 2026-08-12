@@ -48,15 +48,15 @@ end
 
 ## Run the sweep
 
-Work per rank is deliberately modest so the document proves the pipeline inside a
-small CI budget; raise `N_PER_RANK` (and extend `RANKS`) on dedicated hardware to
-chart the full envelope. Note the replicated-`SparseMatrixCSC` input path stores a
+Work per rank is sized for the benchmark runner (the pipeline was proven at
+smaller sizes first); extending `N_PER_RANK` and `RANKS` further charts a larger
+envelope at proportional run cost. Note the replicated-`SparseMatrixCSC` input path stores a
 full matrix copy per rank, so total memory grows with `P × N` here even though the
 *solver's* per-rank work is constant; the closing section discusses this bound.
 
 ```julia
-const N_PER_RANK = 10_000
-const RANKS = [1, 2, 4]
+const N_PER_RANK = 100_000
+const RANKS = [1, 2, 4, 8]
 
 results = [run_ranks(P; N = N_PER_RANK * P) for P in RANKS]
 ```
@@ -111,13 +111,11 @@ added. Efficiency decay isolates *parallel* overhead (communication, setup),
 since constant per-rank work removes the serial-fraction confound that
 complicates strong scaling.
 
-Three caveats bound what this document can show. First, at the committed sizes
-the per-iteration cost is small enough that fixed overheads matter; the
-definitive curve needs larger `N_PER_RANK` on dedicated hardware. Second, the
+Two caveats bound what this document can show. First, the
 replicated-input path makes every rank assemble the *full* matrix, so the
 constant-work-per-rank premise holds for the solve phase but not for assembly:
 assembly cost grows with total `N` on every rank, which drags measured weak
-efficiency down even when the solver itself scales. Third, the same replication
+efficiency down even when the solver itself scales. Second, the same replication
 caps how far `RANKS` can extend before total memory becomes the binding
 constraint. A partitioned-input variant removes the second and third limits and
 is the natural follow-up for large-rank weak scaling.
