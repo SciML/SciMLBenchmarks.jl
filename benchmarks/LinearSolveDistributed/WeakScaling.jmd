@@ -1,0 +1,130 @@
+---
+title: Distributed Linear Solvers — Weak Scaling
+author: Jash
+priority: 85
+---
+
+**Weak scaling** grows the problem with the number of ranks, holding the work per
+rank fixed. It answers the question distributed solvers actually exist for: *can I
+solve a proportionally bigger problem in the same wall-clock time by adding
+hardware?* Strong scaling (the sibling document) fixes the problem and asks for
+speedup; weak scaling is usually the more honest test for memory-bound sparse
+solves, because per-rank working set stays constant by construction.
+
+We solve 2-D finite-difference Laplacians with PETSc's CG under GAMG via
+`LinearSolve.jl`'s `PETScAlgorithm`, with the target unknown count proportional to
+the rank count. Two properties are on trial:
+
+* **Algorithmic scalability**: GAMG's iteration count should stay near-constant as
+  `N` grows. The iteration column makes this auditable on every run.
+* **Parallel weak efficiency** `T_1 / T_P`: with perfect weak scaling every rank
+  count solves its (proportionally larger) system in the baseline's time.
+
+```julia
+using MPI            # provides mpiexec()
+using Plots
+using Printf
+
+const WORKER = joinpath(@__DIR__, "run_solve.jl")
+const PROJECT = Base.active_project()
+
+# MPICH_jll 5.x hydra can fail PMI bootstrap on a single node; `-launcher fork`
+# spawns ranks with fork() instead and is harmless where hydra is healthy.
+const MPIEXEC_ARGS = `-launcher fork`
+
+# Run run_solve.jl under `mpiexec -n P`; parse the CSV line rank 0 prints:
+#   ranks,N,nnz,solver,pc,time_s,residual,iters,retcode
+# One thread per rank so parallelism comes only from the rank count.
+function run_ranks(P; N, solver = "cg", pc = "gamg")
+    cmd = `$(mpiexec()) $(MPIEXEC_ARGS) -n $P $(Base.julia_cmd()) --project=$(PROJECT) $(WORKER) $N $solver $pc`
+    out = read(addenv(cmd, "OMP_NUM_THREADS" => "1"), String)
+    line = strip(last(filter(!isempty, split(out, '\n'))))
+    f = split(line, ',')
+    return (ranks = parse(Int, f[1]), N = parse(Int, f[2]), nnz = parse(Int, f[3]),
+        time = parse(Float64, f[6]), residual = parse(Float64, f[7]),
+        iters = parse(Int, f[8]), retcode = f[9])
+end
+```
+
+## Run the sweep
+
+Work per rank is deliberately modest so the document proves the pipeline inside a
+small CI budget; raise `N_PER_RANK` (and extend `RANKS`) on dedicated hardware to
+chart the full envelope. Note the replicated-`SparseMatrixCSC` input path stores a
+full matrix copy per rank, so total memory grows with `P × N` here even though the
+*solver's* per-rank work is constant; the closing section discusses this bound.
+
+```julia
+const N_PER_RANK = 10_000
+const RANKS = [1, 2, 4]
+
+results = [run_ranks(P; N = N_PER_RANK * P) for P in RANKS]
+```
+
+## Weak efficiency
+
+```julia
+t1 = results[1].time
+weak_eff = [t1 / r.time for r in results]
+
+println("ranks |    N    |  time (s)  | iters | weak eff. | residual  | retcode")
+println("------+---------+------------+-------+-----------+-----------+--------")
+for (r, e) in zip(results, weak_eff)
+    @printf("%5d | %7d | %10.4g | %5d | %8.1f%% | %9.2e | %s\n",
+        r.ranks, r.N, r.time, r.iters, 100 * e, r.residual, r.retcode)
+end
+
+# Auditability annotations, mirroring the strong-scaling document: iteration
+# growth means the preconditioner is not algorithmically scaling (the time
+# column then conflates solver work with parallel overhead), and efficiency
+# above ~110% at these sizes usually reflects cache effects on a generic
+# (JLL) PETSc build rather than real scaling.
+itset = [r.iters for r in results]
+if maximum(itset) - minimum(itset) > 0.25 * minimum(itset)
+    @warn "GAMG iteration count grows >25% across the sweep — algorithmic " *
+          "scalability is not holding at these sizes." iters = itset
+end
+if maximum(weak_eff) > 1.10
+    @warn "Weak efficiency exceeds 110% — treat as a cache/working-set artifact " *
+          "at small N, not a real result." weak_eff
+end
+```
+
+## Plot
+
+```julia
+p = plot(RANKS, 100 .* weak_eff;
+    marker = :square, label = "PETSc CG + GAMG",
+    xlabel = "MPI ranks (N = $(N_PER_RANK) × ranks)",
+    ylabel = "weak efficiency (%)",
+    title = "Weak scaling: constant work per rank",
+    ylims = (0, 130), legend = :bottomleft)
+hline!(p, [100]; linestyle = :dash, color = :gray, label = "ideal (100%)")
+p
+```
+
+## Reading the result
+
+Flat iteration counts with efficiency near 100% is the headline weak-scaling
+claim: the solver does proportionally more work in the same time as ranks are
+added. Efficiency decay isolates *parallel* overhead (communication, setup),
+since constant per-rank work removes the serial-fraction confound that
+complicates strong scaling.
+
+Three caveats bound what this document can show. First, at the committed sizes
+the per-iteration cost is small enough that fixed overheads matter; the
+definitive curve needs larger `N_PER_RANK` on dedicated hardware. Second, the
+replicated-input path makes every rank assemble the *full* matrix, so the
+constant-work-per-rank premise holds for the solve phase but not for assembly:
+assembly cost grows with total `N` on every rank, which drags measured weak
+efficiency down even when the solver itself scales. Third, the same replication
+caps how far `RANKS` can extend before total memory becomes the binding
+constraint. A partitioned-input variant removes the second and third limits and
+is the natural follow-up for large-rank weak scaling.
+
+## Appendix
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
