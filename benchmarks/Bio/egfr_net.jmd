@@ -122,6 +122,7 @@ setups = [
     Dict(:alg=>TRBDF2()),
     Dict(:alg=>QNDF()),
     Dict(:alg=>FBDF()),
+    Dict(:alg=>NordsieckBDF()),
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>Rosenbrock23()),
     Dict(:alg=>Rodas4()),
@@ -137,7 +138,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "NordsieckBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
 plot(wp; label = names)
 ```
 
@@ -152,6 +153,7 @@ setups = [
     Dict(:alg=>TRBDF2(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES())),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>KenCarp4(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>Rosenbrock23(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>Rodas4(linsolve = KrylovJL_GMRES())),
@@ -167,7 +169,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "NordsieckBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
 plot(wp; label = names)
 ```
 
@@ -181,6 +183,7 @@ setups = [
     Dict(:alg=>TRBDF2(linsolve = KLUFactorization())),
     Dict(:alg=>QNDF(linsolve = KLUFactorization())),
     Dict(:alg=>FBDF(linsolve = KLUFactorization())),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization())),
     Dict(:alg=>KenCarp4(linsolve = KLUFactorization())),
     Dict(:alg=>Rosenbrock23(linsolve = KLUFactorization())),
     Dict(:alg=>Rodas4(linsolve = KLUFactorization())),
@@ -196,7 +199,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
+names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
 plot(wp; label = names)
 ```
 
@@ -283,7 +286,9 @@ setups = [
     Dict(:alg=>lsoda(), :prob_choice => 1),
     Dict(:alg=>CVODE_BDF(linear_solver = :GMRES), :prob_choice => 1),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
     Dict(:alg=>QNDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization()), :prob_choice => 2),
     Dict(:alg=>BS5(), :prob_choice => 1),
     Dict(:alg=>Vern6(), :prob_choice => 1),
     Dict(:alg=>ROCK4(), :prob_choice => 1)
@@ -299,9 +304,9 @@ wp = WorkPrecisionSet(
     [oprob, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = [test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "QNDF (KLU)" "BS5" "Vern6" "ROCK4"]
-colors = [:seagreen1 :darkgreen :deepskyblue1 :deepskyblue4 :thistle2 :lightslateblue :purple4]
-markershapes = [:star4 :rect :hexagon :octagon :star8 :rtriangle :square]
+names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "NordsieckBDF (GMRES)" "QNDF (KLU)" "NordsieckBDF (KLU)" "BS5" "Vern6" "ROCK4"]
+colors = [:seagreen1 :darkgreen :deepskyblue1 :mediumorchid :deepskyblue4 :orchid :thistle2 :lightslateblue :purple4]
+markershapes = [:star4 :rect :hexagon :diamond :octagon :dtriangle :star8 :rtriangle :square]
 plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     xticks = [1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2], yticks = [1e-2, 1e-1],
     color = colors, markershape = markershapes, legendfontsize = 15,
