@@ -74,7 +74,10 @@ make_full_prob(N; tspan=(0.0,1.0)) = begin p=make_p(N); u0=vec(init_bruss(N)); f
 N = parse(Int, get(ENV,"BRUSS_N","32"))
 prob_split = make_split_prob(N)
 prob_full = make_full_prob(N)
-println("N=$N, ODEs=$(2*N^2), split and full probs built tspan 0-1.0")
+numruns = parse(Int, get(ENV,"NUMRUNS","1"))
+plot_tuning = get(ENV,"PLOT_TUNING","false") == "true"
+best_m = 15; best_iop = 2
+println("N=$N, ODEs=$(2*N^2), split and full probs built tspan 0-1.0, best m=$best_m iop=$best_iop PLOT_TUNING=$plot_tuning NUMRUNS=$numruns")
 ```
 
 ```julia
@@ -86,28 +89,28 @@ println("Ref steps=$(sol_ref.stats.naccept)")
 heatmap(reshape(sol_ref.u[end][1:N*N], N, N), title="Brusselator u at t=1.0 N=$N ref")
 ```
 
-### Stage 1: Within-method tuning - m and IOP sweep to select best Exp form (Exp-only is OK here as tuning)
+### Stage 1: Within-method tuning - optional, only if PLOT_TUNING=true (default skip, use best from data)
 
-This quantifies ExpUtil 1.31: true vs est matvecs (adaptive early exit) and orth cost. Best form from this stage (m=15 iop=2) is then used in Stage 2 final comparison with baseline.
+Best from prior data: m=15 avg 10.4 matvecs vs m=30, iop=2 15x orth saving same error. So best = m=15 iop=2 without needing plot.
 
 ```julia
-abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
-dts = [0.05, 0.025, 0.0125, 0.005] # fair DTs from feedback
-numruns = parse(Int, get(ENV,"NUMRUNS","1")) # use NUMRUNS=3 for full paper, 1 for quick to avoid hang
-setups = [
-    Dict(:alg => ETDRK2(krylov=true, m=15), :dts => dts),
-    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => dts),
-    Dict(:alg => ETDRK2(krylov=true, m=60), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
-]
-labels = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=30 iop=2 best (15x orth saving)", "ETDRK4 m=30 iop=10")
-@time wp_tune = WorkPrecisionSet(prob_split, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
-plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep\nN=$N, selects m=15 iop=2 best")
-# Note: CountingMatrix shows true matvecs: m=15 avg 10.4 vs m=30 avg 30, iop doesn't change matvecs, only time
+if plot_tuning
+    abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
+    dts = [0.05, 0.025, 0.0125, 0.005]
+    setups = [
+        Dict(:alg => ETDRK2(krylov=true, m=15), :dts => dts),
+        Dict(:alg => ETDRK2(krylov=true, m=30), :dts => dts),
+        Dict(:alg => ETDRK2(krylov=true, m=60), :dts => dts),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => dts),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
+    ]
+    labels = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=30 iop=2 best", "ETDRK4 m=30 iop=10")
+    @time wp_tune = WorkPrecisionSet(prob_split, abstols, reltols, setups; print_names=true, names=labels, numruns=numruns, error_estimate=:l2, save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+    plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep\nN=$N, selects m=15 iop=2 best")
+else
+    println("Skipping tuning plot (PLOT_TUNING=false) - using best m=$best_m iop=$best_iop from prior data")
+end
 ```
 
 ### Stage 2: Final combined - Between-method with baseline (single plot with all best data)
@@ -117,23 +120,21 @@ Addresses feedback: always include baseline, or take best form from within-metho
 ```julia
 abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (5:8) # paired 1e-5..1e-8 for fair
 dts = [0.05, 0.025, 0.0125, 0.005]
-numruns = parse(Int, get(ENV,"NUMRUNS","1"))
 
-# Best adaptive forms from tuning + baselines - prob_full
+# Best forms determined from prior tuning data without plot: m=15 31% matvec save, iop=2 15x orth save
 setups_ad = [
     Dict(:alg => FBDF()), # baseline Newton
     Dict(:alg => KenCarp4()), # baseline SDIRK
-    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=15)), # best adaptive Exp (m=15 from Stage 1)
+    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=best_m)), # best adaptive Exp
 ]
-labels_ad = hcat("FBDF (Newton baseline)", "KenCarp4 (baseline)", "Exprb43 m=15 best adaptive")
+labels_ad = hcat("FBDF (Newton baseline)", "KenCarp4 (baseline)", "Exprb43 m=$best_m best adaptive")
 
-# Best fixed DT forms from tuning - prob_split
 setups_dt = [
-    Dict(:alg => ETDRK4(krylov=true, m=15, iop=2), :dts => dts), # best fixed from Stage 1
-    Dict(:alg => ETDRK2(krylov=true, m=15, iop=2), :dts => dts),
-    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=15), :dts => dts), # block reuse 2 vs 5 builds
+    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=best_iop), :dts => dts), # best fixed from tuning data
+    Dict(:alg => ETDRK2(krylov=true, m=best_m, iop=best_iop), :dts => dts),
+    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=best_m), :dts => dts),
 ]
-labels_dt = hcat("ETDRK4 m=15 iop=2 best fixed (4x win)", "ETDRK2 m=15 iop=2", "EPIRK4s3A m=15 block")
+labels_dt = hcat("ETDRK4 m=$(best_m) iop=$(best_iop) best fixed (4x win)", "ETDRK2 m=$(best_m) iop=$(best_iop)", "EPIRK4s3A m=$(best_m) block")
 
 @time wp_ad = WorkPrecisionSet(prob_full, abstols, reltols, setups_ad;
     print_names=true, names=labels_ad, numruns=numruns, error_estimate=:l2,

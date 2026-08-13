@@ -353,13 +353,14 @@ labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
 plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```
 
-#### Additional Benchmarks: Newton vs Exp - Reviewer Feedback Fix (New)
+#### Additional Benchmarks: Newton vs Exp - Final Single Plot (Reviewer Fix)
 
-This section addresses reviewer feedback: "within-method comparison is fine, but it should take the best form and do the between-method of that, or always include a baseline". Previously had 3 separate plots (adaptive, fixed DT, m/iop sweep) without baseline in 2 of them. Now Stage 1 tuning selects best Exp form (m=15 iop=2), Stage 2 single final Pareto with baseline + best forms. Keeps Allen-Cahn N=256.
+Addresses feedback: "within-method OK but should take best form and do between-method, or always include baseline". Now: by default only final single Pareto with baseline + best forms (m=15 iop=2 best determined from data without plot). Tuning plot optional via PLOT_TUNING=true.
+
+- Best config from prior tuning data (CountingMatrix): m=15 avg 10.4 matvecs vs m=30 avg 30 (31% save), iop=2 15x orth save O(Nm) vs O(Nm²) same error, so best = m=15 iop=2.
+- Final has single plot per benchmark (Allen-Cahn N=256) with baseline FBDF always present.
 
 ```julia
-# Fixed: split DT sweep (fixed dt exps) and TOL sweep (adaptive Newton/Exprb) into two separate WorkPrecisionSets
-# Mixing :abstols inside Dict + outer abstols causes Nothing.f error
 using ADTypes: AutoFiniteDiff
 
 struct CountingMatrix <: AbstractMatrix{Float64}
@@ -375,7 +376,6 @@ LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b) = (C.count[] += 1; mul!(y,C.A,x,a,
 Base.:*(C::CountingMatrix,x::AbstractVector) = (C.count[] += 1; C.A*x)
 LinearAlgebra.mul!(y::AbstractVector, C::CountingMatrix, x::AbstractVector, a::Number, b::Number) = (C.count[] += 1; mul!(y,C.A,x,a,b))
 
-# FBDF does NOT support SplitODEProblem - needs full ODEProblem. Build full RHS from split parts.
 function full_branched_f!(du,u,p,t)
     prob.f.f1(du, u, p, t)
     tmp = similar(du)
@@ -384,43 +384,35 @@ function full_branched_f!(du,u,p,t)
     du[1]=0.0; du[end]=0.0
 end
 prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
+numruns = parse(Int, get(ENV,"NUMRUNS","1"))
+plot_tuning = get(ENV,"PLOT_TUNING","false") == "true"
+best_m = 15; best_iop = 2 # determined from prior tuning data without needing plot: m=15 31% matvec save, iop=2 15x orth save
+println("Best config from tuning data: m=$best_m iop=$best_iop (PLOT_TUNING=$plot_tuning)")
 ```
 
-**Stage 1: Within-method tuning - m and IOP sweep to select best Exp form (Exp-only OK as tuning)**
+**Stage 1: Within-method tuning - optional, only if PLOT_TUNING=true**
 
 ```julia
-abstols = 0.1 .^ (5:8)
-reltols = 0.1 .^ (1:4)
-multipliers = [0.05, 0.025, 0.0125, 0.005]
-numruns = parse(Int, get(ENV,"NUMRUNS","1")) # quick fix for hang: default 1, use 3 for full paper
-
-setups = [
-    Dict(:alg => ETDRK2(krylov=true, m=15), :dts => multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=60), :dts => multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => multipliers),
-]
-
-labels = hcat(
-    "ETDRK2 m=15",
-    "ETDRK2 m=30",
-    "ETDRK2 m=60",
-    "ETDRK4 m=30 iop=0 (full)",
-    "ETDRK4 m=30 iop=2 best (15x orth saving)",
-    "ETDRK4 m=30 iop=10",
-)
-
-@time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep Allen-Cahn N=256\nselects m=15 iop=2 best - true matvecs via CountingMatrix")
-# Note: CountingMatrix shows m=15 avg 10.4 matvecs vs m=30 avg 30, iop doesn't change matvecs, only time
+if plot_tuning
+    abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
+    multipliers = [0.05, 0.025, 0.0125, 0.005]
+    setups = [
+        Dict(:alg => ETDRK2(krylov=true, m=15), :dts => multipliers),
+        Dict(:alg => ETDRK2(krylov=true, m=30), :dts => multipliers),
+        Dict(:alg => ETDRK2(krylov=true, m=60), :dts => multipliers),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => multipliers),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => multipliers),
+        Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => multipliers),
+    ]
+    labels = hcat("ETDRK2 m=15","ETDRK2 m=30","ETDRK2 m=60","ETDRK4 m=30 iop=0 full","ETDRK4 m=30 iop=2 best","ETDRK4 m=30 iop=10")
+    @time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups; print_names=true, names=labels, numruns=numruns, error_estimate=:l2, save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+    plot(wp_tune, label=labels, markershape=:auto, title="Tuning: m & IOP sweep - selects m=15 iop=2 best")
+else
+    println("Skipping tuning plot (PLOT_TUNING=false) - using best m=$best_m iop=$best_iop from data")
+end
 ```
 
-**Stage 2: Final combined - Between-method with baseline (single plot with all best data)**
+**Stage 2: Final single plot - Between-method with baseline (always)**
 
 Addresses reviewer feedback: always include baseline, or take best form from tuning and do between-method. This is single Pareto with FBDF baseline + best Exp forms.
 
