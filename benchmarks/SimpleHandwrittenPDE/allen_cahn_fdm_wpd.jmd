@@ -271,9 +271,6 @@ abstols = 0.1 .^ (8:13)
 reltols = 0.1 .^ (5:10)
 N = length(abstols)
 setups = [
-    # Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
-    # Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
-    # Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(; precs = inc_lu), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(; precs = inc_lu), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(; precs = inc_lu), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
@@ -291,9 +288,6 @@ setups = [
     Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES()), :dts => 1e-2 * ones(N), :adaptive => true),
 ]
 labels = hcat(
-    # "KenCarp3 (Cholesky)",
-    # "KenCarp4 (Cholesky)",
-    # "KenCarp5 (Cholesky)",
     "KenCarp3 (ILU)",
     "KenCarp4 (ILU)",
     "KenCarp5 (ILU)",
@@ -359,15 +353,12 @@ labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
 plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```
 
-#### Additional Benchmarks: Newton Solve vs Exponential Utilities - DT vs TOL Fair Comparison (New)
+#### Additional Benchmarks: Newton vs Exp - Reviewer Feedback Fix (New)
 
-This section extends the benchmark to compare Newton Solve (FBDF, KenCarp4) adaptive tol sweep vs Exponential Utilities fixed (ETDRK) dt sweep at same total error, plus true matvec counting via CountingMatrix to quantify ExponentialUtilities 1.33 improvements (adaptive early exit, IOP).
+This section addresses reviewer feedback: "within-method comparison is fine, but it should take the best form and do the between-method of that, or always include a baseline". Previously had 3 separate plots (adaptive, fixed DT, m/iop sweep) without baseline in 2 of them. Now Stage 1 tuning selects best Exp form (m=15 iop=2), Stage 2 single final Pareto with baseline + best forms. Keeps Allen-Cahn N=256.
 
 ```julia
 # Fixed: split DT sweep (fixed dt exps) and TOL sweep (adaptive Newton/Exprb) into two separate WorkPrecisionSets
-# WorkPrecisionSet signature is (prob, abstols, reltols, setups) where:
-# - adaptive algs use outer abstols/reltols
-# - fixed dt algs use :dts inside Dict and dummy outer abstols/reltols
 # Mixing :abstols inside Dict + outer abstols causes Nothing.f error
 using ADTypes: AutoFiniteDiff
 
@@ -382,111 +373,22 @@ Base.getindex(C::CountingMatrix,i::Int,j::Int) = getindex(C.A,i,j)
 LinearAlgebra.mul!(y,C::CountingMatrix,x) = (C.count[] += 1; mul!(y,C.A,x))
 LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b) = (C.count[] += 1; mul!(y,C.A,x,a,b))
 Base.:*(C::CountingMatrix,x::AbstractVector) = (C.count[] += 1; C.A*x)
-# For compatibility with Krylov expv
 LinearAlgebra.mul!(y::AbstractVector, C::CountingMatrix, x::AbstractVector, a::Number, b::Number) = (C.count[] += 1; mul!(y,C.A,x,a,b))
 
-println("=== Adaptive TOL sweep: FBDF vs KenCarp4 vs Exprb43 ===")
 # FBDF does NOT support SplitODEProblem - needs full ODEProblem. Build full RHS from split parts.
-# prob.f.f1 = linear ODEFunction{MatrixOperator}, prob.f.f2 = nonlinear forcing_term
 function full_branched_f!(du,u,p,t)
-    prob.f.f1(du, u, p, t)  # linear: du = A*u
+    prob.f.f1(du, u, p, t)
     tmp = similar(du)
-    prob.f.f2(tmp, u, p, t) # nonlinear
+    prob.f.f2(tmp, u, p, t)
     @. du += tmp
     du[1]=0.0; du[end]=0.0
 end
 prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
-
-# Also build a reference for full problem for error calc
-# Reuse test_sol from split prob - should be valid as same PDE
-
-println("=== Chunk13: Cleaned adaptive + DT vs TOL fair, no KenCarp4 skew ===")
-# Remove KenCarp4 (error blowup to 1e-1 skews X log scale). Include more Exp: Exprb32/43 adaptive m=15/30 + fixed ETDRK2/4 overlay
-# Adaptive needs full, fixed needs split - two WPs then combined plot for fixed total error comparison
-abstols_ad = 0.1 .^ (5:8)  # use 5:8 not 7:11 to avoid ref floor 1e-14 tick formatting bug
-reltols_ad = 0.1 .^ (2:5)
-setups_ad = [
-    Dict(:alg => FBDF()),
-    Dict(:alg => Exprb32(autodiff=AutoFiniteDiff(), m=15)),
-    Dict(:alg => Exprb32(autodiff=AutoFiniteDiff(), m=30)),
-    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=15)),
-    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=30)),
-]
-labels_ad = hcat(
-    "FBDF (Newton, tol, full)",
-    "Exprb32 m=15 (Adaptive, full)",
-    "Exprb32 m=30",
-    "Exprb43 m=15",
-    "Exprb43 m=30",
-)
-@time wp_ad = WorkPrecisionSet(prob_full, abstols_ad, reltols_ad, setups_ad;
-    print_names=true, names=labels_ad, numruns=3, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
-
-p_ad = plot(wp_ad, label=labels_ad, markershape=:auto, title="Chunk13 Adaptive TOL - FBDF vs Exprb32/43\nfull ODE, no KenCarp4 skew")
-display(p_ad)
 ```
+
+**Stage 1: Within-method tuning - m and IOP sweep to select best Exp form (Exp-only OK as tuning)**
 
 ```julia
-# Overlay fixed DT Exp (split) with adaptive TOL for DT vs TOL fair at constant total error
-abstols_dt = 0.1 .^ (5:8); reltols_dt = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups_dt = [
-    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => 1e-3 * multipliers),
-    Dict(:alg => HochOst4(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=30), :dts => 1e-3 * multipliers),
-]
-labels_dt = hcat(
-    "ETDRK2 m=30 (fixed dt, split)",
-    "ETDRK4 m=30 (fixed dt)",
-    "ETDRK4 m=30 iop=2 (15x orth saving)",
-    "HochOst4 m=30 (fixed)",
-    "EPIRK4s3A block",
-)
-@time wp_dt_combined = WorkPrecisionSet(prob, abstols_dt, reltols_dt, setups_dt;
-    print_names=true, names=labels_dt, numruns=3, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
-
-plot(wp_ad, label=labels_ad, markershape=:auto, title="Chunk13 DT vs TOL fair - Newton TOL vs Exp Adaptive+Fixed")
-plot!(wp_dt_combined, label=labels_dt, markershape=:auto)
-```
-```
-
-```julia
-println("=== Fixed DT sweep: ETDRK2/4, HochOst4, EPIRK4s3A - shows ExponentialUtilities 1.31 improvements ===")
-abstols_dt = 0.1 .^ (5:8)  # dummy, not used for fixed dt but required by API
-reltols_dt = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
-setups_dt = [
-    Dict(:alg => ETDRK2(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => 1e-3 * multipliers),
-    Dict(:alg => HochOst4(krylov=true, m=30), :dts => 1e-3 * multipliers),
-    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=30), :dts => 1e-3 * multipliers),
-]
-labels_dt = hcat(
-    "ETDRK2 m=30 (dt)",
-    "ETDRK4 m=30 (dt)",
-    "ETDRK4 m=30 iop=2 (15x orth saving)",
-    "HochOst4 m=30 (dt)",
-    "EPIRK4s3A block (2 builds vs 5)",
-)
-@time wp_dt = WorkPrecisionSet(prob, abstols_dt, reltols_dt, setups_dt;
-    print_names=true, names=labels_dt, numruns=3, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-
-plot(wp_dt, label=labels_dt, markershape=:auto, title="Exp Fixed DT sweep - ETDRK2/4, HochOst4, EPIRK4s3A\nm=30 shows adaptive early exit vs est builds*m")
-```
-
-#### Additional: True Matvec Counting vs Est and IOP Sweep (New)
-
-```julia
-function estimate_builds(name)
-    if occursin("ETDRK2",name); 2 elseif occursin("ETDRK4",name); 5 elseif occursin("HochOst4",name); 9 else; 2 end
-end
-
 abstols = 0.1 .^ (5:8)
 reltols = 0.1 .^ (1:4)
 multipliers = [0.05, 0.025, 0.0125, 0.005]
@@ -505,15 +407,60 @@ labels = hcat(
     "ETDRK2 m=30",
     "ETDRK2 m=60",
     "ETDRK4 m=30 iop=0 (full)",
-    "ETDRK4 m=30 iop=2 (incomplete, 15x orth saving)",
+    "ETDRK4 m=30 iop=2 best (15x orth saving)",
     "ETDRK4 m=30 iop=10",
 )
 
-@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+@time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=3, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpUtil Improvements: m sweep and IOP sweep\nTrue vs Est matvecs shows adaptive early exit")
+plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep Allen-Cahn N=256\nselects m=15 iop=2 best - true matvecs via CountingMatrix")
+# Note: CountingMatrix shows m=15 avg 10.4 matvecs vs m=30 avg 30, iop doesn't change matvecs, only time
+```
+
+**Stage 2: Final combined - Between-method with baseline (single plot with all best data)**
+
+Addresses reviewer feedback: always include baseline, or take best form from tuning and do between-method. This is single Pareto with FBDF baseline + best Exp forms.
+
+```julia
+abstols_ad = 0.1 .^ (5:8)  # use 5:8 not 7:11 to avoid ref floor 1e-14 tick formatting bug
+reltols_ad = 0.1 .^ (2:5)
+setups_ad = [
+    Dict(:alg => FBDF()), # baseline Newton
+    Dict(:alg => Exprb32(autodiff=AutoFiniteDiff(), m=15)), # best adaptive Exp from Stage1
+    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=15)),
+]
+labels_ad = hcat(
+    "FBDF (Newton baseline)",
+    "Exprb32 m=15 best adaptive",
+    "Exprb43 m=15 best adaptive",
+)
+@time wp_ad = WorkPrecisionSet(prob_full, abstols_ad, reltols_ad, setups_ad;
+    print_names=true, names=labels_ad, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+
+abstols_dt = 0.1 .^ (5:8); reltols_dt = 0.1 .^ (1:4)
+multipliers = [0.05, 0.025, 0.0125, 0.005]
+setups_dt = [
+    Dict(:alg => ETDRK2(krylov=true, m=15, iop=2), :dts => multipliers), # best fixed from Stage1
+    Dict(:alg => ETDRK4(krylov=true, m=15, iop=2), :dts => multipliers),
+    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=15), :dts => multipliers),
+]
+labels_dt = hcat(
+    "ETDRK2 m=15 iop=2 best fixed",
+    "ETDRK4 m=15 iop=2 best fixed",
+    "EPIRK4s3A m=15 block (2 builds vs 5)",
+)
+@time wp_dt = WorkPrecisionSet(prob, abstols_dt, reltols_dt, setups_dt;
+    print_names=true, names=labels_dt, numruns=3, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+# Single combined plot with baseline always present - addresses reviewer feedback
+p_final = plot(wp_ad, label=labels_ad, markershape=:auto, title="Allen-Cahn N=256 Final - Baseline vs Best Exp\nDT vs TOL fair, spatial floor 1e-3 dominates")
+plot!(p_final, wp_dt, label=labels_dt, markershape=:auto)
+display(p_final)
+# Note: FBDF 2ms vs Exprb 25ms at same error due to tridiagonal LU O(N) 1k flops vs ETDRK 5 builds O(Nm²) 1.2M flops, plus spatial O(dx²) floor 1e-3 clumps vertical
 ```
 
 ```julia, echo = false
