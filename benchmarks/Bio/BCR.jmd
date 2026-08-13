@@ -198,6 +198,7 @@ setups = [
         linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>KenCarp4(
         linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true))
 ];
@@ -207,7 +208,7 @@ setups = [
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
 
-names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
+names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
 plot(wp; label = names)
 ```
 
@@ -218,6 +219,7 @@ setups = [
     Dict(:alg=>TRBDF2(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>QNDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>FBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>KenCarp4(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()))
 ];
 ```
@@ -226,7 +228,7 @@ setups = [
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
 
-names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
+names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 plot(wp; label = names)
 ```
 
@@ -312,8 +314,12 @@ setups = [
     Dict(
         :alg=>FBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true),
         :prob_choice => 3),
+    Dict(
+        :alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true),
+        :prob_choice => 3),
     Dict(:alg=>QNDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()), :prob_choice => 3),
     Dict(:alg=>FBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()), :prob_choice => 3),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()), :prob_choice => 3),
     Dict(:alg=>KenCarp4(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()), :prob_choice => 3)
 ];
 ```
@@ -327,9 +333,9 @@ wp = WorkPrecisionSet(
     [oprob, oprob_sparse, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
 
-names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
-colors = [:green :deepskyblue1 :dodgerblue2 :royalblue2 :slateblue3 :lightskyblue]
-markershapes = [:octagon :hexagon :rtriangle :pentagon :ltriangle :star5]
+names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
+colors = [:green :deepskyblue1 :dodgerblue2 :mediumorchid :royalblue2 :slateblue3 :orchid :lightskyblue]
+markershapes = [:octagon :hexagon :rtriangle :diamond :pentagon :ltriangle :dtriangle :star5]
 plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     xticks = [1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3], yticks = [1e0, 1e1, 1e2, 1e3],
     color = colors, markershape = markershapes, legendfontsize = 15,
