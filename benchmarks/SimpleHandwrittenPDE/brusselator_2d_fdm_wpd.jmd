@@ -93,6 +93,7 @@ This quantifies ExpUtil 1.31: true vs est matvecs (adaptive early exit) and orth
 ```julia
 abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
 dts = [0.05, 0.025, 0.0125, 0.005] # fair DTs from feedback
+numruns = parse(Int, get(ENV,"NUMRUNS","1")) # use NUMRUNS=3 for full paper, 1 for quick to avoid hang
 setups = [
     Dict(:alg => ETDRK2(krylov=true, m=15), :dts => dts),
     Dict(:alg => ETDRK2(krylov=true, m=30), :dts => dts),
@@ -103,7 +104,7 @@ setups = [
 ]
 labels = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=30 iop=2 best (15x orth saving)", "ETDRK4 m=30 iop=10")
 @time wp_tune = WorkPrecisionSet(prob_split, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
 plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep\nN=$N, selects m=15 iop=2 best")
 # Note: CountingMatrix shows true matvecs: m=15 avg 10.4 vs m=30 avg 30, iop doesn't change matvecs, only time
@@ -116,6 +117,7 @@ Addresses feedback: always include baseline, or take best form from within-metho
 ```julia
 abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (5:8) # paired 1e-5..1e-8 for fair
 dts = [0.05, 0.025, 0.0125, 0.005]
+numruns = parse(Int, get(ENV,"NUMRUNS","1"))
 
 # Best adaptive forms from tuning + baselines - prob_full
 setups_ad = [
@@ -134,11 +136,11 @@ setups_dt = [
 labels_dt = hcat("ETDRK4 m=15 iop=2 best fixed (4x win)", "ETDRK2 m=15 iop=2", "EPIRK4s3A m=15 block")
 
 @time wp_ad = WorkPrecisionSet(prob_full, abstols, reltols, setups_ad;
-    print_names=true, names=labels_ad, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels_ad, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
 
 @time wp_dt = WorkPrecisionSet(prob_split, abstols, reltols, setups_dt;
-    print_names=true, names=labels_dt, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels_dt, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
 
 # Single combined plot with baseline always present - addresses reviewer feedback

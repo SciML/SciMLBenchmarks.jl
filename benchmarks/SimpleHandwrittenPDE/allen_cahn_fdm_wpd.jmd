@@ -392,6 +392,7 @@ prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
 abstols = 0.1 .^ (5:8)
 reltols = 0.1 .^ (1:4)
 multipliers = [0.05, 0.025, 0.0125, 0.005]
+numruns = parse(Int, get(ENV,"NUMRUNS","1")) # quick fix for hang: default 1, use 3 for full paper
 
 setups = [
     Dict(:alg => ETDRK2(krylov=true, m=15), :dts => multipliers),
@@ -412,7 +413,7 @@ labels = hcat(
 )
 
 @time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups;
-    print_names=true, names=labels, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
 plot(wp_tune, label=labels, markershape=:auto, title="Stage 1 Tuning: m & IOP sweep Allen-Cahn N=256\nselects m=15 iop=2 best - true matvecs via CountingMatrix")
@@ -426,6 +427,7 @@ Addresses reviewer feedback: always include baseline, or take best form from tun
 ```julia
 abstols_ad = 0.1 .^ (5:8)  # use 5:8 not 7:11 to avoid ref floor 1e-14 tick formatting bug
 reltols_ad = 0.1 .^ (2:5)
+numruns = parse(Int, get(ENV,"NUMRUNS","1"))
 setups_ad = [
     Dict(:alg => FBDF()), # baseline Newton
     Dict(:alg => Exprb32(autodiff=AutoFiniteDiff(), m=15)), # best adaptive Exp from Stage1
@@ -437,7 +439,7 @@ labels_ad = hcat(
     "Exprb43 m=15 best adaptive",
 )
 @time wp_ad = WorkPrecisionSet(prob_full, abstols_ad, reltols_ad, setups_ad;
-    print_names=true, names=labels_ad, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels_ad, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
 
 abstols_dt = 0.1 .^ (5:8); reltols_dt = 0.1 .^ (1:4)
@@ -453,7 +455,7 @@ labels_dt = hcat(
     "EPIRK4s3A m=15 block (2 builds vs 5)",
 )
 @time wp_dt = WorkPrecisionSet(prob, abstols_dt, reltols_dt, setups_dt;
-    print_names=true, names=labels_dt, numruns=3, error_estimate=:l2,
+    print_names=true, names=labels_dt, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
 
 # Single combined plot with baseline always present - addresses reviewer feedback
