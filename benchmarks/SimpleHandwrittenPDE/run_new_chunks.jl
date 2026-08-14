@@ -5,17 +5,18 @@ OPENBLAS_NUM_THREADS = get(ENV,"OPENBLAS_NUM_THREADS","1")
 
 using OrdinaryDiffEq, OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK
 using DiffEqDevTools, SciMLOperators, LinearAlgebra, SparseArrays, Plots
+using SummationByPartsOperators
+const SBP=SummationByPartsOperators
+using ADTypes: AutoFiniteDiff
 gr(show=false)
 
 function forcing_term(du,u,p,t); du .= p .* @. (u - u^3); du[1]=0.0; du[end]=0.0; end
 function allen_cahn(N,L)
-    using SummationByPartsOperators; const SBP=SummationByPartsOperators
-    eps=1e-3; D2=SBP.derivative_operator(SBP.MattssonSvärdNordström2004(); derivative_order=2, accuracy_order=2, xmin=-L, xmax=L, N=N)
+    eps=1e-3; D2=derivative_operator(MattssonSvärdNordström2004(); derivative_order=2, accuracy_order=2, xmin=-L, xmax=L, N=N)
     x=LinRange(-L,L,N); u0=@. cos(2π*x); p=3.0
-    SplitODEProblem(SciMLOperators.MatrixOperator(eps*sparse(D2)), forcing_term, u0, (0.0,1.0), p) |> (prob->(x,prob))
+    SplitODEProblem(MatrixOperator(eps*sparse(D2)), forcing_term, u0, (0.0,1.0), p) |> (prob->(x,prob))
 end
 N=256; L=2.0; xs, prob = allen_cahn(N,L)
-using ADTypes: AutoFiniteDiff
 struct CountingMatrix <: AbstractMatrix{Float64}; A::SparseMatrixCSC{Float64,Int}; count::Base.RefValue{Int}; end
 CountingMatrix(A)=CountingMatrix(A,Ref(0)); Base.size(C::CountingMatrix)=size(C.A); Base.getindex(C::CountingMatrix,i,j)=getindex(C.A,i,j)
 LinearAlgebra.mul!(y,C::CountingMatrix,x)=(C.count[]+=1; mul!(y,C.A,x)); LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b)=(C.count[]+=1; mul!(y,C.A,x,a,b))
