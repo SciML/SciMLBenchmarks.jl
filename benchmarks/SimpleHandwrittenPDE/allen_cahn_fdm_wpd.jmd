@@ -72,8 +72,17 @@ end;
 N = 256 # Number of grid points - increased from 128 to narrow FBDF vs Exprb gap (higher N, lower spatial floor)
 L = 2.0  # Domain length
 xs, prob = allen_cahn(N, L)
-# FBDF 1e-12 ref avoids CompositeCache iter bug seen with AutoVern7(RadauIIA5) at N=256 after Weave (type CompositeCache has no field iter)
-@time sol = solve(prob, FBDF(autodiff=AutoFiniteDiff()), abstol=1e-12, reltol=1e-12, maxiters=Int(1e6), save_everystep=false)
+# FBDF 1e-12 ref avoids CompositeCache iter bug seen with AutoVern7(RadauIIA5) at N=256
+# FBDF does NOT support SplitODEProblem directly, so build full ODEProblem for ref (same as in Additional Benchmarks)
+function full_branched_f!(du,u,p,t)
+    prob.f.f1(du, u, p, t)
+    tmp = similar(du)
+    prob.f.f2(tmp, u, p, t)
+    @. du += tmp
+    du[1]=0.0; du[end]=0.0
+end
+prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
+@time sol = solve(prob_full, FBDF(autodiff=AutoFiniteDiff()), abstol=1e-12, reltol=1e-12, maxiters=Int(1e6), save_everystep=false)
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
 
