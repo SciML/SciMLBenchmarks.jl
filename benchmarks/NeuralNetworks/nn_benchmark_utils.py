@@ -16,6 +16,43 @@ import torch
 import torch.nn as tnn
 
 
+def require_jax_gpu():
+    devs = jax.devices("gpu")
+    if not devs:
+        raise RuntimeError("JAX did not see a GPU")
+    return devs[0]
+
+
+def to_jax_gpu(x):
+    return jax.device_put(jnp.asarray(x), require_jax_gpu())
+
+
+def to_jax_gpu_tree(tree):
+    return jax.tree.map(lambda x: to_jax_gpu(x) if hasattr(x, "shape") else x, tree)
+
+
+def require_torch_cuda():
+    if not torch.cuda.is_available():
+        raise RuntimeError("PyTorch did not see a CUDA GPU")
+    return torch.device("cuda")
+
+
+def to_torch_gpu(x):
+    dev = require_torch_cuda()
+    if isinstance(x, torch.Tensor):
+        return x.to(dev)
+    return torch.from_numpy(np.ascontiguousarray(x)).to(dev)
+
+
+def cuda_model(model):
+    return model.to(require_torch_cuda())
+
+
+def _torch_sync(x):
+    if torch.cuda.is_available() and (not isinstance(x, torch.Tensor) or x.is_cuda):
+        torch.cuda.synchronize()
+
+
 # ============================================================
 # Timing utilities
 # ============================================================
@@ -48,15 +85,18 @@ def time_jax_train_step(train_step_fn, params, x, y, n_runs=50):
 
 
 def time_torch_inference(model, x, n_runs=100):
-    """Time a PyTorch model in eval mode."""
+    """Time a PyTorch model in eval mode. Synchronizes CUDA so GPU time is real."""
     model.eval()
     with torch.no_grad():
         for _ in range(5):
             model(x)
+        _torch_sync(x)
         times = []
         for _ in range(n_runs):
+            _torch_sync(x)
             start = time.perf_counter()
             model(x)
+            _torch_sync(x)
             end_ = time.perf_counter()
             times.append(end_ - start)
     return float(np.median(times))
@@ -71,14 +111,17 @@ def time_torch_train_step(model, optimizer, loss_fn, x, y, n_runs=50):
         loss = loss_fn(out, y)
         loss.backward()
         optimizer.step()
+    _torch_sync(x)
     times = []
     for _ in range(n_runs):
+        _torch_sync(x)
         start = time.perf_counter()
         optimizer.zero_grad()
         out = model(x)
         loss = loss_fn(out, y)
         loss.backward()
         optimizer.step()
+        _torch_sync(x)
         end_ = time.perf_counter()
         times.append(end_ - start)
     return float(np.median(times))
