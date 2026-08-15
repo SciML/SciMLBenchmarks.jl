@@ -15,6 +15,11 @@ science-guided AI techniques.
 using NeuralPDE, ModelingToolkit, Optimization, OptimizationOptimJL
 using Lux, Plots, OptimizationOptimisers
 import ModelingToolkit: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
 ```
 
 ```julia
@@ -121,8 +126,11 @@ function solve(opt)
         Lux.Dense(neurons, neurons, tanh),
         Lux.Dense(neurons, neurons, tanh),
         Lux.Dense(neurons, 1))
+    # NeuralPDE trains on the device of init_params
+    ps = [Lux.setup(Random.default_rng(), c)[1] |> ComponentArray |> gpud .|> Float64
+          for c in (chain1, chain2, chain3)]
 
-    discretization = PhysicsInformedNN([chain1, chain2, chain3], strategy)
+    discretization = PhysicsInformedNN([chain1, chain2, chain3], strategy; init_params = ps)
 
     indvars = [t, x]   #physically independent variables
     depvars = [Phi, Na, Cl]       #dependent (target) variable

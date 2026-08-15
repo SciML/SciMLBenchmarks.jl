@@ -18,6 +18,11 @@ using OptimizationOptimisers
 using DelimitedFiles
 using QuasiMonteCarlo
 import ModelingToolkit: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
 ```
 
 ```julia
@@ -89,6 +94,8 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
     n = 10   #neuron number
 
     chain = Lux.Chain(Lux.Dense(5, n, tanh), Lux.Dense(n, n, tanh), Lux.Dense(n, 1))   #Neural network from OptimizationFlux library
+    # NeuralPDE trains on the device of init_params
+    ps = Lux.setup(Random.default_rng(), chain)[1] |> ComponentArray |> gpud .|> Float64
 
     indvars = [t, x1, x2, x3, x4]   #physically independent variables
     depvars = [u(t, x1, x2, x3, x4)]       #dependent (target) variable
@@ -103,7 +110,7 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    discretization_ = PhysicsInformedNN(chain, error_strategy; init_params = ps)
     @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
     prob_ = discretize(pde_system_, discretization_)
 
@@ -123,7 +130,7 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
             # Extract parameters for loss calculation
             params = p.u
             loss_ = loss_function_(p, nothing)
-            push!(error, loss_)
+            push!(error, only(Array(loss_)))
 
             timeCounter += time_ns() - deltaT_s
             return false
@@ -135,7 +142,7 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy; init_params = ps)
     prob = NeuralPDE.discretize(pde_system, discretization)
 
     timeCounter = 0.0
@@ -150,7 +157,7 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
     domain = [ts, x1s, x2s, x3s, x4s]
 
     u_predict = [reshape(
-                     [first(phi([t, x1, x2, x3, x4], res.minimizer)) for x1 in x1s
+                     [first(Array(phi([t, x1, x2, x3, x4], res.minimizer))) for x1 in x1s
                       for x2 in x2s for x3 in x3s for x4 in x4s],
                      (length(x1s), length(x2s), length(x3s), length(x4s))) for t in ts]  #matrix of model's prediction
 
