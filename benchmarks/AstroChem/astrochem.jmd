@@ -244,7 +244,8 @@ ka_reaction(Tgas, α = 1.0, β = 1.0, γ = 0.0) = α*(Tgas/300)^β*exp(−γ / T
 # CONTINUE HERE
 # Try this: https://docs.sciml.ai/Catalyst/stable/catalyst_functionality/constraint_equations/#Coupling-ODE-constraints-via-directly-building-a-ReactionSystem
 
-@variables t T(t) = 100.0 # Define the variables before the species!
+@independent_variables t
+@variables T(t) = 100.0 # Define the variables before the species!
 @species H2(t) O(t) C(t) O⁺(t) OH⁺(t) H(t) H2O⁺(t) H3O⁺(t) E(t) H2O(t) OH(t) C⁺(t) CO(t) CO⁺(t) H⁺(t) HCO⁺(t)
 @parameters cosmic_ionisation_rate radiation_field dust2gas
 
@@ -286,24 +287,20 @@ u0 = [:H2 => number_density, :O => number_density*2e-4, :C => number_density*1e-
     :CO⁺=>minimum_fractional_density, :H⁺=>minimum_fractional_density,
     :HCO⁺ => minimum_fractional_density, :T => 100.0]
 
-odesys = convert(ODESystem, complete(system))
-
-setdefaults!(system, u0)
-
 tspan = (0.0, 1e6*seconds_per_year)
 
 params = [dust2gas => 0.01, radiation_field => 1e-1, cosmic_ionisation_rate => 1e-17]
 
 println("Attempting to solve the ODE...")
 
-sys = convert(ODESystem, complete(system))
+sys = ode_model(complete(system))
 # oprob = ODEProblemExpr(sys, [], tspan, params)
 
 ssys = structural_simplify(sys)
 ```
 
 ```julia
-oprob = ODEProblem(ssys, [], tspan, params)
+oprob = ODEProblem(ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan)
 println("ODEProblem created successfully.")
 sol = solve(oprob, Rodas5()) # Rodas5()) # Tsit5()
 
@@ -340,25 +337,38 @@ plot(wp)
 ## With Temperature Dynamics
 
 ```julia
+@variables T(t) = 100.0
+D = Differential(t)
+# Interpolate T-dependent rates so @reaction does not also treat T as a parameter.
+k_H3O_E = ka_reaction(T, 1.1e-7, -1/2)
+k_H2O_E_OH = ka_reaction(T, 8.6e-8, -1/2)
+k_H2O_E_O = ka_reaction(T, 3.9e-8, -1/2)
+k_OH_E = ka_reaction(T, 6.3e-9, -0.48)
+k_O_E = ka_reaction(T, 3.4e-12, -0.63)
+k_Cp_E = ka_reaction(T, 4.4e-12, -0.61)
+k_Cp_OH_CO = ka_reaction(T, 1.15e-10, -0.339)
+k_Cp_OH_COp = 9.15e-10 * (0.62 + 0.4767 * 5.5 * sqrt(300 / T))
+k_HCO_E = ka_reaction(T, 2.8e-7, -0.69)
+k_Hp_E = ka_reaction(T, 3.5e-12, -0.7)
 reaction_equations = [
     (@reaction 1.6e-9, $O⁺ + $H2 --> $OH⁺ + $H),
     (@reaction 1e-9, $OH⁺ + $H2 --> $H2O⁺ + $H),
     (@reaction 6.1e-10, $H2O⁺ + $H2 --> $H3O⁺ + $H),
-    (@reaction ka_reaction(T, 1.1e-7, -1/2), $H3O⁺ + $E --> $H2O + $H),
-    (@reaction ka_reaction(T, 8.6e-8, -1/2), $H2O⁺ + $E --> $OH + $H),
-    (@reaction ka_reaction(T, 3.9e-8, -1/2), $H2O⁺ + $E --> $O + $H2),
-    (@reaction ka_reaction(T, 6.3e-9, -0.48), $OH⁺ + $E --> $O + $H),
-    (@reaction ka_reaction(T, 3.4e-12, -0.63), $O⁺ + $E --> $O),
+    (@reaction $k_H3O_E, $H3O⁺ + $E --> $H2O + $H),
+    (@reaction $k_H2O_E_OH, $H2O⁺ + $E --> $OH + $H),
+    (@reaction $k_H2O_E_O, $H2O⁺ + $E --> $O + $H2),
+    (@reaction $k_OH_E, $OH⁺ + $E --> $O + $H),
+    (@reaction $k_O_E, $O⁺ + $E --> $O),
     (@reaction 2.8 * cosmic_ionisation_rate, $O --> $O⁺ + $E),
     (@reaction 2.62 * cosmic_ionisation_rate, $C --> $C⁺ + $E),
     (@reaction 5.0 * cosmic_ionisation_rate, $CO --> $C + $O),
-    (@reaction ka_reaction(T, 4.4e-12, -0.61), $C⁺ + $E --> $C),
-    (@reaction ka_reaction(T, 1.15e-10, -0.339), $C⁺ + $OH --> CO + $H),
-    (@reaction 9.15e-10 * (0.62 + 0.4767 * 5.5 * sqrt(300 / T)), $C⁺ + $OH --> $CO⁺ + $H),
+    (@reaction $k_Cp_E, $C⁺ + $E --> $C),
+    (@reaction $k_Cp_OH_CO, $C⁺ + $OH --> CO + $H),
+    (@reaction $k_Cp_OH_COp, $C⁺ + $OH --> $CO⁺ + $H),
     (@reaction 4e-10, $CO⁺ + $H --> $CO + $H⁺),
     (@reaction 7.28e-10, $CO⁺ + $H2 --> $HCO⁺ + $H),
-    (@reaction ka_reaction(T, 2.8e-7, -0.69), $HCO⁺ + $E --> $CO + $H),
-    (@reaction ka_reaction(T, 3.5e-12, -0.7), $H⁺ + $E --> $H),
+    (@reaction $k_HCO_E, $HCO⁺ + $E --> $CO + $H),
+    (@reaction $k_Hp_E, $H⁺ + $E --> $H),
     (@reaction 2.121e-17 * dust2gas / 1e-2, $H + $H --> $H2),
     (@reaction 1e-1 * cosmic_ionisation_rate, $H2 --> $H + $H),
     (@reaction 3.39e-10 * radiation_field, $C --> $C⁺ + $E),
@@ -379,22 +389,18 @@ u0 = [:H2 => number_density, :O => number_density*2e-4, :C => number_density*1e-
     :CO⁺=>minimum_fractional_density, :H⁺=>minimum_fractional_density,
     :HCO⁺ => minimum_fractional_density, :T => 100.0]
 
-odesys = convert(ODESystem, complete(system))
-
-setdefaults!(system, u0)
-
 tspan = (0.0, 1e6*seconds_per_year)
 
 params = [dust2gas => 0.01, radiation_field => 1e-1, cosmic_ionisation_rate => 1e-17]
 
 println("Attempting to solve the ODE...")
 
-sys = convert(ODESystem, complete(system))
+sys = ode_model(complete(system))
 # oprob = ODEProblemExpr(sys, [], tspan, params)
 
 ssys = structural_simplify(sys)
 
-oprob = ODEProblem(ssys, [], tspan, params)
+oprob = ODEProblem(ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan)
 println("ODEProblem created successfully.")
 refsol = solve(oprob, Rodas5P(), abstol = 1e-14, reltol = 1e-14)
 ```
@@ -419,7 +425,8 @@ setups = [
     #Dict(:alg=>RadauIIA9()),
     #Dict(:alg=>rodas()),
     #Dict(:alg=>radau()),
-    Dict(:alg=>lsoda())    #Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
+    Dict(:alg=>lsoda())
+    #Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
     #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
