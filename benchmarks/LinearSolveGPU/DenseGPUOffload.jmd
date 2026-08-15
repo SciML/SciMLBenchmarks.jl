@@ -10,9 +10,16 @@ pays PCIe both ways (H2D for the matrix, D2H for the solution), and below some
 crossover on the folder's GPU runner, with transfer cost reported explicitly —
 a GPU benchmark that hides transfer is marketing, not evidence.
 
+A crossover claim is only as strong as its CPU baseline, so the CPU side is not
+one algorithm but the best of several — including LinearSolve's *default*
+choice, which is the number a user gets by not specifying an algorithm at all.
 Compared, all through the same `LinearProblem` API:
 
-* `LUFactorization` — CPU baseline (BLAS, all cores)
+* CPU: `LUFactorization` (OpenBLAS), `RFLUFactorization`
+  (RecursiveFactorization), the LinearSolve default algorithm choice, and
+  `MKLLUFactorization` on machines where LinearSolve loads MKL at all — it
+  deliberately does not on AMD EPYC, which is this folder's runner CPU, and
+  the document prints a note instead of a broken column when that applies
 * `CudaOffloadLUFactorization` — full-precision GPU offload
 * `CudaOffloadQRFactorization` — QR variant
 * `CUDAOffload32MixedLUFactorization` — Float32 factorization with Float64
@@ -21,7 +28,7 @@ Compared, all through the same `LinearProblem` API:
 
 ```julia
 using BenchmarkTools, Random, Printf
-using LinearAlgebra, LinearSolve
+using LinearAlgebra, LinearSolve, RecursiveFactorization, MKL_jll
 using CUDA
 
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
@@ -29,13 +36,40 @@ BenchmarkTools.DEFAULT_PARAMETERS.samples = 5
 
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
+println("CPU: ", Sys.cpu_info()[1].model, " — ", Sys.CPU_THREADS,
+    " hardware threads, ", BLAS.get_num_threads(), " BLAS threads, ",
+    Threads.nthreads(), " Julia threads")
 
-algs = [
-    ("CPU LU", LUFactorization(), 1e-10),
-    ("GPU LU offload", CudaOffloadLUFactorization(), 1e-10),
-    ("GPU QR offload", CudaOffloadQRFactorization(), 1e-10),
-    ("GPU 32-mixed LU", CUDAOffload32MixedLUFactorization(), 1e-4),
+# (name, algorithm, gate tolerance, device class); `nothing` is LinearSolve's
+# default algorithm choice for the problem — the baseline a non-expert gets.
+algs = Any[
+    ("CPU OpenBLAS LU", LUFactorization(), 1e-10, :cpu),
+    ("CPU RFLU", RFLUFactorization(), 1e-10, :cpu),
+    ("CPU default choice", nothing, 1e-10, :cpu),
+    ("GPU LU offload", CudaOffloadLUFactorization(), 1e-10, :gpu),
+    ("GPU QR offload", CudaOffloadQRFactorization(), 1e-10, :gpu),
+    ("GPU 32-mixed LU", CUDAOffload32MixedLUFactorization(), 1e-4, :gpu),
 ]
+
+# LinearSolve deliberately does not load MKL on CPUs where it defaults away
+# from it — notably AMD EPYC, this folder's runner CPU (LinearSolve.jl#518,
+# the LoadMKL_JLL preference). Probe once and include the MKL row only where
+# it actually runs, so the CPU baselines are exactly the options a user of
+# this machine has; a NaN column with load errors is not a baseline.
+mkl_works = try
+    solve(LinearProblem(Matrix(8.0I, 8, 8), ones(8)), MKLLUFactorization())
+    true
+catch
+    false
+end
+if mkl_works
+    insert!(algs, 2, ("CPU MKL LU", MKLLUFactorization(), 1e-10, :cpu))
+else
+    println("MKL LU excluded: LinearSolve does not load MKL_jll on this CPU ",
+        "by default (LoadMKL_JLL preference; see LinearSolve.jl#518).")
+end
+cpu_idx = findall(a -> a[4] == :cpu, algs)
+gpu_idx = findall(a -> a[4] == :gpu, algs)
 
 ns = [256, 512, 1024, 2048, 4096, 8192]
 ```
@@ -59,7 +93,7 @@ for (i, n) in enumerate(ns)
     ref = A \ b
     @info "n=$n"
 
-    for (j, (name, alg, tol)) in enumerate(algs)
+    for (j, (name, alg, tol, _)) in enumerate(algs)
         try
             sol = solve(LinearProblem(A, b), alg)
             err = norm(sol.u - ref) / norm(ref)
@@ -89,10 +123,10 @@ end
 using Plots
 p = plot(; xlabel = "N", ylabel = "time / s", xscale = :log2, yscale = :log10,
     title = "Dense solve: CPU vs GPU offload", legend = :topleft)
-for (j, (name, _, _)) in enumerate(algs)
+for (j, (name, _, _, class)) in enumerate(algs)
     mask = .!isnan.(res_time[:, j])
     any(mask) && plot!(p, ns[mask], res_time[mask, j];
-        marker = :circle, label = name)
+        marker = class == :cpu ? :circle : :diamond, label = name)
 end
 plot!(p, ns, res_xfer; linestyle = :dash, color = :gray,
     label = "transfer round-trip only")
@@ -100,22 +134,29 @@ p
 ```
 
 ```julia
-println("   N   | CPU LU (s) | GPU LU (s) | 32-mixed (s) | transfer (s) | transfer % of GPU LU")
-println("-------+------------+------------+--------------+--------------+---------------------")
+println("   N   | " * join([rpad(a[1], 18) for a in algs], "| ") * "| transfer (s)")
+println("-"^(9 + 20 * length(algs) + 13))
 for (i, n) in enumerate(ns)
-    tcpu, tgpu, tmix = res_time[i, 1], res_time[i, 2], res_time[i, 4]
-    @printf("%6d | %10.4g | %10.4g | %12.4g | %12.4g | %18.1f%%\n",
-        n, tcpu, tgpu, tmix, res_xfer[i],
-        isnan(tgpu) ? NaN : 100 * res_xfer[i] / tgpu)
+    vals = join([@sprintf("%17.4g ", res_time[i, j]) for j in 1:length(algs)], "| ")
+    @printf("%6d | %s| %12.4g\n", n, vals, res_xfer[i])
 end
 
-# Crossover: first size where the best GPU variant beats CPU.
-best_gpu = [minimum(filter(!isnan, res_time[i, 2:end]); init = Inf) for i in 1:length(ns)]
-cross = findfirst(i -> best_gpu[i] < res_time[i, 1], 1:length(ns))
+# Crossover: first size where the best GPU variant beats the BEST CPU option
+# (not just one CPU algorithm — a crossover against a slow baseline is not a
+# crossover). The best-CPU column names which algorithm set the bar.
+best_cpu = [minimum(filter(!isnan, res_time[i, cpu_idx]); init = Inf) for i in 1:length(ns)]
+best_gpu = [minimum(filter(!isnan, res_time[i, gpu_idx]); init = Inf) for i in 1:length(ns)]
+println()
+for (i, n) in enumerate(ns)
+    j = cpu_idx[argmin(replace(res_time[i, cpu_idx], NaN => Inf))]
+    @printf("%6d | best CPU: %-18s %.4g s | best GPU: %.4g s | GPU/CPU: %.2fx\n",
+        n, algs[j][1], best_cpu[i], best_gpu[i], best_cpu[i] / best_gpu[i])
+end
+cross = findfirst(i -> best_gpu[i] < best_cpu[i], 1:length(ns))
 println()
 println(cross === nothing ?
-    "No crossover in the measured range — CPU wins throughout." :
-    "Crossover: GPU offload first beats CPU at N = $(ns[cross]).")
+    "No crossover in the measured range — the best CPU option wins throughout." :
+    "Crossover: GPU offload first beats the best CPU option at N = $(ns[cross]).")
 ```
 
 ## Reading the result
@@ -123,9 +164,16 @@ println(cross === nothing ?
 The dashed transfer line is the floor no offload algorithm can beat: where a
 solver's curve approaches it, the algorithm is transfer-bound and further GPU
 speedup is irrelevant at that size. The stated crossover `N` is the actionable
-number — below it, stay on the CPU; above it, offload pays. The 32-mixed
-variant's gap to full-precision GPU LU shows what halving the factorization's
-memory traffic buys; its residual (gated at 1e-4) is the accuracy price.
+number — below it, stay on the CPU; above it, offload pays. It is computed
+against the *best* CPU option at each size, and the best-CPU column shows which
+algorithm sets that bar — on the runner's EPYC, where LinearSolve deliberately
+does not load MKL, that is RFLU across this sweep; a GPU "win" over plain
+OpenBLAS alone would say more about BLAS libraries than about the GPU. The spread among the CPU rows is itself a result — the gap between the
+slowest CPU row and the default choice is what hand-picking the wrong
+algorithm costs, and how close the default sits to the best row is the
+value of LinearSolve's automatic selection. The 32-mixed variant's gap to
+full-precision GPU LU shows what halving the factorization's memory traffic
+buys; its residual (gated at 1e-4) is the accuracy price.
 
 Caveats: one GPU model per run (the runner's), `Float64` inputs, well-conditioned
 random matrices (no pivoting stress). The size dependence of the crossover on
