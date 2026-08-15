@@ -52,8 +52,8 @@ end
 function allen_cahn(N, L)
     # Linear and nonlinear terms
     eps = 1e-3 # Diffusion coefficient
-    D2 = derivative_operator(MattssonSvärdNordström2004(); 
-                             derivative_order = 2, accuracy_order = 2, 
+    D2 = derivative_operator(MattssonSvärdNordström2004();
+                             derivative_order = 2, accuracy_order = 2,
                              xmin = -L, xmax = L, N = N)
 
     x = LinRange(-L, L, N) # Domain discretization
@@ -135,11 +135,11 @@ setups = [
     Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-3 * multipliers)
 ]
 labels = hcat(
-    "NorsettEuler (caching)", 
+    "NorsettEuler (caching)",
     "NorsettEuler (m=5)",
     "NorsettEuler (m=20)",
-    "ETDRK2 (caching)", 
-    "ETDRK2 (m=5)", 
+    "ETDRK2 (caching)",
+    "ETDRK2 (m=5)",
     "ETDRK2 (m=20)"
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
@@ -163,7 +163,7 @@ setups = [
 ]
 labels = hcat(
     "CNAB2 (dense linsolve)",
-    "CNAB2 (Krylov linsolve)", 
+    "CNAB2 (Krylov linsolve)",
     "ETDRK2 (caching)",
     "Tsit5",
 )
@@ -289,7 +289,7 @@ setups = [
     Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(; precs = w_diag), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(; precs = amg), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(; precs = amg), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
-    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(; precs = amg), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),    
+    Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(; precs = amg), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp3(linsolve=KrylovJL_GMRES(; precs = amg2), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp4(linsolve=KrylovJL_GMRES(; precs = amg2), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
     Dict(:alg => KenCarp5(linsolve=KrylovJL_GMRES(; precs = amg2), concrete_jac = true), :dts => 1e-2 * ones(N), :adaptive => true),
@@ -363,7 +363,7 @@ labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
 plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```
 
-#### Additional Benchmarks: Newton vs Exp - Final Single Plot (Reviewer Fix)
+#### Additional Benchmarks: Newton vs Exp - Final Single Plot
 
 Addresses feedback: "within-method OK but should take best form and do between-method, or always include baseline". Now: by default only final single Pareto with baseline + best forms (m=15 iop=2 best determined from data without plot). Tuning plot optional via PLOT_TUNING=true.
 
@@ -395,74 +395,97 @@ function full_branched_f!(du,u,p,t)
 end
 prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
 numruns = parse(Int, get(ENV,"NUMRUNS","1"))
-plot_tuning = get(ENV,"PLOT_TUNING","false") == "true"
-best_m = 15; best_iop = 2 # determined from prior tuning data without needing plot: m=15 31% matvec save, iop=2 15x orth save
-println("Best config from tuning data: m=$best_m iop=$best_iop (PLOT_TUNING=$plot_tuning)")
+best_m = 15; best_iop = 2 # fallback from prior CountingMatrix data: m=15 31% matvec save (10.4 vs 30), iop=2 15x orth save
+println("Allen-Cahn N=256, baseline + tuning, fallback best m=$best_m iop=$best_iop NUMRUNS=$numruns")
 ```
 
-**Stage 1: Within-method tuning - optional, only if PLOT_TUNING=true**
+### Stage 1: Within-method tuning WITH baseline — always runs, identifies best (future-proof)
+
+Addresses feedback: establish a baseline and use the in-method logic to identify the best methods. Previously optional via PLOT_TUNING, now always-on. If methods improve (e.g., EPIRK block 2→1 builds), tuning will pick new best automatically.
 
 ```julia
-if plot_tuning
-    abstols = 0.1 .^ (5:8); reltols = 0.1 .^ (1:4)
-    multipliers = [0.05, 0.025, 0.0125, 0.005]
-    setups = [
-        Dict(:alg => ETDRK2(krylov=true, m=15), :dts => multipliers),
-        Dict(:alg => ETDRK2(krylov=true, m=30), :dts => multipliers),
-        Dict(:alg => ETDRK2(krylov=true, m=60), :dts => multipliers),
-        Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => multipliers),
-        Dict(:alg => ETDRK4(krylov=true, m=30, iop=2), :dts => multipliers),
-        Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => multipliers),
-    ]
-    labels = hcat("ETDRK2 m=15","ETDRK2 m=30","ETDRK2 m=60","ETDRK4 m=30 iop=0 full","ETDRK4 m=30 iop=2 best","ETDRK4 m=30 iop=10")
-    @time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups; print_names=true, names=labels, numruns=numruns, error_estimate=:l2, save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
-    plot(wp_tune, label=labels, markershape=:auto, title="Tuning: m & IOP sweep - selects m=15 iop=2 best")
-else
-    println("Skipping tuning plot (PLOT_TUNING=false) - using best m=$best_m iop=$best_iop from data")
+# Overlapping regime for fair within-method comparison + baseline
+abstols = 0.1 .^ (3:6); reltols = 0.1 .^ (3:6) # 4 vals: 1e-3..1e-6 Very Loose→Tight overlap
+dts = [0.025, 0.005, 0.001, 0.0005] # 4 vals: must match abstols length, drop 0.05 blowup
+
+# Baseline adaptive — establishes reference time at 1e-4
+@time wp_base = WorkPrecisionSet(prob_full, abstols, reltols, [Dict(:alg=>FBDF())];
+    print_names=true, names=hcat("FBDF (Newton baseline)"), numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+# Within-method tuning for Exp family — DT vs TOL fair, 6 setups
+setups_tune = [
+    Dict(:alg => ETDRK2(krylov=true, m=15, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=30, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=60, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=2), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
+]
+labels_tune = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=15 iop=2 best", "ETDRK4 m=30 iop=10")
+
+@time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups_tune;
+    print_names=true, names=labels_tune, numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5))
+
+# Combined tuning plot WITH baseline — establishes baseline + shows within-method best
+p_tune = plot(wp_base, label=hcat("FBDF (Newton baseline)"), markershape=:auto, title="Stage 1: Allen-Cahn Within-method tuning WITH baseline N=256\nSelects best Exp m/iop at 1e-4 target, spatial floor 1e-3")
+plot!(p_tune, wp_tune, label=labels_tune, markershape=:auto)
+display(p_tune)
+
+# Auto-pick best from tuning data (future-proof) — minimal time at error ~3e-4 spatial floor target
+try
+    target = 3e-4 # Allen-Cahn spatial floor
+    best_time = Inf; best_idx = 5 # default to ETDRK4 m=15 iop=2 best from prior
+    for (i, wp) in enumerate(wp_tune.wps)
+        for (e_dict, t) in zip(wp.errors, wp.times)
+            if !isnan(t) && haskey(e_dict, :l2) && !isnan(e_dict[:l2])
+                if abs(log10(e_dict[:l2]) - log10(target)) < 0.7
+                    if t < best_time
+                        best_time = t; best_idx = i
+                    end
+                end
+            end
+        end
+    end
+    ms = [15,30,60,30,15,30]; iops = [2,2,2,0,2,10]
+    global best_m = ms[best_idx]; global best_iop = iops[best_idx]
+    println("Auto-picked best from Stage 1 tuning at 3e-4 floor: idx=$best_idx m=$best_m iop=$best_iop time=$best_time")
+catch e
+    println("Auto-pick failed, using fallback best_m=15 iop=2: $e")
 end
 ```
 
-**Stage 2: Final single plot - Between-method with baseline (always)**
+### Stage 2: Final combined — Between-method with baseline, using best from Stage 1
 
-Addresses reviewer feedback: always include baseline, or take best form from tuning and do between-method. This is single Pareto with FBDF baseline + best Exp forms.
+Single Pareto with baseline always present — uses best identified from Stage 1 (not static list), so future method improvements automatically reflected.
 
 ```julia
-abstols_ad = 0.1 .^ (5:8)  # use 5:8 not 7:11 to avoid ref floor 1e-14 tick formatting bug
-reltols_ad = 0.1 .^ (2:5)
-numruns = parse(Int, get(ENV,"NUMRUNS","1"))
-setups_ad = [
-    Dict(:alg => FBDF()), # baseline Newton
-    Dict(:alg => Exprb32(autodiff=AutoFiniteDiff(), m=15)), # best adaptive Exp from Stage1
-    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=15)),
-]
-labels_ad = hcat(
-    "FBDF (Newton baseline)",
-    "Exprb32 m=15 best adaptive",
-    "Exprb43 m=15 best adaptive",
-)
-@time wp_ad = WorkPrecisionSet(prob_full, abstols_ad, reltols_ad, setups_ad;
-    print_names=true, names=labels_ad, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+# Final uses tight-only FBDF for far left + best Exp from Stage 1
+abstols_final = 0.1 .^ (6:9); reltols_final = 0.1 .^ (6:9) # 4 vals: 1e-6..1e-9 tight-only left, avoids ref floor bug
+dts_final = [0.025, 0.005, 0.001, 0.0005] # 4 vals must match
 
-abstols_dt = 0.1 .^ (5:8); reltols_dt = 0.1 .^ (1:4)
-multipliers = [0.05, 0.025, 0.0125, 0.005]
-setups_dt = [
-    Dict(:alg => ETDRK2(krylov=true, m=15, iop=2), :dts => multipliers), # best fixed from Stage1
-    Dict(:alg => ETDRK4(krylov=true, m=15, iop=2), :dts => multipliers),
-    Dict(:alg => EPIRK4s3A(adaptive_krylov=true, m=15), :dts => multipliers),
+setups_ad_final = [
+    Dict(:alg => FBDF()), # Newton tight best 3ms flat
+    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=best_m)), # adaptive best from Stage 1
 ]
-labels_dt = hcat(
-    "ETDRK2 m=15 iop=2 best fixed",
-    "ETDRK4 m=15 iop=2 best fixed",
-    "EPIRK4s3A m=15 block (2 builds vs 5)",
-)
-@time wp_dt = WorkPrecisionSet(prob, abstols_dt, reltols_dt, setups_dt;
-    print_names=true, names=labels_dt, numruns=numruns, error_estimate=:l2,
+labels_ad_final = hcat("FBDF (Newton) — tight", "Exprb43 m=$(best_m) (adaptive)")
+
+setups_dt_final = [
+    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=best_iop), :dts => dts_final), # fixed best from Stage 1
+]
+labels_dt_final = hcat("ETDRK4 m=$(best_m) iop=$(best_iop) (fixed)")
+
+@time wp_ad_final = WorkPrecisionSet(prob_full, abstols_final, reltols_final, setups_ad_final;
+    print_names=true, names=labels_ad_final, numruns=numruns, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
 
-# Single combined plot with baseline always present - addresses reviewer feedback
-p_final = plot(wp_ad, label=labels_ad, markershape=:auto, title="Allen-Cahn N=256 Final - Baseline vs Best Exp\nDT vs TOL fair, spatial floor 1e-3 dominates")
-plot!(p_final, wp_dt, label=labels_dt, markershape=:auto)
+@time wp_dt_final = WorkPrecisionSet(prob, abstols_final, reltols_final, setups_dt_final;
+    print_names=true, names=labels_dt_final, numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+p_final = plot(wp_ad_final, label=labels_ad_final, markershape=:auto, title="Allen-Cahn N=256 3-curve FBDF+Exprb43+ETDRK4 m=$(best_m) iop=$(best_iop)\nSpatial floor 1e-3 vertical")
+plot!(p_final, wp_dt_final, label=labels_dt_final, markershape=:auto)
 display(p_final)
 # Note: FBDF 2ms vs Exprb 25ms at same error due to tridiagonal LU O(N) 1k flops vs ETDRK 5 builds O(Nm²) 1.2M flops, plus spatial O(dx²) floor 1e-3 clumps vertical
 ```
