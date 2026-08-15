@@ -11,13 +11,15 @@ crossover on the folder's GPU runner, with transfer cost reported explicitly —
 a GPU benchmark that hides transfer is marketing, not evidence.
 
 A crossover claim is only as strong as its CPU baseline, so the CPU side is not
-one algorithm but the best of four — including LinearSolve's *default* choice,
-which is the number a user gets by not specifying an algorithm at all. Compared,
-all through the same `LinearProblem` API:
+one algorithm but the best of several — including LinearSolve's *default*
+choice, which is the number a user gets by not specifying an algorithm at all.
+Compared, all through the same `LinearProblem` API:
 
-* CPU: `LUFactorization` (OpenBLAS), `MKLLUFactorization`,
-  `RFLUFactorization` (RecursiveFactorization), and the LinearSolve default
-  algorithm choice
+* CPU: `LUFactorization` (OpenBLAS), `RFLUFactorization`
+  (RecursiveFactorization), the LinearSolve default algorithm choice, and
+  `MKLLUFactorization` on machines where LinearSolve loads MKL at all — it
+  deliberately does not on AMD EPYC, which is this folder's runner CPU, and
+  the document prints a note instead of a broken column when that applies
 * `CudaOffloadLUFactorization` — full-precision GPU offload
 * `CudaOffloadQRFactorization` — QR variant
 * `CUDAOffload32MixedLUFactorization` — Float32 factorization with Float64
@@ -40,15 +42,32 @@ println("CPU: ", Sys.cpu_info()[1].model, " — ", Sys.CPU_THREADS,
 
 # (name, algorithm, gate tolerance, device class); `nothing` is LinearSolve's
 # default algorithm choice for the problem — the baseline a non-expert gets.
-algs = [
+algs = Any[
     ("CPU OpenBLAS LU", LUFactorization(), 1e-10, :cpu),
-    ("CPU MKL LU", MKLLUFactorization(), 1e-10, :cpu),
     ("CPU RFLU", RFLUFactorization(), 1e-10, :cpu),
     ("CPU default choice", nothing, 1e-10, :cpu),
     ("GPU LU offload", CudaOffloadLUFactorization(), 1e-10, :gpu),
     ("GPU QR offload", CudaOffloadQRFactorization(), 1e-10, :gpu),
     ("GPU 32-mixed LU", CUDAOffload32MixedLUFactorization(), 1e-4, :gpu),
 ]
+
+# LinearSolve deliberately does not load MKL on CPUs where it defaults away
+# from it — notably AMD EPYC, this folder's runner CPU (LinearSolve.jl#518,
+# the LoadMKL_JLL preference). Probe once and include the MKL row only where
+# it actually runs, so the CPU baselines are exactly the options a user of
+# this machine has; a NaN column with load errors is not a baseline.
+mkl_works = try
+    solve(LinearProblem(Matrix(8.0I, 8, 8), ones(8)), MKLLUFactorization())
+    true
+catch
+    false
+end
+if mkl_works
+    insert!(algs, 2, ("CPU MKL LU", MKLLUFactorization(), 1e-10, :cpu))
+else
+    println("MKL LU excluded: LinearSolve does not load MKL_jll on this CPU ",
+        "by default (LoadMKL_JLL preference; see LinearSolve.jl#518).")
+end
 cpu_idx = findall(a -> a[4] == :cpu, algs)
 gpu_idx = findall(a -> a[4] == :gpu, algs)
 
@@ -147,9 +166,9 @@ solver's curve approaches it, the algorithm is transfer-bound and further GPU
 speedup is irrelevant at that size. The stated crossover `N` is the actionable
 number — below it, stay on the CPU; above it, offload pays. It is computed
 against the *best* CPU option at each size, and the best-CPU column shows which
-algorithm sets that bar (typically RFLU at small `N`, MKL as `N` grows); a GPU
-"win" over plain OpenBLAS alone would say more about BLAS libraries than about
-the GPU. The spread among the CPU rows is itself a result — the gap between the
+algorithm sets that bar — on the runner's EPYC, where LinearSolve deliberately
+does not load MKL, that is RFLU across this sweep; a GPU "win" over plain
+OpenBLAS alone would say more about BLAS libraries than about the GPU. The spread among the CPU rows is itself a result — the gap between the
 slowest CPU row and the default choice is what hand-picking the wrong
 algorithm costs, and how close the default sits to the best row is the
 value of LinearSolve's automatic selection. The 32-mixed variant's gap to
