@@ -47,6 +47,7 @@ section_titles = [
     "LinearSolve" => "Linear Solvers",
     "LinearSolveGPU" => "Linear Solvers (GPU)",
     "LinearSolveDistributed" => "Distributed Linear Solvers (MPI)",
+    "DiffEqGPU" => "GPU Ensemble Differential Equations (DiffEqGPU.jl)",
     "IntervalNonlinearProblem" => "Interval Rootfinding",
     "NonlinearProblem" => "Nonlinear Solvers",
     "AutomaticDifferentiation" => "Automatic Differentiation",
