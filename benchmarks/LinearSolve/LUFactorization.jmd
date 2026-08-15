@@ -24,8 +24,23 @@ function luflop(m, n = m; innerflop = 2)
     end
 end
 
+# LinearSolve deliberately does not load MKL_jll on CPUs it defaults away from,
+# notably AMD EPYC, which is this benchmark runner's CPU (LinearSolve.jl#518,
+# the LoadMKL_JLL preference). On such machines MKLLUFactorization throws on
+# first use, which would kill this whole sweep; probe once and include it only
+# where it runs, so the page states the exclusion instead of erroring.
+mkl_works = try
+    solve(LinearProblem(Matrix(8.0I, 8, 8), ones(8)), MKLLUFactorization())
+    true
+catch
+    false
+end
+mkl_works || println("MKLLUFactorization excluded: LinearSolve does not load ",
+    "MKL_jll on this CPU by default (LoadMKL_JLL preference; LinearSolve.jl#518).")
+
 algs = [LUFactorization(), GenericLUFactorization(), RFLUFactorization(),
-    MKLLUFactorization(), FastLUFactorization(), SimpleLUFactorization(),
+    (mkl_works ? [MKLLUFactorization()] : [])...,
+    FastLUFactorization(), SimpleLUFactorization(),
     ButterflyFactorization(Val(true))]
 res = [Float64[] for i in 1:length(algs)]
 
