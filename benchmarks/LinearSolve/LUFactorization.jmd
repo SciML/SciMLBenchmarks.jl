@@ -24,8 +24,25 @@ function luflop(m, n = m; innerflop = 2)
     end
 end
 
+# LinearSolve's LoadMKL_JLL preference defaults to false on AMD EPYC (this
+# runner's CPU; SciML/LinearSolve.jl#518), and when it is false MKL_jll is not loaded
+# at all, so MKLLUFactorization throws instead of running. This folder's
+# Project.toml sets the preference to true precisely so MKL IS measured here:
+# whether MKL still loses to OpenBLAS and RF on EPYC is a question this
+# benchmark should answer, not assume. The probe is a safety net: if MKL
+# still cannot load, say so on the page rather than erroring the sweep.
+mkl_works = try
+    solve(LinearProblem(Matrix(8.0I, 8, 8), ones(8)), MKLLUFactorization())
+    true
+catch
+    false
+end
+mkl_works || println("MKLLUFactorization excluded: MKL failed to load in this ",
+    "environment even with LoadMKL_JLL = true (see SciML/LinearSolve.jl#518).")
+
 algs = [LUFactorization(), GenericLUFactorization(), RFLUFactorization(),
-    MKLLUFactorization(), FastLUFactorization(), SimpleLUFactorization(),
+    (mkl_works ? [MKLLUFactorization()] : [])...,
+    FastLUFactorization(), SimpleLUFactorization(),
     ButterflyFactorization(Val(true))]
 res = [Float64[] for i in 1:length(algs)]
 
