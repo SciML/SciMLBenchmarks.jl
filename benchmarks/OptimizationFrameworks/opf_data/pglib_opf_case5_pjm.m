@@ -20,7 +20,7 @@
 %   Licensed under the Creative Commons Attribution 4.0
 %   International license, http://creativecommons.org/licenses/by/4.0/
 %
-%   Contact M.E. Brennan (me.brennan@ieee.org) for inquries on further reuse of
+%   Contact M.E. Brennan (me.brennan@ieee.org) for inquiries on further reuse of
 %   this dataset.
 %
 function mpc = pglib_opf_case5_pjm
