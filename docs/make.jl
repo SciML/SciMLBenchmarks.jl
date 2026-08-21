@@ -11,7 +11,7 @@ makedocs(
     sitename = "The SciML Benchmarks",
     authors = "Chris Rackauckas",
     modules = [SciMLBenchmarksOutput],
-    clean = true, doctest = false, warnonly = [:footnote],
+    clean = true,
     format = Documenter.HTML(#analytics = "UA-90474609-3",
         assets = ["assets/favicon.ico"],
         canonical = "https://docs.sciml.ai/SciMLBenchmarksOutput/stable/",
