@@ -19,10 +19,12 @@ function setup(t)
     σ = 3.4e-10 # m
     ρ = 1374 # kg/m^3
     m = 39.95 * 1.6747 * 1e-27 # kg
-    # See liquid_argon.jmd for the reasoning behind N=128 (was 350).
+    # See liquid_argon.jmd for the reasoning behind N=128 (was 350) and
+    # R = 2.5σ (was 3.5σ, which violated the minimum-image convention since
+    # the N=128 box has L/2 = 2.71σ).
     N = 128
     L = (m*N/ρ)^(1/3)
-    R = 3.5σ
+    R = 2.5σ
     v_dev = sqrt(kb * T / m) # m/s
 
     _L = L / σ
@@ -172,19 +174,30 @@ adaptive_integrators=[
 ];
 ```
 
+The Lennard-Jones potential is truncated at `R` without shifting or smoothing,
+so the acceleration is discontinuous whenever a pair crosses the cutoff. Below
+roughly `reltol = 1e-7` the adaptive controllers reject most of their proposed
+steps at those crossings and the cost per solve diverges (measured for `Tsit5`
+at N=128, `t = 10`: 5 s at `reltol = 1.2e-4`, 66 s at `1.2e-7`, 2260 s at
+`1.2e-13`). This file integrates to `t = 50`, i.e. five times the cost per
+configuration of `liquid_argon.jmd`, so we use a correspondingly shorter grid
+that stays inside the attainable range.
+
 ```julia
 function config(integrators, c, at, rt)
     [(alg = a, abstol = at*2^cₐ, reltol = rt*2^cₐ) for (a, cₐ) in zip(integrators, c)]
 end
 
 t = 35.0
-ats = 10 .^ range(-14, -4, length = 10)
-rts = 10 .^ range(-14, -4, length = 10)
+ats = 10 .^ range(-8, -4, length = 5)
+rts = 10 .^ range(-8, -4, length = 5)
 
-# warmup
+# warmup -- this only exists to force compilation, so it runs at the *loosest*
+# tolerance of the grid. It used to use `ats[1]`/`rts[1]`, i.e. the tightest,
+# which made the warmup alone more expensive than the whole sweep below.
 c_adaptive = ones(length(adaptive_integrators))
 benchmark(Dict(), Dict(), Dict(), Dict(), Dict(), Dict(), 10.0,
-    config(adaptive_integrators, 1, ats[1], rts[1]))
+    config(adaptive_integrators, 1, ats[end], rts[end]))
 
 # results = DataFrame(:integrator=>String[], :runtime=>Float64[], :abstol=>Float64[],
 #    :reltol=>Float64[], :EnergyError=>Float64[], :timesteps=>Int[], :f_evals=>Int[], :cost=>Float64[]);
