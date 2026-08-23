@@ -685,112 +685,255 @@ the other two forms, with its own `Rodas5P` reference solution at
 
 **As of 2026-08-23 that formulation does not solve, so the sweep is dropped
 rather than published as flat, meaningless curves.** The symbolic side works —
-`structural_simplify` returns a square 140-equation system — but the resulting
-`ODEProblem` fails at initialization, and when initialization is forced through
-it fails during integration a few time units into a $t \in [0, 1000]$ span.
+`structural_simplify` returns a square 140-equation system — but the problem is
+over-prescribed at $t_0$, which makes initialization fail, and even when
+initialization is repaired the integration goes unstable after 0.4% of the time
+span. The two chunks below establish those as *separate* failures.
 
-The chunk below reproduces that. It is deliberately small: two solvers, a
-handful of solves, no tolerance sweep.
+### Diagnosis: what is prescribed, and what initialization is asked to do
 
 ```julia
-# Diagnostics for the index-reduced MTK problem. See the discussion below the
-# output for what these numbers mean.
+# Diagnostics for the index-reduced MTK problem as this document builds it.
+const MTK = ModelingToolkit
 println("ModelingToolkit version : ", pkgversion(ModelingToolkit))
 println("unknowns(sys_mtk)       : ", length(unknowns(sys_mtk)))
 println("equations(sys_mtk)      : ", length(equations(sys_mtk)))
 
-# Is the initial condition MTK hands the integrator consistent with the
-# index-reduced right-hand side?
-u0_mtk = mtkprob.u0
-du_mtk = similar(u0_mtk)
-mtkprob.f(du_mtk, u0_mtk, mtkprob.p, mtkprob.tspan[1])
-println("any NaN in u0           : ", any(isnan, u0_mtk))
-println("‖f(u0, p, t0)‖∞         : ", maximum(abs, du_mtk))
+# Which unknowns survive index reduction, and which carry a hard initial condition?
+uns = unknowns(sys_mtk)
+ics = MTK.initial_conditions(sys_mtk)
+isdd(u) = occursin("ˍt", string(u))
+groups = (("positions p",        u -> startswith(string(u), "p") && !isdd(u)),
+          ("dummy derivatives",  u -> startswith(string(u), "p") &&  isdd(u)),
+          ("velocities q",       u -> startswith(string(u), "q")),
+          ("multipliers λ",      u -> startswith(string(u), "lam")))
+for (name, pred) in groups
+    sel = filter(pred, uns)
+    println(rpad(name, 20), " count = ", rpad(length(sel), 4),
+            " prescribed as initial conditions = ", count(u -> haskey(ics, u), sel))
+end
 
-# Rodas5P is the reference solver used for the other two formulations.
-# BrownFullBasicInit is tried as well to separate "cannot initialize" from
-# "cannot integrate".
-for (solver_name, alg) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()))
+# The initialization system MTK builds from those prescriptions.
+iprob = mtkprob.f.initialization_data.initializeprob
+isys  = iprob.f.sys
+println("initialization system   : ", length(equations(isys)), " equations, ",
+        length(unknowns(isys)), " unknowns")
+res = zeros(length(equations(isys)))
+iprob.f(res, iprob.u0, iprob.p)
+println("‖init residual at guess‖∞           : ", maximum(abs, res))
+isol = solve(iprob)
+iprob.f(res, isol.u, iprob.p)
+println("init solve retcode                  : ", isol.retcode)
+println("‖init residual at least-squares pt‖∞: ", maximum(abs, res))
+
+# Residual of the simplified RHS at the prescribed u0, split by equation type.
+# Only the algebraic rows are evidence of inconsistency: the differential rows
+# are derivatives and are legitimately nonzero.
+mm  = mtkprob.f.mass_matrix
+alg = [i for i in 1:size(mm, 1) if all(iszero, @view mm[i, :])]
+dif = setdiff(1:size(mm, 1), alg)
+du0 = similar(mtkprob.u0)
+mtkprob.f(du0, mtkprob.u0, mtkprob.p, mtkprob.tspan[1])
+println("algebraic equations                 : ", length(alg))
+println("‖f(u0)‖∞ over ALGEBRAIC rows        : ", maximum(abs, du0[alg]))
+println("‖f(u0)‖∞ over DIFFERENTIAL rows     : ", maximum(abs, du0[dif]))
+
+# Is the prescribed data even self-consistent? The positions are on the sphere;
+# the multipliers are not (the reference solution above has λ → −4.75).
+println("max |‖p_i(0)‖² − 1| over particles  : ",
+        maximum(abs(sum(y0[3*(i-1)+k]^2 for k in 1:3) - 1) for i in 1:N_ART))
+
+for (solver_name, alg_) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()))
     for (init_name, initalg) in (("default", nothing),
                                  ("BrownFullBasicInit", BrownFullBasicInit()))
+        solver_name == "Rodas5P" && init_name != "default" && continue
         elapsed = @elapsed sol = if initalg === nothing
-            solve(mtkprob, alg; abstol = 1e-8, reltol = 1e-8,
+            solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
                   save_everystep = false, maxiters = Int(1e6))
         else
-            solve(mtkprob, alg; abstol = 1e-8, reltol = 1e-8,
+            solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
                   save_everystep = false, maxiters = Int(1e6),
                   initializealg = initalg)
         end
         println(rpad(solver_name, 8), " / ", rpad(init_name, 19),
                 " retcode = ", rpad(string(sol.retcode), 15),
                 " reached t = ", round(sol.t[end], sigdigits = 5),
-                " of ", tspan[2],
-                "  (", round(elapsed, digits = 1), " s)")
+                " of ", tspan[2], "  (", round(elapsed, digits = 1), " s)")
     end
 end
 ```
 
-### What the output shows
-
-Reproduced on 2026-08-23 with this folder's `Manifest.toml`
-(ModelingToolkit v11.39.0, OrdinaryDiffEq v7.6.0, SciMLBase v3.46.1,
-Julia 1.11):
+Reproduced 2026-08-23 with this folder's `Manifest.toml` (ModelingToolkit
+v11.39.0, OrdinaryDiffEq v7.6.0, SciMLBase v3.46.1, Julia 1.11):
 
 ```
 ModelingToolkit version : 11.39.0
 unknowns(sys_mtk)       : 140
 equations(sys_mtk)      : 140
-any NaN in u0           : false
-‖f(u0, p, t0)‖∞         : 19.000000000000004
-Rodas5P  / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (60.9 s)
-Rodas5P  / BrownFullBasicInit  retcode = Unstable        reached t = 4.0416 of 1000.0  (19.6 s)
-FBDF     / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (6.5 s)
-FBDF     / BrownFullBasicInit  retcode = Unstable        reached t = 4.5768 of 1000.0  (2.9 s)
+positions p          count = 60   prescribed as initial conditions = 60
+dummy derivatives    count = 20   prescribed as initial conditions = 0
+velocities q         count = 40   prescribed as initial conditions = 40
+multipliers λ        count = 20   prescribed as initial conditions = 20
+initialization system   : 120 equations, 60 unknowns
+‖init residual at guess‖∞           : 19.000000000000007
+init solve retcode                  : StalledSuccess
+‖init residual at least-squares pt‖∞: 18.73243046792402
+algebraic equations                 : 60
+‖f(u0)‖∞ over ALGEBRAIC rows        : 19.000000000000004
+‖f(u0)‖∞ over DIFFERENTIAL rows     : 9.082050630437326
+max |‖p_i(0)‖² − 1| over particles  : 2.220446049250313e-16
+Rodas5P  / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (37.5 s)
+FBDF     / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (6.4 s)
+FBDF     / BrownFullBasicInit  retcode = Unstable        reached t = 4.5768 of 1000.0  (8.9 s)
 ```
 
-(Seconds are from an M-series Mac; the retcodes and the $t$ values are what
-matter and are reproducible. The whole chunk costs ~90 s there.)
+with, on stderr:
 
-`ShampineCollocationInit()` behaves like `BrownFullBasicInit()`: `Unstable` at
-$t \approx 4.42$ for both solvers.
+> Initialization system is overdetermined. 120 equations for 60 unknowns.
+> Initialization will default to using least squares. `SCCNonlinearProblem` can
+> only be used for initialization of fully determined systems and hence will
+> not be used here.
 
-Two distinct failures, in order:
+**The problem is over-prescribed.** Every variable in the model above is
+declared with a default — `@variables p1_1(t) = y0[1]`, `q1_1(t) = 0.0`,
+`lam1(t) = 0.0` — and ModelingToolkit treats a default on an unknown as a hard
+initial condition. That is 60 positions **+ 40 velocities + 20 multipliers =
+120 prescriptions** (index reduction eliminates 20 of the 60 velocities in
+favour of 20 dummy derivatives, which carry no initial condition), against the
+**60** unknowns initialization is actually free to choose. Hence 120 equations
+for 60 unknowns.
 
-1. **Initialization.** `structural_simplify` emits an over-determined
-   initialization system, and says so:
+**And the prescriptions are not merely redundant — they are inconsistent.** If
+120 consistent-but-redundant conditions were imposed on 60 unknowns, least
+squares would still drive the residual to zero. It does not: it stalls
+(`StalledSuccess`) at $\|r\|_\infty = 18.7$, barely below the 19.0 it started
+at. The culprit is $\lambda \equiv 0$. The positions satisfy $|p_i|^2 = 1$ to
+$2 \times 10^{-16}$ and zero velocities satisfy the velocity-level constraint,
+but the *acceleration*-level constraint that index reduction introduces
+determines $\lambda$, and the reference solution above has
+$\lambda \to -4.75$. Prescribing $\lambda(0) = 0$ contradicts it.
 
-   > Initialization system is overdetermined. 120 equations for 60 unknowns.
-   > Initialization will default to using least squares. `SCCNonlinearProblem`
-   > can only be used for initialization of fully determined systems and hence
-   > will not be used here.
+Note the residual split, which is why the algebraic-only number is the one
+quoted: $\|f(u_0)\|_\infty$ over the 60 **algebraic** rows is 19.0 — genuine
+evidence — while over the differential rows it is 9.08, which is just a
+derivative and means nothing. (The stronger statement is the stalled
+least-squares residual of 18.7 above.)
 
-   The 20 position constraints and the differentiated forms index reduction
-   produces are all imposed on the 60 position unknowns at $t_0$. The default
-   initialization cannot satisfy that least-squares system to solver tolerance,
-   so the solve returns `InitialFailure` without taking a step — and it spends
-   110 s with `Rodas5P` before giving up. `‖f(u_0, p, t_0)‖_\infty = 19`
-   confirms the state MTK hands the integrator is not a consistent point of
-   the reduced system; the same initial data *is* consistent for the
-   hand-written mass-matrix and residual forms above, which both solve to
-   $t = 1000$ and match the Fortran RADAU5 reference.
+### Test: prescribe only the positions
 
-2. **Integration.** Forcing initialization with `BrownFullBasicInit()` or
-   `ShampineCollocationInit()` gets past step zero, but both solvers then go
-   `Unstable` at $t \approx 4$–$4.6$, i.e. after 0.4% of the time span. The
-   drift the index reduction is supposed to control is not being controlled.
+If over-prescription is the cause, then declaring the velocities and
+multipliers *without* defaults and supplying them as `guesses` should make
+initialization solvable. It does.
 
-So this is not a tolerance-tuning problem and not something a different solver
-fixes. Until it is resolved the honest thing is to show the failure rather than
-plot four flat `InitialFailure` series and let them read as data.
+```julia
+# Same model, one change: velocities and multipliers are declared WITHOUT
+# default values and supplied as `guesses` instead, so only the 60 positions
+# are prescribed as initial conditions.
+ps_g = Vector{Num}(undef, 3*N_ART)
+qs_g = Vector{Num}(undef, 3*N_ART)
+λs_g = Vector{Num}(undef, N_ART)
+for i in 1:N_ART
+    for k in 1:3
+        idx = 3*(i-1) + k
+        ps_g[idx] = only(@variables $(Symbol("P$(i)_$(k)"))(t) = y0[idx])
+        qs_g[idx] = only(@variables $(Symbol("Q$(i)_$(k)"))(t))   # no default
+    end
+    λs_g[i] = only(@variables $(Symbol("LAM$(i)"))(t))            # no default
+end
+
+eqs_g = Equation[]
+for idx in 1:3*N_ART
+    push!(eqs_g, D(ps_g[idx]) ~ qs_g[idx])
+end
+for i in 1:N_ART, k in 1:3
+    idx = 3*(i-1) + k
+    coulomb = sum((ps_g[idx] - ps_g[3*(j-1)+k]) /
+                  sum((ps_g[3*(i-1)+m] - ps_g[3*(j-1)+m])^2 for m in 1:3)
+                  for j in 1:N_ART if j != i)
+    push!(eqs_g, D(qs_g[idx]) ~ -ALPHA_DAMP*qs_g[idx] + 2*λs_g[i]*ps_g[idx] + coulomb)
+end
+for i in 1:N_ART
+    push!(eqs_g, sum(ps_g[3*(i-1)+k]^2 for k in 1:3) ~ 1)
+end
+
+guess_map = Dict{Any, Float64}()
+for v in qs_g; guess_map[v] = 0.0; end
+for v in λs_g; guess_map[v] = 0.0; end
+
+@named sys_raw_g = ODESystem(eqs_g, t)
+sys_g  = structural_simplify(sys_raw_g)
+prob_g = ODEProblem(sys_g, [], tspan; guesses = guess_map)
+
+println("unknowns prescribed as initial conditions : ",
+        count(u -> haskey(MTK.initial_conditions(sys_g), u), unknowns(sys_g)),
+        " / ", length(unknowns(sys_g)))
+ig    = prob_g.f.initialization_data.initializeprob
+resg  = zeros(length(equations(ig.f.sys)))
+println("initialization system                     : ",
+        length(equations(ig.f.sys)), " equations, ",
+        length(unknowns(ig.f.sys)), " unknowns")
+isolg = solve(ig)
+ig.f(resg, isolg.u, ig.p)
+println("init solve retcode                        : ", isolg.retcode)
+println("‖init residual at solution‖∞              : ", maximum(abs, resg))
+
+elapsed_g = @elapsed sol_g = solve(prob_g, FBDF(); abstol = 1e-8, reltol = 1e-8,
+                                   save_everystep = false, maxiters = Int(1e6))
+println("FBDF, positions-only ICs: retcode = ", sol_g.retcode,
+        "  reached t = ", round(sol_g.t[end], sigdigits = 5), " of ", tspan[2],
+        "  (", round(elapsed_g, digits = 1), " s)")
+```
+
+Same run, same day:
+
+```
+unknowns prescribed as initial conditions : 60 / 140
+initialization system                     : 80 equations, 100 unknowns
+init solve retcode                        : Success
+‖init residual at solution‖∞              : 3.885780586188049e-15
+FBDF, positions-only ICs: retcode = Unstable  reached t = 4.0416 of 1000.0  (26.4 s)
+```
+
+Two conclusions, and they point in opposite directions.
+
+**Initialization is fixed.** Dropping the redundant prescriptions turns a
+system that stalls at residual 18.7 into one that solves to
+$4 \times 10^{-15}$, and the default `InitialFailure` is gone — the solve now
+gets past $t = 0$ without any `initializealg` override. That confirms
+over-prescription as the cause of the first failure.
+
+It is not a clean fix, though, and the section does not claim otherwise: the
+initialization system swings from over- to *under*-determined (80 equations,
+100 unknowns) and MTK reports it structurally singular, warning that the guess
+values materially affect the initial state. A correct formulation would
+prescribe the positions and let the velocity- and acceleration-level
+constraints determine the rest, landing on a square system; that is the
+upstream question.
+
+**Integration is not fixed.** With initialization solved exactly, `FBDF` still
+goes `Unstable` at $t = 4.04$. Every route that gets past $t = 0$ — forcing
+`BrownFullBasicInit()` or `ShampineCollocationInit()` on the original problem,
+or prescribing only positions here — fails somewhere in
+$t \in [4.0, 4.6]$ of a $[0, 1000]$ span, regardless of solver. So the drift
+that index reduction is supposed to control is not being controlled, and that
+failure is **independent of initialization**. It is not a tolerance-tuning
+problem and not something a different solver fixes.
 
 **If you are picking this up:** it belongs upstream in
-[ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl/issues) as an
-index-reduction/initialization report, with the model above as the reproducer —
-a Fekete-point index-3 constrained mechanical system, 140 equations after
-`structural_simplify`, over-determined initialization (120 equations, 60
-unknowns). Re-enable the sweep here by restoring `mtkprob` to `probs`, a
-`mtk_ref` reference solve to `refs`, and the `:prob_choice => 3` setups with
-`Rodas5P`, `Rodas4`, `FBDF` and `NordsieckBDF` to the three blocks below.
+[ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl/issues) as two
+reports sharing this reproducer — a Fekete-point index-3 constrained mechanical
+system, 140 equations after `structural_simplify`. (1) Defaults on constrained
+unknowns become hard initial conditions, giving an over-determined
+initialization system that least squares cannot satisfy, with no diagnostic
+beyond "overdetermined"; (2) after index reduction with consistent initial
+data, the integration loses stability after 0.4% of the time span. Re-enable
+the sweep here by restoring `mtkprob` to `probs`, an `mtk_ref` reference solve
+to `refs`, and the `:prob_choice => 3` setups with `Rodas5P`, `Rodas4`, `FBDF`
+and `NordsieckBDF` to the three blocks below.
+
+(Seconds above are from an M-series Mac; the retcodes, system sizes, residuals
+and $t$ values are what matter and are reproducible. Both chunks together cost
+~80 s there.)
 
 ## High Tolerances
 
