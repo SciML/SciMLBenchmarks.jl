@@ -131,7 +131,12 @@ jobs:
     # that were actually uploaded (only successful builds upload), and
     # publish_benchmark_output.sh is a no-op when there's nothing new.
     if: always() && github.ref == 'refs/heads/master' && (needs.benchmark.result == 'success' || needs.benchmark.result == 'failure')
-    runs-on: [self-hosted, benchmark]
+    # Hosted runner on purpose: publishing only needs git + ssh + the small
+    # markdown/notebook/pdf/script artifacts. On the self-hosted benchmark
+    # runners this 1-minute job queues behind multi-hour (sometimes multi-day)
+    # benchmark jobs, so finished results sit unpublished for hours even though
+    # their benchmark job succeeded.
+    runs-on: ubuntu-latest
     # No concurrency group here on purpose. A job-level group has the same
     # one-running + one-pending semantics as above, so with several master runs
     # finishing close together the middle run's publish job would be cancelled
