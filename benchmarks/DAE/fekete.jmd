@@ -36,7 +36,11 @@ We benchmark three formulations:
    directly to ModelingToolkit, which uses `structural_simplify` to
    automatically perform index reduction and generate an index-1 DAE.
    This benchmarks MTK's symbolic transformation pipeline on a large-scale
-   constrained mechanical system.
+   constrained mechanical system. **This formulation is built below but is
+   currently excluded from the work-precision diagrams** — as of 2026-08-23 it
+   fails to initialize and, when initialization is forced, goes unstable after
+   0.4% of the time span. See "MTK Index-Reduced Formulation: Currently
+   Dropped", which reproduces the failure.
 
 Reference: Bendtsen, C., Thomsen, P.G.: Numerical solution of differential
 algebraic equations. IMM-DTU, Tech. Report (1999). Available at the
@@ -590,23 +594,11 @@ ref_sol = solve(mmprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
 println("  retcode = $(ref_sol.retcode), npoints = $(length(ref_sol.t)), ",
         "t_final = $(ref_sol.t[end])")
 
-println("Computing MTK reference solution with Rodas5P...")
-mtk_ref = solve(mtkprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
-                maxiters = 10_000_000)
-println("  retcode = $(mtk_ref.retcode), npoints = $(length(mtk_ref.t))")
-
-# We use separate references: the canonical mass-matrix reference for
-# mass-matrix and DAE forms, and an MTK reference for the MTK form
-# (structural_simplify may change the state layout).
-#
-# NOTE (2026-08-23): on the current Manifest the MTK (index-reduced) form
-# regressed — every solver tried, at every tolerance on the grids below,
-# returns `InitialFailure`, including this reference solve. The retcode is
-# printed above so the regression stays visible in the published page. The
-# `(MTK)` series in the diagrams below are therefore not currently meaningful;
-# they are kept (they cost ~3 s each) so the comparison comes back
-# automatically once initialization is fixed upstream. This is a correctness
-# regression, not a runtime one — it is not what makes this file slow.
+# The mass-matrix reference above is the reference for both the mass-matrix
+# and the DAE residual forms. There is no MTK reference: as of 2026-08-23 the
+# index-reduced MTK problem does not solve at all — see
+# "MTK Index-Reduced Formulation: Currently Dropped" below, which reproduces
+# and documents the failure.
 ```
 
 ## Verification against Fortran Reference
@@ -672,13 +664,133 @@ plot(ref_sol, idxs = [121, 122, 123, 124, 125],
 ## Problem Setup for Benchmarks
 
 We set up the problem array and reference array for `WorkPrecisionSet`.
-The three formulations are: (1) mass-matrix ODE, (2) DAE residual,
-(3) MTK index-reduced.
+Two formulations are benchmarked: (1) mass-matrix ODE and (2) DAE residual.
+The third, MTK index-reduced, is dropped for now — the section below shows why.
 
 ```julia
-probs = [mmprob, daeprob, mtkprob]
-refs  = [ref_sol, ref_sol, mtk_ref]
+probs = [mmprob, daeprob]
+refs  = [ref_sol, ref_sol]
 ```
+
+## MTK Index-Reduced Formulation: Currently Dropped
+
+This document used to carry a third formulation in every work-precision
+diagram: the **MTK index-reduced** form built above, where the original
+index-3 system (60 kinematic + 60 dynamic equations + 20 position-level
+constraints $|p_i|^2 = 1$) is handed to `structural_simplify` and
+ModelingToolkit performs the index reduction itself. It was benchmarked with
+`Rodas5P`, `Rodas4`, `FBDF` and `NordsieckBDF` over the same tolerance grids as
+the other two forms, with its own `Rodas5P` reference solution at
+`abstol = reltol = 1e-8`.
+
+**As of 2026-08-23 that formulation does not solve, so the sweep is dropped
+rather than published as flat, meaningless curves.** The symbolic side works —
+`structural_simplify` returns a square 140-equation system — but the resulting
+`ODEProblem` fails at initialization, and when initialization is forced through
+it fails during integration a few time units into a $t \in [0, 1000]$ span.
+
+The chunk below reproduces that. It is deliberately small: two solvers, a
+handful of solves, no tolerance sweep.
+
+```julia
+# Diagnostics for the index-reduced MTK problem. See the discussion below the
+# output for what these numbers mean.
+println("ModelingToolkit version : ", pkgversion(ModelingToolkit))
+println("unknowns(sys_mtk)       : ", length(unknowns(sys_mtk)))
+println("equations(sys_mtk)      : ", length(equations(sys_mtk)))
+
+# Is the initial condition MTK hands the integrator consistent with the
+# index-reduced right-hand side?
+u0_mtk = mtkprob.u0
+du_mtk = similar(u0_mtk)
+mtkprob.f(du_mtk, u0_mtk, mtkprob.p, mtkprob.tspan[1])
+println("any NaN in u0           : ", any(isnan, u0_mtk))
+println("‖f(u0, p, t0)‖∞         : ", maximum(abs, du_mtk))
+
+# Rodas5P is the reference solver used for the other two formulations.
+# BrownFullBasicInit is tried as well to separate "cannot initialize" from
+# "cannot integrate".
+for (solver_name, alg) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()))
+    for (init_name, initalg) in (("default", nothing),
+                                 ("BrownFullBasicInit", BrownFullBasicInit()))
+        elapsed = @elapsed sol = if initalg === nothing
+            solve(mtkprob, alg; abstol = 1e-8, reltol = 1e-8,
+                  save_everystep = false, maxiters = Int(1e6))
+        else
+            solve(mtkprob, alg; abstol = 1e-8, reltol = 1e-8,
+                  save_everystep = false, maxiters = Int(1e6),
+                  initializealg = initalg)
+        end
+        println(rpad(solver_name, 8), " / ", rpad(init_name, 19),
+                " retcode = ", rpad(string(sol.retcode), 15),
+                " reached t = ", round(sol.t[end], sigdigits = 5),
+                " of ", tspan[2],
+                "  (", round(elapsed, digits = 1), " s)")
+    end
+end
+```
+
+### What the output shows
+
+Reproduced on 2026-08-23 with this folder's `Manifest.toml`
+(ModelingToolkit v11.39.0, OrdinaryDiffEq v7.6.0, SciMLBase v3.46.1,
+Julia 1.11):
+
+```
+ModelingToolkit version : 11.39.0
+unknowns(sys_mtk)       : 140
+equations(sys_mtk)      : 140
+any NaN in u0           : false
+‖f(u0, p, t0)‖∞         : 19.000000000000004
+Rodas5P  / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (60.9 s)
+Rodas5P  / BrownFullBasicInit  retcode = Unstable        reached t = 4.0416 of 1000.0  (19.6 s)
+FBDF     / default             retcode = InitialFailure  reached t = 0.0 of 1000.0  (6.5 s)
+FBDF     / BrownFullBasicInit  retcode = Unstable        reached t = 4.5768 of 1000.0  (2.9 s)
+```
+
+(Seconds are from an M-series Mac; the retcodes and the $t$ values are what
+matter and are reproducible. The whole chunk costs ~90 s there.)
+
+`ShampineCollocationInit()` behaves like `BrownFullBasicInit()`: `Unstable` at
+$t \approx 4.42$ for both solvers.
+
+Two distinct failures, in order:
+
+1. **Initialization.** `structural_simplify` emits an over-determined
+   initialization system, and says so:
+
+   > Initialization system is overdetermined. 120 equations for 60 unknowns.
+   > Initialization will default to using least squares. `SCCNonlinearProblem`
+   > can only be used for initialization of fully determined systems and hence
+   > will not be used here.
+
+   The 20 position constraints and the differentiated forms index reduction
+   produces are all imposed on the 60 position unknowns at $t_0$. The default
+   initialization cannot satisfy that least-squares system to solver tolerance,
+   so the solve returns `InitialFailure` without taking a step — and it spends
+   110 s with `Rodas5P` before giving up. `‖f(u_0, p, t_0)‖_\infty = 19`
+   confirms the state MTK hands the integrator is not a consistent point of
+   the reduced system; the same initial data *is* consistent for the
+   hand-written mass-matrix and residual forms above, which both solve to
+   $t = 1000$ and match the Fortran RADAU5 reference.
+
+2. **Integration.** Forcing initialization with `BrownFullBasicInit()` or
+   `ShampineCollocationInit()` gets past step zero, but both solvers then go
+   `Unstable` at $t \approx 4$–$4.6$, i.e. after 0.4% of the time span. The
+   drift the index reduction is supposed to control is not being controlled.
+
+So this is not a tolerance-tuning problem and not something a different solver
+fixes. Until it is resolved the honest thing is to show the failure rather than
+plot four flat `InitialFailure` series and let them read as data.
+
+**If you are picking this up:** it belongs upstream in
+[ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl/issues) as an
+index-reduction/initialization report, with the model above as the reproducer —
+a Fekete-point index-3 constrained mechanical system, 140 equations after
+`structural_simplify`, over-determined initialization (120 equations, 60
+unknowns). Re-enable the sweep here by restoring `mtkprob` to `probs`, a
+`mtk_ref` reference solve to `refs`, and the `:prob_choice => 3` setups with
+`Rodas5P`, `Rodas4`, `FBDF` and `NordsieckBDF` to the three blocks below.
 
 ## High Tolerances
 
@@ -708,13 +820,9 @@ setups = [
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
     Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
@@ -722,8 +830,8 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp, title = "Fekete Problem: All Formulations (High Tol)")
 ```
 
-Solver performance differs significantly across formulations, particularly
-between residual DAE, mass-matrix ODE, and MTK index-reduced forms.
+Solver performance differs significantly between the residual DAE and
+mass-matrix ODE formulations.
 
 A second high-tolerance diagram over `abstols = 10.0 .^ -(6:8)` used to follow
 here. It was a strict sub-grid of the diagram above with a strict subset of the
@@ -754,13 +862,9 @@ setups = [
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
     Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
@@ -799,13 +903,9 @@ setups = [
     Dict(:prob_choice => 1, :alg => radau()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
