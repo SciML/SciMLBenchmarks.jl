@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -73,7 +73,16 @@ L = 16.0  # Domain length
 alpha = 5.0 # Time scaling factor
 xs, prob = kortwrieg_de_vries(N, L, alpha)
 
-@time sol = solve(prob, AutoVern7(RadauIIA5(autodiff=AutoFiniteDiff())); 
+# 2026-08: this reference solve used `AutoVern7(RadauIIA5(...))`, which now
+# throws `type CompositeCache has no field iter` and takes the whole file down
+# with it (every later chunk then fails on an undefined `test_sol`).
+# `stepsize_controller!` in OrdinaryDiffEqCore v4
+# (src/integrators/controllers.jl) does `if isfirk(alg); (; iter) =
+# integrator.cache`, but under an AutoSwitch wrapper `integrator.cache` is a
+# CompositeCache, which has no `iter` field. Rodas5P is not FIRK, so it takes
+# the `fac_default_gamma` path instead and works; measured against the same
+# `dt`/tolerances it costs 21-57 s on these problems.
+@time sol = solve(prob, AutoVern7(Rodas5P(autodiff=AutoFiniteDiff())); 
                   dt = 1e-4, abstol = 1e-14, reltol = 1e-14);
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
@@ -172,8 +181,20 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, High Toleranc
 
 Dense and Krylov linear solvers.
 ```julia
-abstols = 0.1 .^ (8:12)
-reltols = 0.1 .^ (5:9)
+# 2026-08: tolerance range trimmed to keep this folder inside the CI budget.
+# KenCarp* with the default (dense) linsolve became dramatically slower below
+# abstol 1e-9 in the OrdinaryDiffEq v7 stack. Measured on the KS spectral
+# problem (N = 128), one KenCarp4 solve at abstol=1e-10, reltol=1e-7:
+#   OrdinaryDiffEq 6.101 + LinearSolve 3.26 (the stack that last published this
+#     folder, 2025-08-29):   2.6 s, 149 accepted steps, nf = 15598
+#   OrdinaryDiffEq 7.0.0 + LinearSolve 3.87 (current):
+#                          235.0 s, 148 accepted steps, nf = 149389
+# i.e. the same steps but ~10x the f evaluations and linear solves; KenCarp3
+# goes 10.6 s -> 89 s the same way. abstol 1e-7..1e-9 is unaffected, so the
+# sweep now stops there. Restore the old range once the upstream regression is
+# fixed.
+abstols = 0.1 .^ (7:9)
+reltols = 0.1 .^ (4:6)
 setups = [
     Dict(:alg => KenCarp3()),
     Dict(:alg => KenCarp4()),

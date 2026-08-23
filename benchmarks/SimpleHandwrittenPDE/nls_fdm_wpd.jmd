@@ -98,7 +98,16 @@ L = 16.0  # Domain half-length
 alpha = 5.0 # Dispersive coefficient
 xs, prob = nonlinear_schrodinger(N, L, alpha)
 
-@time sol = solve(prob, AutoVern7(RadauIIA5(autodiff=AutoFiniteDiff()));
+# 2026-08: this reference solve used `AutoVern7(RadauIIA5(...))`, which now
+# throws `type CompositeCache has no field iter` and takes the whole file down
+# with it (every later chunk then fails on an undefined `test_sol`).
+# `stepsize_controller!` in OrdinaryDiffEqCore v4
+# (src/integrators/controllers.jl) does `if isfirk(alg); (; iter) =
+# integrator.cache`, but under an AutoSwitch wrapper `integrator.cache` is a
+# CompositeCache, which has no `iter` field. Rodas5P is not FIRK, so it takes
+# the `fac_default_gamma` path instead and works; measured against the same
+# `dt`/tolerances it costs 21-57 s on these problems.
+@time sol = solve(prob, AutoVern7(Rodas5P(autodiff=AutoFiniteDiff()));
                   dt = 1e-4, abstol = 1e-14, reltol = 1e-14);
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
