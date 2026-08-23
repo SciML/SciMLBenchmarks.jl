@@ -179,9 +179,12 @@ so the acceleration is discontinuous whenever a pair crosses the cutoff. Below
 roughly `reltol = 1e-7` the adaptive controllers reject most of their proposed
 steps at those crossings and the cost per solve diverges (measured for `Tsit5`
 at N=128, `t = 10`: 5 s at `reltol = 1.2e-4`, 66 s at `1.2e-7`, 2260 s at
-`1.2e-13`). This file integrates to `t = 50`, i.e. five times the cost per
+`1.2e-13`). At the loose end the `2^cₐ` cost scaling pushes the high-order
+solvers past the point where they solve the problem at all -- in the last
+published build `Vern9` at `reltol = 0.267` burned 15.4 h for an energy error
+of 325. This file integrates to `t = 50`, i.e. five times the cost per
 configuration of `liquid_argon.jmd`, so we use a correspondingly shorter grid
-that stays inside the attainable range.
+inside the range the controller can track.
 
 ```julia
 function config(integrators, c, at, rt)
@@ -189,8 +192,8 @@ function config(integrators, c, at, rt)
 end
 
 t = 35.0
-ats = 10 .^ range(-8, -4, length = 5)
-rts = 10 .^ range(-8, -4, length = 5)
+ats = 10 .^ range(-8, -5, length = 4)
+rts = 10 .^ range(-8, -5, length = 4)
 
 # warmup -- this only exists to force compilation, so it runs at the *loosest*
 # tolerance of the grid. It used to use `ats[1]`/`rts[1]`, i.e. the tightest,

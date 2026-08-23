@@ -255,11 +255,17 @@ here (N=128, t=10, one solve of `Tsit5`, extrapolated from a step-capped run):
 | 1.2e-05 | 9 s |
 | 1.2e-04 | 5 s |
 
-The historical `10 .^ range(-14, -4, length = 10)` grid therefore spent almost
-all of its wall time in a regime where the tolerance is not attainable for this
-model; summed over the six solvers and both sweeps it comes to ~18 h for this
-file alone. We use a grid that stays in the range the controller can actually
-track.
+The *loose* end of the old grid is dangerous for a different reason: with
+`abstol = reltol = at*2^cₐ` the high-order solvers get a tolerance up to
+`2^11.38 = 2666` times looser than the grid point, and at that point they stop
+solving the problem at all. In the last successfully published build of this
+benchmark `Vern9` at `reltol = 0.267` took **55389 s** (15.4 h) for a single
+configuration, for an energy error of 325 -- i.e. no usable answer. That
+configuration reproduces on current versions.
+
+So the historical `10 .^ range(-14, -4, length = 10)` grid spent essentially
+all of its wall time outside the range where the error controller works, at
+both ends. We use a grid that stays inside it.
 
 ```julia
 function config(integrators, c, at, rt)
@@ -267,8 +273,8 @@ function config(integrators, c, at, rt)
 end
 
 t = 35.0
-ats = 10 .^ range(-9, -4, length = 6)
-rts = 10 .^ range(-9, -4, length = 6)
+ats = 10 .^ range(-9, -5, length = 5)
+rts = 10 .^ range(-9, -5, length = 5)
 
 # warmup -- this only exists to force compilation, so it runs at the *loosest*
 # tolerance of the grid. It used to use `ats[1]`/`rts[1]`, i.e. the tightest,
