@@ -15,9 +15,20 @@ on:
         required: false
         type: string
 
-# Cancel in-progress PR runs (but not master — benchmarks are long-running)
+# PR runs: one group per ref, newer pushes cancel the in-progress run.
+#
+# master runs (push and workflow_dispatch): one group PER RUN, so they never
+# queue behind or evict each other. GitHub allows only one running + one
+# pending run per group; a newly queued run CANCELS the pending one. With a
+# single shared master group, a multi-day folder (e.g. SimpleHandwrittenPDE)
+# held the group for days while every later master push was first parked as
+# pending and then silently cancelled by the next push — its benchmark jobs
+# never ran and nothing reached SciMLBenchmarksOutput, even though other
+# self-hosted runners sat idle. Per-run groups let the matrix jobs spread over
+# all available runners; the only thing that must be serialized is the push
+# to SciMLBenchmarksOutput, which publish_benchmark_output.sh handles itself.
 concurrency:
-  group: benchmarks-${{ github.ref }}
+  group: benchmarks-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
@@ -121,9 +132,12 @@ jobs:
     # publish_benchmark_output.sh is a no-op when there's nothing new.
     if: always() && github.ref == 'refs/heads/master' && (needs.benchmark.result == 'success' || needs.benchmark.result == 'failure')
     runs-on: [self-hosted, benchmark]
-    concurrency:
-      group: scimlbenchmarks-deploy
-      cancel-in-progress: false
+    # No concurrency group here on purpose. A job-level group has the same
+    # one-running + one-pending semantics as above, so with several master runs
+    # finishing close together the middle run's publish job would be cancelled
+    # and its results lost. Concurrent publishes are instead made safe by
+    # publish_benchmark_output.sh, which re-clones and retries when the push to
+    # SciMLBenchmarksOutput is rejected as non-fast-forward.
     steps:
       - uses: actions/checkout@v7
 
