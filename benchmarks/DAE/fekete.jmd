@@ -598,6 +598,15 @@ println("  retcode = $(mtk_ref.retcode), npoints = $(length(mtk_ref.t))")
 # We use separate references: the canonical mass-matrix reference for
 # mass-matrix and DAE forms, and an MTK reference for the MTK form
 # (structural_simplify may change the state layout).
+#
+# NOTE (2026-08-23): on the current Manifest the MTK (index-reduced) form
+# regressed — every solver tried, at every tolerance on the grids below,
+# returns `InitialFailure`, including this reference solve. The retcode is
+# printed above so the regression stays visible in the published page. The
+# `(MTK)` series in the diagrams below are therefore not currently meaningful;
+# they are kept (they cost ~3 s each) so the comparison comes back
+# automatically once initialization is fixed upstream. This is a correctness
+# regression, not a runtime one — it is not what makes this file slow.
 ```
 
 ## Verification against Fortran Reference
@@ -673,6 +682,11 @@ refs  = [ref_sol, ref_sol, mtk_ref]
 
 ## High Tolerances
 
+The work-precision grids below were re-tuned on 2026-08-23 after the DAE folder
+started overrunning CI (measured: the whole folder took 7h56m on amdci3-1 on
+2026-06-18, of which this single file was 4h52m). See the notes on each block
+for what was measured and why it was changed.
+
 ```julia
 # Tightened reltols (was 10.0.^-(1:4)) so that IDA/DASKR are not asked for the
 # loose (abstol=1e-5, reltol=1e-1) pairing — Sundials grinds with repeated
@@ -683,6 +697,9 @@ refs  = [ref_sol, ref_sol, mtk_ref]
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
 # RadauIIA5 fails on this mass-matrix form (FunctionWrappers mass-matrix jac path).
+# numruns was 5; each point here is a multi-second-to-minute solve of a 160-equation
+# index-2 DAE over t in [0, 1000], so run-to-run timing noise is far below the
+# cost of repeating it. numruns=1 cuts this block ~3x (6 solves/point -> 2).
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -701,35 +718,17 @@ labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: All Formulations (High Tol)")
 ```
 
 Solver performance differs significantly across formulations, particularly
 between residual DAE, mass-matrix ODE, and MTK index-reduced forms.
 
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-setups = [
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
-]
-
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE vs MTK (High Tol)")
-```
+A second high-tolerance diagram over `abstols = 10.0 .^ -(6:8)` used to follow
+here. It was a strict sub-grid of the diagram above with a strict subset of the
+solvers, so it produced no information that the plot above does not already
+contain, and it cost 9.5 min of the 4h52m weave on 2026-06-18. Removed.
 
 ### Timeseries Errors
 
@@ -737,6 +736,13 @@ plot(wp, title = "Fekete Problem: MM vs DAE vs MTK (High Tol)")
 # Same tightening as above (was reltols = 10.0.^-(1:4)) and verbose=false on
 # IDA/DASKR so the loose abstol/reltol pairings don't fail Sundials' error test
 # repeatedly.
+#
+# RadauIIA5 is *not* in this list: on 2026-08-23, with the current Manifest,
+# `solve(mmprob, RadauIIA5(); abstol <= 1e-7)` throws
+# `FunctionWrappersWrappers.NoFunctionWrapperFound` — a hard error, which fails
+# the whole chunk and therefore the whole folder build. The same solver was
+# already dropped from the block above for the same reason; this list and the
+# low-tolerance list below had been missed.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
 setups = [
@@ -746,7 +752,6 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
     Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
@@ -755,45 +760,35 @@ setups = [
     Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: Timeseries (L2)")
 ```
 
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-setups = [
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
-]
-
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE vs MTK Timeseries (L2)")
-```
+The `abstols = 10.0 .^ -(6:8)` L2 sub-grid that used to follow was, like the
+final-error sub-grid above, a strict subset of the diagram above (10.3 min on
+2026-06-18). Removed.
 
 ### Low Tolerances
 
 This measures solver performance when high accuracy is needed.
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (7:12)
-reltols = 1.0 ./ 10.0 .^ (4:9)
+# Grid was `abstols = 10.0 .^ -(7:12)`, `reltols = 10.0 .^ -(4:9)`. Measured on
+# 2026-08-23, one solve per (solver, tolerance) point on the mass-matrix form:
+# past abstol = 1e-10 every mass-matrix solver either bails out
+# (FBDF/QNDF/NordsieckBDF return `Unstable`, radau returns `DtLessThanMin`) or
+# costs minutes per solve while doing so, so the last two columns of the grid
+# were buying failed points at the highest price on the whole grid. This block
+# was 1h48m of the 4h52m weave on 2026-06-18. Trimmed to 4 points.
+abstols = 1.0 ./ 10.0 .^ (7:10)
+reltols = 1.0 ./ 10.0 .^ (4:7)
 
+# RadauIIA5 dropped: throws `FunctionWrappersWrappers.NoFunctionWrapperFound` on
+# every point of this grid (see the timeseries block above).
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas5()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -802,7 +797,6 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DASKR.daskr()),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
@@ -811,20 +805,19 @@ setups = [
     Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: Low Tolerances")
 ```
 
-```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: Low Tolerances (L2)")
-```
+An L2 re-run of exactly the block above used to follow. Because it passed
+`save_everystep = false`, the "timeseries" L2 error was computed over the two
+saved points (start and end), i.e. it was the final error again under a
+different name — a duplicate plot for 1h46m of the 4h52m weave on 2026-06-18.
+Removed; the L2 comparison lives in the timeseries block above.
 
 ### Conclusion
 
