@@ -124,6 +124,20 @@ Que0 = DiffCache(zeros(N))
 p = [Cu..., Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b]
 tspan = (0., 50_000.)
 
+# Pin BLAS to one thread for the whole file.
+#
+# This system is 81 dense states, so every solver step is an 81x81 factorization - far too
+# small for multithreaded BLAS to pay for itself, and large enough to trigger it. The CI
+# runners set JULIA_NUM_THREADS=auto, which is 128 on the amdci* EPYC boxes, and nothing in
+# this file pinned BLAS until the multithreading section near the end. The whole-folder job
+# on amdci3-1 (run 31719785340) entered this file's first WorkPrecisionSet at 10:10:49 on
+# 2026-08-14 and had still not left it 119.35 h later when GitHub cancelled the job at its
+# 5-day limit - while every individual solver call in that chunk returns in seconds when
+# measured on a quiet machine (rodas 8.3 s, radau 10.9-21.5 s, lsoda 4.2 s; the chunk as a
+# whole probes at 702 s). Thread oversubscription is the one environment difference we can
+# name and control, so pin it up front.
+LinearAlgebra.BLAS.set_num_threads(1)
+
 # Problem setup
 prob = ODEProblem(heating, u0, tspan, (p, Qh0, Que0))
 
@@ -278,7 +292,7 @@ plot(wp)
 Multithreading benchmarks with Parallel Extrapolation Methods
 
 ```julia
-#Setting BLAS to one thread to measure gains
+#Setting BLAS to one thread to measure gains (already pinned at the top of the file)
 LinearAlgebra.BLAS.set_num_threads(1)
 
 # Kept inside the accuracy of the 1e-12 reference solution (see note above).
