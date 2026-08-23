@@ -166,18 +166,6 @@ plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;dense = false,verbose = SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
-plot(wp)
-```
-
-```julia
 setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Kvaerno3()),
           Dict(:alg=>CVODE_BDF()),
@@ -189,18 +177,6 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>radau())]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;dense = false,verbose = SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
 ```
 
@@ -255,8 +231,11 @@ plot(wp)
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (7:13)
-reltols = 1.0 ./ 10.0 .^ (4:10)
+# The reference solution above is Rodas5P at abstol = reltol = 1e-12, so the sweep
+# stops at abstol 1e-11 / reltol 1e-8; tighter points measured the reference's own
+# error rather than the solver's, and were by far the most expensive in the file.
+abstols = 1.0 ./ 10.0 .^ (7:11)
+reltols = 1.0 ./ 10.0 .^ (4:8)
 
 setups = [
           Dict(:alg=>FBDF()),
@@ -273,18 +252,6 @@ setups = [
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
 plot(wp)
 ```
 
@@ -308,26 +275,15 @@ wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
 plot(wp)
 ```
 
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      dense=false,appxsol=test_sol,maxiters=Int(1e5),error_estimate=:l2,numruns=10)
-plot(wp)
-```
-
-```julia
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                      appxsol=test_sol,maxiters=Int(1e5),error_estimate=:L2,numruns=10)
-plot(wp)
-```
-
 Multithreading benchmarks with Parallel Extrapolation Methods
 
 ```julia
 #Setting BLAS to one thread to measure gains
 LinearAlgebra.BLAS.set_num_threads(1)
 
-abstols = 1.0 ./ 10.0 .^ (11:13)
-reltols = 1.0 ./ 10.0 .^ (8:10)
+# Kept inside the accuracy of the 1e-12 reference solution (see note above).
+abstols = 1.0 ./ 10.0 .^ (9:11)
+reltols = 1.0 ./ 10.0 .^ (6:8)
 
 setups = [
             Dict(:alg=>CVODE_BDF()),
