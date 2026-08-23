@@ -348,8 +348,14 @@ prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan)
 # T(1)=72000 (dusk day 0), then for days 1-4: T(2i)=dawn, T(2i+1)=dusk
 disc_times = [72000.0, 100800.0, 158400.0, 187200.0, 244800.0, 273600.0, 331200.0, 360000.0]
 
-# Generate reference solution - requires tstops at discontinuities for solver stability
-sol = solve(prob, CVODE_BDF(), abstol=1/10^8, reltol=1/10^8, maxiters=Int(1e7), tstops=disc_times)
+# Generate reference solution - requires tstops at discontinuities for solver stability.
+# CVODE_BDF cannot integrate this problem to the end: at abstol=reltol=1e-8 it returns
+# ReturnCode.Unstable at t = 360000 (1e-10: t = 273600), leaving a reference that stops
+# short of tspan[2] = 417600. Every WorkPrecisionSet below then failed with
+# "Solution interpolation cannot extrapolate past the final timepoint", so this file has
+# been publishing no work-precision diagrams at all. Rodas5P at 1e-10 reaches 417600 with
+# ReturnCode.Success in ~18 s (RadauIIA5 and FBDF also go Unstable), so use that.
+sol = solve(prob, Rodas5P(), abstol=1/10^10, reltol=1/10^10, maxiters=Int(1e7), tstops=disc_times)
 test_sol = TestSolution(sol)
 
 abstols = 1.0 ./ 10.0 .^ (4:11)
