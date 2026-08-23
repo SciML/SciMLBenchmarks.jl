@@ -160,55 +160,42 @@ catch e
 end
 ```
 
-## Work-Precision Diagrams (competitive CVODE / lsoda)
+## Work-Precision Diagrams (competitive solvers)
 
-Main suite: methods that remain competitive on this large sparse stiff system.
-Dense Lapack and bare GMRES (no preconditioner) are timed only in the loser
-section below.
+Main suites: methods that remain competitive on this large sparse stiff system.
+Everything else is timed once, in isolation, in the loser section below.
+
+`lsoda` and the default dense `CVODE_BDF` used to be swept across this whole
+tolerance grid. Measured on CI (2026-07-27 build, per point): `lsoda` 500-1200 s
+and `CVODE_BDF` 210-370 s, against 9-22 s for `CVODE_BDF` with GMRES +
+incomplete LU. That one panel alone cost 2 h 44 min of the document's 7 h 57 min,
+so both were moved to the isolation section. `TRBDF2` (880 s / 975 s summed over
+the grid for the GMRES+iLU and KLU variants) and `KenCarp4` with GMRES+iLU
+(870 s) were removed from the Julia panels for the same reason - roughly 7x
+`QNDF`/`FBDF` in the same configuration.
+
+#### GMRES + incomplete LU
 
 ```julia
 setups = [
-    Dict(:alg=>lsoda(), :prob_choice => 1),
-    Dict(:alg=>CVODE_BDF(), :prob_choice => 1),
     Dict(
         :alg=>CVODE_BDF(linear_solver = :GMRES, prec = precilu, psetup = psetupilu, prec_side = 1),
-        :prob_choice => 2)
+        :prob_choice => 2),
+    Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true),
+        :prob_choice => 3),
+    Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true),
+        :prob_choice => 3),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true),
+        :prob_choice => 3)
 ];
 ```
 
 ```julia
 wp = WorkPrecisionSet(
     [oprob, oprob_sparse, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e6), numruns = 1)
+    saveat = tf/1000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e6), numruns = 1)
 
-names = ["lsoda" "CVODE_BDF" "CVODE_BDF (GMRES, iLU)"]
-plot(wp; label = names)
-```
-
-## Work-Precision Diagrams (competitive Julia solvers)
-
-Only preconditioned GMRES and sparse KLU variants; default dense factorizations
-and unpreconditioned GMRES are in the loser section.
-
-#### GMRES + incomplete LU
-
-```julia
-setups = [
-    Dict(:alg=>TRBDF2(
-        linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
-    Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
-    Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
-    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
-    Dict(:alg=>KenCarp4(
-        linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true))
-];
-```
-
-```julia
-wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
-
-names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
+names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)"]
 plot(wp; label = names)
 ```
 
@@ -216,7 +203,6 @@ plot(wp; label = names)
 
 ```julia
 setups = [
-    Dict(:alg=>TRBDF2(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>QNDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>FBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
@@ -226,35 +212,56 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 1)
 
-names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
+names = ["QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 plot(wp; label = names)
 ```
 
 ## Loser methods (large cost in isolation)
 
-On this ~1122-ODE sparse chemistry system, the following are not competitive:
-dense Lapack factorization, default dense Julia Newton/linear solves, and GMRES
-without a preconditioner. We do **not** fold them into the main work-precision
-suites. Instead each is timed **once**, in isolation, at a fixed tolerance, next
-to a competitive sparse reference so the wall-time gap is obvious.
+On this ~1122-ODE sparse chemistry system the following are not competitive:
+`lsoda`, dense direct CVODE (default and Lapack), default dense Julia
+Newton/linear solves, GMRES without a preconditioner, and `TRBDF2`/`KenCarp4`
+even with the good linear solvers. We do **not** fold them into the main
+work-precision suites. Instead each is timed **once**, in isolation, at a fixed
+tolerance, next to a competitive sparse reference so the wall-time gap is
+obvious.
+
+Each isolated solve is capped by wall clock. In the 2026-07-27 CI build the
+uncapped versions of the four unpreconditioned-GMRES entries alone measured
+2110 s, 3763 s, 4707 s and 7267 s - about 4.9 h for four data points, i.e. this
+"cheap isolation" section had itself become one of the most expensive parts of
+the document. A solve that hits the cap is reported as a lower bound (`>cap`),
+which is all the diagram needs in order to show the gap.
 
 ```julia
 const _loser_tol = 1e-6
 const _loser_maxiters = Int(1e6)
-_solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
-    save_everystep = false)
+const _loser_cap = 180.0   # seconds of wall clock per isolated solve
 
 loser_labels = String[]
 loser_elapsed = Float64[]
 
-function _time_loser!(label, prob, alg)
+# LSODA.jl does not support callbacks, so `lsoda` is the one entry that has to
+# run to completion; everything else is stopped by the wall-clock callback.
+function _time_loser!(label, prob, alg; cap = true)
     println("--- $label ---")
-    t = @elapsed sol = solve(prob, alg; _solve_kwargs...)
+    tstart = time()
+    kw = if cap
+        capcb = DiscreteCallback(
+            (u, t, integrator) -> time() - tstart > _loser_cap,
+            integrator -> terminate!(integrator); save_positions = (false, false))
+        (; callback = capcb)
+    else
+        (;)
+    end
+    t = @elapsed sol = solve(prob, alg; abstol = _loser_tol, reltol = _loser_tol,
+        maxiters = _loser_maxiters, save_everystep = false, kw...)
+    hit_cap = cap && t >= _loser_cap
     @show sol.retcode
-    println("elapsed = ", t, " s")
-    push!(loser_labels, label)
+    println("elapsed = ", t, " s", hit_cap ? " (hit the $(_loser_cap) s cap)" : "")
+    push!(loser_labels, hit_cap ? label * " (>cap)" : label)
     push!(loser_elapsed, t)
     return sol
 end
@@ -263,7 +270,9 @@ end
 _time_loser!("FBDF + KLU (reference)", sparsejacprob,
     FBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()))
 
-# Dense CVODE Lapack
+# Multistep dense direct solvers
+_time_loser!("lsoda", oprob, lsoda(); cap = false)
+_time_loser!("CVODE_BDF (dense)", oprob, CVODE_BDF())
 _time_loser!("CVODE_BDF LapackDense", oprob, CVODE_BDF(linear_solver = :LapackDense))
 
 # Bare CVODE GMRES (no preconditioner)
@@ -284,6 +293,16 @@ _time_loser!("FBDF GMRES (no prec)", oprob,
     FBDF(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff()))
 _time_loser!("KenCarp4 GMRES (no prec)", oprob,
     KenCarp4(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff()))
+
+# Slow methods with the *good* linear solvers, dropped from the panels above
+_time_loser!("TRBDF2 (GMRES, iLU)", sparsejacprob,
+    TRBDF2(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(),
+        concrete_jac = true))
+_time_loser!("KenCarp4 (GMRES, iLU)", sparsejacprob,
+    KenCarp4(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(),
+        concrete_jac = true))
+_time_loser!("TRBDF2 (KLU, sparse jac)", sparsejacprob,
+    TRBDF2(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()))
 ```
 
 ```julia
@@ -291,7 +310,7 @@ _time_loser!("KenCarp4 GMRES (no prec)", oprob,
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; xrotation = 45, legend = false,
     ylabel = "wall time / (FBDF+KLU reference)",
-    title = "BCR loser isolation (tol=$_loser_tol, one solve each)",
+    title = "BCR loser isolation (tol=$_loser_tol, one capped solve each)",
     size = (900, 500), left_margin = 5Plots.mm, bottom_margin = 15Plots.mm)
 ```
 
@@ -331,7 +350,7 @@ For these, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(
     [oprob, oprob_sparse, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
+    saveat = tf/1000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
 
 names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 colors = [:green :deepskyblue1 :dodgerblue2 :mediumorchid :royalblue2 :slateblue3 :orchid :lightskyblue]

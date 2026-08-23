@@ -3,8 +3,8 @@ title: Fceri_gamma2 Work-Precision Diagrams
 author: Torkel Loman
 ---
 
-The following benchmark is of 356 ODEs with 3749 terms that describe a stiff
-chemical reaction network. This fceri_gamma2 model was used as a benchmark model in [Gupta et
+The following benchmark is of 3744 ODEs with 58276 terms that describe a stiff
+chemical reaction network - the largest network in this folder. This fceri_gamma2 model was used as a benchmark model in [Gupta et
 al.](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6013266/). It describes high-affinity human IgE receptor signalling [Faeder et
 al.](https://www.jimmunol.org/content/170/7/3769.long). We use
 [`ReactionNetworkImporters`](https://github.com/isaacsas/ReactionNetworkImporters.jl)
@@ -135,18 +135,32 @@ end;
 #### Sets tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (5:8)
-reltols = 1.0 ./ 10.0 .^ (5:8);
+abstols = 1.0 ./ 10.0 .^ (5:7)
+reltols = 1.0 ./ 10.0 .^ (5:7);
 ```
+
+Note on cost: this is one of the most expensive documents in the repository.
+Every work-precision point costs three solves (one for the error, one to warm
+up, one that is timed), and on this network a single stiff solve at these
+tolerances runs from a few seconds (preconditioned Krylov) to well over ten
+minutes (dense direct solves). The tolerance grid was therefore cut from four
+points (`1e-5 … 1e-8`) to three, `saveat` was relaxed from `tf/10000` to
+`tf/1000`, and the methods that are an order of magnitude off the pace are
+timed once in the isolation section below instead of being swept across every
+tolerance. See the section "Methods that are not competitive" for the measured
+numbers behind those choices.
 
 ## Work-Precision Diagrams (CVODE and lsoda solvers)
 
 #### Declare solvers.
 
+`lsoda` and the default (dense direct) `CVODE_BDF` are **not** in this suite:
+they run 700-2000 s and 300-800 s per point respectively, which is 100x the
+preconditioned-Krylov CVODE variants and by itself made this chunk take 6.5 h
+of CI time. Both are timed once in the isolation section below.
+
 ```julia
 setups = [
-    Dict(:alg=>lsoda(), :prob_choice => 1),
-    Dict(:alg=>CVODE_BDF(), :prob_choice => 1),
     Dict(:alg=>CVODE_BDF(linear_solver = :LapackDense), :prob_choice => 1),
     Dict(:alg=>CVODE_BDF(linear_solver = :GMRES), :prob_choice => 1),
     Dict(
@@ -161,9 +175,9 @@ setups = [
 ```julia
 wp = WorkPrecisionSet(
     [oprob, oprob_sparse, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e9), numruns = 10)
+    saveat = tf/1000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e6), numruns = 10)
 
-names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "CVODE_BDF (GMRES, iLU)" "CVODE_BDF (KLU, sparse jac)"]
+names = ["CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)" "CVODE_BDF (GMRES, iLU)" "CVODE_BDF (KLU, sparse jac)"]
 plot(wp; label = names)
 ```
 
@@ -173,7 +187,6 @@ plot(wp; label = names)
 
 ```julia
 setups = [
-    Dict(:alg=>TRBDF2(autodiff = AutoFiniteDiff())),
     Dict(:alg=>QNDF(autodiff = AutoFiniteDiff())),
     Dict(:alg=>FBDF(autodiff = AutoFiniteDiff())),
     Dict(:alg=>NordsieckBDF(autodiff = AutoFiniteDiff())),
@@ -185,9 +198,9 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e12), dtmin = 1e-18, numruns = 10)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 10)
 
-names = ["TRBDF2" "QNDF" "FBDF" "NordsieckBDF" "KenCarp4"]
+names = ["QNDF" "FBDF" "NordsieckBDF" "KenCarp4"]
 plot(wp; label = names)
 ```
 
@@ -195,7 +208,6 @@ plot(wp; label = names)
 
 ```julia
 setups = [
-    Dict(:alg=>TRBDF2(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(), autodiff = AutoFiniteDiff())),
@@ -207,9 +219,9 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e12), dtmin = 1e-18, numruns = 10)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 10)
 
-names = ["TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "NordsieckBDF (GMRES)" "KenCarp4 (GMRES)"]
+names = ["QNDF (GMRES)" "FBDF (GMRES)" "NordsieckBDF (GMRES)" "KenCarp4 (GMRES)"]
 plot(wp; label = names)
 ```
 
@@ -217,8 +229,6 @@ plot(wp; label = names)
 
 ```julia
 setups = [
-    Dict(:alg=>TRBDF2(
-        linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
     Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES(; precs = incompletelu), autodiff = AutoFiniteDiff(), concrete_jac = true)),
@@ -231,9 +241,9 @@ setups = [
 
 ```julia
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e12), dtmin = 1e-18, numruns = 10)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 10)
 
-names = ["TRBDF2 (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
+names = ["QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "KenCarp4 (GMRES, iLU)"]
 plot(wp; label = names)
 ```
 
@@ -243,7 +253,6 @@ We designate the solvers we wish to use.
 
 ```julia
 setups = [
-    Dict(:alg=>TRBDF2(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>QNDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>FBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
     Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff())),
@@ -257,10 +266,72 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 
 ```julia
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e12), dtmin = 1e-18, numruns = 10)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 10)
 
-names = ["TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
+names = ["QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)"]
 plot(wp; label = names)
+```
+
+## Methods that are not competitive (timed once, capped)
+
+On this 3744-species / 58276-reaction stiff network the dense direct solves and
+`TRBDF2` are one to two orders of magnitude off the pace of the preconditioned
+Krylov and sparse-KLU methods. Sweeping them across the whole tolerance grid
+costs multiple hours of CI time per document and dominated the runtime of this
+benchmark, so they are **not** folded into the work-precision suites above.
+Instead each is solved **once**, at a fixed tolerance, next to a competitive
+reference, under a hard wall-clock cap so that a pathological method cannot
+stall the build. A solve that hits the cap is reported as a lower bound.
+
+```julia
+const _loser_tol = 1e-6
+const _loser_cap = 300.0   # seconds of wall clock per isolated solve
+
+loser_labels = String[]
+loser_elapsed = Float64[]
+
+# LSODA.jl does not support callbacks, so `lsoda` is the one entry that has to
+# run to completion; everything else is stopped by the wall-clock callback.
+function _time_loser!(label, prob, alg; cap = true)
+    println("--- $label ---")
+    tstart = time()
+    kw = if cap
+        capcb = DiscreteCallback(
+            (u, t, integrator) -> time() - tstart > _loser_cap,
+            integrator -> terminate!(integrator); save_positions = (false, false))
+        (; callback = capcb)
+    else
+        (;)
+    end
+    t = @elapsed sol = solve(prob, alg; abstol = _loser_tol, reltol = _loser_tol,
+        maxiters = Int(1e6), save_everystep = false, kw...)
+    hit_cap = cap && t >= _loser_cap
+    @show sol.retcode
+    println("elapsed = ", t, " s", hit_cap ? " (hit the $(_loser_cap) s cap)" : "")
+    push!(loser_labels, hit_cap ? label * " (>cap)" : label)
+    push!(loser_elapsed, t)
+    return sol
+end
+
+# Competitive reference (preconditioned Krylov CVODE)
+_time_loser!("CVODE_BDF GMRES+iLU (reference)", oprob_sparse,
+    CVODE_BDF(linear_solver = :GMRES, prec = precilu, psetup = psetupilu, prec_side = 1))
+
+# Dense direct solves
+_time_loser!("lsoda", oprob, lsoda(); cap = false)
+_time_loser!("CVODE_BDF (dense)", oprob, CVODE_BDF())
+
+# TRBDF2, the slowest of the Julia BDF/SDIRK set in every linear-solver variant
+_time_loser!("TRBDF2 (KLU, sparse jac)", sparsejacprob,
+    TRBDF2(linsolve = KLUFactorization(), autodiff = AutoFiniteDiff()))
+```
+
+```julia
+ref_t = loser_elapsed[1]
+bar(loser_labels, loser_elapsed ./ ref_t; xrotation = 20, legend = false,
+    ylabel = "wall time / (CVODE_BDF GMRES+iLU reference)",
+    title = "fceri_gamma2 isolation (tol=$_loser_tol, one solve each)",
+    size = (900, 500), left_margin = 5Plots.mm, bottom_margin = 15Plots.mm)
 ```
 
 ## Explicit Work-Precision Diagram
@@ -269,7 +340,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes lsoda and CVODE.
+We designate the solvers we wish to use, this also includes CVODE_Adams.
 
 ```julia
 setups = [
@@ -278,19 +349,23 @@ setups = [
     Dict(:alg=>BS5()),
     Dict(:alg=>VCABM()),
     Dict(:alg=>Vern6()),
-    Dict(:alg=>Vern7()),
-    Dict(:alg=>Vern8()),
     Dict(:alg=>Vern9())
 ];
 ```
+
+`Vern7` and `Vern8` were dropped from this panel: every explicit method sits in
+a narrow 40-60 s band on this problem, so the intermediate Verner orders add
+about 15 minutes of CI time without adding information that `Vern6`/`Vern9`
+do not already carry. (The previous version of this cell also passed eight
+setups with only seven `names`, so the labels were shifted.)
 
 #### Plot Work-Precision Diagram
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 10)
+    saveat = tf/1000.0, appxsol = test_sol, maxiters = Int(1e6), numruns = 10)
 
-names = ["CVODE_Adams" "Tsit5" "BS5" "Vern6" "Vern7" "Vern8" "Vern9"]
+names = ["CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern9"]
 plot(wp; label = names)
 ```
 
@@ -328,7 +403,7 @@ For these, we generate a work-precision diagram for the selection of solvers.
 ```julia
 wp = WorkPrecisionSet(
     [oprob, oprob_sparse, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
+    saveat = tf/1000.0, appxsol = [test_sol, test_sol, test_sol], maxiters = Int(1e6), numruns = 200)
 
 names = ["CVODE_BDF (GMRES)" "CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "Tsit5"]
 colors = [:darkgreen :green :deepskyblue1 :dodgerblue2 :mediumorchid :orchid2]
@@ -341,8 +416,7 @@ plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     markerstrokewidth = 1.5, gridalpha = 0.3, gridlinewidth = 7.5, size = (1100, 1000))
 ```
 
-```julia
-echo = false
+```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
