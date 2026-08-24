@@ -312,6 +312,21 @@ function fekete_jac!(J, y, p, t)
 
     nothing
 end
+
+# Out-of-place method for the same function object. It is never used by the
+# solvers themselves (they call the in-place method above through `calc_J!`),
+# but OrdinaryDiffEq's numerical-instability diagnostic calls the Jacobian
+# out-of-place: when a solve aborts, `SciMLBase.check_error` ->
+# `OrdinaryDiffEqCore.log_numerical_instability` ->
+# `OrdinaryDiffEqDifferentiation.get_fresh_jacobian` -> `calc_J` evaluates
+# `f.jac(u, p, t)` regardless of whether the problem is in-place. Without this
+# method that diagnostic throws instead of printing, which turns an ordinary
+# failed work-precision point into a hard error that kills the whole weave.
+function fekete_jac!(y, p, t)
+    J = zeros(eltype(y), length(y), length(y))
+    fekete_jac!(J, y, p, t)
+    return J
+end
 ```
 
 ### Mass-Matrix ODE Formulation
@@ -325,7 +340,20 @@ for i in 1:6*N_ART
     M[i,i] = 1.0
 end
 
-mmf = ODEFunction(fekete_rhs!, mass_matrix = M, jac = fekete_jac!)
+# `FullSpecialize` rather than the default `AutoSpecialize`: under
+# `AutoSpecialize`, `DiffEqBase.promote_f` replaces `f.jac` at solve time with a
+# `FunctionWrappersWrapper` built from the in-place signature
+# `(Matrix, u, p, t)` only. The out-of-place `f.jac(u, p, t)` call made by the
+# instability diagnostic (see the Jacobian section above) then finds no matching
+# wrapper and throws `No matching function wrapper was found!`. With
+# `FullSpecialize` nothing is wrapped, so `f.jac` is `fekete_jac!` itself and
+# that call dispatches to the out-of-place method defined above.
+# SciMLBase's own docstring for `AutoSpecialize` also recommends against it for
+# benchmarking ("callable wrapping can affect runtime"), so this is the right
+# specialization level for this file regardless. `SciMLBase` is not a direct
+# dependency of this environment, so it is reached through `OrdinaryDiffEq`.
+mmf = ODEFunction{true, OrdinaryDiffEq.SciMLBase.FullSpecialize}(
+    fekete_rhs!, mass_matrix = M, jac = fekete_jac!)
 tspan = (0.0, 1000.0)
 mmprob = ODEProblem(mmf, y0, tspan)
 ```
@@ -951,7 +979,11 @@ for what was measured and why it was changed.
 # moderately-loose end of the grid.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
-# RadauIIA5 fails on this mass-matrix form (FunctionWrappers mass-matrix jac path).
+# RadauIIA5 is not in this list: on this mass-matrix form it aborts
+# (`DtLessThanMin`) at every tolerance tried on these grids, so it contributes
+# no usable point while costing minutes per attempt. (Its aborts used to be a
+# hard error as well; that part is fixed at the problem level — see the
+# out-of-place `fekete_jac!` method and the `FullSpecialize` note above.)
 # numruns was 5; each point here is a multi-second-to-minute solve of a 160-equation
 # index-2 DAE over t in [0, 1000], so run-to-run timing noise is far below the
 # cost of repeating it. numruns=1 cuts this block ~3x (6 solves/point -> 2).
@@ -989,11 +1021,12 @@ contain, and it cost 9.5 min of the 4h52m weave on 2026-06-18. Removed.
 # repeatedly.
 #
 # RadauIIA5 is *not* in this list: on 2026-08-23, with the current Manifest,
-# `solve(mmprob, RadauIIA5(); abstol <= 1e-7)` throws
-# `FunctionWrappersWrappers.NoFunctionWrapperFound` — a hard error, which fails
-# the whole chunk and therefore the whole folder build. The same solver was
-# already dropped from the block above for the same reason; this list and the
-# low-tolerance list below had been missed.
+# `solve(mmprob, RadauIIA5(); abstol <= 1e-7)` aborted at every tolerance tried.
+# The abort additionally threw `No matching function wrapper was found!` out of
+# the instability diagnostic, which failed the whole chunk and therefore the
+# whole folder build. That throw is fixed at the problem level (see the
+# out-of-place `fekete_jac!` method), but the solver still has nothing to
+# contribute on this grid, so it stays out.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
 setups = [
@@ -1034,8 +1067,9 @@ This measures solver performance when high accuracy is needed.
 abstols = 1.0 ./ 10.0 .^ (7:10)
 reltols = 1.0 ./ 10.0 .^ (4:7)
 
-# RadauIIA5 dropped: throws `FunctionWrappersWrappers.NoFunctionWrapperFound` on
-# every point of this grid (see the timeseries block above).
+# RadauIIA5 dropped: aborts on every point of this grid (see the timeseries
+# block above). `radau()` (ODEInterface) is kept — it is a different
+# implementation and does produce points here.
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas5()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -1044,8 +1078,10 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => radau()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
+    # verbose=false to match the two blocks above: at abstol 1e-10 Sundials
+    # reports repeated error-test failures on every retry.
+    Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
 ]
 
 labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)"]
