@@ -322,6 +322,11 @@ end
 # `f.jac(u, p, t)` regardless of whether the problem is in-place. Without this
 # method that diagnostic throws instead of printing, which turns an ordinary
 # failed work-precision point into a hard error that kills the whole weave.
+# (This is an upstream bug, fixed in OrdinaryDiffEqDifferentiation v3.9.0 --
+# `get_fresh_jacobian` there branches on `isinplace` and calls `calc_J!`. This
+# folder's Manifest pins v3.7.0, which does not. The workaround here is
+# version-independent, so it stays correct either way; verified in isolation on
+# 2026-08-24 against both v3.7.0 (throws without it) and v3.10.0.)
 function fekete_jac!(y, p, t)
     J = zeros(eltype(y), length(y), length(y))
     fekete_jac!(J, y, p, t)
