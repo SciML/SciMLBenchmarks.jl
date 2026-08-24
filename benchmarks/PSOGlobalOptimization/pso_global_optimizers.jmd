@@ -42,35 +42,6 @@ const BACKEND = CUDABackend()
 const MK_MARKERS = [:circle, :rect, :utriangle, :diamond, :dtriangle, :pentagon,
     :cross, :xcross, :star4, :star5, :hexagon, :star6, :ltriangle, :rtriangle]
 const MK_LINESTYLES = [:solid, :dash, :dot, :dashdot, (:dot, :dense)]
-
-function solve_problem_baseline(optimizer::Union{Chain, BenchmarkSetup}, f, D::Int,
-        run_length::Int)
-    solve_problem(optimizer, f, D, run_length)
-end
-
-function benchmark_time_to_success(
-    optimizer::Union{Chain, BenchmarkSetup}, funcs::Vector{<:BBOBFunction};
-    Ntrials::Int = 15, dimension::Int = 3, Δf::Real = 1e-6, max_run_length::Int = 100_000
-)
-    all_times = Float64[]
-    for f in funcs
-        for _ in 1:Ntrials
-            t0  = time()
-            sol = solve_problem_baseline(optimizer, f, dimension, max_run_length)
-            elapsed = time() - t0
-            push!(all_times, sol.objective < Δf + f.f_opt ? elapsed : Inf)
-        end
-    end
-    return all_times
-end
-
-benchmark_time_to_success(optimizer, funcs::Vector{<:BBOBFunction}; kwargs...) =
-    benchmark_time_to_success(BenchmarkSetup(optimizer), funcs; kwargs...)
-
-function success_rate_cdf(all_times::Vector{Float64}, time_thresholds::AbstractVector{Float64})
-    N = length(all_times)
-    return [count(x -> x <= t, all_times) / N for t in time_thresholds]
-end
 ```
 
 ```julia
@@ -140,7 +111,7 @@ function pso_benchmark(opt, funcs, run_length;
             fmin[fi, ri]    = fsum / Ntrials
         end
     end
-    elapsed = time() - t0
+    elapsed = (time() - t0) / (Ntrials * Nr)
     Neff = Ntrials * Nf
     sr   = vec(mean(success, dims = 1))
     sc   = vec(sum(success .* Ntrials, dims = 1)) .|> round .|> Int
@@ -155,32 +126,47 @@ function pso_benchmark(opt, funcs, run_length;
         minimum                   = vec(mean(fmin, dims = 1)),
         runtime                   = elapsed,
         Neffective                = Neff,
-        callcount                 = Float64.(run_length) .* n_particles,
+        callcount                 = opt isa HPso ?
+            fill(NaN, Nr) : Float64.((run_length .+ 1) .* n_particles .+ 1),
         success_rate_per_function = [success[fi, end] for fi in 1:Nf],
     )
 end
 
-function pso_tts(opt, funcs; Ntrials = 15, dimension = 3, Δf = 1e-6,
-        local_maxiters = 50, max_run_length = 100_000)
-    all_times = Float64[]
-    D = dimension
-    for f in funcs
-        for _ in 1:Ntrials
-            x0   = SVector{D, Float32}(ntuple(_ -> -5.0f0 + rand(Float32) * 10.0f0, Val(D)))
-            prob = _pso_problem(f, D; x0)
-            t0 = time()
-            sol = if opt isa HPso
-                solve(prob, opt; maxiters = max_run_length,
-                      local_maxiters, abstol = 1.0f-8, reltol = 1.0f-8)
+function benchmark_walltime(opt, funcs, run_length;
+        Ntrials = 10, dimension = 10, Δf = 1e-6, is_pso = false)
+    Nf, Nr = length(funcs), length(run_length)
+    successes = zeros(Int, Nr)
+    runtimes = zeros(Float64, Ntrials * Nf, Nr)
+    baseline = is_pso || opt isa Union{Chain, BenchmarkSetup} ?
+        opt : BenchmarkSetup(opt)
+
+    for (fi, f) in enumerate(funcs)
+        # Exclude one-time compilation from measured runs.
+        try
+            is_pso ? pso_solve(opt, f, dimension, 1) :
+                solve_problem(baseline, f, dimension, 1)
+        catch
+        end
+
+        for (ri, rl) in enumerate(run_length), trial in 1:Ntrials
+            Random.seed!(42 + 1_000fi + trial)
+            row = (fi - 1) * Ntrials + trial
+            if is_pso
+                runtimes[row, ri] = @elapsed sol = pso_solve(opt, f, dimension, rl)
+                fval = _to_f64(sol.objective)
             else
-                solve(prob, opt; maxiters = max_run_length)
+                runtimes[row, ri] = @elapsed sol =
+                    solve_problem(baseline, f, dimension, rl)
+                fval = Float64(sol.objective)
             end
-            elapsed = time() - t0
-            fval = _to_f64(sol.objective)
-            push!(all_times, abs(fval - f.f_opt) < Δf ? elapsed : Inf)
+            successes[ri] += abs(fval - f.f_opt) < Δf
         end
     end
-    all_times
+
+    (
+        runtime = accumulate(max, vec(median(runtimes, dims = 1))),
+        success_rate = successes ./ (Ntrials * Nf),
+    )
 end
 ```
 
@@ -194,8 +180,8 @@ dimension      = 10
 # Exclude unstable BBOB functions: f4 Buche-Rastrigin, f7 Step-Ellipsoidal (segfault),
 # f10 Ellipsoidal-2 (illegal access).
 test_functions = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(dimension)))
-run_length     = round.(Int, 10 .^ LinRange(1, 5, 30))
-Ntrials        = 40
+run_length     = unique(round.(Int, 10 .^ LinRange(0, 2, 10)))
+Ntrials        = 10
 num_particles  = 5_000
 
 const SUCCESS_Δf = 1e-6
@@ -229,11 +215,9 @@ setup = Dict(
     BBOB.benchmark(setup[algo], test_functions, run_length;
         Ntrials, Δf = SUCCESS_Δf)
 
-@memoize run_tts(algo) = algo in PSO_KEYS ?
-    pso_tts(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length = 100_000) :
-    benchmark_time_to_success(setup[algo], test_functions;
-        Ntrials, dimension, Δf = SUCCESS_Δf, max_run_length = 100_000)
+@memoize run_walltime(algo) = benchmark_walltime(
+    setup[algo], test_functions, run_length;
+    Ntrials, dimension, Δf = SUCCESS_Δf, is_pso = algo in PSO_KEYS)
 ```
 
 ## Test all (iterations)
@@ -260,11 +244,13 @@ results
 
 ```julia
 labels = collect(keys(setup))
-idx = sortperm([b.success_rate[end] for b in results], rev = true)
+# HybridPSO's L-BFGS evaluation count is not available.
+idx = filter(i -> labels[i] != "HybridPSO_LBFGS",
+    sortperm([b.success_rate[end] for b in results], rev = true))
 
 fig = Figure(size = (1100, 450))
 ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Function evaluations",
-    ylabel = "Success rate", limits = (1, 1e9, 0, 1))
+    ylabel = "Success rate", limits = (1, 1e7, 0, 1))
 for (j, i) in enumerate(idx)
     scatterlines!(ax, results[i].callcount, results[i].success_rate;
         label = labels[i], linewidth = 2, markersize = 6,
@@ -283,7 +269,7 @@ idx = sortperm([b.success_rate[end] for b in results], rev = true)
 
 fig = Figure(size = (1100, 450))
 ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Iterations",
-    ylabel = "Success rate", limits = (1, 1e5, 0, 1))
+    ylabel = "Success rate", limits = (1, 1e2, 0, 1))
 for (j, i) in enumerate(idx)
     scatterlines!(ax, results[i].run_length, results[i].success_rate;
         label = labels[i], linewidth = 2, markersize = 6,
@@ -294,19 +280,19 @@ Legend(fig[1, 2], ax; framevisible = false)
 fig
 ```
 
-## Test all (wall-clock time to success)
+## Test all (wall-clock time)
 
 ```julia
-tts_results = Dict{String, Vector{Float64}}()
+walltime_results = Dict{String, NamedTuple}()
 
 for algo in labels
     algo in PSO_KEYS || continue
-    tts_results[algo] = run_tts(algo)
+    walltime_results[algo] = run_walltime(algo)
 end
 
 for algo in labels
     algo in PSO_KEYS && continue
-    tts_results[algo] = run_tts(algo)
+    walltime_results[algo] = run_walltime(algo)
 end
 ```
 
@@ -314,19 +300,14 @@ end
 
 ```julia
 labels = collect(keys(setup))
-
-all_finite = filter(isfinite, vcat(values(tts_results)...))
-time_thresholds = 10 .^ range(log10(minimum(all_finite) / 2),
-    log10(maximum(all_finite) * 2), length = 50)
-
-cdfs = Dict(l => success_rate_cdf(tts_results[l], time_thresholds) for l in labels)
-idx = sortperm([cdfs[l][end] for l in labels], rev = true)
+idx = sortperm([walltime_results[l].success_rate[end] for l in labels], rev = true)
 
 fig = Figure(size = (1100, 450))
 ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Wall time (s)",
     ylabel = "Success rate", limits = (nothing, nothing, 0, 1))
 for (j, i) in enumerate(idx)
-    scatterlines!(ax, time_thresholds, cdfs[labels[i]];
+    r = walltime_results[labels[i]]
+    scatterlines!(ax, r.runtime, r.success_rate;
         label = labels[i], linewidth = 2, markersize = 6,
         marker = MK_MARKERS[mod1(j, length(MK_MARKERS))],
         linestyle = MK_LINESTYLES[mod1(j, length(MK_LINESTYLES))])
@@ -363,7 +344,7 @@ idx = sortperm([b.distance_to_minimizer[end] for b in results], rev = false)
 
 fig = Figure(size = (1100, 500))
 ax = Axis(fig[1, 1]; xscale = log10, xlabel = "Iterations",
-    ylabel = "Mean distance to minimum", limits = (1, 1e5, 0, 5))
+    ylabel = "Mean distance to minimum", limits = (1, 1e2, 0, 5))
 for (j, i) in enumerate(idx)
     scatterlines!(ax, results[i].run_length, results[i].distance_to_minimizer;
         label = labels[i], linewidth = 2, markersize = 6,
