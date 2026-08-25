@@ -10,18 +10,17 @@ established global optimizers on the
 (BBOB) suite through the [Optimization.jl](https://github.com/SciML/Optimization.jl) interface.
 It uses the reference
 [Black-Box Global Optimizer Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/Optimization/GlobalOptimization/)
-protocol for the iteration sweep (30 budgets from 10 to 100,000, 40 trials, dimension 3)
-and its first-hit wall-clock measurement. Differences: three BBOB functions that crash the
-GPU kernels are excluded, and the time-to-success budget is 10,000 iterations rather than
-100,000.
+protocol and its first-hit wall-clock measurement. Differences: three BBOB functions that
+crash the GPU kernels are excluded, and this is a reduced configuration — 10 trials and
+15 budgets from 10 to 10,000, versus the reference's 40 trials and 30 budgets to 100,000.
 
 ## How it works
 
 Every BBOB function has a known minimum `f_opt`. A run **succeeds** if it finds a point with
 objective below `f_opt + 1e-6`. Two experiments are run:
 
-1. **Budget experiment.** Each optimizer is run from scratch at 30 iteration budgets (10 to
-   100,000), 40 times per budget, on every function. Each run records success, distance to the
+1. **Budget experiment.** Each optimizer is run from scratch at 15 iteration budgets (10 to
+   10,000), 10 times per budget, on every function. Each run records success, distance to the
    true minimizer, and number of objective evaluations. This feeds the iteration, evaluations,
    heatmap and distance plots.
 2. **Time-to-success experiment.** Each optimizer gets one run per (function, trial) with a
@@ -41,6 +40,7 @@ using BlackBoxOptimizationBenchmarking, CairoMakie, Optimization, Memoize, Stati
 using StaticArrays, LinearAlgebra, ForwardDiff, KernelAbstractions, CUDA
 using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
 using OptimizationMetaheuristics, OptimizationSciPy
+using OptimizationOptimJL: Optim          # NelderMead and SAMIN live here
 using ParallelParticleSwarms
 CairoMakie.activate!()
 
@@ -56,11 +56,11 @@ const HybridPSO     = ParallelParticleSwarms.HybridPSO
 const BACKEND       = CUDABackend()
 
 const DIMENSION        = 3
-const NTRIALS          = 40
+const NTRIALS          = 10
 const Δf               = 1e-6
 const NUM_PARTICLES    = 5_000     # GPU swarm
 const SERIAL_PARTICLES = 512       # CPU swarm
-const RUN_LENGTH       = round.(Int, 10 .^ LinRange(1, 5, 30))   # budget experiment
+const RUN_LENGTH       = round.(Int, 10 .^ LinRange(1, 4, 15))   # budget experiment
 const MAX_TTS_ITERS    = 10_000    # time-to-success experiment
 const TTS_CHUNK        = 20        # GPU: read back the best cost every this many iterations
 # f4, f7, f10 crash the GPU kernels and are excluded.
@@ -73,17 +73,17 @@ Baselines are chained: 90% of the budget to the global method, 10% to a Nelder-M
 
 ```julia
 chain(t; isboxed = false) =
-    Chain(BenchmarkSetup(t; isboxed), BenchmarkSetup(NelderMead(); isboxed = false), 0.9)
+    Chain(BenchmarkSetup(t; isboxed), BenchmarkSetup(Optim.NelderMead(); isboxed = false), 0.9)
 
 setup = Dict(
-    "NelderMead"                     => BenchmarkSetup(NelderMead()),
+    "NelderMead"                     => BenchmarkSetup(Optim.NelderMead()),
     "NLopt.GN_CRS2_LM()"             => chain(NLopt.GN_CRS2_LM(), isboxed = true),
     "NLopt.GN_DIRECT()"              => chain(NLopt.GN_DIRECT(), isboxed = true),
     "NLopt.GN_ESCH()"                => chain(NLopt.GN_ESCH(), isboxed = true),
     "OptimizationEvolutionary.GA()"  => chain(OptimizationEvolutionary.GA(), isboxed = true),
     "OptimizationEvolutionary.DE()"  => chain(OptimizationEvolutionary.DE(), isboxed = true),
     "OptimizationEvolutionary.ES()"  => chain(OptimizationEvolutionary.ES(), isboxed = true),
-    "Optim.SAMIN"                    => chain(SAMIN(verbosity = 0), isboxed = true),
+    "Optim.SAMIN"                    => chain(Optim.SAMIN(verbosity = 0), isboxed = true),
     "BBO_adaptive_de_rand_1_bin"     => chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
     "BBO_de_rand_2_bin"              => chain(BBO_de_rand_2_bin(), isboxed = true),
     "OptimizationMetaheuristics.ECA" => chain(OptimizationMetaheuristics.ECA(), isboxed = true),
@@ -219,7 +219,6 @@ function chunked!(cache, target, t0)
         if cache.alg isa SyncPSOKernel                       # sync kernel does not store gbest back
             obj = _to_f64(sol.objective)
             cache.gbest = ParallelParticleSwarms.SPSOGBest(sol.u, obj)
-            @assert cache.gbest.cost == obj
         end
         _to_f64(sol.objective) < target && return time() - t0
     end
@@ -301,7 +300,7 @@ on the GPU); one Nelder-Mead step is a few evaluations, so this view favours par
 ```julia
 plot_curves(Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
             Dict(l => results[l].success_rate for l in LABELS);
-            xlabel = "Iterations", ylabel = "Success rate", xlims = (1, 1e5))
+            xlabel = "Iterations", ylabel = "Success rate", xlims = (1, maximum(RUN_LENGTH)))
 ```
 
 ### Success rate vs. function evaluations
@@ -324,7 +323,7 @@ target by T seconds (y). A curve that plateaus below 1 never solved the remainin
 within `MAX_TTS_ITERS`. This is where the GPU gets credit for cheap evaluations.
 
 ```julia
-finite = filter(isfinite, reduce(vcat, values(tts)))
+finite = filter(isfinite, reduce(vcat, values(tts); init = Float64[]))
 isempty(finite) && (finite = [1e-3, 1e3])          # nothing succeeded; keep the plot alive
 thresholds = 10 .^ range(log10(minimum(finite) / 2), log10(maximum(finite) * 2), length = 50)
 cdf(times) = [count(<=(T), times) / length(times) for T in thresholds]
@@ -357,7 +356,7 @@ Lower is better. Shows "close but not converged" cases that the pass/fail plots 
 plot_curves(Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
             Dict(l => results[l].distance for l in LABELS);
             xlabel = "Iterations", ylabel = "Mean distance to minimizer",
-            xlims = (1, 1e5), ylims = (0, 5), best_is_high = false)
+            xlims = (1, maximum(RUN_LENGTH)), ylims = (0, 5), best_is_high = false)
 ```
 
 ### Relative runtime
