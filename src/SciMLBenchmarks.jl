@@ -184,7 +184,7 @@ Open the SciMLBenchmarks notebooks in IJulia/Jupyter.
 Requires IJulia to be loaded. If IJulia is not loaded, this function will error
 with instructions to load it first.
 """
-function open_notebooks()
+function open_notebooks(args...)
     error("IJulia is required for open_notebooks(). Please run `using IJulia` first.")
 end
 
