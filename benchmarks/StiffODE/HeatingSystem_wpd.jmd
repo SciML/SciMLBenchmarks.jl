@@ -19,6 +19,7 @@ This represents a realistic engineering system with multiple time scales, making
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA, LinearSolve
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqCore, Polyester
 using SciMLLogging
 using PreallocationTools
 gr()
@@ -160,6 +161,9 @@ plot(sol, tspan=(0.0, 5000.0))
 
 This is the speed when you just want the answer.
 
+The legacy ODEInterface `rodas()` is omitted because its single-method sweep did not
+complete in one hour. The native Rodas methods remain in the comparisons below.
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (1:4);
@@ -169,7 +173,6 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>NordsieckBDF()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>RadauIIA5()),
@@ -244,6 +247,9 @@ plot(wp)
 
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
 
+LSODA is omitted below because LSODA.jl 1.1.0 reaches its 100,000-step limit without
+advancing to `tout`; its wrapper then continues storing states instead of returning.
+
 ```julia
 # The reference solution above is Rodas5P at abstol = reltol = 1e-12, so the sweep
 # stops at abstol 1e-11 / reltol 1e-8; tighter points measured the reference's own
@@ -260,9 +266,7 @@ setups = [
           Dict(:alg=>ddebdf()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5P()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>lsoda())
+          Dict(:alg=>radau())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -307,18 +311,17 @@ setups = [
             Dict(:alg=>Rodas5P()),
             Dict(:alg=>QNDF()),
             Dict(:alg=>NordsieckBDF()),
-            Dict(:alg=>lsoda()),
             Dict(:alg=>radau()),
             Dict(:alg=>seulex()),
-            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
-            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = false)),
-            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEq.PolyesterThreads())),
+            Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
             ]
 
-solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","Rodas5P","QNDF","NordsieckBDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","Rodas5P","QNDF","NordsieckBDF","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
