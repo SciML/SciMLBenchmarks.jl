@@ -8,9 +8,14 @@ on:
 jobs:
   update_weekly:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: update step
         uses: julia-actions/setup-julia@v3
         with:
@@ -20,4 +25,5 @@ jobs:
               git config --local user.email "$(git log --format='%ae' HEAD^!)"
               git config --local user.name "$(git log --format='%an' HEAD^!)"
 
+              julia .github/workflows/update_tests.jl
               julia -e 'include(".github/workflows/update.jl")' ${{ secrets.GITHUB_TOKEN }}
