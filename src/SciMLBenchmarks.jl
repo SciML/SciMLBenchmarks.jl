@@ -10,9 +10,24 @@ repo_directory = joinpath(@__DIR__, "..")
 
 macro subprocess(ex, wait = true)
     return quote
-        local project = Pkg.project().path
-        local ex_str = $(esc(sprint(Base.show_unquoted, ex)))
+        local project = Base.active_project()
+        local ex_str = $(string(ex))
         run(`$(Base.julia_cmd()) --project=$(project) -e "$(ex_str)"`; wait = $(wait))
+    end
+end
+
+function _benchmark_priority(path)
+    return open(path) do io
+        eof(io) && return 0
+        strip(readline(io)) == "---" || return 0
+        for line in eachline(io)
+            strip(line) == "---" && return 0
+            key_value = split(line, ':'; limit = 2)
+            if length(key_value) == 2 && strip(first(key_value)) == "priority"
+                return parse(Int, strip(last(key_value)))
+            end
+        end
+        return 0
     end
 end
 
@@ -83,8 +98,7 @@ function weave_folder(folder, build_list = (:script, :github))
         # Skip non-`.jmd` files
         endswith(file, ".jmd") || continue
         push!(weave_files, file)
-        weave_doc = Weave.WeaveDoc(joinpath(folder, file))
-        push!(priorities, get(weave_doc.header, "priority", 0))
+        push!(priorities, _benchmark_priority(joinpath(folder, file)))
     end
 
     weave_files = weave_files[sortperm(priorities; rev = true)]
@@ -118,27 +132,25 @@ function bench_footer(folder = nothing, file = nothing)
     )
     if folder !== nothing && file !== nothing
         display(
-            Markdown.parse(
-                """
-                To locally run this benchmark, do the following commands:
-                ```
-                using SciMLBenchmarks
-                SciMLBenchmarks.weave_file("$folder","$file")
-                ```
-                """
-            )
+            "text/markdown",
+            """
+            To locally run this benchmark, do the following commands:
+            ```
+            using SciMLBenchmarks
+            SciMLBenchmarks.weave_file("$folder","$file")
+            ```
+            """,
         )
     end
     display(md"Computer Information:")
     vinfo = sprint(InteractiveUtils.versioninfo)
     display(
-        Markdown.parse(
-            """
-            ```
-            $(vinfo)
-            ```
-            """
-        )
+        "text/markdown",
+        """
+        ```
+        $(vinfo)
+        ```
+        """,
     )
 
     display(
@@ -161,7 +173,7 @@ function bench_footer(folder = nothing, file = nothing)
     $(chomp(mani))
     ```
     """
-    return display(Markdown.parse(md))
+    return display("text/markdown", md)
 end
 
 """
@@ -172,7 +184,7 @@ Open the SciMLBenchmarks notebooks in IJulia/Jupyter.
 Requires IJulia to be loaded. If IJulia is not loaded, this function will error
 with instructions to load it first.
 """
-function open_notebooks()
+function open_notebooks(args...)
     error("IJulia is required for open_notebooks(). Please run `using IJulia` first.")
 end
 
@@ -186,15 +198,13 @@ end
         This is a test markdown string.
         """
 
-        # Precompile Markdown.parse which is called in bench_footer
-        parsed_md = Markdown.parse(
-            """
-            Test markdown content
-            ```
-            code block
-            ```
-            """
-        )
+        markdown_text = """
+        Test markdown content
+        ```
+        code block
+        ```
+        """
+        repr("text/markdown", markdown_text)
 
         # Precompile sprint with versioninfo (used in bench_footer)
         vinfo = sprint(InteractiveUtils.versioninfo)
