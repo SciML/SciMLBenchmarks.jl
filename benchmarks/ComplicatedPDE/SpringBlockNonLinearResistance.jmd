@@ -137,12 +137,6 @@ output = similar(input);
 sparsity_pattern = Symbolics.jacobian_sparsity(f0, output, input, nothing, 0.0);
 jac_sparsity = Float64.(sparse(sparsity_pattern));
 f = ODEFunction{true, SciMLBase.FullSpecialize}(f0; jac_prototype = jac_sparsity);
-#Callbacks--------------------------------------------------------------------------------------------------------------------
-is_start(u, t, integrator) = sum(abs.(integrator.u[(Ny * Nx + 1):(2 * Ny * Nx)]))>0.01 #detects onset of high cumulative velocity phase
-is_end(u, t, integrator) = sum(abs.(integrator.u[(Ny * Nx + 1):(2 * Ny * Nx)]))<0.01 #detects end of high cumulative velocity phase
-affect!(integrator) = terminate!(integrator)
-cb1 = DiscreteCallback(is_start, terminate!, save_positions = (false, false))
-cb2 = DiscreteCallback(is_end, terminate!, save_positions = (false, false))
 #Solver Setup-------------------------------------------------------------------------------------------------------------------
 solver = KenCarp47(linsolve = KLUFactorization());
 abstol = 1e-12;
@@ -151,28 +145,42 @@ reltol = 1e-8;
 u0 = get_IC();
 tspan = (0.0, 1e9);
 prob1 = ODEProblem(f, u0, tspan, nothing);
-@mtkcompile sys = modelingtoolkitize(prob1)
+@named uncompiled_sys = modelingtoolkitize(prob1)
+sys = mtkcompile(uncompiled_sys)
 prob_mtk1 = ODEProblem(sys, [], tspan, jac = true, sparse = true);
+state_indices1 = Dict(state => i for (i, state) in pairs(unknowns(sys)))
+original_state_indices1 = [state_indices1[state] for state in unknowns(uncompiled_sys)]
+velocity_indices1 = original_state_indices1[(Ny * Nx + 1):(2 * Ny * Nx)]
+is_start(u, t, integrator) = sum(abs, @view(integrator.u[velocity_indices1])) > 0.01
+cb1 = DiscreteCallback(is_start, terminate!, save_positions = (false, false))
 global sol, tcpu,
 bytes,
 gctime,
 memallocs = @timed solve(
     prob_mtk1, solver, reltol = reltol, abstol = abstol, maxiters = Int(1e12),
     save_everystep = false, dtmin = 1e-20, callback = cb1); #about 55 sec
-u1 = sol.u[end];
+@assert SciMLBase.successful_retcode(sol) "Phase 1 reference solve failed: $(sol.retcode)"
+u1 = sol.u[end][original_state_indices1];
 t1 = sol.t[end];
 test_sol1 = TestSolution(sol)
 #code (2): high cumulative velocity (>0.01) following phase (1)
 tspan = (0.0, 1e4);
 prob2 = ODEProblem(f, convU0(u1), tspan, nothing);
-@mtkcompile sys2 = modelingtoolkitize(prob2)
+@named uncompiled_sys2 = modelingtoolkitize(prob2)
+sys2 = mtkcompile(uncompiled_sys2)
 prob_mtk2 = ODEProblem(sys2, [], tspan, jac = true, sparse = true);
+state_indices2 = Dict(state => i for (i, state) in pairs(unknowns(sys2)))
+original_state_indices2 = [state_indices2[state] for state in unknowns(uncompiled_sys2)]
+velocity_indices2 = original_state_indices2[(Ny * Nx + 1):(2 * Ny * Nx)]
+is_end(u, t, integrator) = sum(abs, @view(integrator.u[velocity_indices2])) < 0.01
+cb2 = DiscreteCallback(is_end, terminate!, save_positions = (false, false))
 global sol, tcpu,
 bytes,
 gctime,
 memallocs = @timed solve(
     prob_mtk2, solver, reltol = reltol, abstol = abstol, maxiters = Int(1e12),
     save_everystep = false, dtmin = 1e-20, callback = cb2); #about 175 sec
+@assert SciMLBase.successful_retcode(sol) "Phase 2 reference solve failed: $(sol.retcode)"
 u2 = sol.u[end];
 t2 = t1 + sol.t[end];
 
@@ -182,8 +190,8 @@ test_sol2 = TestSolution(sol)
 The WP diagram setup:
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (6:12)
-reltols = 1.0 ./ 10.0 .^ (2:8)
+abstols = 1.0 ./ 10.0 .^ (6:11)
+reltols = 1.0 ./ 10.0 .^ (2:7)
 setups = [
     Dict(:alg=>KenCarp47(linsolve = KLUFactorization()), :prob_choice=>1),
     Dict(:alg=>Rodas5(), :prob_choice=>1),
@@ -193,9 +201,12 @@ names = ["KenCarp47 KLU MTK", "Rodas5 KLU MTK", "Rodas5P KLU MTK"]
 
 probs = [prob_mtk1, prob_mtk2]
 test_sols = [test_sol1, test_sol2]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
-    save_everystep = false, maxiters = Int(1e5),
-    numruns = 10, appxsol = test_sols, callback = cb2, dtmin = 1e-20)
+wp = WorkPrecisionSet(
+    probs, abstols, reltols, setups; names = names,
+    save_everystep = false, maxiters = Int(1.0e5),
+    numruns = 10, appxsol = test_sols, callback = cb1, dtmin = 1.0e-20
+)
+@assert all(w -> all(error -> isfinite(error[:final]) && error[:final] > 0, w.errors), wp.wps) "A solver produced an invalid work-precision point"
 
 plot(wp, label = reduce(hcat, names), markershape = :auto, title = "Spring Block PDE work precision set")
 ```
