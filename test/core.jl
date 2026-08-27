@@ -35,7 +35,12 @@ end
 
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
-    SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
+    testing_dir = joinpath(benchmarks_dir, "Testing")
+    if (VERSION.major, VERSION.minor) == (1, 12)
+        @test isfile(joinpath(testing_dir, "Manifest-v1.12.toml"))
+    end
+
+    SciMLBenchmarks.weave_file(testing_dir, "test.jmd")
 
     output = joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md")
     @test isfile(output)
