@@ -1,5 +1,17 @@
 using SciMLBenchmarks
 using Test
+using TOML
+
+@testset "benchmark dependencies" begin
+    project = TOML.parsefile(
+        joinpath(dirname(@__DIR__), "benchmarks", "MultiLanguage", "Project.toml")
+    )
+    for package in (
+            "ODEInterfaceDiffEq", "Plots", "SciPyDiffEq", "Sundials", "deSolveDiffEq",
+        )
+        @test haskey(project["deps"], package)
+    end
+end
 
 @testset "IJulia extension" begin
     fallback_method = which(SciMLBenchmarks.open_notebooks, Tuple{})
