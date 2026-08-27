@@ -1,7 +1,7 @@
-* * *
-
-## title: PDESystemLibrary.jl Work-Precision Diagrams with Various MethodOfLines.jl Methods
+---
+title: PDESystemLibrary.jl Work-Precision Diagrams with Various MethodOfLines.jl Methods
 author: Alex Jones
+---
 
 This benchmark is for the MethodOfLines.jl package, which is an automatic PDE discretization package.
 It is concerned with comparing the performance of various discretization methods for the Burgers equation.
@@ -15,7 +15,7 @@ using PDESystemLibrary
 solver = FBDF()
 ```
 
-Next we define some functions to generate approproiate discretizations for the PDESystemLibrary systems.
+Next we define some functions to generate appropriate discretizations for the PDESystemLibrary systems.
 
 ```julia
 function center_uniform_grid(ex, ivs, N)
@@ -85,60 +85,53 @@ function discweno2(ex, ivs, t, N)
 end
 ```
 
-This script tests all systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
+This script tests the Burgers systems in PDESystemLibrary against different MethodOfLines.jl discretizations.
 It then plots the work precision sets.
 
 ```julia
 N = 100
-for ex in PDESystemLibrary.all_systems
-    try
-        if ex.analytic_func === nothing
-            continue
+for ex in get_pdesys_with_tags(["Burgers"])
+    if ex.analytic_func === nothing
+        continue
+    end
+    ivs = filter(x -> !isequal(Symbol(x), :t), ex.ivs)
+    if length(ivs) == 0
+        continue
+    elseif length(ivs) == length(ex.ivs)
+        continue
+    else
+        @parameters t
+        # Create discretizations
+        # Note: Chebyshev (non-uniform) grids with UpwindScheme fail for
+        # parameterized advection terms due to a MethodOfLines pattern matching
+        # bug. Only use uniform grids for now.
+        discuu1 = uniformupwind1(ex, ivs, t, N)
+        discuu2 = uniformupwind2(ex, ivs, t, N)
+        discs = [discuu1, discuu2]
+        disc_names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align"]
+        if "Advection" in ex.metadata
+            discw1 = discweno1(ex, ivs, t, N)
+            discw2 = discweno2(ex, ivs, t, N)
+            push!(discs, discw1, discw2)
+            push!(disc_names, "Uniform WENO, center_align", "Uniform WENO, edge_align")
         end
-        ivs = filter(x -> !isequal(Symbol(x), :t), ex.ivs)
-        if length(ivs) == 0
-            continue
-        elseif length(ivs) == length(ex.ivs)
-            continue
-        else
-            @parameters t
-            # Create discretizations
-            # Note: Chebyshev (non-uniform) grids with UpwindScheme fail for
-            # parameterized advection terms due to a MethodOfLines pattern matching
-            # bug. Only use uniform grids for now.
-            advection = false
-            discuu1 = uniformupwind1(ex, ivs, t, N)
-            discuu2 = uniformupwind2(ex, ivs, t, N)
-            discs = [discuu1, discuu2]
-            disc_names = ["Uniform Upwind, center_align", "Uniform Upwind, edge_align"]
-            if "Advection" in ex.metadata
-                advection = true
-                discw1 = discweno1(ex, ivs, t, N)
-                discw2 = discweno2(ex, ivs, t, N)
-                push!(discs, discw1, discw2)
-                push!(disc_names, "Uniform WENO, center_align", "Uniform WENO, edge_align")
-            end
 
-            # Create problems
-            probs = map(discs) do disc
-                discretize(ex, disc, analytic = ex.analytic_func)
-            end
-
-            title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
-            println("Running $title")
-            dummy_appxsol = [nothing for i in 1:length(probs)]
-            abstols = 1.0 ./ 10.0 .^ (5:8)
-            reltols = 1.0 ./ 10.0 .^ (1:4);
-            setups = [Dict(:alg => solver, :prob_choice => i) for i in 1:length(probs)]
-
-            wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = disc_names,
-                save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
-                numruns = 10, wrap = Val(false))
-            plot(wp, title = title)
+        # Create problems
+        probs = map(discs) do disc
+            discretize(ex, disc, analytic = ex.analytic_func)
         end
-    catch e
-        println("Failed on $(ex.name):")
-        println(e)
+
+        title = "Work Precision Diagram for $(ex.name), Tags: $(ex.metadata)"
+        println("Running $title")
+        dummy_appxsol = [nothing for i in 1:length(probs)]
+        abstols = 1.0 ./ 10.0 .^ (5:8)
+        reltols = 1.0 ./ 10.0 .^ (1:4);
+        setups = [Dict(:alg => solver, :prob_choice => i) for i in 1:length(probs)]
+
+        wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = disc_names,
+            save_everystep = false, appxsol = dummy_appxsol, maxiters = Int(1e5),
+            numruns = 10, wrap = Val(false))
+        display(plot(wp, title = title))
     end
 end
 ```
