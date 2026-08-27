@@ -6,7 +6,7 @@ author: Chris Rackauckas
 This is a benchmark of a small non-stiff BVP.
 
 ```julia
-using BoundaryValueDiffEq, OrdinaryDiffEq, BenchmarkTools
+using BoundaryValueDiffEq, OrdinaryDiffEq, BenchmarkTools, SciMLBase
 using OrdinaryDiffEqLowOrderRK
 
 y0 = [
@@ -56,32 +56,70 @@ function bc!_generator(resid, sol, init_val)
 end
 cur_bc! = (resid, sol, p, t) -> bc!_generator(resid, sol, init_val)
 resid_f = Array{Float64}(undef, 6)
-bvp = BVProblem(orbital, cur_bc!, y0, tspan)
+bvp = BVProblem(orbital, cur_bc!, y0, tspan; nlls = Val(false))
+
+function validate_solution(sol, tolerance)
+    SciMLBase.successful_retcode(sol) || error("solve failed with retcode $(sol.retcode)")
+    residual_norm = maximum(abs, sol.resid)
+    residual_norm < tolerance ||
+        error("boundary residual $residual_norm exceeds tolerance $tolerance")
+    return sol
+end
 ```
 
 ```julia
-@btime sol = solve(bvp, Shooting(DP5()), abstol = 1e-13, reltol = 1e-13)
+tolerance = 1.0e-6
+sol = @btime solve(
+    bvp,
+    Shooting(DP5());
+    force_dtmin = true,
+    abstol = $tolerance,
+    reltol = $tolerance,
+    verbose = false,
+    odesolve_kwargs = (
+        abstol = $tolerance,
+        reltol = $tolerance,
+        adaptive = false,
+        dt = 10000,
+    ),
+)
+validate_solution(sol, tolerance)
 ```
 
 ```julia
 dt = (t1 - t0) / 100
-@btime sol = solve(bvp, MIRK2(), dt = $dt, abstol = 1e-13, reltol = 1e-13)
+sol = @btime solve(
+    bvp, MIRK2(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
+)
+validate_solution(sol, tolerance)
 ```
 
 ```julia
-@btime sol = solve(bvp, MIRK3(), dt = $dt, abstol = 1e-13, reltol = 1e-13)
+sol = @btime solve(
+    bvp, MIRK3(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
+)
+validate_solution(sol, tolerance)
 ```
 
 ```julia
-@btime sol = solve(bvp, MIRK4(), dt = $dt, abstol = 1e-13, reltol = 1e-13)
+sol = @btime solve(
+    bvp, MIRK4(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
+)
+validate_solution(sol, tolerance)
 ```
 
 ```julia
-@btime sol = solve(bvp, MIRK5(), dt = $dt, abstol = 1e-13, reltol = 1e-13)
+sol = @btime solve(
+    bvp, MIRK5(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
+)
+validate_solution(sol, tolerance)
 ```
 
 ```julia
-@btime sol = solve(bvp, MIRK6(), dt = $dt, abstol = 1e-13, reltol = 1e-13)
+sol = @btime solve(
+    bvp, MIRK6(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
+)
+validate_solution(sol, tolerance)
 ```
 
 ## Appendix
