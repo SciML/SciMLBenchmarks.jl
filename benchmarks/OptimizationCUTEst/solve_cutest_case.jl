@@ -15,14 +15,14 @@ function optimizer_from_name(name)
     elseif name == "NelderMead"
         return NelderMead()
     elseif name == "Ipopt"
-        return MOI.OptimizerWithAttributes(
+        return OptimizationMOI.MOI.OptimizerWithAttributes(
             Ipopt.Optimizer,
-            "max_iter" => 1000,
-            "tol" => 1.0e-6,
+            "max_iter" => 5000,
+            "tol" => 1e-6,
             "print_level" => 0,
         )
     else
-        error("Unknown optimizer: $name")
+        error("Unknown solver: $name")
     end
 end
 
@@ -47,10 +47,38 @@ function main()
     nlp = nothing
     started = time()
 
-    return try
+    try
+        println("CHILD_START")
+        flush(stdout)
+
+        println("BEFORE_CUTEST_MODEL")
+        flush(stdout)
+
         nlp = CUTEstModel(problem_name)
-        prob = OptimizationNLPModels.OptimizationProblem(nlp, Optimization.AutoFiniteDiff())
-        sol = solve(prob, optimizer_from_name(optimizer_name); maxiters = 1000, maxtime = 30.0)
+
+        println("AFTER_CUTEST_MODEL")
+        flush(stdout)
+
+        prob = OptimizationNLPModels.OptimizationProblem(
+            nlp,
+            Optimization.AutoFiniteDiff(),
+        )
+
+        println("AFTER_OPTIMIZATION_PROBLEM")
+        flush(stdout)
+
+        println("BEFORE_SOLVE")
+        flush(stdout)
+
+        sol = solve(
+            prob,
+            optimizer_from_name(optimizer_name);
+            maxiters = 1000,
+            maxtime = 30.0,
+        )
+
+        println("AFTER_SOLVE")
+        flush(stdout)
 
         print_result(
             problem_name,
@@ -60,14 +88,29 @@ function main()
             string(sol.retcode),
             "OK",
         )
-    catch
+    catch e
+        println(stderr, "CHILD_ERROR")
+        println(stderr, sprint(showerror, e))
+        println(stderr, stacktrace(catch_backtrace()))
+        flush(stderr)
+
         nvar = nlp === nothing ? -1 : nlp.meta.nvar
-        print_result(problem_name, optimizer_name, nvar, time() - started, "FAILED", "FAILED")
+
+        print_result(
+            problem_name,
+            optimizer_name,
+            nvar,
+            time() - started,
+            "FAILED",
+            "FAILED",
+        )
     finally
         if nlp !== nothing
             try
                 finalize(nlp)
-            catch
+            catch e
+                println(stderr, "FINALIZE_ERROR")
+                println(stderr, sprint(showerror, e))
             end
         end
     end
