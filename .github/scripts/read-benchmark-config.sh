@@ -2,7 +2,7 @@
 # Shared helper: read runner configuration for a benchmark target.
 # Usage: source this file, then call get_benchmark_config <target>
 # Returns: "runner_json|timeout|julia_version"
-#   e.g. '["self-hosted", "benchmark"]|12000|1.10'
+#   e.g. '["self-hosted", "benchmark"]|1440|1.10'
 
 # Read a key from a TOML file (simple parser for flat keys and arrays)
 read_toml_key() {
@@ -82,7 +82,7 @@ get_benchmark_config() {
         timeout=$(read_toml_key "${defaults_file}" "timeout")
     fi
     if [[ -z "${timeout}" ]]; then
-        timeout="12000"
+        timeout="1440"
     fi
 
     julia_version=$(get_julia_version "${bench_dir}")

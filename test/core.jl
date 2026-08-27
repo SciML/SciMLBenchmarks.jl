@@ -41,3 +41,18 @@ end
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
+
+@testset "benchmark configuration" begin
+    repository = dirname(@__DIR__)
+    read_config = raw"""
+    cd "$1"
+    source .github/scripts/read-benchmark-config.sh
+    get_benchmark_config "$2"
+    """
+
+    for (target, expected_timeout) in
+        (("benchmarks/Testing", "1440"), ("benchmarks/DynamicalODE", "180"))
+        config = readchomp(`bash -c $read_config bash $repository $target`)
+        @test split(config, '|')[2] == expected_timeout
+    end
+end
