@@ -50,8 +50,17 @@ end
     get_benchmark_config "$2"
     """
 
-    for (target, expected_timeout) in
-        (("benchmarks/Testing", "1440"), ("benchmarks/DynamicalODE", "180"))
+    expected_timeouts = (
+        "benchmarks/Testing" => "1440",
+        "benchmarks/DiffEqGPU" => "1440",
+        "benchmarks/LinearSolveGPU" => "1440",
+        "benchmarks/NeuralNetworks" => "1440",
+        "benchmarks/PINNErrorsVsTime" => "1440",
+        "benchmarks/PINNOptimizers" => "1440",
+        "benchmarks/PSOGlobalOptimization" => "1440",
+        "benchmarks/DynamicalODE" => "180",
+    )
+    for (target, expected_timeout) in expected_timeouts
         config = readchomp(`bash -c $read_config bash $repository $target`)
         @test split(config, '|')[2] == expected_timeout
     end
