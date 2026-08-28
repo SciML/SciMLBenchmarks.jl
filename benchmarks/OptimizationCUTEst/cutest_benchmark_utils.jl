@@ -148,7 +148,7 @@ function run_single_solve(problem_name, solver_name)
     end
 
     try
-        prob = OptimizationNLPModels.OptimizationProblem(nlp, Optimization.AutoFiniteDiff())
+        prob = OptimizationNLPModels.OptimizationProblem(nlp)
         sol = solve(prob, optimizer_from_name(solver_name);
             maxiters = SOLVE_MAXITERS,
             maxtime = SOLVE_TIMEOUT_SECONDS)
