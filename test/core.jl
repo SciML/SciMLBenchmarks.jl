@@ -53,6 +53,26 @@ end
     @test occursin("github.event.action != 'closed'", workflow)
 end
 
+@testset "StiffODE work-precision names" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "Bruss.jmd"), String
+    )
+    checked = 0
+    for chunk in eachmatch(r"(?ms)^```julia[^\n]*\n(?<code>.*?)^```", benchmark)
+        code = join(
+            (first(split(line, "#"; limit = 2)) for line in eachline(IOBuffer(chunk[:code]))),
+            "\n"
+        )
+        setups = match(r"(?ms)setups = \[(?<values>.*?)\]", code)
+        names = match(r"(?ms)names = \[(?<values>.*?)\]", code)
+        if !isnothing(setups) && !isnothing(names) && occursin("WorkPrecisionSet", code)
+            @test count("Dict(", setups[:values]) == count("\"", names[:values]) ÷ 2
+            checked += 1
+        end
+    end
+    @test checked == count("names = names", benchmark)
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
