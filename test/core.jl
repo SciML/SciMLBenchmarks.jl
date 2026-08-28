@@ -82,6 +82,25 @@ end
     end
 end
 
+@testset "NeuralNetworks V100 environment" begin
+    folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
+    preferences_path = joinpath(folder, "LocalPreferences.toml")
+    project = read(joinpath(folder, "Project.toml"), String)
+    python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
+
+    @test isfile(preferences_path)
+    if isfile(preferences_path)
+        preferences = read(preferences_path, String)
+        @test occursin(
+            "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.9\"", preferences
+        )
+    end
+    @test occursin(
+        "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\"", project
+    )
+    @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
+end
+
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
