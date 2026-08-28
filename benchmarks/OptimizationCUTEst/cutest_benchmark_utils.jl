@@ -57,6 +57,7 @@ function optimizer_from_name(name)
             Ipopt.Optimizer,
             "max_iter" => SOLVE_MAXITERS,
             "max_wall_time" => SOLVE_TIMEOUT_SECONDS,
+            "hessian_approximation" => "limited-memory",
             "tol" => 1.0e-6,
             "print_level" => 0,
         )
@@ -86,7 +87,12 @@ function problem_metadata(name)
     end
 end
 
-function select_safe_problems(candidates; max_problems = MAX_PROBLEMS_PER_CATEGORY)
+function select_safe_problems(
+    candidates;
+    max_problems = MAX_PROBLEMS_PER_CATEGORY,
+    max_var = MAX_NVAR,
+    max_con = MAX_NCON,
+)
     selected = String[]
 
     for name in candidates
@@ -95,8 +101,8 @@ function select_safe_problems(candidates; max_problems = MAX_PROBLEMS_PER_CATEGO
         meta = problem_metadata(name)
 
         meta.ok || continue
-        meta.nvar <= MAX_NVAR || continue
-        meta.ncon <= MAX_NCON || continue
+        meta.nvar <= max_var || continue
+        meta.ncon <= max_con || continue
 
         push!(selected, name)
 
