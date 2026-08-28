@@ -16,13 +16,16 @@ Let's first look at how the model equilibriates to make sure we get consistent r
 tf = 12.0
 rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
-egfr_net = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net"));
-dprob = DiscreteProblem(complete(egfr_net.rn), egfr_net.u0, (0.0, tf), egfr_net.p)
-dprob = remake(dprob, u0 = Int64.(dprob.u0))
+egfr_net = complete(loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")))
+egfr_u0 = Catalyst.get_u0_map(egfr_net)
+egfr_parameters = Catalyst.get_parameter_map(egfr_net)
 
 plt = plot(title = "Dimer concentrations")
 for alg in algs
-    jprob = JumpProblem(complete(egfr_net.rn), dprob, alg)
+    jprob = JumpProblem(
+        egfr_net, egfr_u0, (0.0, tf), egfr_parameters;
+        aggregator = alg, u0_eltype = Int64
+    )
     sol = solve(jprob, SSAStepper(), saveat = tf/200)
     plot!(plt, sol, idxs = :Dimers, label = "$alg")
 end
@@ -40,15 +43,17 @@ We define a function to benchmark the model and then plot the results in a bench
 function benchmark_and_bar_plot(model, end_time, algs)
     times = Vector{Float64}()
     alg_names = ["$s"[15:(end - 2)] for s in algs]
+    u0 = Catalyst.get_u0_map(model)
+    parameters = Catalyst.get_parameter_map(model)
 
     benchmarks = Vector{BenchmarkTools.Trial}(undef, length(algs))
     for (i, alg) in enumerate(algs)
         alg_name = alg_names[i]
         println("Benchmarking $alg_name")
-        dprob = DiscreteProblem(complete(model.rn), model.u0, (0.0, end_time), model.p)
-        dprob = remake(dprob, u0 = Int64.(dprob.u0))
         jprob = JumpProblem(
-            complete(model.rn), dprob, alg; rng, save_positions = (false, false))
+            model, u0, (0.0, end_time), parameters;
+            aggregator = alg, rng, save_positions = (false, false), u0_eltype = Int64
+        )
 
         b = @benchmarkable solve($jprob; saveat = $end_time) samples=5 seconds=7200
         bm = run(b)
