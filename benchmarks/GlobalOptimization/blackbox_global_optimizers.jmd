@@ -51,7 +51,7 @@ function solve_problem_timed(optimizer::BenchmarkSetup, tracked_f, D::Int, run_l
     else
         prob = OptimizationProblem(optf, u0)
     end
-    sol = solve(prob, method; maxiters = run_length)
+    sol = Optimization.solve(prob, method; maxiters = run_length)
     sol
 end
 
@@ -196,9 +196,20 @@ p
 
 ```julia
 results = Array{BBOB.BenchmarkResults}(undef, length(setup))
+algorithms = collect(keys(setup))
 
-Threads.@threads for (i, algo) in collect(enumerate(keys(setup)))
-    results[i] = run_bench(algo)
+Threads.@threads for i in eachindex(algorithms)
+    algo = algorithms[i]
+    if !startswith(algo, "Scipy")
+        results[i] = run_bench(algo)
+    end
+end
+
+# PythonCall can segfault when these SciPy solves run on different Julia threads.
+for (i, algo) in enumerate(algorithms)
+    if startswith(algo, "Scipy")
+        results[i] = run_bench(algo)
+    end
 end
 
 results
