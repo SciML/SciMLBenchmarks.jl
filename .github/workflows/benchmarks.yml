@@ -6,6 +6,7 @@ on:
     paths:
       - 'benchmarks/**'
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'benchmarks/**'
   workflow_dispatch:
@@ -15,7 +16,7 @@ on:
         required: false
         type: string
 
-# PR runs: one group per ref, newer pushes cancel the in-progress run.
+# PR runs: one group per PR number, so pushes and closure cancel older work.
 #
 # master runs (push and workflow_dispatch): one group PER RUN, so they never
 # queue behind or evict each other. GitHub allows only one running + one
@@ -28,7 +29,7 @@ on:
 # all available runners; the only thing that must be serialized is the push
 # to SciMLBenchmarksOutput, which publish_benchmark_output.sh handles itself.
 concurrency:
-  group: benchmarks-${{ github.ref == 'refs/heads/master' && github.run_id || github.ref }}
+  group: benchmarks-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/master' && github.run_id || github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
@@ -36,7 +37,7 @@ jobs:
     name: Detect Changed Benchmarks
     runs-on: ubuntu-latest
     # Skip change detection if a manual target is provided
-    if: ${{ github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null }}
+    if: ${{ github.event.action != 'closed' && (github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null) }}
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
