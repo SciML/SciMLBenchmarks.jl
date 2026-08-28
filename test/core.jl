@@ -101,3 +101,14 @@ end
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
+
+@testset "ModelingToolkit benchmark public imports" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "ModelingToolkit")
+    project = read(joinpath(benchmarks_dir, "Project.toml"), String)
+    thermal_fluid = read(joinpath(benchmarks_dir, "ThermalFluid.jmd"), String)
+
+    @test occursin("SciMLBase = \"0bca4576-84f4-4d90-8ffe-ffa030f20462\"", project)
+    @test occursin("SciMLBase = \"3.25\"", project)
+    @test occursin("using SciMLBase: NoInit", thermal_fluid)
+    @test !occursin("using OrdinaryDiffEq: NoInit", thermal_fluid)
+end
