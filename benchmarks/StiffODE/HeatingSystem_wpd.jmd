@@ -247,9 +247,6 @@ plot(wp)
 
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
 
-LSODA is omitted below because LSODA.jl 1.1.0 reaches its 100,000-step limit without
-advancing to `tout`; its wrapper then continues storing states instead of returning.
-
 ```julia
 # The reference solution above is Rodas5P at abstol = reltol = 1e-12, so the sweep
 # stops at abstol 1e-11 / reltol 1e-8; tighter points measured the reference's own
@@ -266,7 +263,8 @@ setups = [
           Dict(:alg=>ddebdf()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5P()),
-          Dict(:alg=>radau())
+          Dict(:alg=>radau()),
+          Dict(:alg=>lsoda())
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
@@ -311,6 +309,7 @@ setups = [
             Dict(:alg=>Rodas5P()),
             Dict(:alg=>QNDF()),
             Dict(:alg=>NordsieckBDF()),
+            Dict(:alg=>lsoda()),
             Dict(:alg=>radau()),
             Dict(:alg=>seulex()),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
@@ -321,7 +320,7 @@ setups = [
             Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
             ]
 
-solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","Rodas5P","QNDF","NordsieckBDF","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5","Rodas5P","QNDF","NordsieckBDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),

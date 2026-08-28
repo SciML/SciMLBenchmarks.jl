@@ -401,13 +401,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          # lsoda() removed: LSODA.jl 1.1 does not return on this problem. The C solver
-          # stalls at the dusk discontinuity (t = 187200, h = 1.3e-8, "error test failed
-          # repeatedly or with fabs(h) = hmin") and LSODA.jl's common-interface wrapper
-          # steps with `while t[1] < ttmp[1]; lsoda(...); end` without ever checking
-          # whether the solver advanced or errored, so the failure becomes an infinite
-          # loop: endless "unhandled error message: EE:lsoda ..." output on Linux,
-          # SIGSEGV in the error-string handling on macOS.
+          Dict(:alg=>lsoda()),
           Dict(:alg=>RadauIIA5()),
           ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
@@ -424,7 +418,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>KenCarp3()),
           Dict(:alg=>Rodas4()),
-          # lsoda() removed: see note above (LSODA.jl 1.1 hangs on this problem)
+          Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
@@ -472,7 +466,7 @@ setups = [Dict(:alg=>FBDF()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>rodas()),
           Dict(:alg=>radau()),
-          # lsoda() removed: see note above (LSODA.jl 1.1 hangs on this problem)
+          Dict(:alg=>lsoda()),
 ]
 wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
@@ -515,7 +509,7 @@ setups = [
             Dict(:alg=>Rodas5P()),
             Dict(:alg=>QNDF()),
             Dict(:alg=>NordsieckBDF()),
-            # lsoda() removed: see note above (LSODA.jl 1.1 hangs on this problem)
+            Dict(:alg=>lsoda()),
             Dict(:alg=>radau()),
             Dict(:alg=>seulex()),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
@@ -526,7 +520,7 @@ setups = [
             Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
             ]
 
-solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","NordsieckBDF","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","NordsieckBDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
 
 wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
@@ -547,4 +541,3 @@ The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varyi
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
-
