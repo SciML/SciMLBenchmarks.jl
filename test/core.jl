@@ -33,6 +33,17 @@ end
     @test success(process)
 end
 
+@testset "V100 CUDA runtime preferences" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
+    cuda_runtime = "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\""
+    for folder in ("DiffEqGPU", "PINNErrorsVsTime", "PINNOptimizers")
+        preferences = read(joinpath(benchmarks_dir, folder, "LocalPreferences.toml"), String)
+        project = read(joinpath(benchmarks_dir, folder, "Project.toml"), String)
+        @test occursin("version = \"12.9\"", preferences)
+        @test occursin(cuda_runtime, project)
+    end
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
