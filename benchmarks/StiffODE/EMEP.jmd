@@ -348,8 +348,14 @@ prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan)
 # T(1)=72000 (dusk day 0), then for days 1-4: T(2i)=dawn, T(2i+1)=dusk
 disc_times = [72000.0, 100800.0, 158400.0, 187200.0, 244800.0, 273600.0, 331200.0, 360000.0]
 
-# Generate reference solution - requires tstops at discontinuities for solver stability
-sol = solve(prob, CVODE_BDF(), abstol=1/10^8, reltol=1/10^8, maxiters=Int(1e7), tstops=disc_times)
+# Generate reference solution - requires tstops at discontinuities for solver stability.
+# CVODE_BDF cannot integrate this problem to the end: at abstol=reltol=1e-8 it returns
+# ReturnCode.Unstable at t = 360000 (1e-10: t = 273600), leaving a reference that stops
+# short of tspan[2] = 417600. Every WorkPrecisionSet below then failed with
+# "Solution interpolation cannot extrapolate past the final timepoint", so this file has
+# been publishing no work-precision diagrams at all. Rodas5P at 1e-10 reaches 417600 with
+# ReturnCode.Success in ~18 s (RadauIIA5 and FBDF also go Unstable), so use that.
+sol = solve(prob, Rodas5P(), abstol=1/10^10, reltol=1/10^10, maxiters=Int(1e7), tstops=disc_times)
 test_sol = TestSolution(sol)
 
 abstols = 1.0 ./ 10.0 .^ (4:11)
@@ -445,11 +451,17 @@ abstols = 1.0 ./ 10.0 .^ (7:12)
 reltols = 1.0 ./ 10.0 .^ (4:9)
 
 setups = [Dict(:alg=>FBDF()),
-setups = [Dict(:alg=>NordsieckBDF()),
           Dict(:alg=>QNDF()),
           Dict(:alg=>NordsieckBDF()),
           Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>ddebdf()),
+          # ddebdf() removed: SLATEC's DDEBDF cannot get past this problem's dusk/dawn
+          # discontinuities and raises its LEVEL=2 fatal error there ("AN APPARENT INFINITE
+          # LOOP HAS BEEN DETECTED. YOU HAVE MADE REPEATED CALLS AT T = 1.872000E+05 AND THE
+          # INTEGRATION HAS NOT ADVANCED", ERROR NUMBER = 13). SLATEC handles a LEVEL=2 error
+          # by calling XERHLT, which *aborts the process* - it is not a catchable Julia
+          # exception, so it takes the whole weave down and no EMEP.md is produced at all.
+          # Measured: a single solve(prob, ddebdf(), abstol=1e-12, reltol=1e-9) aborts the
+          # Julia process; so does weaving the file.
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>rodas()),
@@ -529,4 +541,3 @@ The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varyi
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
-
