@@ -45,12 +45,27 @@ end
     end
 end
 
-@testset "closed pull request cancellation" begin
+@testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
     @test occursin("format('pr-{0}', github.event.pull_request.number)", workflow)
     @test occursin("github.event_name == 'pull_request' || github.ref != 'refs/heads/master'", workflow)
     @test occursin("github.event.action != 'closed'", workflow)
+
+    cancellation_path = joinpath(
+        dirname(@__DIR__), ".github", "workflows", "cancel-superseded-benchmarks.yml"
+    )
+    @test isfile(cancellation_path)
+    if isfile(cancellation_path)
+        cancellation = read(cancellation_path, String)
+        @test occursin("workflow_run:", cancellation)
+        @test occursin("workflows: [Benchmarks]", cancellation)
+        @test occursin("types: [requested]", cancellation)
+        @test occursin("actions: write", cancellation)
+        @test occursin("run.run_number >= source.run_number", cancellation)
+        @test occursin("run.pull_requests", cancellation)
+        @test occursin("/force-cancel", cancellation)
+    end
 end
 
 @testset "StiffODE work-precision names" begin
