@@ -73,6 +73,28 @@ end
     @test checked == count("names = names", benchmark)
 end
 
+@testset "StiffODE E5 syntax" begin
+    benchmark_path = joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "E5.jmd")
+    benchmark = read(benchmark_path, String)
+    checked = 0
+    for (index, chunk) in enumerate(eachmatch(r"(?ms)^```julia[^\n]*\n(?<code>.*?)^```", benchmark))
+        expression = Meta.parseall(chunk[:code]; filename = benchmark_path)
+        stack = Any[expression]
+        parse_error = false
+        while !isempty(stack)
+            current = pop!(stack)
+            current isa Expr || continue
+            parse_error |= current.head in (:error, :incomplete)
+            append!(stack, current.args)
+        end
+        @testset "chunk $index" begin
+            @test !parse_error
+        end
+        checked += 1
+    end
+    @test checked == 6
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
