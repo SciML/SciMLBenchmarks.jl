@@ -33,6 +33,18 @@ end
     @test success(process)
 end
 
+@testset "benchmark publication" begin
+    workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
+    benchmark_job = match(
+        r"(?ms)^  benchmark:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow
+    )
+    @test !isnothing(benchmark_job)
+    if !isnothing(benchmark_job)
+        @test occursin("- name: Publish to SciMLBenchmarksOutput", benchmark_job[:body])
+        @test occursin("if: success() && github.ref == 'refs/heads/master'", benchmark_job[:body])
+    end
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
