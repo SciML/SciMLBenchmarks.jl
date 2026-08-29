@@ -94,9 +94,15 @@ end
         @test occursin(
             "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.9\"", preferences
         )
+        @test occursin(
+            "[Reactant_jll]\ngpu = \"cuda\"\ngpu_version = \"12.9\"", preferences
+        )
     end
     @test occursin(
         "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\"", project
+    )
+    @test occursin(
+        "Reactant_jll = \"0192cb87-2b54-54ad-80e0-3be72ad8a3c0\"", project
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
 end
