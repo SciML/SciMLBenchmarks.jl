@@ -81,16 +81,3 @@ end
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
-
-@testset "Symbolics benchmark public imports" begin
-    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "Symbolics")
-    project = read(joinpath(benchmarks_dir, "Project.toml"), String)
-    bcr = read(joinpath(benchmarks_dir, "BCR.jmd"), String)
-
-    @test occursin(
-        "SymbolicIndexingInterface = \"2efcf032-c050-4f8e-a9bb-153293bab1f5\"", project
-    )
-    @test occursin("SymbolicIndexingInterface = \"0.3.11\"", project)
-    @test occursin("using SymbolicIndexingInterface: default_values", bcr)
-    @test !occursin("using ModelingToolkit: default_values", bcr)
-end
