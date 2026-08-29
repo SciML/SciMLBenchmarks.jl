@@ -1,6 +1,11 @@
 using SciMLBenchmarks
 using Test
 
+@testset "documentation workflow consistency" begin
+    repository_root = dirname(@__DIR__)
+    @test !isfile(joinpath(repository_root, ".github", "workflows", "DocPreviewCleanup.yml"))
+end
+
 @testset "IJulia extension" begin
     fallback_method = which(SciMLBenchmarks.open_notebooks, Tuple{})
     @test fallback_method.module === SciMLBenchmarks
