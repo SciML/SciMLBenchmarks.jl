@@ -5,10 +5,20 @@ on:
     branches: [master]
     paths:
       - 'benchmarks/**'
+      - '.github/benchmark_defaults.toml'
+      - '.github/scripts/detect-changed-benchmarks.sh'
+      - '.github/scripts/read-benchmark-config.sh'
+      - '.github/scripts/test-detect-changed-benchmarks.sh'
+      - '.github/workflows/benchmarks.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'benchmarks/**'
+      - '.github/benchmark_defaults.toml'
+      - '.github/scripts/detect-changed-benchmarks.sh'
+      - '.github/scripts/read-benchmark-config.sh'
+      - '.github/scripts/test-detect-changed-benchmarks.sh'
+      - '.github/workflows/benchmarks.yml'
   workflow_dispatch:
     inputs:
       benchmark_target:
@@ -45,11 +55,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Test changed benchmark detection
+        run: bash .github/scripts/test-detect-changed-benchmarks.sh
       - name: Detect changed benchmarks
         id: detect
         run: .github/scripts/detect-changed-benchmarks.sh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
 
   # When manually triggered with a specific target
   manual-matrix:
