@@ -87,6 +87,7 @@ end
     preferences_path = joinpath(folder, "LocalPreferences.toml")
     project = read(joinpath(folder, "Project.toml"), String)
     python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
+    benchmark = read(joinpath(folder, "simple_networks.jmd"), String)
 
     @test isfile(preferences_path)
     if isfile(preferences_path)
@@ -105,6 +106,13 @@ end
         "Reactant_jll = \"0192cb87-2b54-54ad-80e0-3be72ad8a3c0\"", project
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
+    @test occursin(
+        "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
+        "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"\n\n" *
+        "using BenchmarkTools, Random, Statistics\n" *
+        "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
+        benchmark
+    )
 end
 
 @testset "superseded pull request cancellation" begin
