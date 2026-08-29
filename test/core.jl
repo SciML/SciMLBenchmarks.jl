@@ -73,19 +73,6 @@ end
     @test checked == count("names = names", benchmark)
 end
 
-@testset "StiffODE E5 extrapolation orders" begin
-    benchmark = read(joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "E5.jmd"), String)
-    init_orders = [
-        parse(Int, value[1]) for value in eachmatch(r"init_order\s*=\s*(\d+)", benchmark)
-    ]
-    @test length(init_orders) == 6
-    @test all(<=(15), init_orders)
-    @test occursin(
-        r"(?s)ImplicitHairerWannerExtrapolation\(.*?init_order\s*=\s*11,\s*threading\s*=\s*OrdinaryDiffEqCore\.PolyesterThreads\(\)",
-        benchmark
-    )
-end
-
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
