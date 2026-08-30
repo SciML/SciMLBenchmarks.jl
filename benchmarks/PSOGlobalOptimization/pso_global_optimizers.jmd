@@ -22,7 +22,7 @@ objective below `f_opt + 1e-6`. Two experiments are run:
 1. **Budget experiment.** Each optimizer is run from scratch at 15 iteration budgets (10 to
    10,000), 10 times per budget, on every function. Each run records success, distance to the
    true minimizer, and number of objective evaluations. This feeds the iteration, evaluations,
-   heatmap and distance plots.
+   heatmap and distance plots. Success rates are pooled over dimensions 3, 5 and 10.
 2. **Time-to-success experiment.** Each optimizer gets one run per (function, trial) with a
    10,000-iteration budget, and we record the wall-clock time at which it *first* reached the
    target. From those times we build a CDF: for a time budget T, what fraction of runs were
@@ -30,7 +30,7 @@ objective below `f_opt + 1e-6`. Two experiments are run:
 
 Everything is evaluated in `Float64`: BBOB's `f_opt` is of order 100 and `eps(100f0) ≈ 8e-6`
 is larger than the `1e-6` target, so a `Float32` objective could never register success.
-Dimension is 10.
+Results are pooled over dimensions 3, 5 and 10.
 
 ## Setup
 
@@ -55,7 +55,7 @@ const SerialPSO     = ParallelParticleSwarms.SerialPSO
 const HybridPSO     = ParallelParticleSwarms.HybridPSO
 const BACKEND       = CUDABackend()
 
-const DIMENSION        = 10
+const DIMENSIONS       = (3, 5, 10)
 const NTRIALS          = 10
 const Δf               = 1e-6
 const NUM_PARTICLES    = 50_000    # GPU swarm
@@ -64,7 +64,9 @@ const RUN_LENGTH       = round.(Int, 10 .^ LinRange(1, 4, 15))   # budget experi
 const MAX_TTS_ITERS    = 10_000    # time-to-success experiment
 const TTS_CHUNK        = 20        # GPU: read back the best cost every this many iterations
 # f4, f7, f10 crash the GPU kernels and are excluded.
-const TEST_FUNCTIONS   = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(DIMENSION)))
+suite(D) = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(D)))
+const SUITES           = (suite(3), suite(5), suite(10))
+const TEST_FUNCTIONS   = first(SUITES)   # names/order for the heatmap; rates pool all three D
 ```
 
 ## Optimizers
@@ -117,13 +119,13 @@ end
 
 # `obj` is any x -> objective callable. u0 only fixes type and dimension; the swarm is
 # sampled from the box.
-function pso_problem(obj)
-    D    = DIMENSION
+function pso_problem(obj, ::Val{D}) where D
     optf = OptimizationFunction{false}((x, p) -> obj(x), SciMLBase.NoAD())
     lb   = SVector{D, Float64}(ntuple(_ -> -5.5, Val(D)))     # same box as the baselines
     ub   = SVector{D, Float64}(ntuple(_ ->  5.5, Val(D)))
     OptimizationProblem{false}(optf, SVector{D, Float64}(pinit(D)), nothing; lb, ub)
 end
+pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
 
 pso_solve(opt, prob, budget) = opt isa HybridPSO ?
     solve(prob, opt; maxiters = budget, local_maxiters = 50, abstol = 1e-8, reltol = 1e-8) :
@@ -133,28 +135,30 @@ pso_solve(opt, prob, budget) = opt isa HybridPSO ?
 ## Experiment 1: success rate vs. budget
 
 `run_one(algo, f, budget)` returns `(objective, minimizer, evaluations)`. One loop over
-(function, budget, trial) averages the results per budget.
+(dimension, function, budget, trial); success, distance and evaluations are then averaged
+across dimensions 3, 5 and 10.
 
 ```julia
 function run_one(algo, f::BBOBFunction, budget::Int)
     if algo in PSO_KEYS
-        sol = pso_solve(setup[algo], pso_problem(x -> pso_objective(f, x)), budget)
+        sol = pso_solve(setup[algo], pso_problem(x -> pso_objective(f, x), f), budget)
         u   = sol.u isa AbstractVector ? sol.u : sol.u[]
         return _to_f64(sol.objective), u, budget * particles_of(algo)
     else
         counted = FunctionCallsCounter(f)
-        sol = solve_problem(setup[algo], counted, DIMENSION, budget)
+        sol = solve_problem(setup[algo], counted, length(f.x_opt), budget)
         return sol.objective, sol.u, counted.count
     end
 end
 
 function benchmark(algo)
     Nf = length(TEST_FUNCTIONS)
+    Nd = length(SUITES)
     success = zeros(Nf, length(RUN_LENGTH)); dist = zeros(Nf, length(RUN_LENGTH))
     calls = zeros(Nf, length(RUN_LENGTH)); nfin = zeros(Int, Nf, length(RUN_LENGTH))
-    for (fi, f) in enumerate(TEST_FUNCTIONS)
+    for funcs in SUITES, (fi, f) in enumerate(funcs)
         try
-            run_one(algo, f, 10)                           # warm-up per function: compile, discard
+            run_one(algo, f, 10)                           # warm-up per (function, D): compile, discard
         catch err
             @warn "warm-up failed" algo f err
         end
@@ -170,11 +174,11 @@ function benchmark(algo)
             end
         end
     end
-    success ./= NTRIALS
+    success ./= NTRIALS * Nd
     dist  ./= max.(nfin, 1);  dist[nfin .== 0]  .= NaN
     calls ./= max.(nfin, 1);  calls[nfin .== 0] .= NaN
     sr   = vec(mean(success, dims = 1))
-    Neff = NTRIALS * Nf
+    Neff = NTRIALS * Nf * Nd
     qlow, qhigh = compute_CI(sr, Neff, 0.25)
     BenchmarkResults(;
         run_length = collect(RUN_LENGTH),
@@ -201,7 +205,8 @@ for algo in LABELS; algo in PSO_KEYS || (results[algo] = run_bench(algo)); end
 
 ## Experiment 2: wall-clock time to success
 
-One run per (function, trial) at `MAX_TTS_ITERS`; record the time of the *first* hit.
+One run per (dimension, function, trial) at `MAX_TTS_ITERS`; record the time of the *first* hit.
+The CDF pools dimensions 3, 5 and 10.
 
 - **CPU optimizers** (baselines, `SerialPSO`): the objective is wrapped in a closure that
   stamps the clock on the first evaluation below the target. This is the reference's method.
@@ -212,8 +217,8 @@ One run per (function, trial) at `MAX_TTS_ITERS`; record the time of the *first*
   phase runs from the final swarm and its finish time is used.
 
 The clock starts before the optimizer's own setup in every case, and one untimed warm-up run
-per (optimizer, function) keeps compilation out of the numbers, since the kernels specialize
-on the objective.
+per (optimizer, function, dimension) keeps compilation out of the numbers, since the kernels
+specialize on the objective and on `D`.
 
 ```julia
 # Wrap an objective so the first evaluation below `target` records the elapsed time.
@@ -242,29 +247,29 @@ function time_to_success_one(algo, f::BBOBFunction)
     opt, target, t0 = setup[algo], f.f_opt + Δf, time()
     if !(algo in PSO_KEYS)
         g, hit = tracked(f, target, t0)
-        solve_problem(opt, g, DIMENSION, MAX_TTS_ITERS)
+        solve_problem(opt, g, length(f.x_opt), MAX_TTS_ITERS)
         return hit[]
     elseif opt isa SerialPSO
         g, hit = tracked(x -> pso_objective(f, x), target, t0)
-        pso_solve(opt, pso_problem(g), MAX_TTS_ITERS)
+        pso_solve(opt, pso_problem(g, f), MAX_TTS_ITERS)
         return hit[]
     elseif opt isa HybridPSO
-        cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x)), opt)
+        cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
         t = chunked!(cache.pso_cache, target, t0)             # PSO phase
         isfinite(t) && return t
         sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = 50, abstol = 1e-8, reltol = 1e-8)
         return _to_f64(sol.objective) < target ? time() - t0 : Inf   # L-BFGS phase only
     else
-        cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x)), opt)
+        cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
         return chunked!(cache, target, t0)
     end
 end
 
 function time_to_success(algo)
     times = Float64[]
-    for f in TEST_FUNCTIONS
+    for funcs in SUITES, f in funcs
         try
-            time_to_success_one(algo, f)                   # warm-up per function: compile, discard
+            time_to_success_one(algo, f)                   # warm-up per (function, D): compile, discard
         catch err
             @warn "time-to-success warm-up failed" algo f err
         end
@@ -356,7 +361,8 @@ plot_curves(Dict(l => thresholds for l in LABELS),
 
 ### Success rate per function
 
-One row per optimizer (worst at the bottom), one column per function, at the largest budget.
+One row per optimizer (worst at the bottom), one column per function, at the largest budget,
+pooled over dimensions 3, 5 and 10.
 
 ```julia
 M = reduce(hcat, results[l].success_rate_per_function for l in LABELS)  # functions × optimizers
