@@ -27,10 +27,16 @@ open_prs, _ = GitHub.pull_requests(
 )
 filter!(pr -> startswith(something(pr.head.label, ""), "SciML:"), open_prs)
 
+# One directory per run; see `WeeklyUpdateHelpers.select_update_directory`.
+all_dirs = sort!(filter(d -> isdir(joinpath(benchpath, d)), readdir(benchpath)))
+selected = WeeklyUpdateHelpers.select_update_directory(
+    all_dirs, get(ENV, "BENCHMARK_DIRECTORY", ""), Date(now(UTC))
+)
+@info "Refreshing one benchmark directory this run" selected of = length(all_dirs)
+
 failures = String[]
-for dir in readdir(benchpath)
+for dir in (selected,)
     model_dir = joinpath(benchpath, dir)
-    isdir(model_dir) || continue
     println("--- Inspecting $dir ---")
 
     existing_pr = WeeklyUpdateHelpers.find_update_pull_request(open_prs, dir)
