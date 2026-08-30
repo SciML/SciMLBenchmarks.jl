@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: 0 6 * * 6
   workflow_dispatch:
+    inputs:
+      directory:
+        description: >-
+          Benchmark directory to refresh. Leave blank to use the weekly rotation.
+        required: false
+        default: ''
 
 jobs:
   update_weekly:
@@ -27,3 +33,5 @@ jobs:
 
               julia .github/workflows/update_tests.jl
               julia -e 'include(".github/workflows/update.jl")' ${{ secrets.GITHUB_TOKEN }}
+        env:
+          BENCHMARK_DIRECTORY: ${{ inputs.directory }}
