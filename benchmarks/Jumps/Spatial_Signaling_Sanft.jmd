@@ -7,6 +7,7 @@ weave_options:
 
 ```julia
 using Catalyst, JumpProcesses, BenchmarkTools, Plots, Random
+using SymbolicIndexingInterface: parameter_values
 ```
 
 # Model description and setup
@@ -90,14 +91,16 @@ model in a cube of side length `h`:
 ```julia
 function wellmixed_model(rn, u0, end_time, h)
     kaval = invmicromolar_to_cubicmicrometer(46.2) / h^3
-    setdefaults!(rn, [:k₁ => 150, :ka => kaval, :kd => 3.82, :k₄ => 6.0])
+    parameters = [:k₁ => 150, :ka => kaval, :kd => 3.82, :k₄ => 6.0]
 
     # well-mixed initial condition corresponding to the spatial initial condition
-    u0wm = sum(u0, dims = 2)
-    dprobwm = DiscreteProblem(rn, u0wm, (0.0, end_time))
-    jprobwm = JumpProblem(rn, dprobwm, Direct(), save_positions = (false, false))
+    u0wm = species(rn) .=> vec(sum(u0, dims = 2))
+    jprobwm = JumpProblem(
+        rn, u0wm, (0.0, end_time), parameters;
+        aggregator = Direct(), save_positions = (false, false)
+    )
     majumps = jprobwm.massaction_jump
-    majumps, dprobwm, jprobwm, u0wm
+    return majumps, parameter_values(jprobwm), jprobwm, u0wm
 end
 ```
 
@@ -110,15 +113,15 @@ molecules, as reported in Sanft [^1], when using a domain length of 6 μm.
 ```julia
 end_time = 3.0
 grid, hopping_constants, h, u0 = transport_model(rn, 60)
-majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, 6.0)
+majumps, parameters_wm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, 6.0)
 sol = solve(jprobwm, SSAStepper(); saveat = end_time/200)
 Ntot = [sum(u) for u in sol.u]
 plt = plot(sol.t, Ntot, label = "Well-mixed", ylabel = "Total Number of Molecules",
     xlabel = "time")
 
 # spatial model
-majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
-dprob = DiscreteProblem(u0, (0.0, end_time), copy(dprobwm.p))
+majumps, parameters_wm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
+dprob = DiscreteProblem(u0, (0.0, end_time), copy(parameters_wm))
 jprob = JumpProblem(dprob, DirectCRDirect(), majumps; hopping_constants,
     spatial_system = grid, save_positions = (false, false))
 spatial_sol = solve(jprob, SSAStepper(); saveat = end_time/200)
@@ -166,10 +169,10 @@ function benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
         grid, hopping_constants, h, u0 = transport_model(rn, N; domain_len)
 
         # we create a well-mixed model within a domain of the size of *one* voxel, h
-        majumps, dprobwm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
+        majumps, parameters_wm, jprobwm, u0wm = wellmixed_model(rn, u0, end_time, h)
 
         # the spatial problem
-        dprob = DiscreteProblem(u0, (0.0, end_time), copy(dprobwm.p))
+        dprob = DiscreteProblem(u0, (0.0, end_time), copy(parameters_wm))
 
         @show N
 
@@ -183,7 +186,7 @@ function benchmark_and_save!(bench_dict, end_times, Nv, algs, domain_len)
             println("benchmarking $name")
             jp = JumpProblem(dprob, alg, majumps, hopping_constants = hopping_constants,
                 spatial_system = grid, save_positions = (false, false))
-            b = @benchmarkable solve($jp, SSAStepper(); saveat = $(dprob.tspan[2]), callback) setup=(callback=deepcopy($cb)) samples=10 seconds=3600
+            b = @benchmarkable solve($jp, SSAStepper(); saveat = $(dprob.tspan[2]), callback) setup=(callback=deepcopy($cb)) samples=3 seconds=300
             bench_dict[name, N] = run(b)
         end
     end

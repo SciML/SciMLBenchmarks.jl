@@ -27,7 +27,6 @@ methods = (Direct(), FRM(), SortingDirect(), NRM(), DirectCR(),
     RSSA(), RSSACR(), Coevolve(), RDirect())
 shortlabels = [string(leg)[15:(end - 2)] for leg in methods]
 tf = 10.0 * jprob.tstop
-prob = DiscreteProblem(rn, jprob.u0, (0.0, tf), jprob.rates)
 varlegs = ["A_P" "A_bound_P" "A_unbound_P" "RLA_P"]
 @variables t S7(t) S8(t) S9(t)
 varsyms = [
@@ -45,7 +44,10 @@ end
 ```julia
 p = []
 for (i, method) in enumerate(methods)
-    jump_prob = JumpProblem(rn, prob, method, save_positions = (false, false))
+    jump_prob = JumpProblem(
+        rn, jprob.u0, (0.0, tf), jprob.rates;
+        aggregator = method, save_positions = (false, false)
+    )
     sol = solve(jump_prob, SSAStepper(), saveat = tf/1000.0)
     solv = zeros(1001, 4)
     for (i, varidx) in enumerate(varidxs)
@@ -76,7 +78,10 @@ end
 nsims = 100
 benchmarks = Vector{Vector{Float64}}()
 for method in methods
-    jump_prob = JumpProblem(rn, prob, method, save_positions = (false, false))
+    jump_prob = JumpProblem(
+        rn, jprob.u0, (0.0, tf), jprob.rates;
+        aggregator = method, save_positions = (false, false)
+    )
     stepper = SSAStepper()
     time = Vector{Float64}(undef, nsims)
     run_benchmark!(time, jump_prob, stepper)
