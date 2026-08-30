@@ -123,6 +123,13 @@ end
     for (step, state) in reactant_steps
         @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
     end
+    @test occursin(
+        "REACTANT_TRAINING_COMPILE_OPTIONS = " *
+            "Reactant.CompileOptions(; donated_args=:none)",
+        benchmark,
+    )
+    @test count("compile_options=REACTANT_TRAINING_COMPILE_OPTIONS", benchmark) == 5
+    @test count("sync=true", benchmark) == 5
     @test count(r"@benchmark \$reactant_", benchmark) == 5
     @test !occursin("compiled_reactant_step", benchmark)
     @test !occursin(r"@compile reactant_", benchmark)

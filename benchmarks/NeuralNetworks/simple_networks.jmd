@@ -48,6 +48,7 @@ println("Reactant device: ", xdev)
 
 BenchmarkTools.DEFAULT_PARAMETERS.gcsample = true
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 30
+const REACTANT_TRAINING_COMPILE_OPTIONS = Reactant.CompileOptions(; donated_args=:none)
 
 const rng = Random.default_rng()
 Random.seed!(rng, 12345)
@@ -263,7 +264,8 @@ for bs in train_batch_sizes
     y_ra = Reactant.ConcreteRArray(y_host)
     ts = Training.TrainState(lux_mlp_relu, ps_ra, st_ra, Adam(1.0f-3))
     function reactant_step(ts, x, y)
-        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
+            compile_options=REACTANT_TRAINING_COMPILE_OPTIONS, sync=true)
         ts_new, loss
     end
     ts, _ = reactant_step(ts, x_ra, y_ra)
@@ -396,7 +398,8 @@ for bs in train_batch_sizes
     y_ra = Reactant.ConcreteRArray(y_host)
     ts_gelu = Training.TrainState(lux_mlp_gelu, ps_gelu_ra, st_gelu_ra, Adam(1.0f-3))
     function reactant_gelu_step(ts, x, y)
-        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
+            compile_options=REACTANT_TRAINING_COMPILE_OPTIONS, sync=true)
         ts_new, loss
     end
     ts_gelu, _ = reactant_gelu_step(ts_gelu, x_ra, y_ra)
@@ -521,7 +524,8 @@ for bs in train_batch_sizes
     y_ra = Reactant.ConcreteRArray(y_host)
     ts_bn = Training.TrainState(lux_mlp_bn, ps_bn_ra, st_bn_ra, Adam(1.0f-3))
     function reactant_bn_step(ts, x, y)
-        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
+            compile_options=REACTANT_TRAINING_COMPILE_OPTIONS, sync=true)
         ts_new, loss
     end
     ts_bn, _ = reactant_bn_step(ts_bn, x_ra, y_ra)
@@ -650,7 +654,8 @@ for bs in lenet_train_batch_sizes
     y_ra = Reactant.ConcreteRArray(y_host)
     ts_lenet = Training.TrainState(lux_lenet, ps_lenet_ra, st_lenet_ra, Adam(1.0f-3))
     function reactant_lenet_step(ts, x, y)
-        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
+            compile_options=REACTANT_TRAINING_COMPILE_OPTIONS, sync=true)
         ts_new, loss
     end
     ts_lenet, _ = reactant_lenet_step(ts_lenet, x_ra, y_ra)
@@ -769,7 +774,8 @@ for bs in resnet_train_batch_sizes
     y_ra = Reactant.ConcreteRArray(y_host)
     ts_resnet = Training.TrainState(lux_resnet, ps_resnet_ra, st_resnet_ra, Adam(1.0f-3))
     function reactant_resnet_step(ts, x, y)
-        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
+        _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
+            compile_options=REACTANT_TRAINING_COMPILE_OPTIONS, sync=true)
         ts_new, loss
     end
     ts_resnet, _ = reactant_resnet_step(ts_resnet, x_ra, y_ra)
