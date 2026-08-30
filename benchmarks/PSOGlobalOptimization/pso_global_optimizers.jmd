@@ -11,12 +11,8 @@ established global optimizers on the
 It uses the reference
 [Black-Box Global Optimizer Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/Optimization/GlobalOptimization/)
 protocol and its first-hit wall-clock measurement. Differences: three BBOB functions that
-crash the GPU kernels are excluded, and this is a reduced configuration — 10 trials and
+crash the GPU kernels are excluded, and this is a reduced configuration: 10 trials and
 15 budgets from 10 to 10,000, versus the reference's 40 trials and 30 budgets to 100,000.
-A representative subset of the reference benchmark's optimizers is included: the strongest
-performer from each family (Nelder-Mead, adaptive DE, CRS2, DIRECT, ECA), per the full
-comparison on the reference page. Weaker or redundant variants from the same libraries are
-omitted for readability.
 
 ## How it works
 
@@ -42,13 +38,14 @@ Dimension is 10.
 using Random; Random.seed!(42)
 using BlackBoxOptimizationBenchmarking, CairoMakie, Optimization, Memoize, Statistics
 using StaticArrays, LinearAlgebra, ForwardDiff, KernelAbstractions, CUDA
-using OptimizationBBO, OptimizationOptimJL, OptimizationNLopt, OptimizationMetaheuristics
-using OptimizationOptimJL: Optim          # NelderMead lives here
+using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
+using OptimizationMetaheuristics, OptimizationSciPy
+using OptimizationOptimJL: Optim          # NelderMead and SAMIN live here
 using ParallelParticleSwarms
 CairoMakie.activate!()
 
-import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BBOBFunction,
-    FunctionCallsCounter, solve_problem, pinit
+import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
+    BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
 const BBOB      = BlackBoxOptimizationBenchmarking
 const SciMLBase = Optimization.SciMLBase
 
@@ -82,8 +79,16 @@ setup = Dict(
     "NelderMead"                     => BenchmarkSetup(Optim.NelderMead()),
     "NLopt.GN_CRS2_LM()"             => chain(NLopt.GN_CRS2_LM(), isboxed = true),
     "NLopt.GN_DIRECT()"              => chain(NLopt.GN_DIRECT(), isboxed = true),
+    "NLopt.GN_ESCH()"                => chain(NLopt.GN_ESCH(), isboxed = true),
+    "OptimizationEvolutionary.GA()"  => chain(OptimizationEvolutionary.GA(), isboxed = true),
+    "OptimizationEvolutionary.DE()"  => chain(OptimizationEvolutionary.DE(), isboxed = true),
+    "OptimizationEvolutionary.ES()"  => chain(OptimizationEvolutionary.ES(), isboxed = true),
+    "Optim.SAMIN"                    => chain(Optim.SAMIN(verbosity = 0), isboxed = true),
     "BBO_adaptive_de_rand_1_bin"     => chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
+    "BBO_de_rand_2_bin"              => chain(BBO_de_rand_2_bin(), isboxed = true),
     "OptimizationMetaheuristics.ECA" => chain(OptimizationMetaheuristics.ECA(), isboxed = true),
+    "OptimizationMetaheuristics.DE"  => chain(OptimizationMetaheuristics.DE(), isboxed = true),
+    "ScipyDifferentialEvolution"     => chain(ScipyDifferentialEvolution(), isboxed = true),
     "SerialPSO"       => SerialPSO(SERIAL_PARTICLES),
     "PSOKernel"       => PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true),
     "SyncPSOKernel"   => SyncPSOKernel(NUM_PARTICLES; backend = BACKEND),
@@ -168,17 +173,30 @@ function benchmark(algo)
     success ./= NTRIALS
     dist  ./= max.(nfin, 1);  dist[nfin .== 0]  .= NaN
     calls ./= max.(nfin, 1);  calls[nfin .== 0] .= NaN
-    (; success_rate = vec(mean(success, dims = 1)),       # per budget
-       per_function = success[:, end],                     # at the largest budget
-       distance     = vec(mean(dist, dims = 1)),
-       evaluations  = vec(mean(calls, dims = 1)))
+    sr   = vec(mean(success, dims = 1))
+    Neff = NTRIALS * Nf
+    qlow, qhigh = compute_CI(sr, Neff, 0.25)
+    BenchmarkResults(;
+        run_length = collect(RUN_LENGTH),
+        success_count = round.(Int, sr .* Neff),
+        success_rate = sr,
+        success_rate_qlow = qlow,
+        success_rate_qhigh = qhigh,
+        distance_to_minimizer = vec(mean(dist, dims = 1)),
+        minimum = fill(NaN, length(RUN_LENGTH)),
+        runtime = 0.0,
+        Neffective = Neff,
+        callcount = vec(mean(calls, dims = 1)),
+        success_rate_per_function = success[:, end],
+    )
 end
 
 @memoize run_bench(algo) = benchmark(algo)
 
-results = Dict{String, Any}()
+results = Dict{String, BenchmarkResults}()
 for algo in LABELS; algo in PSO_KEYS && (results[algo] = run_bench(algo)); end   # GPU first
 for algo in LABELS; algo in PSO_KEYS || (results[algo] = run_bench(algo)); end
+[results[l] for l in LABELS]
 ```
 
 ## Experiment 2: wall-clock time to success
@@ -206,7 +224,7 @@ function tracked(obj, target, t0)
 end
 
 # Advance a PSO cache in chunks; return the time of the first chunk whose best cost is
-# below `target`, or Inf. (solve! resets the inertia weight each call — harmless with the
+# below `target`, or Inf. (solve! resets the inertia weight each call; harmless with the
 # default wdamp = 1.)
 function chunked!(cache, target, t0)
     for _ in 1:cld(MAX_TTS_ITERS, TTS_CHUNK)
@@ -314,7 +332,7 @@ evaluations cannot be counted; its swarm-only count would understate the work.
 
 ```julia
 evals_labels = filter(!=("HybridPSO_LBFGS"), LABELS)
-plot_curves(Dict(l => results[l].evaluations for l in evals_labels),
+plot_curves(Dict(l => results[l].callcount for l in evals_labels),
             Dict(l => results[l].success_rate for l in evals_labels);
             xlabel = "Function evaluations", ylabel = "Success rate", xlims = (1, 1e9))
 ```
@@ -341,7 +359,7 @@ plot_curves(Dict(l => thresholds for l in LABELS),
 One row per optimizer (worst at the bottom), one column per function, at the largest budget.
 
 ```julia
-M = reduce(hcat, results[l].per_function for l in LABELS)      # functions × optimizers
+M = reduce(hcat, results[l].success_rate_per_function for l in LABELS)  # functions × optimizers
 order = sortperm(vec(mean(M, dims = 1)))
 fig = Figure(size = (1150, 600))
 ax  = Axis(fig[1, 1]; xticks = (1:length(TEST_FUNCTIONS), string.(TEST_FUNCTIONS)),
@@ -357,7 +375,7 @@ Lower is better. Shows "close but not converged" cases that the pass/fail plots 
 
 ```julia
 plot_curves(Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
-            Dict(l => results[l].distance for l in LABELS);
+            Dict(l => results[l].distance_to_minimizer for l in LABELS);
             xlabel = "Iterations", ylabel = "Mean distance to minimizer",
             xlims = (1, maximum(RUN_LENGTH)), ylims = (0, 5), best_is_high = false)
 ```
@@ -365,7 +383,7 @@ plot_curves(Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
 ### Relative runtime
 
 Median time to success, relative to Nelder-Mead, log scale. Uses only successful runs, so it
-reads as "when this optimizer solves a problem, how long does it take" — read it together
+reads as "when this optimizer solves a problem, how long does it take"; read it together
 with the wall-clock plot, which shows how often it solves one at all.
 
 ```julia
