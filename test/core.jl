@@ -93,6 +93,34 @@ end
     @test checked == count("names = names", benchmark)
 end
 
+@testset "OptimizationFrameworks size guard" begin
+    benchmark = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "OptimizationFrameworks", "optimal_powerflow.jmd"
+        ),
+        String
+    )
+    loop_body = split(benchmark, "function multidata_multisolver_benchmark"; limit = 2)[2]
+    loop_body = split(loop_body, "test_datasets ="; limit = 2)[1]
+    size_guard = findfirst(r"if [^\n]+ > sizelimit", loop_body)
+    @test !isnothing(size_guard)
+    if !isnothing(size_guard)
+        before_guard = SubString(loop_body, firstindex(loop_body), first(size_guard) - 1)
+        @test occursin("model_variables = length(dataset.var_init)", before_guard)
+        @test !occursin("build_opf_optimization_prob(dataset)", before_guard)
+    end
+    @test !occursin(r"\bprob\b", loop_body)
+
+    optim_guard = match(
+        r"(?s)if model_variables > 400(?<large>.*?)else(?<small>.*?)end", loop_body
+    )
+    @test !isnothing(optim_guard)
+    if !isnothing(optim_guard)
+        @test !occursin("solve_opf_optim", optim_guard[:large])
+        @test occursin("solve_opf_optim", optim_guard[:small])
+    end
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")

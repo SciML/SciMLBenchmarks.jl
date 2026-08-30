@@ -2423,17 +2423,17 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         @show file
         dataset = load_and_setup_data(file)
 
-        prob = build_opf_optimization_prob(dataset)
-        @info "Number of Variables: $(length(prob.u0))"
-        @info "Number of Constraints: $(length(prob.lcons))"
+        model_variables = length(dataset.var_init)
+        @info "Number of Variables: $(model_variables)"
 
-        if length(prob.u0) > sizelimit
+        if model_variables > sizelimit
             @info "Variable size over global limit. Skipping for now"
             continue
         end
 
         @info "Running Optimization.jl"
         model, res = solve_opf_optimization(dataset)
+        @info "Number of Constraints: $(res["constraints"])"
         push!(cases, split(file, "/")[end])
         push!(vars, res["variables"])
         push!(cons, res["constraints"])
@@ -2472,9 +2472,8 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(nonconvex_cost, res["cost"])
         =#
 
-        if length(prob.u0) > 400
-            @info "Running Optim.jl"
-            model, res = solve_opf_optim(dataset)
+        if model_variables > 400
+            @info "Variable size over Optim.jl limit. Skipping for now"
             push!(optim_time, NaN)
             push!(optim_time_modelbuild, NaN)
             push!(optim_time_compilation, NaN)
