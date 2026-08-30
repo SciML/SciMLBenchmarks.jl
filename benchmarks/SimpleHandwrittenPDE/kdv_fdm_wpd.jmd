@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -73,7 +73,7 @@ L = 16.0  # Domain length
 alpha = 5.0 # Time scaling factor
 xs, prob = kortwrieg_de_vries(N, L, alpha)
 
-@time sol = solve(prob, AutoVern7(RadauIIA5(autodiff=AutoFiniteDiff())); 
+@time sol = solve(prob, AutoVern7(Rodas5P(autodiff=AutoFiniteDiff()));
                   dt = 1e-4, abstol = 1e-14, reltol = 1e-14);
 
 test_sol = TestSolution(sol) # Reference solution for error estimation
@@ -170,7 +170,7 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, High Toleranc
 
 #### Implicit-Explicit Methods
 
-Dense and Krylov linear solvers.
+OrdinaryDiffEq defaults and Sundials Krylov linear solvers.
 ```julia
 abstols = 0.1 .^ (8:12)
 reltols = 0.1 .^ (5:9)
@@ -183,9 +183,9 @@ setups = [
     Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
 ]
 labels = hcat(
-    "KenCarp3 (dense)",
-    "KenCarp4 (dense)",
-    "KenCarp5 (dense)",
+    "KenCarp3 (default)",
+    "KenCarp4 (default)",
+    "KenCarp5 (default)",
     "ARKODE3 (Krylov)",
     "ARKODE4 (Krylov)",
     "ARKODE5 (Krylov)",
