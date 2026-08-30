@@ -113,8 +113,19 @@ end
             "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
         benchmark
     )
-    @test count("compiled_reactant_step = @compile", benchmark) == 5
-    @test !occursin(r"@benchmark \$reactant_", benchmark)
+    reactant_steps = (
+        ("reactant_step", "ts"),
+        ("reactant_gelu_step", "ts_gelu"),
+        ("reactant_bn_step", "ts_bn"),
+        ("reactant_lenet_step", "ts_lenet"),
+        ("reactant_resnet_step", "ts_resnet"),
+    )
+    for (step, state) in reactant_steps
+        @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
+    end
+    @test count(r"@benchmark \$reactant_", benchmark) == 5
+    @test !occursin("compiled_reactant_step", benchmark)
+    @test !occursin(r"@compile reactant_", benchmark)
 end
 
 @testset "superseded pull request cancellation" begin
