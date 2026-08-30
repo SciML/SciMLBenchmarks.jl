@@ -108,11 +108,13 @@ end
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
         "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
-        "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"\n\n" *
-        "using BenchmarkTools, Random, Statistics\n" *
-        "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
+            "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"\n\n" *
+            "using BenchmarkTools, Random, Statistics\n" *
+            "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
         benchmark
     )
+    @test count("compiled_reactant_step = @compile", benchmark) == 5
+    @test !occursin(r"@benchmark \$reactant_", benchmark)
 end
 
 @testset "superseded pull request cancellation" begin

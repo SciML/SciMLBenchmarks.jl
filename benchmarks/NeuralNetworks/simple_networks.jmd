@@ -266,8 +266,8 @@ for bs in train_batch_sizes
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
         ts_new, loss
     end
-    reactant_step(ts, x_ra, y_ra)
-    t = @benchmark $reactant_step($ts, $x_ra, $y_ra)
+    compiled_reactant_step = @compile reactant_step(ts, x_ra, y_ra)
+    t = @benchmark $compiled_reactant_step($ts, $x_ra, $y_ra)
     append_timing!(train_results, "Reactant", median(t).time / 1e9)
 
     # JAX
@@ -399,8 +399,8 @@ for bs in train_batch_sizes
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
         ts_new, loss
     end
-    reactant_gelu_step(ts_gelu, x_ra, y_ra)
-    t = @benchmark $reactant_gelu_step($ts_gelu, $x_ra, $y_ra)
+    compiled_reactant_step = @compile reactant_gelu_step(ts_gelu, x_ra, y_ra)
+    t = @benchmark $compiled_reactant_step($ts_gelu, $x_ra, $y_ra)
     append_timing!(gelu_train_results, "Reactant", median(t).time / 1e9)
 
     x_py = nn_utils.to_jax_gpu(to_row_major(x_host))
@@ -524,8 +524,8 @@ for bs in train_batch_sizes
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
         ts_new, loss
     end
-    reactant_bn_step(ts_bn, x_ra, y_ra)
-    t = @benchmark $reactant_bn_step($ts_bn, $x_ra, $y_ra)
+    compiled_reactant_step = @compile reactant_bn_step(ts_bn, x_ra, y_ra)
+    t = @benchmark $compiled_reactant_step($ts_bn, $x_ra, $y_ra)
     append_timing!(bn_train_results, "Reactant", median(t).time / 1e9)
 
     # PyTorch
@@ -653,8 +653,8 @@ for bs in lenet_train_batch_sizes
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
         ts_new, loss
     end
-    reactant_lenet_step(ts_lenet, x_ra, y_ra)
-    t = @benchmark $reactant_lenet_step($ts_lenet, $x_ra, $y_ra)
+    compiled_reactant_step = @compile reactant_lenet_step(ts_lenet, x_ra, y_ra)
+    t = @benchmark $compiled_reactant_step($ts_lenet, $x_ra, $y_ra)
     append_timing!(lenet_train_results, "Reactant", median(t).time / 1e9)
 
     x_py = to_nchw(x_host)
@@ -772,8 +772,8 @@ for bs in resnet_train_batch_sizes
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts)
         ts_new, loss
     end
-    reactant_resnet_step(ts_resnet, x_ra, y_ra)
-    t = @benchmark $reactant_resnet_step($ts_resnet, $x_ra, $y_ra)
+    compiled_reactant_step = @compile reactant_resnet_step(ts_resnet, x_ra, y_ra)
+    t = @benchmark $compiled_reactant_step($ts_resnet, $x_ra, $y_ra)
     append_timing!(resnet_train_results, "Reactant", median(t).time / 1e9)
 
     torch_rn = nn_utils.cuda_model(nn_utils.TorchSmallResNet())
