@@ -73,6 +73,15 @@ end
     end
 end
 
+@testset "Jumps spatial benchmark runtime" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "Jumps", "Spatial_Signaling_Sanft.jmd"),
+        String
+    )
+    @test occursin("samples=3 seconds=300", benchmark)
+    @test !occursin("seconds=3600", benchmark)
+end
+
 @testset "StiffODE work-precision names" begin
     benchmark = read(
         joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "Bruss.jmd"), String
