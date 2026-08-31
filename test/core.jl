@@ -51,8 +51,8 @@ end
     for variable in ("S_grid", "D_grid")
         crn_expression = benchmark_assignment(crn_path, variable)
         crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
-        @test crn_grid(1, Float32) == Float32[0.1]
-        @test crn_grid(2, Float32) == Float32[0.1, 100]
+        @test Base.invokelatest(crn_grid, 1, Float32) == Float32[0.1]
+        @test Base.invokelatest(crn_grid, 2, Float32) == Float32[0.1, 100]
     end
 
     lorenz_path = joinpath(benchmarks_dir, "lorenz_ensemble.jmd")
@@ -61,8 +61,8 @@ end
     @test !occursin("make_ensemble(1)", lorenz_source)
     lorenz_expression = benchmark_assignment(lorenz_path, "plist")
     lorenz_grid = Core.eval(@__MODULE__, :((n, T) -> $lorenz_expression))
-    @test collect(lorenz_grid(1, Float32)) == Float32[0]
-    @test collect(lorenz_grid(4, Float32)) == Float32[0, 7, 14, 21]
+    @test collect(Base.invokelatest(lorenz_grid, 1, Float32)) == Float32[0]
+    @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
 @testset "subprocess" begin
