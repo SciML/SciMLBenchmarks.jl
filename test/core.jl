@@ -48,6 +48,19 @@ end
     @test !occursin("ps = crn_parameters(1)", crn_source)
     @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
     @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
+    crn_definition = match(r"(?ms)^function crn_parameters\b.*?^end$", crn_source)
+    @test !isnothing(crn_definition)
+    if !isnothing(crn_definition)
+        Core.eval(@__MODULE__, Meta.parse(crn_definition.match))
+        cpu_expression = benchmark_assignment(crn_path, "ens64")
+        cpu_parameters_expression = only(
+            argument for argument in cpu_expression.args if Meta.isexpr(argument, :call)
+        )
+        cpu_parameters = Core.eval(@__MODULE__, :((N) -> $cpu_parameters_expression))
+        parameters = Base.invokelatest(cpu_parameters, 1)
+        @test length(parameters) == 1680
+        @test all(parameter -> parameter isa NTuple{6, Float64}, parameters)
+    end
     for variable in ("S_grid", "D_grid")
         crn_expression = benchmark_assignment(crn_path, variable)
         crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
