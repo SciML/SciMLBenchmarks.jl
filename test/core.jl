@@ -65,6 +65,19 @@ end
     @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "OptimizationFrameworks logging" begin
+    benchmark = read(
+        joinpath(
+            dirname(@__DIR__),
+            "benchmarks",
+            "OptimizationFrameworks",
+            "optimal_powerflow.jmd",
+        ),
+        String,
+    )
+    @test occursin("import PowerModels\nPowerModels.silence()", benchmark)
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
