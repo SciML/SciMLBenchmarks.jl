@@ -37,6 +37,14 @@ function old_expand_derivatives(n::Num, simplify = false; kwargs...)
     return Symbolics.wrap(old_expand_derivatives(Symbolics.value(n), simplify; kwargs...))
 end
 
+function old_contains(x, expr)
+    x = SymbolicUtils.unwrap_const(x)
+    expr = SymbolicUtils.unwrap_const(expr)
+    isequal(x, expr) && return true
+    SymbolicUtils.iscall(expr) || return false
+    return any(arg -> old_contains(x, arg), SymbolicUtils.arguments(expr))
+end
+
 function old_occursin_info(x, expr, fail = true)
     # Handle plain symbols (previously dispatched on ::Sym)
     if SymbolicUtils.issym(expr)
@@ -50,7 +58,7 @@ function old_occursin_info(x, expr, fail = true)
         if fail
             error("Differentiation with array expressions is not yet supported")
         else
-            return occursin(x, expr)
+            return old_contains(x, expr)
         end
     end
 
@@ -71,11 +79,11 @@ function old_occursin_info(x, expr, fail = true)
     end
 
     if is_scalar_indexed(x) && is_scalar_indexed(expr) &&
-            !occursin(first(arguments(x)), first(arguments(expr)))
+            !old_contains(first(arguments(x)), first(arguments(expr)))
         return false
     end
 
-    if is_scalar_indexed(expr) && !is_scalar_indexed(x) && !occursin(x, expr)
+    if is_scalar_indexed(expr) && !is_scalar_indexed(x) && !old_contains(x, expr)
         return false
     end
 
