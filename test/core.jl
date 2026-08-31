@@ -94,10 +94,10 @@ end
     if isfile(preferences_path)
         preferences = read(preferences_path, String)
         @test occursin(
-            "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.9\"", preferences
+            "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.8\"", preferences
         )
         @test occursin(
-            "[Reactant_jll]\ngpu = \"cuda\"\ngpu_version = \"12.9\"", preferences
+            "[Reactant_jll]\ncuda_version = \"12.8\"\ngpu = \"cuda\"", preferences
         )
     end
     @test occursin(
@@ -110,8 +110,15 @@ end
     @test occursin("CUDNN_jll = \"=9.10.0\"", project)
     @test occursin("CUDA = \"5\"", project)
     @test occursin("cuDNN = \"=1.4.4\"", project)
+    @test occursin("Reactant = \"=0.2.171\"", project)
     @test occursin(
         r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant\]\].*?version = \"0\.2\.171\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant_jll\]\].*?version = \"0\.0\.251\+0\"", manifest
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
@@ -147,12 +154,8 @@ end
     for (step, state) in reactant_steps
         @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
     end
-    @test occursin(
-        "REACTANT_TRAINING_COMPILE_OPTIONS = " *
-            "Reactant.CompileOptions(; donated_args=:none)",
-        benchmark,
-    )
-    @test count("compile_options=REACTANT_TRAINING_COMPILE_OPTIONS", benchmark) == 5
+    @test !occursin("REACTANT_TRAINING_COMPILE_OPTIONS", benchmark)
+    @test !occursin("compile_options=", benchmark)
     @test count("sync=true", benchmark) == 5
     @test count(r"@benchmark \$reactant_", benchmark) == 5
     @test !occursin("compiled_reactant_step", benchmark)
