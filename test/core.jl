@@ -107,7 +107,8 @@ end
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
-        "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
+        "ENV[\"XLA_REACTANT_GPU_MEM_FRACTION\"] = \"0.25\"\n" *
+            "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
             "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"\n\n" *
             "using BenchmarkTools, Random, Statistics\n" *
             "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
