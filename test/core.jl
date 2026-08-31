@@ -80,6 +80,26 @@ end
     end
 end
 
+@testset "HybridJumps Python setup" begin
+    benchmark_dir = joinpath(dirname(@__DIR__), "benchmarks", "HybridJumps")
+    setup_path = joinpath(benchmark_dir, "setup.sh")
+    @test isfile(setup_path)
+    if isfile(setup_path)
+        @test stat(setup_path).mode & 0o111 != 0
+        setup = read(setup_path, String)
+        @test occursin(
+            "Conda.add([\"python=3.8\", \"conda<24\", \"numpy\"], Conda.ROOTENV)",
+            setup,
+        )
+        @test occursin("Conda.pip(\"install\", \"tick==0.7.0.1\"", setup)
+        @test occursin("Pkg.build(\"PyCall\")", setup)
+    end
+
+    benchmark = read(joinpath(benchmark_dir, "MultivariateHawkes.jmd"), String)
+    @test !occursin("Conda.add(", benchmark)
+    @test !occursin("Pkg.build(\"PyCall\")", benchmark)
+end
+
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
