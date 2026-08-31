@@ -44,6 +44,8 @@ end
 
     crn_path = joinpath(benchmarks_dir, "crn_sde.jmd")
     crn_source = read(crn_path, String)
+    @test occursin("ps = crn_parameters(2)", crn_source)
+    @test !occursin("ps = crn_parameters(1)", crn_source)
     @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
     @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
     for variable in ("S_grid", "D_grid")
