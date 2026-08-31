@@ -58,7 +58,7 @@ function make_ensemble(n; T::Type = Float32)
     u0 = SVector{3, T}(1, 0, 0)
     tspan = (zero(T), one(T))
     p = SVector{1, T}(21)
-    plist = range(zero(T), T(21); length = n)
+    plist = range(zero(T), T(21); length = max(n, 2))[1:n]
     prob = ODEProblem{false}(lorenz, u0, tspan, p)
     prob_func = (prob, i, repeat) -> remake(prob, p = SVector{1, T}(plist[i]))
     return EnsembleProblem(prob, prob_func = prob_func, safetycopy = false)
@@ -127,17 +127,17 @@ const TRAJ_TORCH = [8, 32, 128, 512, 2048, 8192, 32768, 131072, 524288]
 
 ## Correctness
 
-One kernel trajectory against a CPU `Tsit5` reference at the same `Float32`
-problem.
+Two kernel trajectories against CPU `Tsit5` references at the same `Float32`
+problems.
 
 ```julia
 let
-    ens = make_ensemble(1)
-    sol_gpu = solve(ens, GPUTsit5(), KERNEL; trajectories = 1,
+    ens = make_ensemble(2)
+    sol_gpu = solve(ens, GPUTsit5(), KERNEL; trajectories = 2,
         save_everystep = false, adaptive = false, dt = 0.001f0)
-    sol_cpu = solve(ens, Tsit5(), EnsembleSerial(); trajectories = 1,
+    sol_cpu = solve(ens, Tsit5(), EnsembleSerial(); trajectories = 2,
         save_everystep = false, adaptive = false, dt = 0.001f0)
-    err = maximum(abs.(sol_gpu[1].u[end] .- sol_cpu[1].u[end]))
+    err = maximum(i -> maximum(abs.(sol_gpu[i].u[end] .- sol_cpu[i].u[end])), 1:2)
     println("kernel vs CPU |Δu|∞ at t=1: ", err)
     @assert err < 1.0f-2
 end

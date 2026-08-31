@@ -33,6 +33,36 @@ end
     end
 end
 
+function benchmark_assignment(path, variable)
+    prefix = string(variable, " = ")
+    line = only(line for line in eachline(path) if startswith(strip(line), prefix))
+    return Meta.parse(strip(split(line, "="; limit = 2)[2]))
+end
+
+@testset "DiffEqGPU singleton parameter grids" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
+
+    crn_path = joinpath(benchmarks_dir, "crn_sde.jmd")
+    crn_source = read(crn_path, String)
+    @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
+    @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
+    for variable in ("S_grid", "D_grid")
+        crn_expression = benchmark_assignment(crn_path, variable)
+        crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
+        @test crn_grid(1, Float32) == Float32[0.1]
+        @test crn_grid(2, Float32) == Float32[0.1, 100]
+    end
+
+    lorenz_path = joinpath(benchmarks_dir, "lorenz_ensemble.jmd")
+    lorenz_source = read(lorenz_path, String)
+    @test occursin("make_ensemble(2)", lorenz_source)
+    @test !occursin("make_ensemble(1)", lorenz_source)
+    lorenz_expression = benchmark_assignment(lorenz_path, "plist")
+    lorenz_grid = Core.eval(@__MODULE__, :((n, T) -> $lorenz_expression))
+    @test collect(lorenz_grid(1, Float32)) == Float32[0]
+    @test collect(lorenz_grid(4, Float32)) == Float32[0, 7, 14, 21]
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
