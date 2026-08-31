@@ -65,6 +65,14 @@ end
     @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "StiffBVP dependency stack" begin
+    project = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffBVP", "Project.toml"), String
+    )
+    @test occursin("SciMLBenchmarks = \"0.2\"", project)
+    @test !occursin("SciMLBenchmarks = \"0.1\"", project)
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
