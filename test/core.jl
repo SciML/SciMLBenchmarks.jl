@@ -65,6 +65,27 @@ end
     @test collect(lorenz_grid(4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "Symbolics ThermalFluid compatibility" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "Symbolics", "ThermalFluid.jmd"), String
+    )
+    @test occursin(
+        "sts = @variables (T(t))[1:N] = fill(T0, N) " *
+            "(Q(t))[1:N] = fill(Q0, N) [connect = Flow]",
+        benchmark,
+    )
+    @test occursin("using SymbolicIndexingInterface: default_values", benchmark)
+    @test !occursin(r"using ModelingToolkit:.*default_values", benchmark)
+
+    old_jacobian = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "Symbolics", "old_sparse_jacobian.jl"
+        ), String
+    )
+    @test occursin("function old_contains(x, expr)", old_jacobian)
+    @test !occursin(r"(?<!old_)occursin\(", old_jacobian)
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
