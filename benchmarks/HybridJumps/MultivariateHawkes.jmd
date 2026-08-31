@@ -366,31 +366,14 @@ end
 push!(algorithms, (PDMPCHVFull(), CHV(Tsit5()), true, "PDMPCHVFull"));
 ```
 
-The Python `Tick` library can be accessed with the `PyCall.jl`. We install the required Python dependencies with `Conda.jl` and define a factory for the Multivariate Hawkes `PyTick` problem.
+The Python `Tick` library is installed by the folder setup hook and accessed with `PyCall.jl`. We define a factory for the Multivariate Hawkes `PyTick` problem.
 
 ```julia
 const BENCHMARK_PYTHON::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_PYTHON", "true"))
-const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYCALL", "true"))
 
 struct PyTick end
 
 if BENCHMARK_PYTHON
-    if REBUILD_PYCALL
-        using Pkg, Conda
-
-        # PyCall only works with Conda.ROOTENV
-        # tick requires python=3.8
-        Conda.add("python=3.8", Conda.ROOTENV)
-        Conda.add("numpy", Conda.ROOTENV)
-        Conda.pip_interop(true, Conda.ROOTENV)
-        Conda.pip("install", "tick", Conda.ROOTENV)
-
-        # rebuild PyCall to ensure it links to the python provided by Conda.jl
-        ENV["PYTHON"] = ""
-        Pkg.build("PyCall")
-    end
-
-    ENV["PYTHON"] = ""
     using PyCall
     @info "PyCall" PyCall.libpython PyCall.pyversion PyCall.conda
 
