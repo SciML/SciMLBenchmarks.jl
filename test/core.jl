@@ -80,6 +80,19 @@ end
     end
 end
 
+@testset "DiffEqGPU PyTorch V100 runtime" begin
+    dependencies = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU", "CondaPkg.toml"), String
+    )
+    @test occursin("python = \"3.12.*\"", dependencies)
+    @test occursin(
+        "torch = \"@ https://download-r2.pytorch.org/whl/cu126/" *
+            "torch-2.13.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl" *
+            "#sha256=8695f3c6b7966d44560275b90c5c28e5091ba33ddbb1ab33b2173782ca1e9145\"",
+        dependencies,
+    )
+end
+
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
