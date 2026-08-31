@@ -117,11 +117,26 @@ end
     @test occursin(
         "ENV[\"XLA_REACTANT_GPU_MEM_FRACTION\"] = \"0.25\"\n" *
             "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
-            "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"\n\n" *
-            "using BenchmarkTools, Random, Statistics\n" *
-            "using CUDA, LuxCUDA\nusing Lux, Reactant, MLDataDevices",
+            "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"",
         benchmark
     )
+    worker_call = findfirst("python_output = read(", benchmark)
+    cuda_import = findfirst("using CUDA, LuxCUDA", benchmark)
+    @test !isnothing(worker_call)
+    @test !isnothing(cuda_import)
+    if !isnothing(worker_call) && !isnothing(cuda_import)
+        @test first(worker_call) < first(cuda_import)
+    end
+    @test occursin("delete!(python_env, \"LD_LIBRARY_PATH\")", benchmark)
+    @test occursin("PythonCall.python_executable_path()", benchmark)
+    @test !occursin("pyimport(", benchmark)
+    @test !occursin("nn_utils.", benchmark)
+
+    python_helper = read(joinpath(folder, "nn_benchmark_utils.py"), String)
+    @test occursin("if __name__ == \"__main__\":", python_helper)
+    @test occursin("TIMING\\t{framework}\\t{model}\\t{operation}", python_helper)
+    @test occursin("require_jax_gpu()", python_helper)
+    @test occursin("require_torch_cuda()", python_helper)
     reactant_steps = (
         ("reactant_step", "ts"),
         ("reactant_gelu_step", "ts_gelu"),

@@ -12,7 +12,7 @@ network workloads. We compare:
 3. [SimpleChains.jl](https://github.com/PumasAI/SimpleChains.jl) (via Lux.jl wrapper, CPU-optimized small networks)
 4. [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl) (XLA-compiled Lux models)
 
-**Python Frameworks (via PythonCall):**
+**Python Frameworks (isolated subprocess):**
 5. [JAX](https://github.com/google/jax)
 6. [PyTorch](https://github.com/pytorch/pytorch)
 
@@ -31,13 +31,37 @@ ENV["XLA_REACTANT_GPU_MEM_FRACTION"] = "0.25"
 ENV["XLA_REACTANT_GPU_PREALLOCATE"] = "false"
 ENV["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
+using PythonCall
+
+python_env = copy(ENV)
+delete!(python_env, "LD_LIBRARY_PATH")
+python_script = joinpath(@__DIR__, "nn_benchmark_utils.py")
+python_output = read(
+    setenv(`$(PythonCall.python_executable_path()) $python_script`, python_env), String)
+
+const python_timings = Dict{Tuple{String, String, String, Int}, Float64}()
+const python_metadata = Dict{String, String}()
+for line in eachline(IOBuffer(python_output))
+    fields = split(line, '\t')
+    if length(fields) == 6 && fields[1] == "TIMING"
+        key = (String(fields[2]), String(fields[3]), String(fields[4]), parse(Int, fields[5]))
+        python_timings[key] = parse(Float64, fields[6])
+    elseif length(fields) == 3 && fields[1] == "METADATA"
+        python_metadata[String(fields[2])] = String(fields[3])
+    else
+        error("Unexpected Python benchmark output: $line")
+    end
+end
+
+python_time(framework, model, operation, batch_size) =
+    python_timings[(framework, model, operation, batch_size)]
+
 using BenchmarkTools, Random, Statistics
 using CUDA, LuxCUDA
 using Lux, Reactant, MLDataDevices
 import Flux, SimpleChains
 using Optimisers, Zygote, Enzyme
 using CairoMakie
-using PythonCall, CondaPkg
 
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
@@ -55,27 +79,14 @@ const rng = Random.default_rng()
 Random.seed!(rng, 12345)
 ```
 
-## Python Setup
+## Python Benchmarks
 
-We load all Python models and timing utilities from a companion module.
+JAX and PyTorch run in a child process so their CUDA and cuDNN libraries do not
+collide with the Julia GPU libraries. Only the measured timings return to Julia.
 
 ```julia
-# Add benchmark directory to Python path so we can import our utilities
-sys = pyimport("sys")
-sys.path.insert(0, @__DIR__)
-
-nn_utils = pyimport("nn_benchmark_utils")
-np = pyimport("numpy")
-jax = pyimport("jax")
-jnp = pyimport("jax.numpy")
-torch = pyimport("torch")
-jax_random = pyimport("jax.random")
-
-jax_devs = jax.devices("gpu")
-@assert pyconvert(Int, pyimport("builtins").len(jax_devs)) > 0 "JAX did not see a GPU"
-println("JAX devices: ", jax.devices())
-@assert pyconvert(Bool, torch.cuda.is_available()) "PyTorch did not see a CUDA GPU"
-println("PyTorch CUDA: ", torch.cuda.get_device_name(0))
+println("JAX device: ", python_metadata["JAX device"])
+println("PyTorch device: ", python_metadata["PyTorch device"])
 ```
 
 ## Julia Helper Functions
@@ -87,16 +98,6 @@ function append_timing!(results, key, time_s)
     else
         results[key] = (; timings=[time_s])
     end
-end
-
-function to_row_major(x::AbstractMatrix)
-    # Julia is column-major (features x batch), Python expects row-major (batch x features)
-    np.array(Array(x'))
-end
-
-function to_nchw(x::AbstractArray{T, 4}) where T
-    # Julia WHCN -> Python NCHW (host numpy; caller puts it on the GPU)
-    np.array(permutedims(Array(x), (4, 3, 1, 2)))
 end
 ```
 
@@ -159,10 +160,6 @@ ps_lux_gpu, st_lux_gpu = ps_lux |> gpud, st_lux |> gpud
 flux_mlp_relu = Flux.Chain(
     Flux.Dense(32, 256, relu), [Flux.Dense(256, 256, relu) for _ in 1:5]..., Flux.Dense(256, 10)) |> gpud
 
-# Python models (GPU)
-jax_mlp_relu_params = nn_utils.to_jax_gpu_tree(nn_utils.create_jax_mlp_params(jax_random.PRNGKey(0)))
-torch_mlp_relu = nn_utils.cuda_model(nn_utils.TorchMLP("relu"))
-
 batch_sizes = [2, 8, 32, 128, 512, 2048]
 ```
 
@@ -201,15 +198,9 @@ for bs in batch_sizes
     t = @benchmark $compiled_fn($x_ra, $ps_ra, $st_ra)
     append_timing!(results, "Reactant", median(t).time / 1e9)
 
-    # JAX (timed in Python)
-    x_py = nn_utils.to_jax_gpu(to_row_major(x_host))
-    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_mlp_relu_forward, jax_mlp_relu_params, x_py))
-    append_timing!(results, "JAX", jax_time)
-
-    # PyTorch (timed in Python)
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_relu, x_torch))
-    append_timing!(results, "PyTorch", torch_time)
+    append_timing!(results, "JAX", python_time("JAX", "mlp_relu", "inference", bs))
+    append_timing!(results, "PyTorch",
+        python_time("PyTorch", "mlp_relu", "inference", bs))
 
     @info "Batch $bs done"
 end
@@ -222,10 +213,6 @@ plot_results(results, batch_sizes, "Inference: 7 Layer MLP (relu)")
 ```julia
 train_batch_sizes = [32, 128, 512, 2048]
 train_results = Dict{String, NamedTuple}()
-
-# JAX train step
-jax_relu_train_step = nn_utils.make_jax_mlp_train_step(
-    nn_utils.jax_mlp_relu_forward, jax_mlp_relu_params)
 
 for bs in train_batch_sizes
     x_host = randn(Float32, 32, bs)
@@ -273,22 +260,9 @@ for bs in train_batch_sizes
     t = @benchmark $reactant_step($ts, $x_ra, $y_ra)
     append_timing!(train_results, "Reactant", median(t).time / 1e9)
 
-    # JAX
-    x_py = nn_utils.to_jax_gpu(to_row_major(x_host))
-    y_py = nn_utils.to_jax_gpu(to_row_major(y_host))
-    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
-        jax_relu_train_step, jax_mlp_relu_params, x_py, y_py))
-    append_timing!(train_results, "JAX", jax_time)
-
-    # PyTorch
-    torch_model = nn_utils.cuda_model(nn_utils.TorchMLP("relu"))
-    torch_opt = torch.optim.Adam(torch_model.parameters(); lr=1e-3)
-    torch_loss_fn = nn_utils.tnn.MSELoss()
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    y_torch = nn_utils.to_torch_gpu(to_row_major(y_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
-        torch_model, torch_opt, torch_loss_fn, x_torch, y_torch))
-    append_timing!(train_results, "PyTorch", torch_time)
+    append_timing!(train_results, "JAX", python_time("JAX", "mlp_relu", "training", bs))
+    append_timing!(train_results, "PyTorch",
+        python_time("PyTorch", "mlp_relu", "training", bs))
 
     @info "Training batch $bs done"
 end
@@ -308,9 +282,6 @@ ps_gelu_gpu, st_gelu_gpu = ps_gelu |> gpud, st_gelu |> gpud
 
 flux_mlp_gelu = Flux.Chain(
     Flux.Dense(32, 256, gelu), [Flux.Dense(256, 256, gelu) for _ in 1:5]..., Flux.Dense(256, 10)) |> gpud
-
-jax_mlp_gelu_params = nn_utils.to_jax_gpu_tree(nn_utils.create_jax_mlp_params(jax_random.PRNGKey(1)))
-torch_mlp_gelu = nn_utils.cuda_model(nn_utils.TorchMLP("gelu"))
 ```
 
 ## Inference
@@ -343,13 +314,9 @@ for bs in batch_sizes
     t = @benchmark $compiled_fn($x_ra, $ps_gelu_ra, $st_gelu_ra)
     append_timing!(gelu_results, "Reactant", median(t).time / 1e9)
 
-    x_py = nn_utils.to_jax_gpu(to_row_major(x_host))
-    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_mlp_gelu_forward, jax_mlp_gelu_params, x_py))
-    append_timing!(gelu_results, "JAX", jax_time)
-
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_gelu, x_torch))
-    append_timing!(gelu_results, "PyTorch", torch_time)
+    append_timing!(gelu_results, "JAX", python_time("JAX", "mlp_gelu", "inference", bs))
+    append_timing!(gelu_results, "PyTorch",
+        python_time("PyTorch", "mlp_gelu", "inference", bs))
 
     @info "Batch $bs done"
 end
@@ -361,8 +328,6 @@ plot_results(gelu_results, batch_sizes, "Inference: 7 Layer MLP (gelu)")
 
 ```julia
 gelu_train_results = Dict{String, NamedTuple}()
-jax_gelu_train_step = nn_utils.make_jax_mlp_train_step(
-    nn_utils.jax_mlp_gelu_forward, jax_mlp_gelu_params)
 
 for bs in train_batch_sizes
     x_host = randn(Float32, 32, bs)
@@ -407,20 +372,9 @@ for bs in train_batch_sizes
     t = @benchmark $reactant_gelu_step($ts_gelu, $x_ra, $y_ra)
     append_timing!(gelu_train_results, "Reactant", median(t).time / 1e9)
 
-    x_py = nn_utils.to_jax_gpu(to_row_major(x_host))
-    y_py = nn_utils.to_jax_gpu(to_row_major(y_host))
-    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
-        jax_gelu_train_step, jax_mlp_gelu_params, x_py, y_py))
-    append_timing!(gelu_train_results, "JAX", jax_time)
-
-    torch_model = nn_utils.cuda_model(nn_utils.TorchMLP("gelu"))
-    torch_opt = torch.optim.Adam(torch_model.parameters(); lr=1e-3)
-    torch_loss_fn = nn_utils.tnn.MSELoss()
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    y_torch = nn_utils.to_torch_gpu(to_row_major(y_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
-        torch_model, torch_opt, torch_loss_fn, x_torch, y_torch))
-    append_timing!(gelu_train_results, "PyTorch", torch_time)
+    append_timing!(gelu_train_results, "JAX", python_time("JAX", "mlp_gelu", "training", bs))
+    append_timing!(gelu_train_results, "PyTorch",
+        python_time("PyTorch", "mlp_gelu", "training", bs))
 
     @info "Training batch $bs done"
 end
@@ -444,8 +398,6 @@ flux_mlp_bn = Flux.Chain(
     Flux.Dense(32, 256), Flux.BatchNorm(256, relu),
     [Flux.Chain(Flux.Dense(256, 256), Flux.BatchNorm(256, relu)) for _ in 1:5]...,
     Flux.Dense(256, 10)) |> gpud
-
-torch_mlp_bn = nn_utils.cuda_model(nn_utils.TorchMLPBN())
 ```
 
 ## Inference
@@ -474,10 +426,9 @@ for bs in bn_batch_sizes
     t = @benchmark $compiled_fn($x_ra, $ps_bn_ra, $st_bn_ra)
     append_timing!(bn_results, "Reactant", median(t).time / 1e9)
 
-    # PyTorch (JAX lacks a simple functional BatchNorm)
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_mlp_bn, x_torch))
-    append_timing!(bn_results, "PyTorch", torch_time)
+    # JAX lacks a simple functional BatchNorm.
+    append_timing!(bn_results, "PyTorch",
+        python_time("PyTorch", "mlp_batchnorm", "inference", bs))
 
     @info "Batch $bs done"
 end
@@ -533,15 +484,8 @@ for bs in train_batch_sizes
     t = @benchmark $reactant_bn_step($ts_bn, $x_ra, $y_ra)
     append_timing!(bn_train_results, "Reactant", median(t).time / 1e9)
 
-    # PyTorch
-    torch_bn_model = nn_utils.cuda_model(nn_utils.TorchMLPBN())
-    torch_opt = torch.optim.Adam(torch_bn_model.parameters(); lr=1e-3)
-    torch_loss_fn = nn_utils.tnn.MSELoss()
-    x_torch = nn_utils.to_torch_gpu(to_row_major(x_host))
-    y_torch = nn_utils.to_torch_gpu(to_row_major(y_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
-        torch_bn_model, torch_opt, torch_loss_fn, x_torch, y_torch))
-    append_timing!(bn_train_results, "PyTorch", torch_time)
+    append_timing!(bn_train_results, "PyTorch",
+        python_time("PyTorch", "mlp_batchnorm", "training", bs))
 
     @info "Training batch $bs done"
 end
@@ -565,9 +509,6 @@ flux_lenet = Flux.Chain(
     Flux.Conv((5, 5), 1 => 6, relu), Flux.MaxPool((2, 2)),
     Flux.Conv((5, 5), 6 => 16, relu), Flux.MaxPool((2, 2)),
     Flux.flatten, Flux.Dense(256, 120, relu), Flux.Dense(120, 84, relu), Flux.Dense(84, 10)) |> gpud
-
-torch_lenet = nn_utils.cuda_model(nn_utils.TorchLeNet())
-jax_lenet_params = nn_utils.to_jax_gpu_tree(nn_utils.create_jax_lenet_params(jax_random.PRNGKey(2)))
 
 lenet_batch_sizes = [2, 8, 32, 128]
 ```
@@ -597,15 +538,9 @@ for bs in lenet_batch_sizes
     t = @benchmark $compiled_fn($x_ra, $ps_lenet_ra, $st_lenet_ra)
     append_timing!(lenet_results, "Reactant", median(t).time / 1e9)
 
-    # JAX/PyTorch use NCHW
-    x_py = to_nchw(x_host)
-    x_jnp = nn_utils.to_jax_gpu(x_py)
-    jax_time = pyconvert(Float64, nn_utils.time_jax_inference(nn_utils.jax_lenet_forward, jax_lenet_params, x_jnp))
-    append_timing!(lenet_results, "JAX", jax_time)
-
-    x_torch = nn_utils.to_torch_gpu(x_py)
-    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_lenet, x_torch))
-    append_timing!(lenet_results, "PyTorch", torch_time)
+    append_timing!(lenet_results, "JAX", python_time("JAX", "lenet", "inference", bs))
+    append_timing!(lenet_results, "PyTorch",
+        python_time("PyTorch", "lenet", "inference", bs))
 
     @info "Batch $bs done"
 end
@@ -618,7 +553,6 @@ plot_results(lenet_results, lenet_batch_sizes, "Inference: LeNet 5")
 ```julia
 lenet_train_results = Dict{String, NamedTuple}()
 lenet_train_batch_sizes = [32, 128]
-jax_lenet_train_step = nn_utils.make_jax_lenet_train_step(jax_lenet_params)
 
 for bs in lenet_train_batch_sizes
     x_host = randn(Float32, 28, 28, 1, bs)
@@ -663,21 +597,9 @@ for bs in lenet_train_batch_sizes
     t = @benchmark $reactant_lenet_step($ts_lenet, $x_ra, $y_ra)
     append_timing!(lenet_train_results, "Reactant", median(t).time / 1e9)
 
-    x_py = to_nchw(x_host)
-    x_jnp = nn_utils.to_jax_gpu(x_py)
-    y_py = nn_utils.to_jax_gpu(to_row_major(y_host))
-    jax_time = pyconvert(Float64, nn_utils.time_jax_train_step(
-        jax_lenet_train_step, jax_lenet_params, x_jnp, y_py))
-    append_timing!(lenet_train_results, "JAX", jax_time)
-
-    torch_lenet_model = nn_utils.cuda_model(nn_utils.TorchLeNet())
-    torch_opt = torch.optim.Adam(torch_lenet_model.parameters(); lr=1e-3)
-    torch_loss_fn = nn_utils.tnn.MSELoss()
-    x_torch = nn_utils.to_torch_gpu(x_py)
-    y_torch = nn_utils.to_torch_gpu(to_row_major(y_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
-        torch_lenet_model, torch_opt, torch_loss_fn, x_torch, y_torch))
-    append_timing!(lenet_train_results, "PyTorch", torch_time)
+    append_timing!(lenet_train_results, "JAX", python_time("JAX", "lenet", "training", bs))
+    append_timing!(lenet_train_results, "PyTorch",
+        python_time("PyTorch", "lenet", "training", bs))
 
     @info "Training batch $bs done"
 end
@@ -708,8 +630,6 @@ lux_resnet = Chain(
 ps_resnet, st_resnet = Lux.setup(rng, lux_resnet)
 ps_resnet_gpu, st_resnet_gpu = ps_resnet |> gpud, st_resnet |> gpud
 
-torch_resnet = nn_utils.cuda_model(nn_utils.TorchSmallResNet())
-
 resnet_batch_sizes = [2, 8, 32]
 ```
 
@@ -734,10 +654,8 @@ for bs in resnet_batch_sizes
     t = @benchmark $compiled_fn($x_ra, $ps_resnet_ra, $st_resnet_ra)
     append_timing!(resnet_results, "Reactant", median(t).time / 1e9)
 
-    x_py = to_nchw(x_host)
-    x_torch = nn_utils.to_torch_gpu(x_py)
-    torch_time = pyconvert(Float64, nn_utils.time_torch_inference(torch_resnet, x_torch))
-    append_timing!(resnet_results, "PyTorch", torch_time)
+    append_timing!(resnet_results, "PyTorch",
+        python_time("PyTorch", "resnet", "inference", bs))
 
     @info "Batch $bs done"
 end
@@ -783,15 +701,8 @@ for bs in resnet_train_batch_sizes
     t = @benchmark $reactant_resnet_step($ts_resnet, $x_ra, $y_ra)
     append_timing!(resnet_train_results, "Reactant", median(t).time / 1e9)
 
-    torch_rn = nn_utils.cuda_model(nn_utils.TorchSmallResNet())
-    torch_opt = torch.optim.Adam(torch_rn.parameters(); lr=1e-3)
-    torch_loss_fn = nn_utils.tnn.MSELoss()
-    x_py = to_nchw(x_host)
-    x_torch = nn_utils.to_torch_gpu(x_py)
-    y_torch = nn_utils.to_torch_gpu(to_row_major(y_host))
-    torch_time = pyconvert(Float64, nn_utils.time_torch_train_step(
-        torch_rn, torch_opt, torch_loss_fn, x_torch, y_torch))
-    append_timing!(resnet_train_results, "PyTorch", torch_time)
+    append_timing!(resnet_train_results, "PyTorch",
+        python_time("PyTorch", "resnet", "training", bs))
 
     @info "Training batch $bs done"
 end
@@ -807,9 +718,8 @@ InteractiveUtils.versioninfo()
 
 println()
 println("Python versions:")
-println("  JAX: ", pyconvert(String, jax.__version__))
-println("  PyTorch: ", pyconvert(String, torch.__version__))
-println("  PyTorch CUDA: ", torch.cuda.is_available(), " ",
-    torch.cuda.is_available() && torch.cuda.get_device_name(0))
-println("  JAX devices: ", jax.devices())
+println("  JAX: ", python_metadata["JAX version"])
+println("  PyTorch: ", python_metadata["PyTorch version"])
+println("  PyTorch device: ", python_metadata["PyTorch device"])
+println("  JAX device: ", python_metadata["JAX device"])
 ```
