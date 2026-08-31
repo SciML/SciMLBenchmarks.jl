@@ -86,6 +86,7 @@ end
     folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
     preferences_path = joinpath(folder, "LocalPreferences.toml")
     project = read(joinpath(folder, "Project.toml"), String)
+    manifest = read(joinpath(folder, "Manifest.toml"), String)
     python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
     benchmark = read(joinpath(folder, "simple_networks.jmd"), String)
 
@@ -104,6 +105,13 @@ end
     )
     @test occursin(
         "Reactant_jll = \"0192cb87-2b54-54ad-80e0-3be72ad8a3c0\"", project
+    )
+    @test occursin("CUDNN_jll = \"62b44479-cb7b-5706-934f-f13b2eb2e645\"", project)
+    @test occursin("CUDNN_jll = \"=9.10.0\"", project)
+    @test occursin("CUDA = \"5\"", project)
+    @test occursin("cuDNN = \"=1.4.4\"", project)
+    @test occursin(
+        r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
