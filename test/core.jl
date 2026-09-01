@@ -69,7 +69,7 @@ end
     benchmark = read(
         joinpath(dirname(@__DIR__), "benchmarks", "DAE", "two_bit_adder.jmd"), String
     )
-    thread_setting = findfirst("ENV[\"MKL_NUM_THREADS\"] = \"1\"", benchmark)
+    thread_setting = findfirst("ENV[\"MKL_NUM_THREADS\"] = \"8\"", benchmark)
     imports = findfirst("using OrdinaryDiffEq", benchmark)
     @test !isnothing(thread_setting)
     @test !isnothing(imports)
