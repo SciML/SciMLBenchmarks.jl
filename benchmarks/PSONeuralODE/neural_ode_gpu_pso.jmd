@@ -1,0 +1,342 @@
+---
+title: Neural ODE Parameter Estimation with GPU-PSO
+author: Aditya Pandey
+---
+
+A 12-parameter SimpleChains network is fit to spiral ODE data (30 points on (0, 1.5)) so
+that the neural ODE `du/dt = NN(u, θ)` reproduces the data. This reproduces the neural ODE
+experiment (Section 3.2, Table 1) of the ParallelParticleSwarms.jl workshop paper — the
+script it builds on was upstreamed in
+[ParallelParticleSwarms.jl#76](https://github.com/SciML/ParallelParticleSwarms.jl/pull/76) —
+and extends it with global-optimizer baselines and the library's other PSO variants.
+
+Eight optimizers, three groups:
+
+- **Gradient-based** (the paper's baselines): `Adam` and `LBFGS`, trained through the ODE
+  solve with `QuadratureAdjoint`.
+- **Gradient-free global baselines**: `BBO_adaptive_de_rand_1_bin`,
+  `ScipyDifferentialEvolution`, `ScipyDualAnnealing`.
+- **PSO family**: `SerialPSO` on the CPU; GPU-PSO through `parameter_estim_ode!` (the
+  paper's method: all particles' ODEs solved as one GPU ensemble); `SyncPSOKernel` and
+  `HybridPSO-LBFGS` through `solve` on a fixed-step RK4 loss that runs inside the GPU
+  kernels. The last two share loss and swarm, so their difference isolates the L-BFGS
+  polish.
+
+Everyone gets `maxiters = 100` from the same start inside the same ±10 box, and the table
+reports four numbers per optimizer:
+
+- **Common loss** — the final parameters re-evaluated under one reference loss (adaptive
+  `Tsit5`). This is the comparable column.
+- **Own objective** — what the optimizer itself minimized. The GPU paths use different
+  integrators (adaptive GPUTsit5 in the ensemble, fixed-step RK4 in the kernels), and a
+  swarm will happily exploit integrator error: with a coarse solver it finds parameters
+  that score well under that solver and poorly under the reference. The two columns
+  agreeing is therefore part of the result, and the integrator settings below are chosen
+  to make them agree.
+- **Evaluations** — ODE solves performed.
+- **Median wall-clock time** over BenchmarkTools samples, each from a fresh start.
+
+The network is deliberately small: evaluating it gains nothing from a GPU, so parallelism
+over candidate parameters is the only way to use one.
+
+## Setup
+
+```julia
+using Random; Random.seed!(0)
+using SimpleChains, StaticArrays, OrdinaryDiffEq, SciMLSensitivity
+using Optimization, OptimizationOptimisers, OptimizationOptimJL, OptimizationBBO
+using OptimizationSciPy, Optimisers
+using ParallelParticleSwarms, DiffEqGPU, CUDA, KernelAbstractions, Adapt
+using BenchmarkTools, Statistics, Printf, CairoMakie
+CairoMakie.activate!()
+
+const SciMLBase = Optimization.SciMLBase
+const BACKEND   = CUDABackend()
+CUDA.allowscalar(false)
+println("GPU: ", CUDA.name(CUDA.device()))
+
+const NPARAMS   = 12
+const DATASIZE  = 30
+const MAXITERS  = 100
+const NPART_GPU = 10_000        # GPU swarms
+const NPART_CPU = 512           # SerialPSO
+const BOX       = 10.0f0
+const SAMPLES   = 5             # BenchmarkTools samples per optimizer
+BenchmarkTools.DEFAULT_PARAMETERS.samples = SAMPLES
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 600
+```
+
+## Problem
+
+Data from the true spiral ODE, the network, and the reference loss.
+
+```julia
+const U0    = @SVector Float32[2.0, 0.0]
+const TSPAN = (0.0f0, 1.5f0)
+tsteps = range(TSPAN[1], TSPAN[2], length = DATASIZE)
+
+trueODE(u, p, t) = (((u .^ 3)' * @SMatrix Float32[-0.1 2.0; -2.0 -0.1])')
+data = Array(solve(ODEProblem(trueODE, U0, TSPAN), Tsit5(), saveat = tsteps))
+
+sc = SimpleChain(static(2), Activation(x -> x .^ 3),
+    TurboDense{true}(tanh, static(2)), TurboDense{true}(identity, static(2)))
+p_nn     = Vector{Float32}(SimpleChains.init_params(sc; rng = Random.default_rng()))
+p_static = SVector{NPARAMS, Float32}(p_nn...)
+
+# The network forward, written out in SimpleChains' parameter order (W1 column-major,
+# b1, W2, b2). Used on every GPU path: SimpleChains compiles with CPU intrinsics under
+# `-C native`, which cannot be lowered to PTX.
+function mlp(u, θ)
+    v  = u .^ 3
+    h1 = tanh(θ[1] * v[1] + θ[3] * v[2] + θ[5])
+    h2 = tanh(θ[2] * v[1] + θ[4] * v[2] + θ[6])
+    typeof(v)(θ[7] * h1 + θ[9] * h2 + θ[11], θ[8] * h1 + θ[10] * h2 + θ[12])
+end
+for _ in 1:8                                      # layout check at random states
+    u = @SVector rand(Float32, 2)
+    @assert sc(u, p_static) ≈ mlp(u, p_static)
+end
+
+# Reference loss: adaptive Tsit5. `du` keeps the type of `u` so Float64 parameter
+# vectors from BBO/SciPy do not promote the state.
+nn_ode(u, p, t) = convert(typeof(u), sc(u, p))
+sprob_nn = ODEProblem(nn_ode, U0, TSPAN)
+predict(p) = Array(solve(sprob_nn, Tsit5(); p, saveat = tsteps,
+    sensealg = QuadratureAdjoint(autojacvec = ZygoteVJP())))
+loss_tsit5(p) = sum(abs2, data .- predict(p))
+
+asvec(u) = u isa AbstractVector ? u : u[]
+tostatic(u) = SVector{NPARAMS, Float32}(Float32.(asvec(u))...)
+common(u) = loss_tsit5(tostatic(u))
+
+lb_s = @SVector fill(-BOX, NPARAMS)
+ub_s = @SVector fill(BOX, NPARAMS)
+nothing
+```
+
+## Optimizers
+
+### Gradient-based
+
+```julia
+optf     = OptimizationFunction((x, p) -> loss_tsit5(x), Optimization.AutoZygote())
+optprob  = OptimizationProblem(optf, p_nn)
+moptprob = OptimizationProblem(optf, MArray{Tuple{NPARAMS}}(p_nn...))
+
+run_adam()  = solve(optprob, Adam(0.05); maxiters = MAXITERS)
+run_lbfgs() = solve(moptprob, LBFGS(); maxiters = MAXITERS)
+```
+
+### Gradient-free global baselines and SerialPSO
+
+Same loss, no AD, with an evaluation counter. BlackBoxOptim requires a `Float64` fitness,
+so the CPU global methods get a Float64 problem; SerialPSO keeps the Float32 static one.
+
+```julia
+const NEVALS = Ref(0)
+reset_evals() = (NEVALS[] = 0)
+
+counted_loss64(x, p) = (NEVALS[] += 1; Float64(loss_tsit5(x)))
+cpu_optf = OptimizationFunction(counted_loss64, SciMLBase.NoAD())
+cpu_prob = OptimizationProblem(cpu_optf, Float64.(p_nn);
+    lb = fill(-Float64(BOX), NPARAMS), ub = fill(Float64(BOX), NPARAMS))
+
+counted_loss(x, p) = (NEVALS[] += 1; loss_tsit5(x))
+s_optf = OptimizationFunction{false}(counted_loss, SciMLBase.NoAD())
+s_prob = OptimizationProblem{false}(s_optf, p_static, nothing; lb = lb_s, ub = ub_s)
+
+run_bbo()    = solve(cpu_prob, BBO_adaptive_de_rand_1_bin(); maxiters = MAXITERS)
+run_de()     = solve(cpu_prob, ScipyDifferentialEvolution(); maxiters = MAXITERS)
+run_da()     = solve(cpu_prob, ScipyDualAnnealing(); maxiters = MAXITERS)
+run_serial() = solve(s_prob, ParallelParticleSwarms.SerialPSO(NPART_CPU); maxiters = MAXITERS)
+```
+
+### GPU-PSO through `parameter_estim_ode!` (the paper's method)
+
+Each iteration solves all 10,000 particles' ODEs as one GPU ensemble (adaptive `GPUTsit5`;
+`dt` is the initial step) and reduces the loss on device. Tolerances are tightened from
+DiffEqGPU's defaults so the ensemble solve agrees with the reference loss.
+
+```julia
+nn_fn(u, p, t) = mlp(u, p)
+prob_nn = ODEProblem{false}(nn_fn, U0, TSPAN, p_static)
+
+# The Inf objective is a placeholder: it only supplies the box and parameter type
+# to init_particles. The real loss is computed by the ensemble solve.
+soptprob = OptimizationProblem((u, p) -> eltype(u)(Inf), p_static, nothing; lb = lb_s, ub = ub_s)
+
+gpu_data = adapt(BACKEND, [SVector{2, Float32}(@view data[:, i]) for i in 1:DATASIZE])
+improb   = DiffEqGPU.make_prob_compatible(prob_nn)
+prob_func(prob, particle) = remake(prob, p = particle.position)
+
+# Reseeded, so every timed run starts from the same swarm as the reported solution.
+function make_cache()
+    Random.seed!(0)
+    gbest, particles = ParallelParticleSwarms.init_particles(
+        soptprob, ParallelParticleSwarms.ParallelPSOKernel(NPART_GPU), typeof(p_static))
+    (; losses = adapt(BACKEND, ones(Float32, NPART_GPU)),
+       gpu_particles = adapt(BACKEND, particles),
+       gpu_data, gbest,
+       probs = adapt(BACKEND, fill(improb, NPART_GPU)))
+end
+
+run_gpupso(cache) = ParallelParticleSwarms.parameter_estim_ode!(
+    prob_nn, cache, lb_s, ub_s, Val(true);
+    saveat = tsteps, dt = 0.01f0, abstol = 1.0f-7, reltol = 1.0f-6,
+    maxiters = MAXITERS, prob_func)
+```
+
+### `SyncPSOKernel` and `HybridPSO-LBFGS` on a kernel-compatible loss
+
+These evaluate the objective inside GPU kernels — `HybridPSO` also differentiates it there
+with ForwardDiff for the per-particle L-BFGS phase — so the ODE solve moves into the loss:
+fixed-step RK4 with `NSUB` substeps per data interval, all `SVector`. The substeps keep the
+RK4 loss faithful to the reference; the printed check below verifies it.
+
+```julia
+@inline function rk4(u, θ, h)
+    k1 = mlp(u, θ);                k2 = mlp(u .+ h / 2 .* k1, θ)
+    k3 = mlp(u .+ h / 2 .* k2, θ); k4 = mlp(u .+ h .* k3, θ)
+    u .+ h / 6 .* (k1 .+ 2 .* k2 .+ 2 .* k3 .+ k4)
+end
+
+const NSUB = 8                                    # RK4 substeps per data interval
+
+# Constants live in the loss object and the problem's `p` is `nothing`: the in-kernel
+# L-BFGS builds an OptimizationProblem per particle, and SciMLBase's parameter-type
+# check on a Tuple/NamedTuple `p` does not compile to GPU.
+struct RK4Loss{U, D, T}
+    u0::U
+    data::D
+    h::T
+end
+function (l::RK4Loss)(θ, p)
+    u = SVector{2, eltype(θ)}(l.u0)
+    loss = sum(abs2, u .- l.data[1])
+    for i in 2:DATASIZE
+        for _ in 1:NSUB
+            u = rk4(u, θ, l.h)
+        end
+        loss += sum(abs2, u .- l.data[i])
+    end
+    loss
+end
+
+loss_rk4 = RK4Loss(U0, ntuple(i -> SVector{2, Float32}(data[:, i]), DATASIZE),
+                   Float32(step(tsteps)) / NSUB)
+k_prob = OptimizationProblem{false}(OptimizationFunction{false}(loss_rk4, SciMLBase.NoAD()),
+    p_static, nothing; lb = lb_s, ub = ub_s)
+
+@printf "RK4 loss at p_static: %.4f   Tsit5 loss: %.4f\n" loss_rk4(p_static, nothing) common(p_static)
+
+sync_opt   = ParallelParticleSwarms.ParallelSyncPSOKernel(NPART_GPU; backend = BACKEND)
+hybrid_opt = ParallelParticleSwarms.HybridPSO(; backend = BACKEND, pso = sync_opt)
+
+run_sync()   = solve(k_prob, sync_opt; maxiters = MAXITERS)
+run_hybrid() = solve(k_prob, hybrid_opt; maxiters = MAXITERS, local_maxiters = 50,
+    abstol = 1.0f-8, reltol = 1.0f-8)
+```
+
+## Runs
+
+One untimed run per optimizer gives the reported solution and absorbs compilation. Timing
+uses fresh starts: `solve` builds a new swarm each call (reseeded in `setup`), and
+`parameter_estim_ode!` mutates its cache, so the cache is rebuilt per sample.
+
+```julia
+results = Dict{String, Any}()
+
+function record!(name, run; evals, timed)
+    Random.seed!(0)
+    sol = run()
+    results[name] = (; u = asvec(sol.u), reported = Float64(first(sol.objective)),
+                       evals = evals(sol), time = median(timed()).time / 1e9)
+end
+
+record!("Adam", run_adam;
+    evals = _ -> MAXITERS,                                    # one adjoint solve per step
+    timed = () -> @benchmark run_adam())
+record!("L-BFGS", run_lbfgs;
+    evals = sol -> sol.original.f_calls,
+    timed = () -> @benchmark run_lbfgs())
+
+for (name, run) in (("BBO_adaptive_de_rand_1_bin", run_bbo),
+                    ("ScipyDifferentialEvolution", run_de),
+                    ("ScipyDualAnnealing", run_da),
+                    ("SerialPSO", run_serial))
+    reset_evals()
+    record!(name, run;
+        evals = _ -> NEVALS[],
+        timed = () -> @benchmark $run() setup = (Random.seed!(0)) evals = 1)
+end
+
+# GPU-PSO returns a gbest, not an OptimizationSolution.
+gsol = run_gpupso(make_cache())
+results["GPU-PSO"] = (; u = gsol.position, reported = Float64(gsol.cost),
+    evals = MAXITERS * NPART_GPU,
+    time = median(@benchmark run_gpupso(cache) setup = (cache = make_cache()) evals = 1).time / 1e9)
+
+record!("SyncPSOKernel", run_sync;
+    evals = _ -> MAXITERS * NPART_GPU,
+    timed = () -> @benchmark run_sync() setup = (Random.seed!(0)) evals = 1)
+record!("HybridPSO-LBFGS", run_hybrid;
+    evals = _ -> missing,                                     # GPU L-BFGS evals not counted
+    timed = () -> @benchmark run_hybrid() setup = (Random.seed!(0)) evals = 1)
+nothing
+```
+
+## Results
+
+Where `own objective` is far below `common loss`, the optimizer exploited its integrator
+rather than fitting the ODE.
+
+```julia
+const ORDER = ["Adam", "L-BFGS", "BBO_adaptive_de_rand_1_bin", "ScipyDifferentialEvolution",
+    "ScipyDualAnnealing", "SerialPSO", "GPU-PSO", "SyncPSOKernel", "HybridPSO-LBFGS"]
+
+println(rpad("optimizer", 28), lpad("common loss", 13), lpad("own objective", 15),
+        lpad("evaluations", 14), lpad("median time", 14))
+for name in ORDER
+    r = results[name]
+    ev = ismissing(r.evals) ? "n/a" : string(r.evals)
+    @printf "%-28s%13.4f%15.4f%14s%12.4f s\n" name common(r.u) r.reported ev r.time
+end
+```
+
+### Fitted trajectories
+
+```julia
+pred_of(u) = Array(solve(prob_nn, Tsit5(); p = tostatic(u), saveat = tsteps))
+
+fig = Figure(size = (1000, 480))
+ax  = Axis(fig[1, 1]; xlabel = "t", ylabel = "u₁(t)", title = "Fit after $MAXITERS iterations")
+scatter!(ax, tsteps, data[1, :]; label = "data", color = :black, markersize = 12)
+markers = [:circle, :rect, :utriangle, :diamond, :dtriangle, :pentagon, :star5, :cross, :xcross]
+for (i, name) in enumerate(ORDER)
+    scatterlines!(ax, tsteps, pred_of(results[name].u)[1, :]; label = name,
+        marker = markers[i], markersize = 8, linewidth = 1.5)
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
+```
+
+### Common loss vs. wall-clock time
+
+Lower-left is better.
+
+```julia
+fig = Figure(size = (800, 480))
+ax  = Axis(fig[1, 1]; xscale = log10, yscale = log10, xlabel = "Median time (s)",
+    ylabel = "Common loss (Tsit5)")
+for (i, name) in enumerate(ORDER)
+    r = results[name]
+    scatter!(ax, [r.time], [max(common(r.u), 1e-8)]; label = name, marker = markers[i], markersize = 14)
+end
+Legend(fig[1, 2], ax; framevisible = false)
+fig
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
