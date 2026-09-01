@@ -157,6 +157,13 @@ end
     for (step, state) in reactant_steps
         @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
     end
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_mlp_bn,\s*ps_bn_ra,\s*st_bn_train_ra", benchmark
+    )
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_resnet,\s*ps_resnet_ra,\s*st_resnet_train_ra",
+        benchmark,
+    )
     @test !occursin("REACTANT_TRAINING_COMPILE_OPTIONS", benchmark)
     @test !occursin("compile_options=", benchmark)
     @test count("sync=true", benchmark) == 5

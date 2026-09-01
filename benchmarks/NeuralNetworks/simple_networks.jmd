@@ -405,7 +405,7 @@ flux_mlp_bn = Flux.Chain(
 st_bn_test = Lux.testmode(st_bn_gpu)
 Flux.testmode!(flux_mlp_bn)
 ps_bn_ra = ps_bn |> xdev
-st_bn_ra = Lux.testmode(st_bn) |> xdev
+st_bn_test_ra = Lux.testmode(st_bn) |> xdev
 
 bn_batch_sizes = [2, 8, 32, 128, 512, 2048]
 bn_results = Dict{String, NamedTuple}()
@@ -421,8 +421,8 @@ for bs in bn_batch_sizes
     append_timing!(bn_results, "Flux", median(t).time / 1e9)
 
     x_ra = Reactant.ConcreteRArray(x_host)
-    compiled_fn = @compile lux_mlp_bn(x_ra, ps_bn_ra, st_bn_ra)
-    t = @benchmark $compiled_fn($x_ra, $ps_bn_ra, $st_bn_ra)
+    compiled_fn = @compile lux_mlp_bn(x_ra, ps_bn_ra, st_bn_test_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_bn_ra, $st_bn_test_ra)
     append_timing!(bn_results, "Reactant", median(t).time / 1e9)
 
     # JAX lacks a simple functional BatchNorm.
@@ -439,6 +439,7 @@ plot_results(bn_results, bn_batch_sizes, "Inference: 7 Layer MLP + BN (relu)")
 
 ```julia
 bn_train_results = Dict{String, NamedTuple}()
+st_bn_train_ra = st_bn |> xdev
 
 for bs in train_batch_sizes
     x_host = randn(Float32, 32, bs)
@@ -473,7 +474,7 @@ for bs in train_batch_sizes
 
     x_ra = Reactant.ConcreteRArray(x_host)
     y_ra = Reactant.ConcreteRArray(y_host)
-    ts_bn = Training.TrainState(lux_mlp_bn, ps_bn_ra, st_bn_ra, Adam(1.0f-3))
+    ts_bn = Training.TrainState(lux_mlp_bn, ps_bn_ra, st_bn_train_ra, Adam(1.0f-3))
     function reactant_bn_step(ts, x, y)
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
             sync=true)
@@ -637,7 +638,7 @@ resnet_batch_sizes = [2, 8, 32]
 ```julia
 st_resnet_test = Lux.testmode(st_resnet_gpu)
 ps_resnet_ra = ps_resnet |> xdev
-st_resnet_ra = Lux.testmode(st_resnet) |> xdev
+st_resnet_test_ra = Lux.testmode(st_resnet) |> xdev
 
 resnet_results = Dict{String, NamedTuple}()
 
@@ -649,8 +650,8 @@ for bs in resnet_batch_sizes
     append_timing!(resnet_results, "Lux", median(t).time / 1e9)
 
     x_ra = Reactant.ConcreteRArray(x_host)
-    compiled_fn = @compile lux_resnet(x_ra, ps_resnet_ra, st_resnet_ra)
-    t = @benchmark $compiled_fn($x_ra, $ps_resnet_ra, $st_resnet_ra)
+    compiled_fn = @compile lux_resnet(x_ra, ps_resnet_ra, st_resnet_test_ra)
+    t = @benchmark $compiled_fn($x_ra, $ps_resnet_ra, $st_resnet_test_ra)
     append_timing!(resnet_results, "Reactant", median(t).time / 1e9)
 
     append_timing!(resnet_results, "PyTorch",
@@ -666,6 +667,7 @@ plot_results(resnet_results, resnet_batch_sizes, "Inference: Small ResNet")
 
 ```julia
 resnet_train_results = Dict{String, NamedTuple}()
+st_resnet_train_ra = st_resnet |> xdev
 resnet_train_batch_sizes = [8, 32]
 
 for bs in resnet_train_batch_sizes
@@ -690,7 +692,9 @@ for bs in resnet_train_batch_sizes
 
     x_ra = Reactant.ConcreteRArray(x_host)
     y_ra = Reactant.ConcreteRArray(y_host)
-    ts_resnet = Training.TrainState(lux_resnet, ps_resnet_ra, st_resnet_ra, Adam(1.0f-3))
+    ts_resnet = Training.TrainState(
+        lux_resnet, ps_resnet_ra, st_resnet_train_ra, Adam(1.0f-3)
+    )
     function reactant_resnet_step(ts, x, y)
         _, loss, _, ts_new = Training.single_train_step!(AutoEnzyme(), MSELoss(), (x, y), ts;
             sync=true)
