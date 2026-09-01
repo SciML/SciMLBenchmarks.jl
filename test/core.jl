@@ -48,6 +48,19 @@ end
     @test !occursin("ps = crn_parameters(1)", crn_source)
     @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
     @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
+    crn_definition = match(r"(?ms)^function crn_parameters\b.*?^end$", crn_source)
+    @test !isnothing(crn_definition)
+    if !isnothing(crn_definition)
+        Core.eval(@__MODULE__, Meta.parse(crn_definition.match))
+        cpu_expression = benchmark_assignment(crn_path, "ens64")
+        cpu_parameters_expression = only(
+            argument for argument in cpu_expression.args if Meta.isexpr(argument, :call)
+        )
+        cpu_parameters = Core.eval(@__MODULE__, :((N) -> $cpu_parameters_expression))
+        parameters = Base.invokelatest(cpu_parameters, 1)
+        @test length(parameters) == 1680
+        @test all(parameter -> parameter isa NTuple{6, Float64}, parameters)
+    end
     for variable in ("S_grid", "D_grid")
         crn_expression = benchmark_assignment(crn_path, variable)
         crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
@@ -82,6 +95,19 @@ end
     end
 end
 
+@testset "DiffEqGPU PyTorch V100 runtime" begin
+    dependencies = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU", "CondaPkg.toml"), String
+    )
+    @test occursin("python = \"3.12.*\"", dependencies)
+    @test occursin(
+        "torch = \"@ https://download-r2.pytorch.org/whl/cu126/" *
+            "torch-2.13.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl" *
+            "#sha256=8695f3c6b7966d44560275b90c5c28e5091ba33ddbb1ab33b2173782ca1e9145\"",
+        dependencies,
+    )
+end
+
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
@@ -103,6 +129,15 @@ end
         @test occursin("run.pull_requests", cancellation)
         @test occursin("/force-cancel", cancellation)
     end
+end
+
+@testset "V100 CUDA runtime preferences" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
+    cuda_runtime = "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\""
+    preferences = read(joinpath(benchmarks_dir, "DiffEqGPU", "LocalPreferences.toml"), String)
+    project = read(joinpath(benchmarks_dir, "DiffEqGPU", "Project.toml"), String)
+    @test occursin("version = \"12.9\"", preferences)
+    @test occursin(cuda_runtime, project)
 end
 
 @testset "StiffODE work-precision names" begin
