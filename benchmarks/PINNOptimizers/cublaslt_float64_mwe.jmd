@@ -3,27 +3,39 @@ title: Lux Float64 Dense Layer cuBLASLt Reproducer
 author: Chris Rackauckas
 ---
 
-This standalone reproducer exercises the Lux layer operation used by the PINN optimizer
-benchmarks without importing NeuralPDE or another SciML package.
+This standalone reproducer exercises the Lux parameter layout and layer operations used
+by the PINN benchmarks without importing NeuralPDE or another SciML package.
 
 ```julia
-using CUDA, Lux
+using CUDA, ComponentArrays, Lux, LuxCUDA, Random
 
 @assert CUDA.functional() "This reproducer requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
 
-layer = Lux.Dense(2 => 18, tanh)
+cases = (
+    (name = "Allen-Cahn", input_dim = 5, width = 10, activation = Lux.σ),
+    (name = "Nernst-Planck", input_dim = 4, width = 16, activation = tanh),
+    (name = "PINN optimizer", input_dim = 2, width = 18, activation = tanh),
+)
 
-for T in (Float32, Float64), batch_size in (1, 16)
-    parameters = (
-        weight = CUDA.rand(T, 18, 2),
-        bias = CUDA.rand(T, 18),
+for case in cases, T in (Float32, Float64)
+    chain = Lux.Chain(
+        Lux.Dense(case.input_dim => case.width, case.activation),
+        Lux.Dense(case.width => case.width, case.activation),
+        Lux.Dense(case.width => 1),
     )
-    input = CUDA.rand(T, 2, batch_size)
+    parameters, state = Lux.setup(Random.default_rng(), chain)
+    parameters = parameters |> ComponentArray |> gpud .|> T
+    state = state |> gpud
 
-    @info "Running Lux Dense layer" T batch_size
-    output, _ = layer(input, parameters, NamedTuple())
-    CUDA.synchronize()
-    @assert size(output) == (18, batch_size)
+    for batch_size in (1, 16, 100)
+        input = CUDA.rand(T, case.input_dim, batch_size)
+
+        @info "Running Lux Chain" case.name T batch_size
+        output, _ = chain(input, parameters, state)
+        CUDA.synchronize()
+        @assert size(output) == (1, batch_size)
+    end
 end
 ```
