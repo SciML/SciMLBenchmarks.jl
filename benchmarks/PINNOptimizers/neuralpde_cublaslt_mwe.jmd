@@ -1,0 +1,58 @@
+---
+title: NeuralPDE Float64 cuBLASLt Reproducer
+author: SciML
+---
+
+This focused reproducer evaluates one Poisson PINN loss on a V100. It records
+the Lux input shapes that reach the failing dense-layer path.
+
+```julia
+using CUDA, ComponentArrays, Lux, LuxCUDA, ModelingToolkit, NeuralPDE, Random
+import DomainSets: Interval
+
+@assert CUDA.functional() "This reproducer requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
+const input_call = Ref(0)
+
+function inspect_input(input)
+    input_call[] += 1
+    if input_call[] <= 30
+        @info "NeuralPDE Lux input" call = input_call[] size = size(input) strides = strides(input) eltype = eltype(input) type = typeof(input)
+    end
+    return input
+end
+
+@parameters x y
+@variables u(..)
+Dxx = Differential(x)^2
+Dyy = Differential(y)^2
+equation = Dxx(u(x, y)) + Dyy(u(x, y)) ~ -sinpi(x) * sinpi(y)
+boundary_conditions = [
+    u(0, y) ~ 0.0,
+    u(1, y) ~ 0.0,
+    u(x, 0) ~ 0.0,
+    u(x, 1) ~ 0.0,
+]
+domains = [x in Interval(0.0, 1.0), y in Interval(0.0, 1.0)]
+chain = Lux.Chain(
+    Lux.WrappedFunction(inspect_input),
+    Lux.Dense(2 => 16, tanh),
+    Lux.Dense(16 => 16, tanh),
+    Lux.Dense(16 => 1),
+)
+parameters = Lux.setup(Random.default_rng(), chain)[1] |>
+    ComponentArray |> gpud .|> Float64
+discretization = PhysicsInformedNN(
+    chain, QuadratureTraining(); init_params = parameters
+)
+@named pde_system = PDESystem(
+    equation, boundary_conditions, domains, [x, y], [u(x, y)]
+)
+problem = discretize(pde_system, discretization)
+loss = problem.f.f(problem.u0, nothing)
+CUDA.synchronize()
+
+@assert isfinite(loss)
+println("Loss: ", loss)
+```
