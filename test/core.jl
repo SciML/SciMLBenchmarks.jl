@@ -120,6 +120,9 @@ end
     @test occursin(
         r"(?s)\[\[deps\.Reactant_jll\]\].*?version = \"0\.0\.251\+0\"", manifest
     )
+    @test occursin(
+        r"(?s)\[\[deps\.GPUCompiler\]\].*?pinned = true.*?version = \"1\.9\.1\"", manifest
+    )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
         "ENV[\"XLA_REACTANT_GPU_MEM_FRACTION\"] = \"0.25\"\n" *
