@@ -14,12 +14,12 @@ println("GPU: ", CUDA.name(CUDA.device()))
 const gpud = gpu_device()
 
 cases = (
+    (name = "PINN optimizer", input_dim = 2, width = 18, activation = tanh),
     (name = "Allen-Cahn", input_dim = 5, width = 10, activation = Lux.σ),
     (name = "Nernst-Planck", input_dim = 4, width = 16, activation = tanh),
-    (name = "PINN optimizer", input_dim = 2, width = 18, activation = tanh),
 )
 
-for case in cases, T in (Float32, Float64)
+for case in cases, T in (Float64, Float32)
     chain = Lux.Chain(
         Lux.Dense(case.input_dim => case.width, case.activation),
         Lux.Dense(case.width => case.width, case.activation),
@@ -29,7 +29,7 @@ for case in cases, T in (Float32, Float64)
     parameters = parameters |> ComponentArray |> gpud .|> T
     state = state |> gpud
 
-    for batch_size in (1, 16, 100)
+    for batch_size in (0, 1, 16, 100)
         input = CUDA.rand(T, case.input_dim, batch_size)
 
         @info "Running Lux Chain" case.name T batch_size
