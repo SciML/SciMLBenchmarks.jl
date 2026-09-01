@@ -65,6 +65,26 @@ end
     @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "ParameterEstimation ModelingToolkit imports" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "ParameterEstimation")
+    filenames = (
+        "FitzHughNagumoParameterEstimation.jmd",
+        "LorenzParameterEstimation.jmd",
+        "LotkaVolterraParameterEstimation.jmd",
+    )
+    for filename in filenames
+        source = read(joinpath(benchmarks_dir, filename), String)
+        imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
+        @test !isnothing(imports)
+        for name in ("@mtkbuild", "@mtkmodel")
+            @test occursin(name, imports[:code])
+        end
+        @test occursin("@static if isdefined(ModelingToolkit, Symbol(\"@mtkmodel\"))", imports[:code])
+        @test occursin("using ModelingToolkit: @mtkmodel", imports[:code])
+        @test occursin("using SciCompDSL: @mtkmodel", imports[:code])
+    end
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
