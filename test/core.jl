@@ -82,6 +82,96 @@ end
     end
 end
 
+@testset "NeuralNetworks V100 environment" begin
+    folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
+    preferences_path = joinpath(folder, "LocalPreferences.toml")
+    project = read(joinpath(folder, "Project.toml"), String)
+    manifest = read(joinpath(folder, "Manifest.toml"), String)
+    python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
+    benchmark = read(joinpath(folder, "simple_networks.jmd"), String)
+
+    @test isfile(preferences_path)
+    if isfile(preferences_path)
+        preferences = read(preferences_path, String)
+        @test occursin(
+            "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.8\"", preferences
+        )
+        @test occursin(
+            "[Reactant_jll]\ncuda_version = \"12.8\"\ngpu = \"cuda\"", preferences
+        )
+    end
+    @test occursin(
+        "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\"", project
+    )
+    @test occursin(
+        "Reactant_jll = \"0192cb87-2b54-54ad-80e0-3be72ad8a3c0\"", project
+    )
+    @test occursin("CUDNN_jll = \"62b44479-cb7b-5706-934f-f13b2eb2e645\"", project)
+    @test occursin("CUDNN_jll = \"=9.10.0\"", project)
+    @test occursin("CUDA = \"5\"", project)
+    @test occursin("cuDNN = \"=1.4.4\"", project)
+    @test occursin("Reactant = \"=0.2.171\"", project)
+    @test occursin(
+        r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant\]\].*?version = \"0\.2\.171\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant_jll\]\].*?version = \"0\.0\.251\+0\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.GPUCompiler\]\].*?pinned = true.*?version = \"1\.9\.1\"", manifest
+    )
+    @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
+    @test occursin(
+        "ENV[\"XLA_REACTANT_GPU_MEM_FRACTION\"] = \"0.25\"\n" *
+            "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
+            "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"",
+        benchmark
+    )
+    worker_call = findfirst("python_output = read(", benchmark)
+    cuda_import = findfirst("using CUDA, LuxCUDA", benchmark)
+    @test !isnothing(worker_call)
+    @test !isnothing(cuda_import)
+    if !isnothing(worker_call) && !isnothing(cuda_import)
+        @test first(worker_call) < first(cuda_import)
+    end
+    @test occursin("delete!(python_env, \"LD_LIBRARY_PATH\")", benchmark)
+    @test occursin("PythonCall.python_executable_path()", benchmark)
+    @test !occursin("pyimport(", benchmark)
+    @test !occursin("nn_utils.", benchmark)
+
+    python_helper = read(joinpath(folder, "nn_benchmark_utils.py"), String)
+    @test occursin("if __name__ == \"__main__\":", python_helper)
+    @test occursin("TIMING\\t{framework}\\t{model}\\t{operation}", python_helper)
+    @test occursin("require_jax_gpu()", python_helper)
+    @test occursin("require_torch_cuda()", python_helper)
+    reactant_steps = (
+        ("reactant_step", "ts"),
+        ("reactant_gelu_step", "ts_gelu"),
+        ("reactant_bn_step", "ts_bn"),
+        ("reactant_lenet_step", "ts_lenet"),
+        ("reactant_resnet_step", "ts_resnet"),
+    )
+    for (step, state) in reactant_steps
+        @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
+    end
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_mlp_bn,\s*ps_bn_ra,\s*st_bn_train_ra", benchmark
+    )
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_resnet,\s*ps_resnet_ra,\s*st_resnet_train_ra",
+        benchmark,
+    )
+    @test !occursin("REACTANT_TRAINING_COMPILE_OPTIONS", benchmark)
+    @test !occursin("compile_options=", benchmark)
+    @test count("sync=true", benchmark) == 5
+    @test count(r"@benchmark \$reactant_", benchmark) == 5
+    @test !occursin("compiled_reactant_step", benchmark)
+    @test !occursin(r"@compile reactant_", benchmark)
+end
+
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
