@@ -215,6 +215,20 @@ end
     @test checked == count("names = names", benchmark)
 end
 
+@testset "NonlinearProblem restores garbage collection" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "NonlinearProblem", "bruss.jmd"), String
+    )
+    disabled = findfirst("gc_was_enabled = GC.enable(false)", benchmark)
+    restored = findfirst("GC.enable(gc_was_enabled)", benchmark)
+    normalized = findfirst("# Normalize timeout sentinels", benchmark)
+
+    @test all(marker -> !isnothing(marker), (disabled, restored, normalized))
+    if all(marker -> !isnothing(marker), (disabled, restored, normalized))
+        @test first(disabled) < first(restored) < first(normalized)
+    end
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
