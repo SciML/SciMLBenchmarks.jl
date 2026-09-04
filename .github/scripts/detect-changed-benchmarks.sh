@@ -4,7 +4,7 @@ set -eo pipefail
 # Detect changed benchmark files and produce a JSON matrix for GHA.
 # Replicates the project-coalescing logic:
 #   - A changed .jmd file triggers a rebuild of just that file
-#   - A changed .toml file (Project.toml/Manifest.toml) triggers a rebuild of its entire benchmark directory
+#   - Any other changed file triggers a rebuild of its entire benchmark directory
 #   - If a directory is already being rebuilt, individual .jmd files in it are suppressed
 #
 # Reads runner configuration from:
@@ -60,8 +60,6 @@ find_project() {
 
 while IFS= read -r f; do
     [[ -z "${f}" ]] && continue
-    # Skip benchmark_config.toml changes — they don't trigger rebuilds
-    [[ "${f}" == */benchmark_config.toml ]] && continue
     proj=$(find_project "$(dirname "${f}")")
     if [[ -z "${proj}" ]]; then
         echo "::warning::Unable to find project for ${f}"
@@ -70,7 +68,7 @@ while IFS= read -r f; do
 
     if [[ "${f}" == *.jmd ]]; then
         FILES["${f}"]="${proj}"
-    elif [[ "${f}" == *.toml ]]; then
+    else
         PROJECTS["${proj}"]=1
     fi
 done <<< "${CHANGED_FILES}"
