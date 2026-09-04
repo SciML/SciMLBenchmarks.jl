@@ -82,6 +82,41 @@ end
     end
 end
 
+@testset "LinearSolveDistributed setup project" begin
+    repository_root = dirname(@__DIR__)
+    benchmark_dir = joinpath(repository_root, "benchmarks", "LinearSolveDistributed")
+    setup = joinpath(benchmark_dir, "setup.sh")
+
+    mktempdir() do directory
+        invocation = joinpath(directory, "invocation")
+        julia = joinpath(directory, "julia")
+        write(
+            julia,
+            "#!/bin/sh\nprintf '%s\\n' \"\$@\" > \"\$INVOCATION_LOG\"\n",
+        )
+        chmod(julia, 0o755)
+        environment_file = joinpath(directory, "benchmark-env")
+        command = addenv(
+            `bash $setup`,
+            "PATH" => string(directory, ':', ENV["PATH"]),
+            "INVOCATION_LOG" => invocation,
+            "BENCHMARK_ENV_FILE" => environment_file,
+        )
+
+        cd(repository_root) do
+            run(command)
+        end
+
+        arguments = readlines(invocation)
+        invocation_text = join(arguments, '\n')
+        @test "--project=$benchmark_dir" in arguments
+        @test !("--project=." in arguments)
+        @test !occursin("Pkg.add", invocation_text)
+        @test !occursin("use_jll_binary", invocation_text)
+        @test read(environment_file, String) == "JULIA_MPI_BINARY=MPICH_jll\n"
+    end
+end
+
 @testset "NeuralNetworks V100 environment" begin
     folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
     preferences_path = joinpath(folder, "LocalPreferences.toml")

@@ -6,16 +6,14 @@
 # Any variable written to $BENCHMARK_ENV_FILE is sourced back into the build env.
 set -euo pipefail
 
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "--- LinearSolveDistributed setup: pinning MPI backend"
 
-# Pin MPI.jl to the JLL MPICH binary. PETSc_jll's default artifact is built
-# against MPICH, so this keeps the whole stack on one ABI. Writes
-# LocalPreferences.toml in this folder, which the benchmark project then uses.
-julia --project=. -e '
-    using Pkg
-    Pkg.add("MPIPreferences")
+# Load the project containing the committed MPICH preference before downstream setup.
+# PETSc_jll's default artifact is built against MPICH, so this keeps the stack on one ABI.
+julia --project="${BENCH_DIR}" -e '
     using MPIPreferences
-    MPIPreferences.use_jll_binary("MPICH_jll"; export_prefs=true)
 '
 
 # Expose mpiexec to any downstream step that wants it (the .jmd itself gets it
