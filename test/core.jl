@@ -82,6 +82,18 @@ end
     end
 end
 
+@testset "root test workflow" begin
+    workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "test.yml"), String)
+    test_job = match(r"(?ms)^  test:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow)
+    @test occursin("      - 'test/**'", workflow)
+    @test occursin("      - '.github/workflows/test.yml'", workflow)
+    @test !isnothing(test_job)
+    if !isnothing(test_job)
+        @test occursin("runs-on: ubuntu-latest", test_job[:body])
+        @test !occursin("self-hosted", test_job[:body])
+    end
+end
+
 @testset "NeuralNetworks V100 environment" begin
     folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
     preferences_path = joinpath(folder, "LocalPreferences.toml")
