@@ -180,6 +180,13 @@ end
     @test occursin("format('pr-{0}', github.event.pull_request.number)", workflow)
     @test occursin("github.event_name == 'pull_request' || github.ref != 'refs/heads/master'", workflow)
     @test occursin("github.event.action != 'closed'", workflow)
+    pull_request_trigger = match(
+        r"(?ms)^  pull_request:\n(?<body>.*?)^  workflow_dispatch:", workflow
+    )
+    @test !isnothing(pull_request_trigger)
+    if !isnothing(pull_request_trigger)
+        @test !occursin("paths:", pull_request_trigger[:body])
+    end
 
     benchmark_job = workflow_job(workflow, "benchmark")
     @test !isnothing(benchmark_job)
