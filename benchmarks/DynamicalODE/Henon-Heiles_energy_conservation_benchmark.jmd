@@ -55,14 +55,21 @@ const oop_q0 = @SVector [0.1, 0.0]
 const oop_p0 = @SVector [0.0, 0.5]
 
 function hamilton(du, u, p, t)
-    dq, q = @views u[3:4], du[3:4]
-    dp, p = @views u[1:2], du[1:2]
+    dq, q = @views du[3:4], u[3:4]
+    dp, p = @views du[1:2], u[1:2]
 
     dp[1] = -q[1] * (1 + 2q[2])
     dp[2] = -q[2] - (q[1]^2 - q[2]^2)
     dq .= p
 
     return nothing
+end
+
+let u = vcat(iip_p0, iip_q0), du = fill(NaN, 4)
+    u_before = copy(u)
+    hamilton(du, u, nothing, 0.0)
+    @assert u == u_before "hamilton must not mutate its input state"
+    @assert du ≈ [-0.1, -0.01, 0.0, 0.5] "hamilton returned an incorrect derivative"
 end
 
 function hamilton_taylor!(du, u, p, t)
