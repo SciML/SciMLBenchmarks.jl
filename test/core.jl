@@ -215,6 +215,14 @@ end
     @test checked == count("names = names", benchmark)
 end
 
+@testset "StiffSDE timing matrix initialization" begin
+    benchmark = joinpath(
+        dirname(@__DIR__), "benchmarks", "StiffSDE", "Oval2Timings.jmd"
+    )
+    @test benchmark_assignment(benchmark, "fails") == :(fill(-1, length(dts), 3))
+    @test benchmark_assignment(benchmark, "times") == :(fill(NaN, length(dts), 3))
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
