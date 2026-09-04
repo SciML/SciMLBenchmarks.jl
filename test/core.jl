@@ -65,6 +65,19 @@ end
     @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "DAE two-bit adder MKL threads" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "DAE", "two_bit_adder.jmd"), String
+    )
+    thread_setting = findfirst("ENV[\"MKL_NUM_THREADS\"] = \"8\"", benchmark)
+    imports = findfirst("using OrdinaryDiffEq", benchmark)
+    @test !isnothing(thread_setting)
+    @test !isnothing(imports)
+    if !isnothing(thread_setting) && !isnothing(imports)
+        @test first(thread_setting) < first(imports)
+    end
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
