@@ -16,7 +16,7 @@ end
         @test read(environment_file, String) ==
             "export PYTHON=\"\"\n" *
             "export R_HOME=\"*\"\n" *
-            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/3/x86_64}\"\n" *
+            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/SciMLBenchmarks/MultiLanguage}\"\n" *
             "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
     end
 end
