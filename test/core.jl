@@ -6,14 +6,15 @@ using Test
     @test !isfile(joinpath(repository_root, ".github", "workflows", "DocPreviewCleanup.yml"))
 end
 
-@testset "MultiLanguage Python setup" begin
+@testset "MultiLanguage managed language setup" begin
     setup = joinpath(
         dirname(@__DIR__), "benchmarks", "MultiLanguage", "setup.sh"
     )
     mktemp() do environment_file, io
         close(io)
         run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
-        @test read(environment_file, String) == "export PYTHON=\"\"\n"
+        @test read(environment_file, String) ==
+            "export PYTHON=\"\"\nexport R_HOME=\"*\"\n"
     end
 end
 

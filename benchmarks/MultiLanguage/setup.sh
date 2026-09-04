@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# An empty PYTHON makes PyCall use its Conda environment, where SciPyDiffEq can install SciPy.
+# These sentinel values make PyCall and RCall use their managed Conda environments.
 if [[ -n "${BENCHMARK_ENV_FILE:-}" ]]; then
     echo 'export PYTHON=""' >> "${BENCHMARK_ENV_FILE}"
+    echo 'export R_HOME="*"' >> "${BENCHMARK_ENV_FILE}"
 fi
