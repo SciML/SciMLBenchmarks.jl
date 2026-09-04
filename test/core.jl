@@ -215,6 +215,20 @@ end
     @test checked == count("names = names", benchmark)
 end
 
+@testset "StiffODE RingModulator rodas tolerance coverage" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "RingModulator.jmd"), String
+    )
+    high_tolerances = match(r"(?ms)## High Tolerances(?<body>.*?)### Low Tolerances", benchmark)
+    low_tolerances = match(r"(?ms)### Low Tolerances(?<body>.*)", benchmark)
+    @test !isnothing(high_tolerances)
+    @test !isnothing(low_tolerances)
+    if !isnothing(high_tolerances) && !isnothing(low_tolerances)
+        @test !occursin("Dict(:alg=>rodas())", high_tolerances[:body])
+        @test occursin("Dict(:alg=>rodas())", low_tolerances[:body])
+    end
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
