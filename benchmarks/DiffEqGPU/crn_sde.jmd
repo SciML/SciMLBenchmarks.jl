@@ -98,8 +98,8 @@ function make_crn_ensemble(parameters; T::Type = Float32)
     p0 = SVector{6, T}(T(2.3), T(5), T(10), T(0.1), T(3), T(0.1))
     g0 = zeros(SMatrix{4, 8, T})
     prob = SDEProblem{false}(crn_f, crn_g, u0, tspan, p0; noise_rate_prototype = g0)
-    function prob_func(prob, i, repeat)
-        pi = parameters[i]
+    function prob_func(prob, ctx)
+        pi = parameters[ctx.sim_id]
         remake(prob;
             p = SVector{6, T}(pi[1], pi[2], pi[3], pi[4], pi[5], pi[6]),
             u0 = SVector{4, T}(pi[4], pi[4], pi[4], pi[4]))
@@ -125,8 +125,8 @@ let
     ens = make_crn_ensemble(ps)
     sol = solve(ens, GPUEM(), KERNEL; trajectories = 2, save_everystep = false,
         adaptive = false, dt = 0.1f0)
-    println("CRN smoke: 2 trajectories, u[1][end] = ", sol[1].u[end])
-    @assert all(i -> length(sol[i].u[end]) == 4, 1:2)
+    println("CRN smoke: 2 trajectories, u[1][end] = ", sol.u[1].u[end])
+    @assert all(i -> length(sol.u[i].u[end]) == 4, 1:2)
 end
 ```
 

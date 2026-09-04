@@ -60,7 +60,7 @@ function make_ensemble(n; T::Type = Float32)
     p = SVector{1, T}(21)
     plist = range(zero(T), T(21); length = max(n, 2))[1:n]
     prob = ODEProblem{false}(lorenz, u0, tspan, p)
-    prob_func = (prob, i, repeat) -> remake(prob, p = SVector{1, T}(plist[i]))
+    prob_func = (prob, ctx) -> remake(prob, p = SVector{1, T}(plist[ctx.sim_id]))
     return EnsembleProblem(prob, prob_func = prob_func, safetycopy = false)
 end
 
