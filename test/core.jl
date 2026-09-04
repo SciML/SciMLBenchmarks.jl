@@ -39,6 +39,10 @@ function benchmark_assignment(path, variable)
     return Meta.parse(strip(split(line, "="; limit = 2)[2]))
 end
 
+function workflow_job(workflow, name)
+    return match(Regex("(?ms)^  $(name):\\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\\n|\\z)"), workflow)
+end
+
 @testset "DiffEqGPU singleton parameter grids" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
 
@@ -72,9 +76,7 @@ end
 
 @testset "benchmark publication" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
-    benchmark_job = match(
-        r"(?ms)^  benchmark:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow
-    )
+    benchmark_job = workflow_job(workflow, "benchmark")
     @test !isnothing(benchmark_job)
     if !isnothing(benchmark_job)
         @test occursin("- name: Publish to SciMLBenchmarksOutput", benchmark_job[:body])
@@ -178,6 +180,17 @@ end
     @test occursin("format('pr-{0}', github.event.pull_request.number)", workflow)
     @test occursin("github.event_name == 'pull_request' || github.ref != 'refs/heads/master'", workflow)
     @test occursin("github.event.action != 'closed'", workflow)
+
+    benchmark_job = workflow_job(workflow, "benchmark")
+    @test !isnothing(benchmark_job)
+    if !isnothing(benchmark_job)
+        @test occursin(
+            "format('pr-{0}', github.event.pull_request.number) || github.ref",
+            benchmark_job[:body],
+        )
+        @test occursin("\${{ matrix.target }}", benchmark_job[:body])
+        @test occursin("cancel-in-progress: true", benchmark_job[:body])
+    end
 
     cancellation_path = joinpath(
         dirname(@__DIR__), ".github", "workflows", "cancel-superseded-benchmarks.yml"
