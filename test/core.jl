@@ -297,6 +297,18 @@ end
     @test benchmark_assignment(benchmark, "times") == :(fill(NaN, length(dts), 3))
 end
 
+@testset "Enright-Pryce initial conditions" begin
+    source = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "NonStiffODE", "enright_pryce.jl"
+        ),
+        String,
+    )
+    @test occursin("y = @nonamespace system.y", source)
+    @test occursin("return [y => [values; zeros(length(y) - length(values))]]", source)
+    @test count("enright_initial_conditions(", source) == 11
+end
+
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")

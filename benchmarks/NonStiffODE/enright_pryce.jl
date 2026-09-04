@@ -330,19 +330,30 @@ sf5prob = ODEProblem{false}(
 )
 
 # Non-stiff
+function enright_initial_conditions(system, values)
+    y = @nonamespace system.y
+    return [y => [values; zeros(length(y) - length(values))]]
+end
+
 y1 = y[1]
 na1eqs = D(y1) ~ -y1
 @named na1sys_raw = ODESystem(na1eqs, t)
 na1sys = structural_simplify(na1sys_raw)
 
-na1prob = ODEProblem{false}(na1sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+na1prob = ODEProblem{false}(
+    na1sys, enright_initial_conditions(na1sys, [1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 y2 = y[1]
 na2eqs = D(y2) ~ -y2^3 / 2
 @named na2sys_raw = ODESystem(na2eqs, t)
 na2sys = structural_simplify(na2sys_raw)
 
-na2prob = ODEProblem{false}(na2sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+na2prob = ODEProblem{false}(
+    na2sys, enright_initial_conditions(na2sys, [1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 na3sys = let y = y[1]
     na3eqs = D(y) ~ y * cos(t)
@@ -350,7 +361,10 @@ na3sys = let y = y[1]
     structural_simplify(ODESystem(na3eqs, t; name = Symbol(gensym("sys"))))
 end
 
-na3prob = ODEProblem{false}(na3sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+na3prob = ODEProblem{false}(
+    na3sys, enright_initial_conditions(na3sys, [1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 na4sys = let y = y[1]
     na4eqs = D(y) ~ y / 4 * (1 - y / 20)
@@ -358,7 +372,10 @@ na4sys = let y = y[1]
     structural_simplify(ODESystem(na4eqs, t; name = Symbol(gensym("sys"))))
 end
 
-na4prob = ODEProblem{false}(na4sys, [y[1] => 1], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+na4prob = ODEProblem{false}(
+    na4sys, enright_initial_conditions(na4sys, [1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 na5sys = let y = y[1]
     na5eqs = D(y) ~ (y - t) / (y + t)
@@ -366,7 +383,10 @@ na5sys = let y = y[1]
     structural_simplify(ODESystem(na5eqs, t; name = Symbol(gensym("sys"))))
 end
 
-na5prob = ODEProblem{false}(na5sys, [y[1] => 4], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+na5prob = ODEProblem{false}(
+    na5sys, enright_initial_conditions(na5sys, [4.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 const NA_PROBLEMS = [na1prob, na2prob, na3prob, na4prob, na5prob]
 
@@ -379,7 +399,10 @@ nb1sys = let
     structural_simplify(ODESystem(nb1eqs, t; name = Symbol(gensym("sys"))))
 end
 
-nb1prob = ODEProblem{false}(nb1sys, [y[1] => 1.0, y[2] => 3], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+nb1prob = ODEProblem{false}(
+    nb1sys, enright_initial_conditions(nb1sys, [1.0, 3.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 nb2sys = let
     nb2eqs = [
@@ -392,7 +415,8 @@ nb2sys = let
 end
 
 nb2prob = ODEProblem{false}(
-    nb2sys, [y[1] => 2.0, y[2] => 0.0, y[3] => 1.0], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...)
+    nb2sys, enright_initial_conditions(nb2sys, [2.0, 0.0, 1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
 )
 
 nb3sys = let
@@ -405,7 +429,10 @@ nb3sys = let
     structural_simplify(ODESystem(nb3eqs, t; name = Symbol(gensym("sys"))))
 end
 
-nb3prob = ODEProblem{false}(nb3sys, [y[1] => 1.0; y[2:3] .=> 0.0], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+nb3prob = ODEProblem{false}(
+    nb3sys, enright_initial_conditions(nb3sys, [1.0, 0.0, 0.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 nb4sys = let
     r = sqrt(y[1]^2 + y[2]^2)
@@ -418,7 +445,10 @@ nb4sys = let
     structural_simplify(ODESystem(nb4eqs, t; name = Symbol(gensym("sys"))))
 end
 
-nb4prob = ODEProblem{false}(nb4sys, [y[1] => 3.0; y[2:3] .=> 0.0], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+nb4prob = ODEProblem{false}(
+    nb4sys, enright_initial_conditions(nb4sys, [3.0, 0.0, 0.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 nb5sys = let
     nb5eqs = [
@@ -430,7 +460,10 @@ nb5sys = let
     structural_simplify(ODESystem(nb5eqs, t; name = Symbol(gensym("sys"))))
 end
 
-nb5prob = ODEProblem{false}(nb5sys, [y[1] => 0.0; y[2:3] .=> 1.0], (0, 20.0), cse = true; u0_constructor = x -> SVector(x...))
+nb5prob = ODEProblem{false}(
+    nb5sys, enright_initial_conditions(nb5sys, [0.0, 1.0, 1.0]), (0, 20.0), cse = true;
+    u0_constructor = x -> SVector(x...)
+)
 
 const NB_PROBLEMS = [nb1prob, nb2prob, nb3prob, nb4prob, nb5prob]
 
