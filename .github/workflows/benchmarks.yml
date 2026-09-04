@@ -94,6 +94,9 @@ jobs:
         (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.has_changes == 'true') ||
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
+    concurrency:
+      group: benchmark-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ matrix.target }}
+      cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
