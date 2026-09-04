@@ -43,6 +43,19 @@ function workflow_job(workflow, name)
     return match(Regex("(?ms)^  $(name):\\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\\n|\\z)"), workflow)
 end
 
+@testset "AdaptiveSDE plot labels" begin
+    benchmark = joinpath(
+        dirname(@__DIR__), "benchmarks", "AdaptiveSDE", "AdaptiveEfficiencyTests.jmd"
+    )
+    assignment = only(
+        line for line in eachline(benchmark) if startswith(strip(line), "leg=") ||
+            startswith(strip(line), "leg =")
+    )
+    labels = Core.eval(@__MODULE__, Meta.parse(split(assignment, "="; limit = 2)[2]))
+    @test size(labels) == (1, 3)
+    @test vec(labels) == ["RSwM1", "RSwM2", "RSwM3"]
+end
+
 @testset "DiffEqGPU singleton parameter grids" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
 
