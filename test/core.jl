@@ -64,6 +64,7 @@ end
     lorenz_source = read(lorenz_path, String)
     @test occursin("make_ensemble(2)", lorenz_source)
     @test !occursin("make_ensemble(1)", lorenz_source)
+    @test length(findall("dt = 0.0005f0", lorenz_source)) == 2
     lorenz_expression = benchmark_assignment(lorenz_path, "plist")
     lorenz_grid = Core.eval(@__MODULE__, :((n, T) -> $lorenz_expression))
     @test collect(Base.invokelatest(lorenz_grid, 1, Float32)) == Float32[0]
