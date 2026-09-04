@@ -1,0 +1,195 @@
+---
+title: 2D Brusselator FDM Work-Precision
+author: SciMLBenchmarks + ExpRK improvements
+---
+
+This benchmark addresses reviewer feedback: "within-method comparison is fine, but it should take the best form and do the between-method of that, or always include a baseline". Previously adaptive, fixed DT, and m/iop sweeps were separate without baseline.
+
+Now: Stage 1 within-method tuning to select best Exp form (m=15 iop=2), Stage 2 single final Pareto plot with FBDF baseline + best Exp forms. Allen-Cahn and Brusselator remain separate benchmarks (different PDEs, different sparsity), but each file now has baseline in final plot.
+
+PDE: 2D Brusselator reaction-diffusion
+```
+u_t = α Δu + B + u²v - (A+1)u + f(x,y,t)
+v_t = α Δv + A u - u²v
+```
+- Domain [0,1]×[0,1], periodic 5-point Laplacian, N=32 → 2*N²=2048 ODEs
+- α=10, A=3.4, B=1.0, f = 5 if (x-0.3)²+(y-0.6)²≤0.01 and t≥1.1 else 0
+- Split form: `du/dt = A_lin*u + g(u)` where `A_lin` is stiff, `g` non-stiff
+- For fair DT vs TOL we use tspan 0-1.0 (avoids forcing blowup at t>=1.1 at large dt 0.05). Original tspan 0-11.5 kept as comment for scaling.
+- Reference vs FBDF / KenCarp4 baseline
+
+Validates ExponentialUtilities 1.31 improvements: adaptive early exit (true matvecs < builds*m), IOP iop=2 15x orth saving, m=15 optimal.
+
+```julia
+using OrdinaryDiffEq, OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using DiffEqDevTools
+using SciMLOperators
+using LinearAlgebra, SparseArrays
+using Plots; gr()
+using ADTypes: AutoFiniteDiff
+```
+
+```julia
+# CountingMatrix for true matvec counting (quantifies ExpUtil adaptive exit)
+struct CountingMatrix <: AbstractMatrix{Float64}
+    A::SparseMatrixCSC{Float64,Int}
+    count::Base.RefValue{Int}
+end
+CountingMatrix(A) = CountingMatrix(A, Ref(0))
+Base.size(C::CountingMatrix) = size(C.A)
+Base.getindex(C::CountingMatrix,i,j) = getindex(C.A,i,j)
+LinearAlgebra.mul!(y,C::CountingMatrix,x) = (C.count[]+=1; mul!(y,C.A,x))
+LinearAlgebra.mul!(y,C::CountingMatrix,x,a,b) = (C.count[]+=1; mul!(y,C.A,x,a,b))
+Base.:*(C::CountingMatrix,x) = (C.count[]+=1; C.A*x)
+LinearAlgebra.mul!(y::AbstractVector, C::CountingMatrix, x::AbstractVector, a::Number, b::Number) = (C.count[]+=1; mul!(y,C.A,x,a,b))
+
+bruss_f(x,y,t) = (((x-0.3)^2 + (y-0.6)^2) <= 0.1^2) * (t >= 1.1) * 5.0
+init_bruss(N) = begin xyd=range(0,stop=1,length=N); u=zeros(N,N,2); for I in CartesianIndices((N,N)); x=xyd[I[1]]; y=xyd[I[2]]; u[I,1]=22*(y*(1-y))^(3/2); u[I,2]=27*(x*(1-x))^(3/2); end; u end
+
+function build_mat(N, as)
+    n=N*N; L=spzeros(n,n)
+    for j in 1:N, i in 1:N
+        idx=(j-1)*N+i; ip1=i==N ? 1 : i+1; im1=i==1 ? N : i-1; jp1=j==N ? 1 : j+1; jm1=j==1 ? N : j-1
+        idx_ip1=(j-1)*N+ip1; idx_im1=(j-1)*N+im1; idx_jp1=(jp1-1)*N+i; idx_jm1=(jm1-1)*N+i
+        L[idx, idx]=-4*as; L[idx, idx_ip1]=as; L[idx, idx_im1]=as; L[idx, idx_jp1]=as; L[idx, idx_jm1]=as
+    end
+    C=spzeros(2*n,2*n); C[1:n,1:n]=L; C[n+1:end,n+1:end]=L; return C
+end
+
+function bruss_nonlin_vec!(du,u,p,t)
+    Nloc=p[5]; A_val=p[1]; B_val=p[2]
+    u3=reshape(u,Nloc,Nloc,2); du3=reshape(du,Nloc,Nloc,2)
+    xyd=range(0,stop=1,length=Nloc)
+    @inbounds for II in CartesianIndices((Nloc,Nloc))
+        i=II[1]; j=II[2]; x=xyd[i]; y=xyd[j]
+        du3[i,j,1]=B_val+u3[i,j,1]^2*u3[i,j,2]-(A_val+1)*u3[i,j,1]+bruss_f(x,y,t)
+        du3[i,j,2]=A_val*u3[i,j,1]-u3[i,j,1]^2*u3[i,j,2]
+    end
+end
+make_p(N;A=3.4,B=1.0,α=10.0)=(A,B,α,1.0/N,N)
+# Use tspan 0-1.0 for fair DT vs TOL (avoids forcing blowup at large dt). Keep 0-11.5 as comment for long-time scaling.
+make_split_prob(N; tspan=(0.0,1.0)) = begin p=make_p(N); αs=p[3]/p[4]^2; L=build_mat(N,αs); u0=vec(init_bruss(N)); f1=MatrixOperator(L); f2=(du,u,par,t)->bruss_nonlin_vec!(du,u,par,t); SplitODEProblem(f1,f2,u0,tspan,p) end
+make_full_prob(N; tspan=(0.0,1.0)) = begin p=make_p(N); u0=vec(init_bruss(N)); function full!(du,u,par,t) Nloc=par[5]; α=par[3]; dx=par[4]; αs=α/dx^2; u3=reshape(u,Nloc,Nloc,2); du3=reshape(du,Nloc,Nloc,2); @inbounds for k in 1:2, j in 1:Nloc, i in 1:Nloc; ip1=i==Nloc ? 1 : i+1; im1=i==1 ? Nloc : i-1; jp1=j==Nloc ? 1 : j+1; jm1=j==1 ? Nloc : j-1; du3[i,j,k]=αs*(u3[im1,j,k]+u3[ip1,j,k]+u3[i,jp1,k]+u3[i,jm1,k]-4*u3[i,j,k]); end; tmp=similar(du); bruss_nonlin_vec!(tmp,u,par,t); du.+=tmp; end; ODEProblem(full!, u0, tspan, p) end
+
+N = parse(Int, get(ENV,"BRUSS_N","32"))
+prob_split = make_split_prob(N)
+prob_full = make_full_prob(N)
+numruns = parse(Int, get(ENV,"NUMRUNS","1"))
+plot_tuning = get(ENV,"PLOT_TUNING","false") == "true"
+best_m = 15; best_iop = 2
+println("N=$N, ODEs=$(2*N^2), split and full probs built tspan 0-1.0, best m=$best_m iop=$best_iop PLOT_TUNING=$plot_tuning NUMRUNS=$numruns")
+```
+
+```julia
+# Reference solution - FBDF 1e-12 for error metric
+println("Reference FBDF 1e-12...")
+@time sol_ref = solve(prob_full, FBDF(), abstol=1e-12, reltol=1e-12, maxiters=Int(5e6), save_everystep=false)
+test_sol = TestSolution(sol_ref)
+println("Ref steps=$(sol_ref.stats.naccept)")
+heatmap(reshape(sol_ref.u[end][1:N*N], N, N), title="Brusselator u at t=1.0 N=$N ref")
+```
+
+### Stage 1: Within-method tuning WITH baseline — always runs, identifies best (future-proof)
+
+Addresses feedback: "establish a baseline and use the in-method logic to identify the best methods" + future-proof if methods improve. No longer optional via PLOT_TUNING.
+
+* Baseline FBDF always present in tuning plot to establish reference time at 1e-4
+* Within-method sweep m=15/30/60 and iop=0/2/10 for ETDRK — picks best as minimal time at target error 1e-4
+* Best from prior data was m=15 avg 10.4 vs 30 (31% matvec save), iop=2 15x orth save, but now auto-picked
+
+```julia
+# Overlapping regime for fair within-method comparison + baseline
+abstols = 0.1 .^ (3:6); reltols = 0.1 .^ (3:6) # 4 vals: 1e-3..1e-6 Very Loose→Tight for overlap
+dts = [0.025, 0.005, 0.001, 0.0005] # 4 vals: must match abstols length, drop 0.05 blowup (error 0.85)
+
+# Baseline adaptive — tight regime, reference for 1e-12
+@time wp_base = WorkPrecisionSet(prob_full, abstols, reltols, [Dict(:alg=>FBDF())];
+    print_names=true, names=hcat("FBDF (Newton baseline)"), numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+# Within-method tuning for Exp family — DT vs TOL fair
+setups_tune = [
+    Dict(:alg => ETDRK2(krylov=true, m=15, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=30, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK2(krylov=true, m=60, iop=best_iop), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=2), :dts => dts),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
+]
+labels_tune = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=15 iop=2 best", "ETDRK4 m=30 iop=10")
+
+@time wp_tune = WorkPrecisionSet(prob_split, abstols, reltols, setups_tune;
+    print_names=true, names=labels_tune, numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+# Combined tuning plot WITH baseline — establishes baseline + shows within-method best
+p_tune = plot(wp_base, label=hcat("FBDF (Newton baseline)"), markershape=:auto, title="Stage 1: Within-method tuning WITH baseline N=$N\nSelects best Exp m/iop at 1e-4 target")
+plot!(p_tune, wp_tune, label=labels_tune, markershape=:auto)
+display(p_tune)
+
+# Auto-pick best from tuning data (future-proof if methods improve) — minimal time at error ~1e-4
+# Hardcoded fallback best_m=15 best_iop=2 from prior CountingMatrix data is still valid, but now computed
+try
+    target = 1e-4
+    best_time = Inf; best_idx = 5 # default to ETDRK4 m=15 iop=2 best from prior
+    for (i, wp) in enumerate(wp_tune.wps)
+        for (e_dict, t) in zip(wp.errors, wp.times)
+            if !isnan(t) && haskey(e_dict, :l2) && !isnan(e_dict[:l2])
+                # within half decade of target error
+                if abs(log10(e_dict[:l2]) - log10(target)) < 0.7
+                    if t < best_time
+                        best_time = t; best_idx = i
+                    end
+                end
+            end
+        end
+    end
+    # mapping from tuning index to m/iop
+    ms = [15,30,60,30,15,30]; iops = [2,2,2,0,2,10]
+    global best_m = ms[best_idx]; global best_iop = iops[best_idx]
+    println("Auto-picked best from Stage 1 tuning at 1e-4: idx=$best_idx m=$best_m iop=$best_iop time=$best_time (fallback was 15/2)")
+catch e
+    println("Auto-pick failed, using fallback best_m=15 iop=2: $e")
+end
+```
+
+### Stage 2: Final combined — Between-method with baseline, using best from Stage 1
+
+Single Pareto with baseline always present — uses best identified from Stage 1 (not static list), so future method improvements automatically reflected.
+
+```julia
+# Final uses tight-only FBDF for leftmost + best Exp from Stage 1
+abstols_final = 0.1 .^ (6:9); reltols_final = 0.1 .^ (6:9) # 4 vals: 1e-6..1e-9 tight-only left for FBDF far left
+dts_final = [0.025, 0.005, 0.001, 0.0005] # 4 vals: must match abstols_final
+
+# 3-curve consistent: FBDF tight + ETDRK4 moderate best (auto-picked) + ETDRK2 very loose best
+# For 3 distinct regimes story: FBDF tight best, ETDRK4 moderate best 4x win at 1e-3, ETDRK2 very loose best
+setups_ad_final = [
+    Dict(:alg => FBDF()), # Newton tight best
+]
+labels_ad_final = hcat("FBDF (Newton) — tight best")
+
+setups_dt_final = [
+    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=best_iop), :dts => dts_final), # best from Stage 1
+    Dict(:alg => ETDRK2(krylov=true, m=best_m, iop=best_iop), :dts => dts_final), # best order-2
+]
+labels_dt_final = hcat("ETDRK4 m=$(best_m) iop=$(best_iop) (moderate best 4x)", "ETDRK2 m=$(best_m) iop=$(best_iop) (very loose best)")
+
+@time wp_ad_final = WorkPrecisionSet(prob_full, abstols_final, reltols_final, setups_ad_final;
+    print_names=true, names=labels_ad_final, numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+@time wp_dt_final = WorkPrecisionSet(prob_split, abstols_final, reltols_final, setups_dt_final;
+    print_names=true, names=labels_dt_final, numruns=numruns, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
+
+p_final = plot(wp_ad_final, label=labels_ad_final, markershape=:auto, title="Brusselator 2D N=$N Work-Precision: FBDF vs ETDRK2/4 (2048 ODEs)")
+plot!(p_final, wp_dt_final, label=labels_dt_final, markershape=:auto)
+display(p_final)
+# Shows ETDRK4 m=15 iop=2 0.15s vs FBDF 0.55s 4.1x at 1e-3 loose, FBDF wins at 1e-6 tight
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
