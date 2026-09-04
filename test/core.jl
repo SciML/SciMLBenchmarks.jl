@@ -14,7 +14,10 @@ end
         close(io)
         run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
         @test read(environment_file, String) ==
-            "export PYTHON=\"\"\nexport R_HOME=\"*\"\n"
+            "export PYTHON=\"\"\n" *
+            "export R_HOME=\"*\"\n" *
+            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/3/x86_64}\"\n" *
+            "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
     end
 end
 
