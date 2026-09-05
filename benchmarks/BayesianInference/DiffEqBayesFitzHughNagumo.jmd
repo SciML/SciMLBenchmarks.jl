@@ -14,21 +14,24 @@ using Plots, StaticArrays, Turing, LinearAlgebra
 ```
 
 ```julia
-"""Display ESS/s (effective samples per second) from a Turing chain."""
+"""Display bulk ESS/s and R-hat for a chain, given its sampling time."""
 function display_ess_per_sec(chain, elapsed)
     stats = summarystats(chain)
     ess_bulk = stats[:, :ess_bulk]
-    println("Elapsed time: $(round(elapsed; digits=2)) seconds\n")
-    println("ESS/s (effective samples per second, bulk):")
+    rhat = stats[:, :rhat]
+    println("Sampling time: $(round(elapsed; digits=2)) seconds\n")
+    println("ESS/s (effective samples per second, bulk) and R-hat:")
     for (i, param) in enumerate(stats[:, :parameters])
-        println("  $param: $(round(ess_bulk[i] / elapsed; digits=1))")
+        println("  $param: $(round(ess_bulk[i] / elapsed; digits=1)) ",
+            "(rhat $(round(rhat[i]; digits=4)))")
     end
     println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
 end
 
-"""Extract and display Stan's internal timing from its CSV output files."""
+"""Display Stan's internal timing from its CSV output files and return the sampling seconds."""
 function display_stan_timing(stan_result)
     sample_files = stan_result.model.sample_file
+    sampling = 0.0
     for (chain_idx, f) in enumerate(sample_files)
         isfile(f) || continue
         lines = readlines(f)
@@ -39,8 +42,12 @@ function display_stan_timing(stan_result)
             elseif startswith(line, "#") && occursin("seconds", line)
                 println("  ", strip(line[2:end]))
             end
+            if startswith(line, "#") && occursin("(Sampling)", line)
+                sampling = max(sampling, parse(Float64, split(strip(line[2:end]))[1]))
+            end
         end
     end
+    return sampling
 end
 ```
 
@@ -110,7 +117,11 @@ bayesian_result_stan = @time stan_inference(
 Stan's internal timing (excluding data serialization and CSV parsing):
 
 ```julia
-display_stan_timing(bayesian_result_stan)
+elapsed_stan = display_stan_timing(bayesian_result_stan)
+```
+
+```julia
+display_ess_per_sec(bayesian_result_stan.chains, elapsed_stan)
 ```
 
 ### Direct Turing.jl
