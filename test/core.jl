@@ -6,6 +6,42 @@ using Test
     @test !isfile(joinpath(repository_root, ".github", "workflows", "DocPreviewCleanup.yml"))
 end
 
+@testset "ModelingToolkit benchmark imports are declared" begin
+    folder = joinpath(dirname(@__DIR__), "benchmarks", "ModelingToolkit")
+    project = read(joinpath(folder, "Project.toml"), String)
+    deps_section = match(r"(?ms)^\[deps\]\n(?<body>.*?)(?=^\[|\z)", project)
+    @test !isnothing(deps_section)
+
+    if !isnothing(deps_section)
+        dependencies = Set(
+            match.captures[1] for
+                match in eachmatch(r"(?m)^([A-Za-z][A-Za-z0-9_]*)\s*=", deps_section[:body])
+        )
+        standard_libraries = Set(readdir(Sys.STDLIB))
+
+        for path in filter(endswith(".jmd"), readdir(folder; join = true))
+            lines = collect(eachline(path))
+            line_number = 1
+            while line_number <= length(lines)
+                statement = strip(lines[line_number])
+                if startswith(statement, "using ") || startswith(statement, "import ")
+                    while endswith(statement, ',') && line_number < length(lines)
+                        line_number += 1
+                        statement *= " " * strip(lines[line_number])
+                    end
+                    imported = split(statement; limit = 2)[2]
+                    imported = first(split(imported, ':'; limit = 2))
+                    for module_name in split(imported, ',')
+                        package = first(split(strip(module_name), '.'; limit = 2))
+                        @test package in dependencies || package in standard_libraries
+                    end
+                end
+                line_number += 1
+            end
+        end
+    end
+end
+
 @testset "IJulia extension" begin
     fallback_method = which(SciMLBenchmarks.open_notebooks, Tuple{})
     @test fallback_method.module === SciMLBenchmarks
