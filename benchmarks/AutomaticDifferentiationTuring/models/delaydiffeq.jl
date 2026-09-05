@@ -41,8 +41,8 @@ ddedata = rand.(Poisson.(q .* Array(sol_dde)))
         reltol = 1.0e-6,
     )
     ϵ = 1.0e-5
-    for i in eachindex(predicted)
-        data[:, i] ~ arraydist(Poisson.(q .* predicted[i] .+ ϵ))
+    for i in axes(predicted, 2)
+        data[:, i] ~ arraydist(Poisson.(q .* predicted[:, i] .+ ϵ))
     end
     return nothing
 end
