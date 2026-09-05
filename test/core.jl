@@ -43,6 +43,19 @@ function workflow_job(workflow, name)
     return match(Regex("(?ms)^  $(name):\\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\\n|\\z)"), workflow)
 end
 
+@testset "Turing differential equation time slices" begin
+    models_dir = joinpath(
+        dirname(@__DIR__), "benchmarks", "AutomaticDifferentiationTuring", "models"
+    )
+    for model_name in ("ordinarydiffeq", "delaydiffeq")
+        model = read(joinpath(models_dir, model_name * ".jl"), String)
+        @test occursin("axes(predicted, 2)", model)
+        @test occursin("predicted[:, i]", model)
+        @test !occursin("eachindex(predicted)", model)
+        @test !occursin("predicted.u", model)
+    end
+end
+
 @testset "DiffEqGPU singleton parameter grids" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
 
