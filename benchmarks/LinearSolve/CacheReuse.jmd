@@ -107,11 +107,13 @@ function bench_reuse(family, alg)
 
     t_naive = @belapsed solve(LinearProblem($A, $b), $alg).u
 
-    t_newb = @belapsed solve!(c).u setup=(
-        c = init(LinearProblem($A, $b), $alg); solve!(c); c.b = $b2) evals=1
+    cache_newb = init(LinearProblem(A, b), alg)
+    solve!(cache_newb)
+    t_newb = @belapsed solve!(c).u setup=(c = $cache_newb; c.b = $b2) evals=1
 
-    t_newA = @belapsed solve!(c).u setup=(
-        c = init(LinearProblem($A, $b), $alg); solve!(c); c.A = copy($A2)) evals=1
+    cache_newA = init(LinearProblem(A, b), alg)
+    solve!(cache_newA)
+    t_newA = @belapsed solve!(c).u setup=(c = $cache_newA; c.A = copy($A2)) evals=1
 
     # Steady-state allocations: repeated solve! on a warm cache, same b.
     warm = init(LinearProblem(A, b), alg)
@@ -160,7 +162,7 @@ for (k, (lab, col)) in enumerate(zip(("naive", "new A (refactor)", "new b (backs
     bar!(p, xs .+ (k - 2) * w, vals[:, k]; bar_width = w, label = lab, color = col)
 end
 plot!(p; xticks = (xs, [r.name for r in sparse_res]), yscale = :log10,
-    ylabel = "time / s (log)", title = "Sparse (N = $(SPARSE_N)): cost per solve by reuse mode",
+    ylabel = "time / s (log)", title = "Sparse matrix reuse cost (N = $(SPARSE_N))",
     legend = :topright)
 p
 ```

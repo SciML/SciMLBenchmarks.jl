@@ -74,6 +74,15 @@ end
     @test success(process)
 end
 
+@testset "LinearSolve cache reuse setup" begin
+    source = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "LinearSolve", "CacheReuse.jmd"), String
+    )
+    @test !occursin(r"setup=\(\s*c = init", source)
+    @test occursin("cache_newb = init", source)
+    @test occursin("cache_newA = init", source)
+end
+
 @testset "benchmark publication" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     benchmark_job = workflow_job(workflow, "benchmark")
