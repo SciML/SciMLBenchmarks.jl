@@ -42,7 +42,6 @@ function weave_file(folder, file, build_list = (:script, :github))
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
             Pkg.instantiate()
         end
-        Pkg.build()
         Pkg.precompile()
     end
 
