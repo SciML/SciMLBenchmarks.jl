@@ -43,6 +43,27 @@ function workflow_job(workflow, name)
     return match(Regex("(?ms)^  $(name):\\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\\n|\\z)"), workflow)
 end
 
+@testset "HybridJumps Hawkes specialization" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "HybridJumps", "MultivariateHawkes.jmd"),
+        String,
+    )
+    uses_vector_jump_sets =
+        length(findall("JumpSet(; variable_jumps = hawkes_jump", benchmark)) == 2
+    defaults_to_wrapped_direct = occursin("vr_agg = VR_DirectFW()", benchmark)
+    splats_jumps = occursin("jumps...", benchmark)
+    interpolates_benchmark_inputs = occursin("solve(\$jump_prob, \$_stepper)", benchmark)
+    caps_callback_specialization =
+        occursin("vr_agg isa VR_FRM ? Gs[Vs .<= 40] : Gs", benchmark)
+    widens_performance_plots = length(findall("size = (800, 400)", benchmark)) == 2
+    @test uses_vector_jump_sets
+    @test defaults_to_wrapped_direct
+    @test !splats_jumps
+    @test interpolates_benchmark_inputs
+    @test caps_callback_specialization
+    @test widens_performance_plots
+end
+
 @testset "DiffEqGPU singleton parameter grids" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
 
