@@ -60,6 +60,7 @@ find_project() {
 
 while IFS= read -r f; do
     [[ -z "${f}" ]] && continue
+    [[ "${f}" == *.jmd && ! -f "${f}" ]] && continue
     proj=$(find_project "$(dirname "${f}")")
     if [[ -z "${proj}" ]]; then
         echo "::warning::Unable to find project for ${f}"
