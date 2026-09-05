@@ -52,6 +52,7 @@ end
     @test !occursin("ps = crn_parameters(1)", crn_source)
     @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
     @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
+    @test occursin("crn_parameters(N; T = Float64)", crn_source)
     for variable in ("S_grid", "D_grid")
         crn_expression = benchmark_assignment(crn_path, variable)
         crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
