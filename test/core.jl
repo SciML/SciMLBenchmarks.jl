@@ -107,6 +107,19 @@ end
     end
 end
 
+@testset "AdaptiveSDE plot labels" begin
+    benchmark = joinpath(
+        dirname(@__DIR__), "benchmarks", "AdaptiveSDE", "AdaptiveEfficiencyTests.jmd"
+    )
+    assignment = only(
+        line for line in eachline(benchmark) if startswith(strip(line), "leg=") ||
+            startswith(strip(line), "leg =")
+    )
+    labels = Core.eval(@__MODULE__, Meta.parse(split(assignment, "="; limit = 2)[2]))
+    @test size(labels) == (1, 3)
+    @test vec(labels) == ["RSwM1", "RSwM2", "RSwM3"]
+end
+
 @testset "HybridJumps Hawkes specialization" begin
     benchmark = read(
         joinpath(dirname(@__DIR__), "benchmarks", "HybridJumps", "MultivariateHawkes.jmd"),
