@@ -6,6 +6,57 @@ using Test
     @test !isfile(joinpath(repository_root, ".github", "workflows", "DocPreviewCleanup.yml"))
 end
 
+@testset "MultiLanguage managed language setup" begin
+    setup = joinpath(
+        dirname(@__DIR__), "benchmarks", "MultiLanguage", "setup.sh"
+    )
+    mktemp() do environment_file, io
+        close(io)
+        run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
+        @test read(environment_file, String) ==
+            "export PYTHON=\"\"\n" *
+            "export R_HOME=\"*\"\n" *
+            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/SciMLBenchmarks/MultiLanguage}\"\n" *
+            "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
+    end
+end
+
+@testset "ModelingToolkit benchmark imports are declared" begin
+    folder = joinpath(dirname(@__DIR__), "benchmarks", "ModelingToolkit")
+    project = read(joinpath(folder, "Project.toml"), String)
+    deps_section = match(r"(?ms)^\[deps\]\n(?<body>.*?)(?=^\[|\z)", project)
+    @test !isnothing(deps_section)
+
+    if !isnothing(deps_section)
+        dependencies = Set(
+            match.captures[1] for
+                match in eachmatch(r"(?m)^([A-Za-z][A-Za-z0-9_]*)\s*=", deps_section[:body])
+        )
+        standard_libraries = Set(readdir(Sys.STDLIB))
+
+        for path in filter(endswith(".jmd"), readdir(folder; join = true))
+            lines = collect(eachline(path))
+            line_number = 1
+            while line_number <= length(lines)
+                statement = strip(lines[line_number])
+                if startswith(statement, "using ") || startswith(statement, "import ")
+                    while endswith(statement, ',') && line_number < length(lines)
+                        line_number += 1
+                        statement *= " " * strip(lines[line_number])
+                    end
+                    imported = split(statement; limit = 2)[2]
+                    imported = first(split(imported, ':'; limit = 2))
+                    for module_name in split(imported, ',')
+                        package = first(split(strip(module_name), '.'; limit = 2))
+                        @test package in dependencies || package in standard_libraries
+                    end
+                end
+                line_number += 1
+            end
+        end
+    end
+end
+
 @testset "IJulia extension" begin
     fallback_method = which(SciMLBenchmarks.open_notebooks, Tuple{})
     @test fallback_method.module === SciMLBenchmarks
@@ -39,6 +90,44 @@ function benchmark_assignment(path, variable)
     return Meta.parse(strip(split(line, "="; limit = 2)[2]))
 end
 
+function workflow_job(workflow, name)
+    return match(Regex("(?ms)^  $(name):\\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\\n|\\z)"), workflow)
+end
+
+@testset "Turing differential equation time slices" begin
+    models_dir = joinpath(
+        dirname(@__DIR__), "benchmarks", "AutomaticDifferentiationTuring", "models"
+    )
+    for model_name in ("ordinarydiffeq", "delaydiffeq")
+        model = read(joinpath(models_dir, model_name * ".jl"), String)
+        @test occursin("axes(predicted, 2)", model)
+        @test occursin("predicted[:, i]", model)
+        @test !occursin("eachindex(predicted)", model)
+        @test !occursin("predicted.u", model)
+    end
+end
+
+@testset "HybridJumps Hawkes specialization" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "HybridJumps", "MultivariateHawkes.jmd"),
+        String,
+    )
+    uses_vector_jump_sets =
+        length(findall("JumpSet(; variable_jumps = hawkes_jump", benchmark)) == 2
+    defaults_to_wrapped_direct = occursin("vr_agg = VR_DirectFW()", benchmark)
+    splats_jumps = occursin("jumps...", benchmark)
+    interpolates_benchmark_inputs = occursin("solve(\$jump_prob, \$_stepper)", benchmark)
+    caps_callback_specialization =
+        occursin("vr_agg isa VR_FRM ? Gs[Vs .<= 40] : Gs", benchmark)
+    widens_performance_plots = length(findall("size = (800, 400)", benchmark)) == 2
+    @test uses_vector_jump_sets
+    @test defaults_to_wrapped_direct
+    @test !splats_jumps
+    @test interpolates_benchmark_inputs
+    @test caps_callback_specialization
+    @test widens_performance_plots
+end
+
 @testset "DiffEqGPU singleton parameter grids" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "DiffEqGPU")
 
@@ -48,6 +137,7 @@ end
     @test !occursin("ps = crn_parameters(1)", crn_source)
     @test occursin("GPUEM(), KERNEL; trajectories = 2", crn_source)
     @test !occursin("GPUEM(), KERNEL; trajectories = 1", crn_source)
+    @test occursin("crn_parameters(N; T = Float64)", crn_source)
     for variable in ("S_grid", "D_grid")
         crn_expression = benchmark_assignment(crn_path, variable)
         crn_grid = Core.eval(@__MODULE__, :((N, T) -> $crn_expression))
@@ -65,6 +155,33 @@ end
     @test collect(Base.invokelatest(lorenz_grid, 4, Float32)) == Float32[0, 7, 14, 21]
 end
 
+@testset "StiffBVP dependency stack" begin
+    project = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffBVP", "Project.toml"), String
+    )
+    @test occursin("SciMLBenchmarks = \"0.2\"", project)
+    @test !occursin("SciMLBenchmarks = \"0.1\"", project)
+end
+
+@testset "ParameterEstimation ModelingToolkit imports" begin
+    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks", "ParameterEstimation")
+    filenames = (
+        "FitzHughNagumoParameterEstimation.jmd",
+        "LorenzParameterEstimation.jmd",
+        "LotkaVolterraParameterEstimation.jmd",
+    )
+    for filename in filenames
+        source = read(joinpath(benchmarks_dir, filename), String)
+        imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
+        @test !isnothing(imports)
+        for name in ("@mtkbuild", "@mtkmodel")
+            @test occursin(name, imports[:code])
+        end
+        @test occursin("@static if isdefined(ModelingToolkit, Symbol(\"@mtkmodel\"))", imports[:code])
+        @test occursin("using ModelingToolkit: @mtkmodel", imports[:code])
+        @test occursin("using SciCompDSL: @mtkmodel", imports[:code])
+    end
+end
 
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
@@ -73,14 +190,114 @@ end
 
 @testset "benchmark publication" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
-    benchmark_job = match(
-        r"(?ms)^  benchmark:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow
-    )
+    benchmark_job = workflow_job(workflow, "benchmark")
     @test !isnothing(benchmark_job)
     if !isnothing(benchmark_job)
         @test occursin("- name: Publish to SciMLBenchmarksOutput", benchmark_job[:body])
         @test occursin("if: success() && github.ref == 'refs/heads/master'", benchmark_job[:body])
     end
+end
+
+@testset "root test workflow" begin
+    workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "test.yml"), String)
+    test_job = match(r"(?ms)^  test:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow)
+    @test occursin("      - 'test/**'", workflow)
+    @test occursin("      - '.github/workflows/test.yml'", workflow)
+    @test !isnothing(test_job)
+    if !isnothing(test_job)
+        @test occursin("runs-on: ubuntu-latest", test_job[:body])
+        @test !occursin("self-hosted", test_job[:body])
+    end
+end
+
+@testset "NeuralNetworks V100 environment" begin
+    folder = joinpath(dirname(@__DIR__), "benchmarks", "NeuralNetworks")
+    preferences_path = joinpath(folder, "LocalPreferences.toml")
+    project = read(joinpath(folder, "Project.toml"), String)
+    manifest = read(joinpath(folder, "Manifest.toml"), String)
+    python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
+    benchmark = read(joinpath(folder, "simple_networks.jmd"), String)
+
+    @test isfile(preferences_path)
+    if isfile(preferences_path)
+        preferences = read(preferences_path, String)
+        @test occursin(
+            "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.8\"", preferences
+        )
+        @test occursin(
+            "[Reactant_jll]\ncuda_version = \"12.8\"\ngpu = \"cuda\"", preferences
+        )
+    end
+    @test occursin(
+        "CUDA_Runtime_jll = \"76a88914-d11a-5bdc-97e0-2f5a05c973a2\"", project
+    )
+    @test occursin(
+        "Reactant_jll = \"0192cb87-2b54-54ad-80e0-3be72ad8a3c0\"", project
+    )
+    @test occursin("CUDNN_jll = \"62b44479-cb7b-5706-934f-f13b2eb2e645\"", project)
+    @test occursin("CUDNN_jll = \"=9.10.0\"", project)
+    @test occursin("CUDA = \"5\"", project)
+    @test occursin("cuDNN = \"=1.4.4\"", project)
+    @test occursin("Reactant = \"=0.2.171\"", project)
+    @test occursin(
+        r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant\]\].*?version = \"0\.2\.171\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.Reactant_jll\]\].*?version = \"0\.0\.251\+0\"", manifest
+    )
+    @test occursin(
+        r"(?s)\[\[deps\.GPUCompiler\]\].*?pinned = true.*?version = \"1\.9\.1\"", manifest
+    )
+    @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
+    @test occursin(
+        "ENV[\"XLA_REACTANT_GPU_MEM_FRACTION\"] = \"0.25\"\n" *
+            "ENV[\"XLA_REACTANT_GPU_PREALLOCATE\"] = \"false\"\n" *
+            "ENV[\"XLA_PYTHON_CLIENT_PREALLOCATE\"] = \"false\"",
+        benchmark
+    )
+    worker_call = findfirst("python_output = read(", benchmark)
+    cuda_import = findfirst("using CUDA, LuxCUDA", benchmark)
+    @test !isnothing(worker_call)
+    @test !isnothing(cuda_import)
+    if !isnothing(worker_call) && !isnothing(cuda_import)
+        @test first(worker_call) < first(cuda_import)
+    end
+    @test occursin("delete!(python_env, \"LD_LIBRARY_PATH\")", benchmark)
+    @test occursin("PythonCall.python_executable_path()", benchmark)
+    @test !occursin("pyimport(", benchmark)
+    @test !occursin("nn_utils.", benchmark)
+
+    python_helper = read(joinpath(folder, "nn_benchmark_utils.py"), String)
+    @test occursin("if __name__ == \"__main__\":", python_helper)
+    @test occursin("TIMING\\t{framework}\\t{model}\\t{operation}", python_helper)
+    @test occursin("require_jax_gpu()", python_helper)
+    @test occursin("require_torch_cuda()", python_helper)
+    reactant_steps = (
+        ("reactant_step", "ts"),
+        ("reactant_gelu_step", "ts_gelu"),
+        ("reactant_bn_step", "ts_bn"),
+        ("reactant_lenet_step", "ts_lenet"),
+        ("reactant_resnet_step", "ts_resnet"),
+    )
+    for (step, state) in reactant_steps
+        @test occursin("$state, _ = $step($state, x_ra, y_ra)", benchmark)
+    end
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_mlp_bn,\s*ps_bn_ra,\s*st_bn_train_ra", benchmark
+    )
+    @test occursin(
+        r"Training\.TrainState\(\s*lux_resnet,\s*ps_resnet_ra,\s*st_resnet_train_ra",
+        benchmark,
+    )
+    @test !occursin("REACTANT_TRAINING_COMPILE_OPTIONS", benchmark)
+    @test !occursin("compile_options=", benchmark)
+    @test count("sync=true", benchmark) == 5
+    @test count(r"@benchmark \$reactant_", benchmark) == 5
+    @test !occursin("compiled_reactant_step", benchmark)
+    @test !occursin(r"@compile reactant_", benchmark)
 end
 
 @testset "superseded pull request cancellation" begin
@@ -89,6 +306,24 @@ end
     @test occursin("format('pr-{0}', github.event.pull_request.number)", workflow)
     @test occursin("github.event_name == 'pull_request' || github.ref != 'refs/heads/master'", workflow)
     @test occursin("github.event.action != 'closed'", workflow)
+    pull_request_trigger = match(
+        r"(?ms)^  pull_request:\n(?<body>.*?)^  workflow_dispatch:", workflow
+    )
+    @test !isnothing(pull_request_trigger)
+    if !isnothing(pull_request_trigger)
+        @test !occursin("paths:", pull_request_trigger[:body])
+    end
+
+    benchmark_job = workflow_job(workflow, "benchmark")
+    @test !isnothing(benchmark_job)
+    if !isnothing(benchmark_job)
+        @test occursin(
+            "format('pr-{0}', github.event.pull_request.number) || github.ref",
+            benchmark_job[:body],
+        )
+        @test occursin("\${{ matrix.target }}", benchmark_job[:body])
+        @test occursin("cancel-in-progress: true", benchmark_job[:body])
+    end
 
     cancellation_path = joinpath(
         dirname(@__DIR__), ".github", "workflows", "cancel-superseded-benchmarks.yml"
@@ -124,6 +359,40 @@ end
         end
     end
     @test checked == count("names = names", benchmark)
+end
+
+@testset "StiffODE RingModulator rodas tolerance coverage" begin
+    benchmark = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffODE", "RingModulator.jmd"), String
+    )
+    high_tolerances = match(r"(?ms)## High Tolerances(?<body>.*?)### Low Tolerances", benchmark)
+    low_tolerances = match(r"(?ms)### Low Tolerances(?<body>.*)", benchmark)
+    @test !isnothing(high_tolerances)
+    @test !isnothing(low_tolerances)
+    if !isnothing(high_tolerances) && !isnothing(low_tolerances)
+        @test !occursin("Dict(:alg=>rodas())", high_tolerances[:body])
+        @test occursin("Dict(:alg=>rodas())", low_tolerances[:body])
+    end
+end
+
+@testset "StiffSDE timing matrix initialization" begin
+    benchmark = joinpath(
+        dirname(@__DIR__), "benchmarks", "StiffSDE", "Oval2Timings.jmd"
+    )
+    @test benchmark_assignment(benchmark, "fails") == :(fill(-1, length(dts), 3))
+    @test benchmark_assignment(benchmark, "times") == :(fill(NaN, length(dts), 3))
+end
+
+@testset "Enright-Pryce initial conditions" begin
+    source = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "NonStiffODE", "enright_pryce.jl"
+        ),
+        String,
+    )
+    @test occursin("y = @nonamespace system.y", source)
+    @test occursin("return [y => [values; zeros(length(y) - length(values))]]", source)
+    @test count("enright_initial_conditions(", source) == 11
 end
 
 @testset "weave_file" begin

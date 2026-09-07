@@ -6,19 +6,14 @@ on:
     paths:
       - 'benchmarks/**'
       - '.github/benchmark_defaults.toml'
+      - '.github/scripts/build_benchmark.sh'
       - '.github/scripts/detect-changed-benchmarks.sh'
       - '.github/scripts/read-benchmark-config.sh'
+      - '.github/scripts/test-build-benchmark.sh'
       - '.github/scripts/test-detect-changed-benchmarks.sh'
       - '.github/workflows/benchmarks.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    paths:
-      - 'benchmarks/**'
-      - '.github/benchmark_defaults.toml'
-      - '.github/scripts/detect-changed-benchmarks.sh'
-      - '.github/scripts/read-benchmark-config.sh'
-      - '.github/scripts/test-detect-changed-benchmarks.sh'
-      - '.github/workflows/benchmarks.yml'
   workflow_dispatch:
     inputs:
       benchmark_target:
@@ -57,6 +52,8 @@ jobs:
           fetch-depth: 0
       - name: Test changed benchmark detection
         run: bash .github/scripts/test-detect-changed-benchmarks.sh
+      - name: Test benchmark build setup
+        run: bash .github/scripts/test-build-benchmark.sh
       - name: Detect changed benchmarks
         id: detect
         run: .github/scripts/detect-changed-benchmarks.sh
@@ -94,6 +91,9 @@ jobs:
         (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.has_changes == 'true') ||
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
+    concurrency:
+      group: benchmark-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ matrix.target }}
+      cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
