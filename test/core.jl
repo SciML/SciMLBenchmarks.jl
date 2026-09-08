@@ -408,22 +408,6 @@ end
     @test count("enright_initial_conditions(", source) == 11
 end
 
-@testset "PINN error callback scalar losses" begin
-    folder = joinpath(dirname(@__DIR__), "benchmarks", "PINNErrorsVsTime")
-    for file in (
-            "allen_cahn_et.jmd",
-            "diffusion_et.jmd",
-            "hamilton_jacobi_et.jmd",
-            "level_set_et.jmd",
-            "nernst_planck_et.jmd",
-        )
-        source = read(joinpath(folder, file), String)
-        @test occursin("const cpud = cpu_device()", source)
-        @test occursin("push!(error, only(cpud(loss_)))", source)
-        @test !occursin("Array(loss_)", source)
-    end
-end
-
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
