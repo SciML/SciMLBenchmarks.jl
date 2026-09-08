@@ -25,6 +25,7 @@ using CUDA, LuxCUDA, ComponentArrays, Random
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
 const gpud = gpu_device()
+const cpud = cpu_device()
 
 function allen_cahn(strategy, minimizer, maxIters)
 
@@ -115,7 +116,7 @@ function allen_cahn(strategy, minimizer, maxIters)
         append!(times, ctime / 10^9) #Conversion nanosec to seconds
         append!(losses, l)
         loss_ = loss_function_(p.u, nothing)
-        append!(error, Array(loss_))
+        push!(error, only(cpud(loss_)))
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
 
         #if (ctime/10^9 > time) #if I exceed the limit time I stop the training
