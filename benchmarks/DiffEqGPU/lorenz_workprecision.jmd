@@ -1,0 +1,221 @@
+---
+title: Lorenz — DiffEqGPU PI/I controllers and GRADSOLVE
+author: Chris Rackauckas
+---
+
+This updates the adaptive Lorenz comparison in
+[GRADSOLVE](https://arxiv.org/abs/2609.02876) with the improved DiffEqGPU Tsit5
+implementation (with fused multiply-add operations in the steps and Lorenz RHS)
+and the explicit `GPUTsit5IController` alternative. `GPUTsit5`
+retains its original PI controller. Generally prefer PI control: the I controller
+has less stable step-size selection, and on simple nonstiff systems such as
+Lorenz it can look faster at equal tolerances partly because achieved accuracy
+is lower. The work-precision plots below expose that difference.
+
+The environment pins the combined [performance](https://github.com/SciML/DiffEqGPU.jl/pull/529),
+[Enzyme](https://github.com/SciML/DiffEqGPU.jl/pull/532), and
+[controller](https://github.com/SciML/DiffEqGPU.jl/pull/534) changes at
+[an integration commit](https://github.com/ChrisRackauckas-Claude/DiffEqGPU.jl/commit/3efd399f658e982dd6d572dc5fdf592e4bf7914a).
+Replace that development pin with the registered release after those changes land.
+
+All implementations solve the same system: $\sigma=10$, $\beta=8/3$,
+$\rho\in[0,21]$, $u(0)=(1,0,0)$, and $t\in[0,1]$. Each comparison uses the
+same explicitly typed parameter array in Float32 or Float64. DiffEqGPU and
+Diffrax start at `dt=0.01`, matching GRADSOLVE's initial `t_end/100` step.
+All use `abstol=reltol/1000`, save only the endpoint, and include rejected steps
+in elapsed time. Controller histories and floating-point implementations still
+differ; equal tolerance does not imply equal error.
+
+These are **host-to-host public-API timings**, including transfers, solver
+setup, endpoint materialization, and output checks, with compilation excluded
+by a warmup. GRADSOLVE's public `solve` returns host arrays; this is not a
+reproduction of the paper's device-resident kernel-only timings. Python calls
+are timed inside Python, excluding the Julia/Python bridge. We report the
+minimum of five synchronized runs. No CPU offloading is used.
+
+```julia
+using CUDA, DiffEqGPU, OrdinaryDiffEqVerner, StaticArrays, SciMLBase, CondaPkg
+using PythonCall, Plots, Printf, LinearAlgebra, MuladdMacro
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+CUDA.versioninfo()
+println("Julia ", VERSION, "; DiffEqGPU ", pkgversion(DiffEqGPU))
+const KERNEL = EnsembleGPUKernel(CUDA.CUDABackend(), 0.0)
+const METHODS = ("GPUTsit5 (PI)", "GPUTsit5 (I)", "GRADSOLVE", "Diffrax")
+
+ENV["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+ENV["GRADSOLVE_CUDA_CACHE"] = joinpath(@__DIR__, ".gradsolve_cuda")
+ENV["PATH"] = joinpath(CondaPkg.envdir(), "bin") * ":" * ENV["PATH"]
+sys = pyimport("sys")
+sys.path.insert(0, @__DIR__)
+gu = pyimport("gradsolve_utils")
+println("JAX devices: ", pyimport("jax").devices())
+metadata = pyimport("importlib.metadata")
+for package in ("gradsolve", "jax", "jaxlib", "diffrax")
+    println(package, " ", metadata.version(package))
+end
+gr()
+```
+
+```julia
+@muladd function lorenz_wp(u, p, t)
+    T = eltype(u)
+    return SVector(
+        T(10) * (u[2] - u[1]),
+        p[1] * u[1] - u[2] - u[1] * u[3],
+        u[1] * u[2] - T(8 / 3) * u[3]
+    )
+end
+
+function julia_runner(rhos::Vector{T}, method, tol) where {T}
+    prob = ODEProblem{false}(lorenz_wp, SVector{3, T}(1, 0, 0), (zero(T), one(T)), SVector(rhos[1]))
+    ens = EnsembleProblem(
+        prob; safetycopy = false,
+        prob_func = (prob, ctx) -> remake(prob; p = SVector(rhos[ctx.sim_id]))
+    )
+    alg = method == "GPUTsit5 (PI)" ? GPUTsit5() : GPUTsit5IController()
+    return function ()
+        sol = CUDA.@sync solve(
+            ens, alg, KERNEL; trajectories = length(rhos),
+            adaptive = true, dt = T(0.01), reltol = T(tol), abstol = T(tol / 1000),
+            save_everystep = false, save_start = false, dense = false
+        )
+        states = permutedims(reduce(hcat, (s.u[end] for s in sol.u)))
+        @assert size(states) == (length(rhos), 3)
+        @assert all(isfinite, states)
+        return states
+    end
+end
+
+function measure_julia(run)
+    run()
+    return minimum([@elapsed(run()) for _ in 1:5])
+end
+
+function reference(rhos)
+    return map(rhos) do rho
+        prob = ODEProblem{false}(lorenz_wp, SVector(1.0, 0.0, 0.0), (0.0, 1.0), SVector(Float64(rho)))
+        sol = solve(prob, Vern9(); abstol = 1.0e-14, reltol = 1.0e-14, save_everystep = false)
+        @assert SciMLBase.successful_retcode(sol)
+        sol.u[end]
+    end
+end
+
+function measurement(rhos::Vector{T}, method, tol, indices, refs) where {T}
+    if startswith(method, "GPUTsit5")
+        run = julia_runner(rhos, method, tol)
+        seconds = measure_julia(run)
+        states = run()
+    else
+        run = gu.prepare(pylist(rhos), lowercase(string(T)), tol, method)
+        seconds = pyconvert(Float64, gu.measure(run))
+        states = pyconvert(Matrix{T}, run())
+    end
+    error = maximum(enumerate(indices)) do (j, i)
+        norm(Float64.(states[i, :]) - refs[j]) / max(norm(refs[j]), 1)
+    end
+    @assert isfinite(error)
+    return (; method, precision = string(T), n = length(rhos), tol, seconds, error)
+end
+```
+
+## Work versus achieved accuracy
+
+Each solve contains 8192 trajectories. Error is the maximum relative endpoint
+2-norm over 257 evenly spaced members, normalized by `max(norm(reference),1)`.
+References use Float64 `Vern9` at `1e-14` tolerances and the exact rounded input
+parameters of each precision. This sampled endpoint metric does not certify
+all trajectories or dense-output accuracy. The reference is recomputed at
+`5e-15` below to check that reference uncertainty is below the plotted scale.
+
+```julia
+wp = NamedTuple[]
+for T in (Float32, Float64)
+    rhos = collect(range(zero(T), T(21); length = 8192))
+    indices = unique(round.(Int, range(1, length(rhos); length = 257)))
+    refs = reference(rhos[indices])
+    for (rho, ref) in zip(rhos[indices], refs)
+        prob = ODEProblem{false}(lorenz_wp, SVector(1.0, 0.0, 0.0), (0.0, 1.0), SVector(Float64(rho)))
+        tighter = solve(prob, Vern9(); abstol = 5.0e-15, reltol = 5.0e-15, save_everystep = false)
+        @assert norm(tighter.u[end] - ref) / max(norm(ref), 1) < 1.0e-11
+    end
+    tolerances = T === Float32 ? 10.0 .^ (-3:-1:-7) : 10.0 .^ (-3:-1:-10)
+    for method in METHODS, tol in tolerances
+        row = measurement(rhos, method, tol, indices, refs)
+        push!(wp, row)
+        @printf("%s %s rtol=%.1e error=%.3e time=%.3f ms\n", row.precision, method, tol, row.error, 1000row.seconds)
+    end
+end
+```
+
+```julia
+panels = map(("Float32", "Float64")) do precision
+    p = plot(;
+        xscale = :log10, yscale = :log10, xlabel = "achieved endpoint error",
+        ylabel = "host-to-host time (ms)", title = precision, legend = :topleft
+    )
+    for method in METHODS
+        rows = filter(r -> r.method == method && r.precision == precision, wp)
+        plot!(
+            p, getproperty.(rows, :error), 1000 .* getproperty.(rows, :seconds);
+            label = method, marker = :circle
+        )
+    end
+    p
+end
+plot(panels...; layout = (1, 2), size = (1100, 450))
+```
+
+## Ensemble scaling at common error ceilings
+
+For each size we try three tolerances around the best measured work-precision
+setting and choose the fastest run that meets the error ceiling. Every candidate
+is checked again against references at that size; nominal tolerance alone is
+never used as the accuracy match. An unavailable target is an error, not an
+omitted curve. This is a finite tolerance search, not a claim of globally optimal
+tuning. The ceilings are `1e-4` for Float32 and `1e-7` for Float64.
+
+```julia
+scaling = NamedTuple[]
+for T in (Float32, Float64)
+    ceiling = T === Float32 ? 1.0e-4 : 1.0e-7
+    for n in 2 .^ (11:2:21)
+        rhos = collect(range(zero(T), T(21); length = n))
+        indices = unique(round.(Int, range(1, n; length = 257)))
+        refs = reference(rhos[indices])
+        for method in METHODS
+            eligible = filter(r -> r.method == method && r.precision == string(T) && r.error <= ceiling, wp)
+            @assert !isempty(eligible) "No tolerance meets the requested accuracy for $method, $T"
+            seed = eligible[argmin(getproperty.(eligible, :seconds))].tol
+            candidates = [measurement(rhos, method, seed * factor, indices, refs) for factor in (0.1, 1.0, 10.0)]
+            valid = filter(r -> r.error <= ceiling, candidates)
+            @assert !isempty(valid) "Accuracy target missed at N=$n for $method, $T"
+            best = valid[argmin(getproperty.(valid, :seconds))]
+            push!(scaling, best)
+            @printf("%s %s N=%d rtol=%.1e error=%.3e time=%.3f ms\n", best.precision, method, n, best.tol, best.error, 1000best.seconds)
+        end
+    end
+end
+```
+
+```julia
+panels = map(("Float32", "Float64")) do precision
+    p = plot(;
+        xscale = :log10, yscale = :log10, xlabel = "trajectories",
+        ylabel = "host-to-host time (ms)", title = precision, legend = :topleft
+    )
+    for method in METHODS
+        rows = filter(r -> r.method == method && r.precision == precision, scaling)
+        plot!(
+            p, getproperty.(rows, :n), 1000 .* getproperty.(rows, :seconds);
+            label = method, marker = :circle
+        )
+    end
+    p
+end
+plot(panels...; layout = (1, 2), size = (1100, 450))
+```
+
+GRADSOLVE's `cuda_tsit5` engine is forward-only. Its gradient engine records and
+replays a frozen accepted mesh, whereas Enzyme differentiates the DiffEqGPU solve;
+these forward timings make no claim about gradient performance or equivalence.

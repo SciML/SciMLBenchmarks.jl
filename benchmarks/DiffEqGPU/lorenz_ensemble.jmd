@@ -28,6 +28,12 @@ Compared:
 
 `cpu_offload` is `0` so the GPU numbers are GPU-only.
 
+The [updated work-precision comparison](lorenz_workprecision.html) adds
+`GPUTsit5IController` and GRADSOLVE with a common `beta=8/3` equation, explicit
+Float32/Float64 comparisons, and scaling at common achieved-error ceilings.
+The historical Julia code below retains its rounded `beta=2.666`; the new
+comparison removes that discrepancy with the Python definition.
+
 ```julia
 using Printf
 using CUDA
@@ -60,7 +66,7 @@ function make_ensemble(n; T::Type = Float32)
     p = SVector{1, T}(21)
     plist = range(zero(T), T(21); length = max(n, 2))[1:n]
     prob = ODEProblem{false}(lorenz, u0, tspan, p)
-    prob_func = (prob, i, repeat) -> remake(prob, p = SVector{1, T}(plist[i]))
+    prob_func = (prob, ctx) -> remake(prob, p = SVector{1, T}(plist[ctx.sim_id]))
     return EnsembleProblem(prob, prob_func = prob_func, safetycopy = false)
 end
 
