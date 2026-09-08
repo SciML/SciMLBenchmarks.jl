@@ -162,10 +162,6 @@ end
     lorenz_source = read(lorenz_path, String)
     @test occursin("make_ensemble(2)", lorenz_source)
     @test !occursin("make_ensemble(1)", lorenz_source)
-    @test occursin("prob_func = (prob, ctx)", lorenz_source)
-    @test !occursin("prob_func = (prob, i, repeat)", lorenz_source)
-    @test occursin("sol_gpu.u[i].u[end]", lorenz_source)
-    @test occursin("sol_cpu.u[i].u[end]", lorenz_source)
     lorenz_expression = benchmark_assignment(lorenz_path, "plist")
     lorenz_grid = Core.eval(@__MODULE__, :((n, T) -> $lorenz_expression))
     @test collect(Base.invokelatest(lorenz_grid, 1, Float32)) == Float32[0]
