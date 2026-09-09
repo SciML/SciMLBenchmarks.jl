@@ -5,8 +5,28 @@ author: Prashant Andoriya
 
 # CUTEst Unconstrained Optimization.jl Benchmarks
 
-This benchmark runs unconstrained CUTEst problems through the Optimization.jl interface
-using `OptimizationNLPModels`.
+This benchmark runs unconstrained problems from the
+[CUTEst](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) test set through the
+Optimization.jl interface using `OptimizationNLPModels`. The problem class is selected with
+`CUTEst.select_sif_problems(contype = "unc")`, i.e. problems with no constraints and no
+variable bounds.
+
+All four CUTEst pages in this folder (`CUTEst_unconstrained`, `CUTEst_bounded`,
+`CUTEst_unbounded`, `CUTEst_quadratic`) share the harness in `cutest_benchmark_utils.jl`,
+which defines the selection constants, the solver constructors, the run loop, and the
+summary and plotting helpers. The prose below describes the harness as it stands on this
+page; refinements to the solver sets, solution-quality metrics, performance profiles,
+problem selection, and timing methodology are tracked in
+[SciMLBenchmarks#1857](https://github.com/SciML/SciMLBenchmarks.jl/issues/1857).
+
+This page supersedes the former `CUTEst_safe_solvers.jmd`, which was removed in
+[#1594](https://github.com/SciML/SciMLBenchmarks.jl/pull/1594). That page ran the same
+`contype = "unc"` problem set with a three-solver subset (`LBFGS`, `ConjugateGradient`,
+`NelderMead`) of the solvers used here and a copy of the run loop, so it duplicated this
+page with less coverage and was dropped when the pages were consolidated onto the shared
+harness.
+
+## Setup
 
 ```julia
 ENV["GKSwstype"] = "100"
@@ -21,6 +41,24 @@ using Printf
 
 include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
     "cutest_benchmark_utils.jl"))
+```
+
+## Problem selection
+
+`select_safe_problems` walks the candidates in the order returned by
+`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
+list, loads each remaining problem once to read its metadata, keeps it only if
+`nvar <= max_var` and `ncon <= max_con`, and stops after `max_problems` problems. The
+defaults are `MAX_PROBLEMS_PER_CATEGORY`, `MAX_NVAR`, and `MAX_NCON`; this page keeps the
+variable cap and sets `max_con = 0` because the problems are unconstrained. Problems whose
+metadata cannot be loaded are skipped. The values in effect for this run are printed below.
+
+```julia
+println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
+println("MAX_NVAR = ", MAX_NVAR)
+println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
+println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
 
 unconstrained_problems = select_safe_problems(
     collect(CUTEst.select_sif_problems(contype = "unc"));
@@ -29,7 +67,31 @@ unconstrained_problems = select_safe_problems(
 )
 
 println("Selected unconstrained problems: ", length(unconstrained_problems))
+println(join(unconstrained_problems, ", "))
+```
 
+## Solvers
+
+`UNCONSTRAINED_SOLVERS` lists the Optim.jl algorithms run through `OptimizationOptimJL`:
+`LBFGS`, `ConjugateGradient`, `NelderMead`, `SimulatedAnnealing`, and `ParticleSwarm`.
+Each is constructed with its default options. Gradients come from the NLPModels interface,
+so the two gradient-based methods use CUTEst's analytic derivatives rather than finite
+differences. Every solve is called with `maxiters = SOLVE_MAXITERS` and
+`maxtime = SOLVE_TIMEOUT_SECONDS`. The global heuristics (`SimulatedAnnealing`,
+`ParticleSwarm`) are run with the same budget and reported alongside the local methods;
+separating them is part of #1857.
+
+## Run
+
+Each (problem, solver) pair is solved once by `run_single_solve`. A row records the return
+code as reported by Optimization.jl and a `status` of `OK` when `solve` returned,
+`FAILED` when it threw, or `LOAD_FAILED` when the CUTEst problem could not be
+constructed. The reported time is `sol.stats.time` when the solver provides a finite,
+non-negative value, and otherwise the wall-clock time measured around problem construction
+and `solve` together. `run_benchmarks` errors if a category yields no `OK` rows, so a
+broken environment fails the build instead of producing an empty page.
+
+```julia
 unc_results = run_benchmarks(
     "unconstrained",
     unconstrained_problems,
@@ -37,6 +99,19 @@ unc_results = run_benchmarks(
 )
 
 display(unc_results)
+```
+
+## Summary
+
+`summarize_results` groups rows by solver. `completion_rate` is the share of runs with
+`status == "OK"`, i.e. the solver returned at all. `success_rate` is the share of runs
+whose return code is in `SUCCESS_RETCODES` (`Success`, `Terminated`,
+`FirstOrderOptimal`). Runs that stopped at `MaxIters` or `MaxTime` count as completed but
+not successful. `median_secs` is the median of the per-run time described above over all
+rows for that solver, including unsuccessful ones. No solution-quality metric (objective
+value, gradient norm) is recorded yet; see #1857.
+
+```julia
 unc_summary = summarize_results(unc_results)
 
 plot_solve_times(unc_results, "CUTEst unconstrained Optimization.jl solve time")

@@ -5,8 +5,21 @@ author: Prashant Andoriya
 
 # CUTEst Quadratic Optimization.jl Benchmarks
 
-This benchmark runs CUTEst quadratic problems with linear constraints through the
-Optimization.jl interface using `OptimizationNLPModels`.
+This benchmark runs quadratic programs from the
+[CUTEst](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) test set through the
+Optimization.jl interface using `OptimizationNLPModels`. The candidate pool is
+`CUTEst.select_sif_problems(objtype = "quadratic", contype = "linear")`, i.e. problems
+whose MASTSIF classification has a quadratic objective and linear constraints. No filter is
+applied on variable bounds or on the equality/inequality mix of the constraints.
+
+All four CUTEst pages in this folder share the harness in `cutest_benchmark_utils.jl`,
+which defines the selection constants, the solver constructors, the run loop, and the
+summary and plotting helpers. The prose below describes the harness as it stands;
+refinements to the solver sets, solution-quality metrics, performance profiles, problem
+selection, and timing methodology are tracked in
+[SciMLBenchmarks#1857](https://github.com/SciML/SciMLBenchmarks.jl/issues/1857).
+
+## Setup
 
 ```julia
 ENV["GKSwstype"] = "100"
@@ -21,6 +34,24 @@ using Printf
 
 include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
     "cutest_benchmark_utils.jl"))
+```
+
+## Problem selection
+
+`select_safe_problems` walks the candidates in the order returned by
+`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
+list, loads each remaining problem once to read its metadata, keeps it only if
+`nvar <= MAX_NVAR` and `ncon <= MAX_NCON`, and stops after `MAX_PROBLEMS_PER_CATEGORY`
+problems. Problems whose metadata cannot be loaded are skipped. The values in effect for
+this run are printed below.
+
+```julia
+println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
+println("MAX_NVAR = ", MAX_NVAR)
+println("MAX_NCON = ", MAX_NCON)
+println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
+println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
 
 quadratic_linear_problems = select_safe_problems(
     collect(CUTEst.select_sif_problems(objtype = "quadratic", contype = "linear"))
@@ -28,7 +59,35 @@ quadratic_linear_problems = select_safe_problems(
 
 println("Selected quadratic problems with linear constraints: ",
     length(quadratic_linear_problems))
+println(join(quadratic_linear_problems, ", "))
+```
 
+## Solvers
+
+`CONSTRAINED_SOLVERS` currently contains only `Ipopt`, run through `OptimizationMOI`.
+It is the only optimizer wired into the harness that accepts general equality and
+inequality constraints via Optimization.jl; the Optim.jl algorithms on the unconstrained
+page do not. Ipopt is configured with `max_iter = SOLVE_MAXITERS`,
+`max_wall_time = SOLVE_TIMEOUT_SECONDS`, `tol = 1.0e-6`, `print_level = 0`, and
+`hessian_approximation = "limited-memory"`. The limited-memory setting is used because
+`OptimizationNLPModels` supplies the objective gradient and Hessian and the constraint
+values and Jacobian from the CUTEst model, but not the constraint Hessians needed for an
+exact Hessian of the Lagrangian. The same
+iteration and time limits are also passed to `solve` as `maxiters` and `maxtime`. Ipopt
+treats these problems as general nonlinear programs; no QP-specific solver is used yet.
+Adding further constrained backends and an exact-Hessian Ipopt variant is item 1 of #1857.
+
+## Run
+
+Each (problem, solver) pair is solved once by `run_single_solve`. A row records the return
+code as reported by Optimization.jl and a `status` of `OK` when `solve` returned,
+`FAILED` when it threw, or `LOAD_FAILED` when the CUTEst problem could not be
+constructed. The reported time is `sol.stats.time` when the solver provides a finite,
+non-negative value, and otherwise the wall-clock time measured around problem construction
+and `solve` together. `run_benchmarks` errors if a category yields no `OK` rows, so a
+broken environment fails the build instead of producing an empty page.
+
+```julia
 quadratic_results = run_benchmarks(
     "quadratic linear",
     quadratic_linear_problems,
@@ -36,6 +95,19 @@ quadratic_results = run_benchmarks(
 )
 
 display(quadratic_results)
+```
+
+## Summary
+
+`summarize_results` groups rows by category and solver. `completion_rate` is the share of
+runs with `status == "OK"`, i.e. the solver returned at all. `success_rate` is the share
+of runs whose return code is in `SUCCESS_RETCODES` (`Success`, `Terminated`,
+`FirstOrderOptimal`). Runs that stopped at `MaxIters` or `MaxTime` count as completed but
+not successful. `median_secs` is the median of the per-run time described above over all
+rows for that category and solver, including unsuccessful ones. No solution-quality
+metric (objective value, KKT residual, constraint violation) is recorded yet; see #1857.
+
+```julia
 quadratic_summary = summarize_results(quadratic_results)
 
 plot_solve_times(quadratic_results, "CUTEst quadratic Optimization.jl solve time")
