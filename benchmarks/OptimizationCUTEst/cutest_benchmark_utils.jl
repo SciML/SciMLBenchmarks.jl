@@ -1,3 +1,4 @@
+using Distributed
 using Printf
 using Logging
 using DataFrames
@@ -26,6 +27,10 @@ const MAX_NVAR = 1_000
 const MAX_NCON = 1_000
 const SOLVE_MAXITERS = 1_000
 const SOLVE_TIMEOUT_SECONDS = 90.0
+# Extra wall-clock budget on top of SOLVE_TIMEOUT_SECONDS before a solve is
+# declared hung and its worker process is killed (covers SIF decode and solver
+# wrap-up, which the cooperative `maxtime` cannot account for).
+const HARD_TIMEOUT_GRACE_SECONDS = 60.0
 
 # A category is considered degenerate (and the page fails) when fewer than this
 # fraction of its rows complete at the harness level (`status == "OK"`), regardless
@@ -535,9 +540,132 @@ function warmup_solvers(solvers; problem = nothing, maxtime = SOLVE_TIMEOUT_SECO
     return DataFrame(rows)
 end
 
+# ---------------------------------------------------------------------------
+# Hard wall-clock guard
+#
+# `maxtime` / `max_wall_time` are cooperative: a solver stalled inside a
+# callback or a SIF decode that hangs never returns and would stall the whole
+# page. With `hard_timeout = true`, `run_single_solve` is executed on a single
+# long-lived Distributed worker so package load and JIT are paid once per page
+# (not once per row). A row that exceeds `hard_timeout_seconds()` gets its
+# worker killed, is recorded as `TIMEOUT` / `HARD_TIMEOUT`, and a fresh worker
+# is started for the following rows.
+# ---------------------------------------------------------------------------
+
+const HARNESS_FILE = abspath(@__FILE__)
+const BENCHMARK_WORKER = Ref{Int}(0)
+
+hard_timeout_seconds() = SOLVE_TIMEOUT_SECONDS + HARD_TIMEOUT_GRACE_SECONDS
+
+function start_benchmark_worker()
+    started = time()
+    worker = only(addprocs(1; exeflags = "--project=$(Base.active_project())"))
+    remotecall_fetch(
+        Core.eval, worker, Main, quote
+            using CUTEst
+            include($HARNESS_FILE)
+        end
+    )
+    BENCHMARK_WORKER[] = worker
+    @printf("Benchmark worker %d ready (startup %.1fs)\n", worker, time() - started)
+    return worker
+end
+
+function ensure_benchmark_worker()
+    worker = BENCHMARK_WORKER[]
+    worker in workers() && return worker
+    return start_benchmark_worker()
+end
+
+function kill_benchmark_worker(worker)
+    process = try
+        Distributed.worker_from_id(worker).config.process
+    catch
+        nothing
+    end
+
+    try
+        rmprocs(worker; waitfor = 10)
+    catch
+        # The worker ignored the cooperative exit request (stuck in non-yielding
+        # code such as a Fortran call), so terminate the OS process directly.
+        process === nothing || kill(process, Base.SIGKILL)
+        try
+            rmprocs(worker; waitfor = 30)
+        catch err
+            print_exception("Unable to remove benchmark worker $worker", err, catch_backtrace())
+        end
+    end
+
+    BENCHMARK_WORKER[] = 0
+    return nothing
+end
+
+# Synthetic rows must share every key with `run_single_solve`'s success path so
+# `DataFrame` construction from mixed OK / TIMEOUT / FAILED rows does not fail.
+function synthetic_solve_row(
+        problem_name, solver_name; secs, retcode, status, first_retcode = retcode
+    )
+    return (;
+        problem = problem_name,
+        solver = solver_name,
+        solver_class = solver_class(solver_name),
+        n_vars = -1,
+        secs = secs,
+        first_solve_secs = NaN,
+        compile_secs = NaN,
+        decode_secs = NaN,
+        solver_reported_secs = NaN,
+        retcode = retcode,
+        first_retcode = first_retcode,
+        status = status,
+        NO_QUALITY...,
+    )
+end
+
+function run_single_solve_guarded(
+        problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS
+    )
+    worker = ensure_benchmark_worker()
+    deadline = hard_timeout_seconds()
+    started = time()
+
+    waiter = @async remotecall_fetch(
+        Core.eval, worker, Main,
+        :(run_single_solve($problem_name, $solver_name; maxtime = $maxtime))
+    )
+
+    if timedwait(() -> istaskdone(waiter), deadline; pollint = 0.5) === :timed_out
+        println(
+            " HARD TIMEOUT: no result after $(deadline)s, killing worker $worker " *
+                "(a fresh worker is started for the next solve)"
+        )
+        kill_benchmark_worker(worker)
+
+        return synthetic_solve_row(
+            problem_name, solver_name;
+            secs = deadline, retcode = "HARD_TIMEOUT", status = "TIMEOUT",
+        )
+    end
+
+    try
+        return fetch(waiter)
+    catch err
+        bt = catch_backtrace()
+        print_exception(
+            "Benchmark worker $worker failed on $problem_name with $solver_name", err, bt
+        )
+
+        return synthetic_solve_row(
+            problem_name, solver_name;
+            secs = time() - started, retcode = "WORKER_FAILED", status = "FAILED",
+        )
+    end
+end
+
 function run_benchmarks(
         category, problems, solvers;
-        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS,
+        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS, hard_timeout = true,
     )
     rows = NamedTuple[]
 
@@ -548,11 +676,20 @@ function run_benchmarks(
     println("Problems: ", length(problems))
     println("Solvers: ", join(solvers, ", "))
     println("Per-solve time cap: ", maxtime, " s")
+    if hard_timeout
+        println("Hard timeout: ", hard_timeout_seconds(), "s per solve (worker process)")
+        ensure_benchmark_worker()
+    end
 
     for problem_name in problems
         for solver_name in solvers
+            hard_timeout && ensure_benchmark_worker()
             @printf("  %-18s %-24s", solver_name, problem_name)
-            row = run_single_solve(problem_name, solver_name; maxtime)
+            row = if hard_timeout
+                run_single_solve_guarded(problem_name, solver_name; maxtime)
+            else
+                run_single_solve(problem_name, solver_name; maxtime)
+            end
             push!(rows, merge((category = category,), row))
             @printf(
                 " %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n", row.status,
