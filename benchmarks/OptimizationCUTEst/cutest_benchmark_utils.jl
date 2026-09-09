@@ -13,10 +13,13 @@ using OptimizationOptimJL
 using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing,
     ParticleSwarm, BFGS, Newton, NewtonTrustRegion
 using OptimizationOptimisers: Optimisers
-using OptimizationNLopt: NLopt
 using OptimizationMOI
 using OptimizationMOI: MOI
 using Ipopt
+using OptimizationNLopt
+using OptimizationNLopt: NLopt
+using OptimizationMadNLP
+using MadNLP
 
 const MAX_PROBLEMS_PER_CATEGORY = 50
 const MAX_NVAR = 1_000
@@ -67,7 +70,9 @@ const UNCONSTRAINED_SOLVERS = [
     "ParticleSwarm",
     "Adam",
 ]
-const CONSTRAINED_SOLVERS = ["Ipopt"]
+const CONSTRAINED_SOLVERS = ["Ipopt", "MadNLP", "NLopt-SLSQP", "NLopt-AUGLAG-LBFGS"]
+const NLOPT_SOLVERS = Set(["NLopt-SLSQP", "NLopt-AUGLAG-LBFGS"])
+const NLOPT_RELTOL = 1.0e-8
 
 # Global heuristics run until `maxiters` and Optimisers.jl rules run for exactly
 # `maxiters` gradient steps; neither reports convergence through the return code, so
@@ -85,6 +90,9 @@ const SOLVER_CLASSES = Dict(
     "ParticleSwarm" => "global heuristic",
     "Adam" => "first-order (fixed budget)",
     "Ipopt" => "interior point",
+    "MadNLP" => "interior point",
+    "NLopt-SLSQP" => "sequential quadratic",
+    "NLopt-AUGLAG-LBFGS" => "augmented Lagrangian",
 )
 const BUDGET_LIMITED_CLASSES = Set(["global heuristic", "first-order (fixed budget)"])
 
@@ -126,9 +134,66 @@ function optimizer_from_name(name)
             "tol" => 1.0e-6,
             "print_level" => 0,
         )
+    elseif name == "MadNLP"
+        # CompactLBFGS matches Ipopt's limited-memory Hessian path and avoids
+        # ExactHessian, which requires a Lagrangian Hessian OptimizationNLPModels
+        # does not currently expose.
+        return MadNLPOptimizer(
+            hessian_approximation = MadNLP.CompactLBFGS,
+            acceptable_tol = 1.0e-6,
+            additional_options = Dict{Symbol, Any}(
+                :print_level => MadNLP.ERROR,
+            ),
+        )
+    elseif name == "NLopt-SLSQP"
+        return NLopt.LD_SLSQP()
+    elseif name == "NLopt-AUGLAG-LBFGS"
+        return NLopt.AUGLAG()
     else
         error("Unknown optimizer: $name")
     end
+end
+
+# NLopt has no default stopping tolerance, so without `reltol` every NLopt run ends in
+# `MaxIters`; AUGLAG additionally requires a local optimizer.
+function solve_kwargs_from_name(name)
+    if name == "NLopt-SLSQP"
+        return (; reltol = NLOPT_RELTOL)
+    elseif name == "NLopt-AUGLAG-LBFGS"
+        return (;
+            reltol = NLOPT_RELTOL, local_method = NLopt.LD_LBFGS(),
+            local_maxiters = SOLVE_MAXITERS,
+        )
+    else
+        return (;)
+    end
+end
+
+# OptimizationNLopt hands constraints to NLopt as `cons(x) <= 0` (inequalities) and
+# `cons(x) == 0` (equalities) and ignores `lcons`/`ucons`, so NLopt only solves the
+# intended problem when every CUTEst constraint is already in that form.
+function nlopt_constraint_form_ok(meta)
+    for (l, u) in zip(meta.lcon, meta.ucon)
+        l == u == 0 && continue
+        l == -Inf && u == 0 && continue
+        return false
+    end
+    return true
+end
+
+# Returns `nothing` when `solver_name` can be applied to a problem with metadata `meta`,
+# otherwise a short reason recorded alongside the `SKIPPED` status.
+function solver_skip_reason(solver_name, meta)
+    if solver_name in NLOPT_SOLVERS && !nlopt_constraint_form_ok(meta)
+        return "constraint bounds are not of the cons(x) <= 0 / cons(x) == 0 form " *
+            "that OptimizationNLopt passes to NLopt"
+    end
+    # SLSQP's least-squares subproblem needs at most nvar equality constraints; NLopt
+    # otherwise returns INVALID_ARGS before iterating.
+    if solver_name == "NLopt-SLSQP" && count(meta.lcon .== meta.ucon) > meta.nvar
+        return "SLSQP supports at most nvar equality constraints"
+    end
+    return nothing
 end
 
 function problem_metadata(name)
@@ -216,6 +281,7 @@ function solve_once(prob, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS)
         prob, optimizer_from_name(solver_name);
         maxiters = SOLVE_MAXITERS,
         maxtime = maxtime,
+        solve_kwargs_from_name(solver_name)...,
     )
 end
 
@@ -334,6 +400,27 @@ function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SEC
     first_retcode = "FAILED"
     solve_started = time_ns()
     try
+        skip_reason = solver_skip_reason(solver_name, nlp.meta)
+        if skip_reason !== nothing
+            println("CUTEst solve skipped for $problem_name with $solver_name: $skip_reason")
+
+            return (;
+                problem = problem_name,
+                solver = solver_name,
+                solver_class = class,
+                n_vars = nlp.meta.nvar,
+                secs = 0.0,
+                first_solve_secs = 0.0,
+                compile_secs = 0.0,
+                decode_secs = decode_secs,
+                solver_reported_secs = NaN,
+                retcode = "SKIPPED",
+                first_retcode = "SKIPPED",
+                status = "SKIPPED",
+                NO_QUALITY...,
+            )
+        end
+
         # OptimizationBase warns on every Newton solve that no `SecondOrder` ADtype was
         # given, even though the NLPModels Hessian is supplied directly.
         logger = class == "Newton" ? ConsoleLogger(stderr, Logging.Error) : current_logger()
@@ -536,31 +623,38 @@ function add_quality_columns!(results)
 end
 
 # Fails the page when a category is degenerate:
-#   * fewer than `MIN_COMPLETED_FRACTION` of the rows completed at the harness level
-#     (`status == "OK"`), or
-#   * any solver has zero completed rows (every call errored / was killed -> broken backend).
+#   * fewer than `MIN_COMPLETED_FRACTION` of the *attempted* (non-SKIPPED) rows completed
+#     at the harness level (`status == "OK"`), or
+#   * any attempted solver has zero completed rows (every non-SKIPPED call errored /
+#     was killed -> broken backend).
+# `SKIPPED` rows are intentional inapplicability and are excluded from both checks.
 # Zero *success* (retcode-based) for a solver is only warned about, since global
 # heuristics such as SimulatedAnnealing legitimately report 0% success on some categories.
 function assert_has_measurements(results, category)
     nrow(results) == 0 && error("CUTEst benchmark for $category produced no rows at all.")
 
-    completed = count(==("OK"), results.status)
-    completed_fraction = completed / nrow(results)
+    attempted = filter(:status => !=("SKIPPED"), results)
+    nrow(attempted) == 0 && error(
+        "CUTEst benchmark for $category produced only SKIPPED rows (no solver was applicable)."
+    )
+
+    completed = count(==("OK"), attempted.status)
+    completed_fraction = completed / nrow(attempted)
     status_distribution = count_distribution(results.status)
     retcode_distribution = count_distribution(results.retcode)
 
     failures = String[]
     if completed_fraction < MIN_COMPLETED_FRACTION
         msg = @sprintf(
-            "only %d/%d rows (%.1f%%) completed, below MIN_COMPLETED_FRACTION = %.1f%%",
-            completed, nrow(results), 100 * completed_fraction, 100 * MIN_COMPLETED_FRACTION
+            "only %d/%d attempted rows (%.1f%%) completed, below MIN_COMPLETED_FRACTION = %.1f%%",
+            completed, nrow(attempted), 100 * completed_fraction, 100 * MIN_COMPLETED_FRACTION
         )
         push!(failures, msg)
     end
 
-    solvers = unique(results.solver)
+    solvers = unique(attempted.solver)
     broken_solvers = filter(solvers) do solver
-        count(row -> row.solver == solver && row.status == "OK", eachrow(results)) == 0
+        count(row -> row.solver == solver && row.status == "OK", eachrow(attempted)) == 0
     end
     if !isempty(broken_solvers)
         push!(failures, "solver(s) with zero completed rows: " * join(broken_solvers, ", "))
@@ -575,15 +669,26 @@ function assert_has_measurements(results, category)
     end
 
     no_success_solvers = filter(solvers) do solver
-        count(row -> row.solver == solver && row.retcode in SUCCESS_RETCODES, eachrow(results)) == 0
+        count(row -> row.solver == solver && row.retcode in SUCCESS_RETCODES, eachrow(attempted)) == 0
     end
     if !isempty(no_success_solvers)
         @warn "CUTEst benchmark for $category has solver(s) with 0% success (no retcode in SUCCESS_RETCODES); allowed, but worth a look" category solvers = join(no_success_solvers, ", ") retcode_distribution
     end
 
+    skipped = count(==("SKIPPED"), results.status)
     completed_pct = round(100 * completed_fraction; digits = 1)
-    println("  $category: $completed/$(nrow(results)) rows completed ($completed_pct%); status: $status_distribution")
+    println(
+        "  $category: $completed/$(nrow(attempted)) attempted rows completed ($completed_pct%)",
+        skipped > 0 ? "; $skipped skipped" : "",
+        "; status: $status_distribution",
+    )
     return nothing
+end
+
+# Skipped pairings never ran a solver, so they carry no timing information.
+function median_attempted_secs(status, secs)
+    attempted = secs[status .!= "SKIPPED"]
+    return isempty(attempted) ? NaN : median(attempted)
 end
 
 function summarize_results(results)
@@ -600,8 +705,9 @@ function summarize_results(results)
         :status => (x -> count(==("OK"), x)) => :completed_runs,
         :retcode => (x -> count(in(SUCCESS_RETCODES), x)) => :successful_runs,
         :verified_success => count => :verified_runs,
+        :status => (x -> count(==("SKIPPED"), x)) => :skipped_runs,
         :retcode => length => :total_runs,
-        :secs => median => :median_secs,
+        [:status, :secs] => median_attempted_secs => :median_secs,
         :compile_secs => median => :median_compile_secs,
         :compile_secs => sum => :total_compile_secs,
     )
@@ -767,7 +873,7 @@ function plot_performance_profile(results, title)
     subplots = [
         performance_profile_subplot(
                 filter(:category => ==(category), results),
-                length(categories) == 1 ? title : "$title: $category"
+                length(categories) == 1 ? title : "$title: $category",
             )
             for category in categories
     ]
