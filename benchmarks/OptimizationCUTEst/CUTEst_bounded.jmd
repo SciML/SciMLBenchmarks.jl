@@ -61,14 +61,16 @@ println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
 println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
 println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
 
+# `only_bnd_var = true` keeps problems whose variables all carry bounds (no free
+# variable); `only_free_var = false` is the CUTEst.jl default and imposes no restriction.
 bounded_equality_problems = select_safe_problems(
     collect(CUTEst.select_sif_problems(min_con = 1, only_equ_con = true,
-        only_free_var = false, max_var = MAX_NVAR, max_con = MAX_NCON))
+        only_bnd_var = true, max_var = MAX_NVAR, max_con = MAX_NCON))
 )
 
 bounded_inequality_problems = select_safe_problems(
     collect(CUTEst.select_sif_problems(min_con = 1, only_ineq_con = true,
-        only_free_var = false, max_var = MAX_NVAR, max_con = MAX_NCON))
+        only_bnd_var = true, max_var = MAX_NVAR, max_con = MAX_NCON))
 )
 
 println("Selected bounded equality-constrained problems: ", length(bounded_equality_problems))
