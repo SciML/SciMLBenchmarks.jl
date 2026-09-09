@@ -147,10 +147,35 @@ end
 
 elapsed_seconds(started_ns) = (time_ns() - started_ns) / 1.0e9
 
-# Timing columns:
-#   secs                 wall-clock time around `solve(...)` only (primary metric)
+# `Base.cumulative_compile_time_ns()` returns `(compile_ns, recompile_ns)` on Julia >= 1.9
+# (a bare integer on older versions); recompilation is a subset of compilation, so the
+# first element is the total compile time (this is what `@time` reports).
+compile_ns(t) = t isa Tuple ? first(t) : t
+compile_seconds_since(before) = (compile_ns(Base.cumulative_compile_time_ns()) - compile_ns(before)) / 1.0e9
+
+solve_once(prob, solver_name) = solve(
+    prob, optimizer_from_name(solver_name);
+    maxiters = SOLVE_MAXITERS,
+    maxtime = SOLVE_TIMEOUT_SECONDS
+)
+
+# The second (clean) solve is skipped when the first one already hit the time cap or
+# errored, so a timed-out pair costs one cap, not two.
+rerun_worthwhile(first_retcode, first_solve_secs) =
+    first_retcode != "MaxTime" && first_solve_secs < SOLVE_TIMEOUT_SECONDS
+
+# Each (problem, solver) pair is solved twice. Timing columns:
+#   first_solve_secs     wall-clock time of the first `solve(...)`, includes any compilation
+#   compile_secs         Julia compilation time measured during the first solve
+#                        (`Base.cumulative_compile_timing`). Solver-level compilation is
+#                        absorbed by `warmup_solvers`, so this column shows per-problem-shape
+#                        recompilation (bounds / constraints present or not) if any
+#   secs                 wall-clock time of the second `solve(...)` on a fresh
+#                        `OptimizationProblem` from the same `nlp` (primary metric); equals
+#                        `first_solve_secs` when the rerun is skipped
 #   decode_secs          wall-clock time of the CUTEst SIF decode / `CUTEstModel(name)`
 #   solver_reported_secs `sol.stats.time` when the backend provides it, otherwise NaN
+# `retcode` comes from the second run, `first_retcode` from the first.
 function run_single_solve(problem_name, solver_name)
     nlp = nothing
     decode_started = time_ns()
@@ -166,31 +191,56 @@ function run_single_solve(problem_name, solver_name)
             solver = solver_name,
             n_vars = -1,
             secs = 0.0,
+            first_solve_secs = 0.0,
+            compile_secs = 0.0,
             decode_secs = elapsed_seconds(decode_started),
             solver_reported_secs = NaN,
             retcode = "LOAD_FAILED",
+            first_retcode = "LOAD_FAILED",
             status = "LOAD_FAILED",
         )
     end
     decode_secs = elapsed_seconds(decode_started)
 
+    first_solve_secs = 0.0
+    compile_secs = 0.0
+    first_retcode = "FAILED"
     solve_started = time_ns()
     try
         prob = OptimizationNLPModels.OptimizationProblem(nlp)
+        Base.cumulative_compile_timing(true)
+        compile_before = Base.cumulative_compile_time_ns()
         solve_started = time_ns()
-        sol = solve(prob, optimizer_from_name(solver_name);
-            maxiters = SOLVE_MAXITERS,
-            maxtime = SOLVE_TIMEOUT_SECONDS)
-        secs = elapsed_seconds(solve_started)
+        sol = try
+            solve_once(prob, solver_name)
+        finally
+            first_solve_secs = elapsed_seconds(solve_started)
+            compile_secs = compile_seconds_since(compile_before)
+            Base.cumulative_compile_timing(false)
+        end
+        first_retcode = retcode_name(sol.retcode)
+        secs = first_solve_secs
+
+        if rerun_worthwhile(first_retcode, first_solve_secs)
+            prob = OptimizationNLPModels.OptimizationProblem(nlp)
+            solve_started = time_ns()
+            sol = solve_once(prob, solver_name)
+            secs = elapsed_seconds(solve_started)
+        else
+            print(" [rerun skipped: first run ended with $first_retcode]")
+        end
 
         return (;
             problem = problem_name,
             solver = solver_name,
             n_vars = nlp.meta.nvar,
             secs = secs,
+            first_solve_secs = first_solve_secs,
+            compile_secs = compile_secs,
             decode_secs = decode_secs,
             solver_reported_secs = solve_seconds(sol, NaN),
             retcode = retcode_name(sol.retcode),
+            first_retcode = first_retcode,
             status = "OK",
         )
     catch err
@@ -202,9 +252,12 @@ function run_single_solve(problem_name, solver_name)
             solver = solver_name,
             n_vars = nlp.meta.nvar,
             secs = elapsed_seconds(solve_started),
+            first_solve_secs = first_solve_secs,
+            compile_secs = compile_secs,
             decode_secs = decode_secs,
             solver_reported_secs = NaN,
             retcode = "FAILED",
+            first_retcode = first_retcode,
             status = "FAILED",
         )
     finally
@@ -224,23 +277,30 @@ warmup_problem_for(solver_name) =
     WARMUP_UNCONSTRAINED_PROBLEM
 
 # Run one throwaway solve per solver on a tiny problem so that JIT compilation of the
-# solver / NLPModels / MOI code paths is not attributed to the first measured row.
-# `problem` may be a problem name applied to every solver, or `nothing` to pick a
-# tiny unconstrained/constrained problem per solver via `warmup_problem_for`.
+# solver / NLPModels / MOI code paths is not attributed to whichever problem comes first
+# in the benchmark loop. The per-solver compile time measured here is printed and
+# returned; the per-pair `compile_secs` column then only shows recompilation caused by a
+# change of problem shape. `problem` may be a problem name applied to every solver, or
+# `nothing` to pick a tiny unconstrained/constrained problem per solver via
+# `warmup_problem_for`.
 function warmup_solvers(solvers; problem = nothing)
+    rows = NamedTuple[]
+
     println()
-    println("Warming up solvers (JIT), results are discarded:")
+    println("Warming up solvers (JIT), results are not benchmarked:")
     for solver_name in solvers
         problem_name = problem === nothing ? warmup_problem_for(solver_name) : problem
         @printf("  %-18s %-24s", solver_name, problem_name)
         started = time_ns()
         row = run_single_solve(problem_name, solver_name)
+        push!(rows, row)
         @printf(
-            " %s %s %.3fs (total %.3fs)\n", row.status, row.retcode, row.secs,
+            " %s %s first %.3fs compile %.3fs clean %.3fs (total %.3fs)\n", row.status,
+            row.retcode, row.first_solve_secs, row.compile_secs, row.secs,
             elapsed_seconds(started)
         )
     end
-    return nothing
+    return DataFrame(rows)
 end
 
 function run_benchmarks(category, problems, solvers; warmup = true)
@@ -259,16 +319,18 @@ function run_benchmarks(category, problems, solvers; warmup = true)
             row = run_single_solve(problem_name, solver_name)
             push!(rows, merge((category = category,), row))
             @printf(
-                " %s %s %.3fs (decode %.3fs)\n", row.status, row.retcode, row.secs,
-                row.decode_secs
+                " %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n", row.status,
+                row.retcode, row.secs, row.first_solve_secs, row.compile_secs, row.decode_secs
             )
         end
     end
 
     results = isempty(rows) ? DataFrame(
             category = String[], problem = String[], solver = String[],
-            n_vars = Int[], secs = Float64[], decode_secs = Float64[],
-            solver_reported_secs = Float64[], retcode = String[], status = String[]
+            n_vars = Int[], secs = Float64[], first_solve_secs = Float64[],
+            compile_secs = Float64[], decode_secs = Float64[],
+            solver_reported_secs = Float64[], retcode = String[], first_retcode = String[],
+            status = String[]
         ) : DataFrame(rows)
 
     assert_has_measurements(results, category)
@@ -344,6 +406,8 @@ function summarize_results(results)
         :retcode => (x -> count(in(SUCCESS_RETCODES), x)) => :successful_runs,
         :retcode => length => :total_runs,
         :secs => median => :median_secs,
+        :compile_secs => median => :median_compile_secs,
+        :compile_secs => sum => :total_compile_secs,
     )
 
     summary.completion_rate = round.(summary.completed_runs ./ summary.total_runs .* 100; digits = 1)
@@ -375,6 +439,30 @@ function plot_solve_times(results, title)
     )
 
     return display(solve_time_plot)
+end
+
+# Compile time measured during the first solve of each pair. Rows with exactly zero
+# compile time (nothing was compiled) cannot be drawn on a log axis and are dropped.
+function plot_compile_times(results, title)
+    compiled = filter([:status, :compile_secs] => (s, c) -> s == "OK" && c > 0, results)
+    if nrow(compiled) == 0
+        println("No rows with nonzero compile time; skipping compile time plot.")
+        return nothing
+    end
+
+    compile_time_plot = @df compiled scatter(
+        :n_vars,
+        :compile_secs,
+        group = :solver,
+        xlabel = "Number of variables",
+        ylabel = "Compile seconds (first solve)",
+        title = title,
+        yscale = :log10,
+        legend = :topleft,
+        size = (900, 600),
+    )
+
+    return display(compile_time_plot)
 end
 
 function plot_success_rates(summary, title)
