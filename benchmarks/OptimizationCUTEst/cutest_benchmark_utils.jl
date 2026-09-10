@@ -1,4 +1,5 @@
 using Printf
+using Logging
 using DataFrames
 using Plots
 using StatsPlots
@@ -10,7 +11,9 @@ using NLPModels
 using OptimizationNLPModels
 using OptimizationOptimJL
 using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing,
-    ParticleSwarm
+    ParticleSwarm, BFGS, Newton, NewtonTrustRegion
+using OptimizationOptimisers: Optimisers
+using OptimizationNLopt: NLopt
 using OptimizationMOI
 using OptimizationMOI: MOI
 using Ipopt
@@ -53,24 +56,67 @@ const KNOWN_BAD_PROBLEMS = Set(
 
 const UNCONSTRAINED_SOLVERS = [
     "LBFGS",
+    "BFGS",
+    "NLopt_LD_LBFGS",
     "ConjugateGradient",
+    "Newton",
+    "NewtonTrustRegion",
     "NelderMead",
+    "NLopt_LN_BOBYQA",
     "SimulatedAnnealing",
     "ParticleSwarm",
+    "Adam",
 ]
 const CONSTRAINED_SOLVERS = ["Ipopt"]
+
+# Global heuristics run until `maxiters` and Optimisers.jl rules run for exactly
+# `maxiters` gradient steps; neither reports convergence through the return code, so
+# their rows are summarized separately from the local convergence-based solvers.
+const SOLVER_CLASSES = Dict(
+    "LBFGS" => "quasi-Newton",
+    "BFGS" => "quasi-Newton",
+    "NLopt_LD_LBFGS" => "quasi-Newton",
+    "ConjugateGradient" => "conjugate gradient",
+    "Newton" => "Newton",
+    "NewtonTrustRegion" => "Newton",
+    "NelderMead" => "derivative-free",
+    "NLopt_LN_BOBYQA" => "derivative-free",
+    "SimulatedAnnealing" => "global heuristic",
+    "ParticleSwarm" => "global heuristic",
+    "Adam" => "first-order (fixed budget)",
+    "Ipopt" => "interior point",
+)
+const BUDGET_LIMITED_CLASSES = Set(["global heuristic", "first-order (fixed budget)"])
+
+solver_class(name) = get(SOLVER_CLASSES, name) do
+    error("Unknown optimizer class: $name")
+end
+
+convergence_based(class) = !(class in BUDGET_LIMITED_CLASSES)
 
 function optimizer_from_name(name)
     if name == "LBFGS"
         return LBFGS()
+    elseif name == "BFGS"
+        return BFGS()
+    elseif name == "NLopt_LD_LBFGS"
+        return NLopt.LD_LBFGS()
     elseif name == "ConjugateGradient"
         return ConjugateGradient()
+    elseif name == "Newton"
+        return Newton()
+    elseif name == "NewtonTrustRegion"
+        return NewtonTrustRegion()
     elseif name == "NelderMead"
         return NelderMead()
+    elseif name == "NLopt_LN_BOBYQA"
+        return NLopt.LN_BOBYQA()
     elseif name == "SimulatedAnnealing"
         return SimulatedAnnealing()
     elseif name == "ParticleSwarm"
         return ParticleSwarm()
+    elseif name == "Adam"
+        return Optimisers.Adam()
     elseif name == "Ipopt"
         return MOI.OptimizerWithAttributes(
             Ipopt.Optimizer,
@@ -165,16 +211,32 @@ elapsed_seconds(started_ns) = (time_ns() - started_ns) / 1.0e9
 compile_ns(t) = t isa Tuple ? first(t) : t
 compile_seconds_since(before) = (compile_ns(Base.cumulative_compile_time_ns()) - compile_ns(before)) / 1.0e9
 
-solve_once(prob, solver_name) = solve(
-    prob, optimizer_from_name(solver_name);
-    maxiters = SOLVE_MAXITERS,
-    maxtime = SOLVE_TIMEOUT_SECONDS
-)
+function solve_once(prob, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS)
+    return solve(
+        prob, optimizer_from_name(solver_name);
+        maxiters = SOLVE_MAXITERS,
+        maxtime = maxtime,
+    )
+end
 
 # The second (clean) solve is skipped when the first one already hit the time cap or
 # errored, so a timed-out pair costs one cap, not two.
-rerun_worthwhile(first_retcode, first_solve_secs) =
-    first_retcode != "MaxTime" && first_solve_secs < SOLVE_TIMEOUT_SECONDS
+rerun_worthwhile(first_retcode, first_solve_secs; maxtime = SOLVE_TIMEOUT_SECONDS) =
+    first_retcode != "MaxTime" && first_solve_secs < maxtime
+
+function build_problem(nlp, solver_name)
+    if solver_class(solver_name) != "first-order (fixed budget)"
+        return OptimizationNLPModels.OptimizationProblem(nlp)
+    end
+
+    # OptimizationOptimisers evaluates the objective through `fg` (or a one-argument
+    # `f`), neither of which the NLPModels wrapper provides, so supply `objgrad!` here.
+    fg(G, x, p) = first(NLPModels.objgrad!(nlp, x, G))
+    return OptimizationProblem(
+        OptimizationNLPModels.OptimizationFunction(nlp; fg),
+        nlp.meta.x0,
+    )
+end
 
 const NO_QUALITY = (; objective = NaN, grad_norm = NaN, cons_viol = NaN)
 
@@ -238,9 +300,10 @@ end
 # `retcode` comes from the second run, `first_retcode` from the first.
 # Quality columns (`objective`, `grad_norm`, `cons_viol`) are evaluated at the final
 # `sol.u` after the clean (or only) solve; NaN on load/solve failure.
-function run_single_solve(problem_name, solver_name)
+function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS)
     nlp = nothing
     decode_started = time_ns()
+    class = solver_class(solver_name)
 
     try
         nlp = CUTEstModel(problem_name)
@@ -251,6 +314,7 @@ function run_single_solve(problem_name, solver_name)
         return (;
             problem = problem_name,
             solver = solver_name,
+            solver_class = class,
             n_vars = -1,
             secs = 0.0,
             first_solve_secs = 0.0,
@@ -270,12 +334,17 @@ function run_single_solve(problem_name, solver_name)
     first_retcode = "FAILED"
     solve_started = time_ns()
     try
-        prob = OptimizationNLPModels.OptimizationProblem(nlp)
+        # OptimizationBase warns on every Newton solve that no `SecondOrder` ADtype was
+        # given, even though the NLPModels Hessian is supplied directly.
+        logger = class == "Newton" ? ConsoleLogger(stderr, Logging.Error) : current_logger()
+        prob = build_problem(nlp, solver_name)
         Base.cumulative_compile_timing(true)
         compile_before = Base.cumulative_compile_time_ns()
         solve_started = time_ns()
         sol = try
-            solve_once(prob, solver_name)
+            with_logger(logger) do
+                solve_once(prob, solver_name; maxtime)
+            end
         finally
             first_solve_secs = elapsed_seconds(solve_started)
             compile_secs = compile_seconds_since(compile_before)
@@ -284,10 +353,12 @@ function run_single_solve(problem_name, solver_name)
         first_retcode = retcode_name(sol.retcode)
         secs = first_solve_secs
 
-        if rerun_worthwhile(first_retcode, first_solve_secs)
-            prob = OptimizationNLPModels.OptimizationProblem(nlp)
+        if rerun_worthwhile(first_retcode, first_solve_secs; maxtime)
+            prob = build_problem(nlp, solver_name)
             solve_started = time_ns()
-            sol = solve_once(prob, solver_name)
+            sol = with_logger(logger) do
+                solve_once(prob, solver_name; maxtime)
+            end
             secs = elapsed_seconds(solve_started)
         else
             print(" [rerun skipped: first run ended with $first_retcode]")
@@ -302,6 +373,7 @@ function run_single_solve(problem_name, solver_name)
         return (;
             problem = problem_name,
             solver = solver_name,
+            solver_class = class,
             n_vars = nlp.meta.nvar,
             secs = secs,
             first_solve_secs = first_solve_secs,
@@ -320,6 +392,7 @@ function run_single_solve(problem_name, solver_name)
         return (;
             problem = problem_name,
             solver = solver_name,
+            solver_class = class,
             n_vars = nlp.meta.nvar,
             secs = elapsed_seconds(solve_started),
             first_solve_secs = first_solve_secs,
@@ -355,7 +428,7 @@ warmup_problem_for(solver_name) =
 # change of problem shape. `problem` may be a problem name applied to every solver, or
 # `nothing` to pick a tiny unconstrained/constrained problem per solver via
 # `warmup_problem_for`.
-function warmup_solvers(solvers; problem = nothing)
+function warmup_solvers(solvers; problem = nothing, maxtime = SOLVE_TIMEOUT_SECONDS)
     rows = NamedTuple[]
 
     println()
@@ -364,7 +437,7 @@ function warmup_solvers(solvers; problem = nothing)
         problem_name = problem === nothing ? warmup_problem_for(solver_name) : problem
         @printf("  %-18s %-24s", solver_name, problem_name)
         started = time_ns()
-        row = run_single_solve(problem_name, solver_name)
+        row = run_single_solve(problem_name, solver_name; maxtime)
         push!(rows, row)
         @printf(
             " %s %s first %.3fs compile %.3fs clean %.3fs (total %.3fs)\n", row.status,
@@ -375,20 +448,24 @@ function warmup_solvers(solvers; problem = nothing)
     return DataFrame(rows)
 end
 
-function run_benchmarks(category, problems, solvers; warmup = true)
+function run_benchmarks(
+        category, problems, solvers;
+        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS,
+    )
     rows = NamedTuple[]
 
-    warmup && warmup_solvers(solvers)
+    warmup && warmup_solvers(solvers; maxtime)
 
     println()
     println("Running $category benchmarks")
     println("Problems: ", length(problems))
     println("Solvers: ", join(solvers, ", "))
+    println("Per-solve time cap: ", maxtime, " s")
 
     for problem_name in problems
         for solver_name in solvers
             @printf("  %-18s %-24s", solver_name, problem_name)
-            row = run_single_solve(problem_name, solver_name)
+            row = run_single_solve(problem_name, solver_name; maxtime)
             push!(rows, merge((category = category,), row))
             @printf(
                 " %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n", row.status,
@@ -399,8 +476,8 @@ function run_benchmarks(category, problems, solvers; warmup = true)
 
     results = isempty(rows) ? DataFrame(
             category = String[], problem = String[], solver = String[],
-            n_vars = Int[], secs = Float64[], first_solve_secs = Float64[],
-            compile_secs = Float64[], decode_secs = Float64[],
+            solver_class = String[], n_vars = Int[], secs = Float64[],
+            first_solve_secs = Float64[], compile_secs = Float64[], decode_secs = Float64[],
             solver_reported_secs = Float64[], retcode = String[], first_retcode = String[],
             status = String[],
             objective = Float64[], grad_norm = Float64[], cons_viol = Float64[]
@@ -519,7 +596,7 @@ function summarize_results(results)
     end
 
     summary = combine(
-        groupby(results, [:category, :solver]),
+        groupby(results, [:category, :solver_class, :solver]),
         :status => (x -> count(==("OK"), x)) => :completed_runs,
         :retcode => (x -> count(in(SUCCESS_RETCODES), x)) => :successful_runs,
         :verified_success => count => :verified_runs,
@@ -534,10 +611,36 @@ function summarize_results(results)
     summary.verified_success_rate = round.(
         summary.verified_runs ./ summary.total_runs .* 100; digits = 1
     )
+    summary.convergence_based = convergence_based.(summary.solver_class)
+    sort!(summary, [:category, order(:convergence_based; rev = true), :solver_class, :solver])
+
+    local_summary = filter(:convergence_based => identity, summary)
+    budget_summary = filter(:convergence_based => !, summary)
 
     println()
-    println("Summary:")
-    display(summary)
+    println(
+        "Summary (local convergence-based solvers; success = return code in ",
+        join(sort(collect(SUCCESS_RETCODES)), "/"), "):",
+    )
+    display(select(local_summary, Not(:convergence_based)))
+
+    if nrow(budget_summary) > 0
+        println()
+        println(
+            "Summary (budget-limited solvers; these run until maxiters and do not report ",
+            "convergence through the return code, so only completion and time are shown):",
+        )
+        display(
+            select(
+                budget_summary, Not(
+                    [
+                        :successful_runs, :success_rate, :verified_runs, :verified_success_rate,
+                        :convergence_based,
+                    ]
+                )
+            )
+        )
+    end
 
     return summary
 end
@@ -588,14 +691,18 @@ function plot_compile_times(results, title)
 end
 
 function plot_success_rates(summary, title)
-    if nrow(summary) == 0
+    local_summary = filter(:convergence_based => identity, summary)
+    if nrow(local_summary) == 0
         return nothing
     end
 
-    success_rate_plot = @df summary groupedbar(
+    # Alphabetical group order keeps solvers of the same class adjacent in the legend.
+    local_summary.label = local_summary.solver_class .* ": " .* local_summary.solver
+
+    success_rate_plot = @df local_summary groupedbar(
         :category,
         :success_rate,
-        group = :solver,
+        group = :label,
         xlabel = "Problem category",
         ylabel = "Success rate (%)",
         title = title,

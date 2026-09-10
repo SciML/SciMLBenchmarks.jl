@@ -28,6 +28,16 @@ harness.
 
 ## Setup
 
+Solvers are grouped by class. Local convergence-based methods (quasi-Newton `LBFGS`,
+`BFGS`, NLopt `LD_LBFGS`; `ConjugateGradient`; `Newton` and `NewtonTrustRegion` using the
+NLPModels Hessian; derivative-free `NelderMead` and NLopt `LN_BOBYQA`) report success
+through their return code. The global heuristics `SimulatedAnnealing` and `ParticleSwarm`
+run until `maxiters` and the Optimisers.jl rule `Adam` takes exactly `maxiters` gradient
+steps; neither signals convergence, so they are summarized separately with completion
+rate and time only and are excluded from the success-rate plot. Every solve on this page
+is capped at `unconstrained_timeout_seconds`, which is tighter than the shared default so
+that the larger solver set keeps a bounded worst-case runtime.
+
 ```julia
 ENV["GKSwstype"] = "100"
 
@@ -72,30 +82,43 @@ println(join(unconstrained_problems, ", "))
 
 ## Solvers
 
-`UNCONSTRAINED_SOLVERS` lists the Optim.jl algorithms run through `OptimizationOptimJL`:
-`LBFGS`, `ConjugateGradient`, `NelderMead`, `SimulatedAnnealing`, and `ParticleSwarm`.
-Each is constructed with its default options. Gradients come from the NLPModels interface,
-so the two gradient-based methods use CUTEst's analytic derivatives rather than finite
-differences. Every solve is called with `maxiters = SOLVE_MAXITERS` and
-`maxtime = SOLVE_TIMEOUT_SECONDS`. The global heuristics (`SimulatedAnnealing`,
-`ParticleSwarm`) are run with the same budget and reported alongside the local methods;
-separating them is part of #1857.
+`UNCONSTRAINED_SOLVERS` lists eleven algorithms spanning Optim.jl
+(`LBFGS`, `BFGS`, `ConjugateGradient`, `Newton`, `NewtonTrustRegion`, `NelderMead`,
+`SimulatedAnnealing`, `ParticleSwarm`), NLopt (`LD_LBFGS`, `LN_BOBYQA`), and Optimisers.jl
+(`Adam`). Each is constructed with its default options. Gradients (and Hessians for the
+Newton class) come from the NLPModels interface, so derivative-based methods use CUTEst's
+analytic derivatives rather than finite differences. `Adam` is the exception: the
+Optimisers path needs an `fg` closure, which `build_problem` supplies from
+`NLPModels.objgrad!` for that class only. Every solve is called with
+`maxiters = SOLVE_MAXITERS` and `maxtime = unconstrained_timeout_seconds` (both timing
+runs of a pair share that cap). Budget-limited solvers are summarized separately from
+local convergence-based ones; see the Setup section.
 
 ## Run
 
-Each (problem, solver) pair is solved once by `run_single_solve`. A row records the return
-code as reported by Optimization.jl and a `status` of `OK` when `solve` returned,
+Each (problem, solver) pair is solved twice by `run_single_solve` after a per-solver
+warm-up: the first run measures wall-clock time including any remaining compilation
+(`first_solve_secs`, `compile_secs`), and the second run on a fresh
+`OptimizationProblem` is the primary `secs` metric. If the first run already hits
+`MaxTime` (or otherwise exceeds the page `maxtime`), the second run is skipped so a
+timed-out pair costs one cap, not two. A row also records `solver_class`, the return
+code as reported by Optimization.jl, and a `status` of `OK` when `solve` returned,
 `FAILED` when it threw, or `LOAD_FAILED` when the CUTEst problem could not be
-constructed. The reported time is `sol.stats.time` when the solver provides a finite,
-non-negative value, and otherwise the wall-clock time measured around problem construction
-and `solve` together. `run_benchmarks` errors if a category yields no `OK` rows, so a
-broken environment fails the build instead of producing an empty page.
+constructed. `solver_reported_secs` is `sol.stats.time` when the backend provides it.
+`run_benchmarks` errors if a category is degenerate (too few completed rows or a solver
+with zero completions), so a broken environment fails the build instead of producing an
+empty page.
 
 ```julia
+# Worst case: 50 problems x 11 solvers x 30 s = 16,500 s, below the 22,500 s bound the
+# previous 5-solver / 90 s configuration had.
+unconstrained_timeout_seconds = 30.0
+
 unc_results = run_benchmarks(
     "unconstrained",
     unconstrained_problems,
-    UNCONSTRAINED_SOLVERS,
+    UNCONSTRAINED_SOLVERS;
+    maxtime = unconstrained_timeout_seconds,
 )
 
 display(unc_results)
@@ -103,13 +126,15 @@ display(unc_results)
 
 ## Summary
 
-`summarize_results` groups rows by solver. `completion_rate` is the share of runs with
-`status == "OK"`, i.e. the solver returned at all. `success_rate` is the share of runs
-whose return code is in `SUCCESS_RETCODES` (`Success`, `Terminated`,
-`FirstOrderOptimal`). Runs that stopped at `MaxIters` or `MaxTime` count as completed but
-not successful. `median_secs` is the median of the per-run time described above over all
-rows for that solver, including unsuccessful ones. No solution-quality metric (objective
-value, gradient norm) is recorded yet; see #1857.
+`summarize_results` groups rows by solver class and solver. `completion_rate` is the
+share of runs with `status == "OK"`, i.e. the solver returned at all. `success_rate` is
+the share of runs whose return code is in `SUCCESS_RETCODES` (`Success`, `Terminated`,
+`FirstOrderOptimal`) and is reported only for local convergence-based solvers. Runs that
+stopped at `MaxIters` or `MaxTime` count as completed but not successful. `median_secs`
+is the median of the clean-run wall-clock time over all rows for that solver, including
+unsuccessful ones; `median_compile_secs` / `total_compile_secs` summarize first-run
+compilation. No solution-quality metric (objective value, gradient norm) is recorded
+yet; see #1857.
 
 ```julia
 unc_summary = summarize_results(unc_results)
