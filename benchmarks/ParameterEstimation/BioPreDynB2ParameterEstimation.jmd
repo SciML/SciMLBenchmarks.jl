@@ -335,11 +335,17 @@ plot(sol_nom, idxs = [8, 6, 13, 3], label = ["pep" "g6p" "pyr" "f6p"],
 
 We benchmark global optimizers on this 116-parameter problem, starting
 from the nominal parameters as the initial guess and using the bounds
-given above (matching the original study's setup). Because this is a
+given above (matching the original study's setup). This is a
 substantially harder problem than the other benchmarks in this folder
-(116 parameters vs. 4), we use a modest evaluation budget here; reaching
-the paper's reference cost is expected to require orders of magnitude
-more evaluations (as reported in the original study).
+(116 parameters vs. 4): the original study needed ~10⁵ evaluations of a
+more sophisticated hybrid metaheuristic (eSS) to reach `Jf ≈ 234.2`. We
+use a budget of 50,000 evaluations per optimizer here — large enough to
+show real convergence behavior, though (using simpler, off-the-shelf
+global optimizers rather than eSS) still not necessarily enough to fully
+match the literature optimum.
+
+Each optimizer's raw per-evaluation cost is recorded via a callback, from
+which we compute the running best-found cost for a convergence plot.
 
 ```julia
 optf = OptimizationFunction((p, _) -> biopredyn_b2_cost(p))
@@ -347,13 +353,18 @@ optprob = OptimizationProblem(optf, p_nom, lb = p_lower, ub = p_upper)
 ```
 
 ```julia
-@time res_bbo = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 2000)
+losses_bbo = Float64[]
+cb_bbo = (state, l) -> (push!(losses_bbo, l); false)
+@time res_bbo = solve(
+    optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 50000, callback = cb_bbo)
 res_bbo.objective
 ```
 
 ```julia
+losses_nlopt = Float64[]
+cb_nlopt = (state, l) -> (push!(losses_nlopt, l); false)
 opt = Opt(:GN_CRS2_LM, length(p_nom))
-@time res_nlopt = solve(optprob, opt, maxiters = 2000)
+@time res_nlopt = solve(optprob, opt, maxiters = 50000, callback = cb_nlopt)
 res_nlopt.objective
 ```
 
@@ -361,6 +372,19 @@ res_nlopt.objective
 df = DataFrame(
     method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM"],
     cost = [cost_nominal, res_bbo.objective, res_nlopt.objective])
+```
+
+## Convergence
+
+```julia
+bestcost_bbo = accumulate(min, losses_bbo)
+bestcost_nlopt = accumulate(min, losses_nlopt)
+
+plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
+    xlabel = "iteration", ylabel = "best cost so far (log scale)",
+    title = "B2 parameter estimation convergence")
+plot!(bestcost_nlopt, label = "GN_CRS2_LM")
+hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
 
 # Conclusion
