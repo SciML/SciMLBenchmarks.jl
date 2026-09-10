@@ -6,6 +6,7 @@ using StatsBase: countmap
 using Statistics
 
 using Optimization
+using NLPModels
 using OptimizationNLPModels
 using OptimizationOptimJL
 using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing,
@@ -30,6 +31,15 @@ const WARMUP_UNCONSTRAINED_PROBLEM = "ROSENBR"
 const WARMUP_CONSTRAINED_PROBLEM = "HS35"
 
 const SUCCESS_RETCODES = Set(["Success", "Terminated", "FirstOrderOptimal"])
+
+# Solution-quality tolerances used by the "verified" success criterion. A run is a
+# verified success when its return code is in SUCCESS_RETCODES, the returned point
+# violates no constraint or bound by more than FEAS_TOL, and either the projected
+# gradient norm is below OPT_TOL or the objective is within GAP_TOL (relative) of the
+# best feasible objective any solver found for that problem.
+const FEAS_TOL = 1.0e-6
+const OPT_TOL = 1.0e-5
+const GAP_TOL = 1.0e-6
 
 const KNOWN_BAD_PROBLEMS = Set(
     lowercase.(
@@ -166,6 +176,54 @@ solve_once(prob, solver_name) = solve(
 rerun_worthwhile(first_retcode, first_solve_secs) =
     first_retcode != "MaxTime" && first_solve_secs < SOLVE_TIMEOUT_SECONDS
 
+const NO_QUALITY = (; objective = NaN, grad_norm = NaN, cons_viol = NaN)
+
+# Maximum violation of `lo <= v <= hi`, elementwise; 0.0 when everything is within bounds.
+function bound_violation(v, lo, hi)
+    viol = 0.0
+    for i in eachindex(v)
+        viol = max(viol, lo[i] - v[i], v[i] - hi[i])
+    end
+    return viol
+end
+
+# Evaluate the objective, the projected gradient norm and the maximum constraint/bound
+# violation of the NLPModels object at `x`. For unconstrained problems the projected
+# gradient reduces to the infinity norm of the gradient; for problems with general
+# constraints it is only indicative and `cons_viol` is the primary check. Every metric is
+# guarded independently so an evaluation failure yields `NaN` for that metric only.
+function solution_quality(nlp, x)
+    x = collect(Float64, x)
+    meta = nlp.meta
+
+    objective = try
+        Float64(NLPModels.obj(nlp, x))
+    catch
+        NaN
+    end
+
+    grad_norm = try
+        g = NLPModels.grad(nlp, x)
+        proj = clamp.(x .- g, meta.lvar, meta.uvar)
+        maximum(abs, x .- proj; init = 0.0)
+    catch
+        NaN
+    end
+
+    cons_viol = try
+        viol = bound_violation(x, meta.lvar, meta.uvar)
+        if meta.ncon > 0
+            c = NLPModels.cons(nlp, x)
+            viol = max(viol, bound_violation(c, meta.lcon, meta.ucon))
+        end
+        viol
+    catch
+        NaN
+    end
+
+    return (; objective, grad_norm, cons_viol)
+end
+
 # Each (problem, solver) pair is solved twice. Timing columns:
 #   first_solve_secs     wall-clock time of the first `solve(...)`, includes any compilation
 #   compile_secs         Julia compilation time measured during the first solve
@@ -178,6 +236,8 @@ rerun_worthwhile(first_retcode, first_solve_secs) =
 #   decode_secs          wall-clock time of the CUTEst SIF decode / `CUTEstModel(name)`
 #   solver_reported_secs `sol.stats.time` when the backend provides it, otherwise NaN
 # `retcode` comes from the second run, `first_retcode` from the first.
+# Quality columns (`objective`, `grad_norm`, `cons_viol`) are evaluated at the final
+# `sol.u` after the clean (or only) solve; NaN on load/solve failure.
 function run_single_solve(problem_name, solver_name)
     nlp = nothing
     decode_started = time_ns()
@@ -200,6 +260,7 @@ function run_single_solve(problem_name, solver_name)
             retcode = "LOAD_FAILED",
             first_retcode = "LOAD_FAILED",
             status = "LOAD_FAILED",
+            NO_QUALITY...,
         )
     end
     decode_secs = elapsed_seconds(decode_started)
@@ -232,6 +293,12 @@ function run_single_solve(problem_name, solver_name)
             print(" [rerun skipped: first run ended with $first_retcode]")
         end
 
+        quality = try
+            solution_quality(nlp, sol.u)
+        catch
+            NO_QUALITY
+        end
+
         return (;
             problem = problem_name,
             solver = solver_name,
@@ -244,6 +311,7 @@ function run_single_solve(problem_name, solver_name)
             retcode = retcode_name(sol.retcode),
             first_retcode = first_retcode,
             status = "OK",
+            quality...,
         )
     catch err
         bt = catch_backtrace()
@@ -261,6 +329,7 @@ function run_single_solve(problem_name, solver_name)
             retcode = "FAILED",
             first_retcode = first_retcode,
             status = "FAILED",
+            NO_QUALITY...,
         )
     finally
         if nlp !== nothing
@@ -333,9 +402,11 @@ function run_benchmarks(category, problems, solvers; warmup = true)
             n_vars = Int[], secs = Float64[], first_solve_secs = Float64[],
             compile_secs = Float64[], decode_secs = Float64[],
             solver_reported_secs = Float64[], retcode = String[], first_retcode = String[],
-            status = String[]
+            status = String[],
+            objective = Float64[], grad_norm = Float64[], cons_viol = Float64[]
         ) : DataFrame(rows)
 
+    add_quality_columns!(results)
     assert_has_measurements(results, category)
     return results
 end
@@ -343,6 +414,48 @@ end
 function count_distribution(values)
     counts = sort(collect(countmap(values)); by = x -> x[2], rev = true)
     return join(["$code=$n" for (code, n) in counts], ", ")
+end
+
+# Smallest objective among runs whose point is feasible to FEAS_TOL; NaN if none is.
+function best_feasible_objective(objective, cons_viol)
+    best = Inf
+    for (f, v) in zip(objective, cons_viol)
+        if isfinite(f) && isfinite(v) && v <= FEAS_TOL && f < best
+            best = f
+        end
+    end
+    return isfinite(best) ? best : NaN
+end
+
+function is_verified_success(retcode, cons_viol, grad_norm, obj_gap)
+    retcode in SUCCESS_RETCODES || return false
+    isfinite(cons_viol) && cons_viol <= FEAS_TOL || return false
+    return (isfinite(grad_norm) && grad_norm <= OPT_TOL) ||
+        (isfinite(obj_gap) && obj_gap <= GAP_TOL)
+end
+
+# Add the cross-solver quality columns: `best_objective` (per category/problem),
+# the relative gap `obj_gap = (objective - best_objective) / max(1, |best_objective|)`
+# and the boolean `verified_success` criterion. Idempotent.
+function add_quality_columns!(results)
+    if nrow(results) == 0
+        results.best_objective = Float64[]
+        results.obj_gap = Float64[]
+        results.verified_success = Bool[]
+        return results
+    end
+
+    transform!(
+        groupby(results, [:category, :problem]),
+        [:objective, :cons_viol] => best_feasible_objective => :best_objective,
+    )
+    results.obj_gap = (results.objective .- results.best_objective) ./
+        max.(1.0, abs.(results.best_objective))
+    results.verified_success = is_verified_success.(
+        results.retcode, results.cons_viol, results.grad_norm, results.obj_gap
+    )
+
+    return results
 end
 
 # Fails the page when a category is degenerate:
@@ -397,6 +510,8 @@ function assert_has_measurements(results, category)
 end
 
 function summarize_results(results)
+    hasproperty(results, :verified_success) || add_quality_columns!(results)
+
     println()
     println("Return code distribution:")
     for (code, n) in sort(collect(countmap(results.retcode)); by = x -> x[2], rev = true)
@@ -407,6 +522,7 @@ function summarize_results(results)
         groupby(results, [:category, :solver]),
         :status => (x -> count(==("OK"), x)) => :completed_runs,
         :retcode => (x -> count(in(SUCCESS_RETCODES), x)) => :successful_runs,
+        :verified_success => count => :verified_runs,
         :retcode => length => :total_runs,
         :secs => median => :median_secs,
         :compile_secs => median => :median_compile_secs,
@@ -415,6 +531,9 @@ function summarize_results(results)
 
     summary.completion_rate = round.(summary.completed_runs ./ summary.total_runs .* 100; digits = 1)
     summary.success_rate = round.(summary.successful_runs ./ summary.total_runs .* 100; digits = 1)
+    summary.verified_success_rate = round.(
+        summary.verified_runs ./ summary.total_runs .* 100; digits = 1
+    )
 
     println()
     println("Summary:")
@@ -486,4 +605,102 @@ function plot_success_rates(summary, title)
     )
 
     return display(success_rate_plot)
+end
+
+# Dolan–Moré performance ratios for one category: `ratios[solver][i]` is the solve time of
+# `solver` on the i-th problem divided by the fastest verified solve of that problem.
+# Runs that are not verified successes (and problems nobody solved) get ratio Inf.
+function performance_ratios(results)
+    problems = unique(results.problem)
+    solvers = unique(results.solver)
+    ratios = Dict(s => fill(Inf, length(problems)) for s in solvers)
+
+    for (i, problem) in enumerate(problems)
+        rows = filter(r -> r.problem == problem && r.verified_success, results)
+        nrow(rows) == 0 && continue
+        best = max(minimum(rows.secs), 1.0e-9)
+        for r in eachrow(rows)
+            ratios[r.solver][i] = max(r.secs, 1.0e-9) / best
+        end
+    end
+
+    return problems, solvers, ratios
+end
+
+function performance_profile_subplot(results, title)
+    problems, solvers, ratios = performance_ratios(results)
+    nprob = length(problems)
+
+    finite_log_ratios = [log2(r) for v in values(ratios) for r in v if isfinite(r)]
+    tau_max = isempty(finite_log_ratios) ? 1.0 : max(1.0, maximum(finite_log_ratios) * 1.05)
+    taus = sort!(unique!(vcat(0.0, finite_log_ratios, tau_max)))
+
+    subplot = plot(
+        xlabel = "log2(time ratio to best solver)",
+        ylabel = "Fraction of problems solved",
+        title = title,
+        ylims = (0, 1.02),
+        legend = :bottomright,
+    )
+    for solver in solvers
+        log_ratios = log2.(ratios[solver])
+        rho = [count(<=(tau), log_ratios) / nprob for tau in taus]
+        plot!(subplot, taus, rho; seriestype = :steppost, label = solver, linewidth = 2)
+    end
+
+    return subplot
+end
+
+# Performance profile of solve time (Dolan & Moré, 2002), one panel per category.
+function plot_performance_profile(results, title)
+    hasproperty(results, :verified_success) || add_quality_columns!(results)
+    nrow(results) == 0 && return nothing
+
+    categories = unique(results.category)
+    subplots = [
+        performance_profile_subplot(
+                filter(:category => ==(category), results),
+                length(categories) == 1 ? title : "$title: $category"
+            )
+            for category in categories
+    ]
+
+    profile_plot = plot(
+        subplots...; layout = (length(subplots), 1),
+        size = (900, 500 * length(subplots))
+    )
+
+    return display(profile_plot)
+end
+
+# Work-precision scatter: solve time against the attained precision, where precision is
+# `metric` (`:obj_gap` by default, `:grad_norm` is the natural choice for unconstrained
+# problems). Only completed runs with a finite metric are shown; for `:obj_gap` the point
+# must also be feasible to FEAS_TOL so that infeasible points cannot show a spurious gap.
+# Values at or below `floor` are drawn at `floor` so they fit on the log axis.
+function plot_work_precision(results, title; metric = :obj_gap, floor = 1.0e-16)
+    hasproperty(results, :verified_success) || add_quality_columns!(results)
+
+    completed = filter(results) do r
+        r.status == "OK" && isfinite(r[metric]) && r.secs > 0 &&
+            (metric != :obj_gap || (isfinite(r.cons_viol) && r.cons_viol <= FEAS_TOL))
+    end
+    nrow(completed) == 0 && return nothing
+
+    precision = max.(completed[!, metric], floor)
+
+    work_precision_plot = scatter(
+        precision,
+        completed.secs,
+        group = completed.solver,
+        xlabel = "$(metric) (floored at $(floor))",
+        ylabel = "Seconds",
+        title = title,
+        xscale = :log10,
+        yscale = :log10,
+        legend = :topright,
+        size = (900, 600),
+    )
+
+    return display(work_precision_plot)
 end
