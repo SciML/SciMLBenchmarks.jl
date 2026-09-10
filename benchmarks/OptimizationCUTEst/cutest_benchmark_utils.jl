@@ -9,7 +9,7 @@ using Optimization
 using OptimizationNLPModels
 using OptimizationOptimJL
 using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing,
-                           ParticleSwarm
+    ParticleSwarm
 using OptimizationMOI
 using OptimizationMOI: MOI
 using Ipopt
@@ -82,7 +82,8 @@ function problem_metadata(name)
         return (; ok = true, nvar = nlp.meta.nvar, ncon = nlp.meta.ncon)
     catch err
         @warn "Unable to load CUTEst problem metadata" problem = name exception = (
-            err, catch_backtrace())
+            err, catch_backtrace(),
+        )
         return (; ok = false, nvar = -1, ncon = -1)
     finally
         if nlp !== nothing
@@ -90,18 +91,19 @@ function problem_metadata(name)
                 finalize(nlp)
             catch err
                 @warn "Unable to finalize CUTEst problem metadata" problem = name exception = (
-                    err, catch_backtrace())
+                    err, catch_backtrace(),
+                )
             end
         end
     end
 end
 
 function select_safe_problems(
-    candidates;
-    max_problems = MAX_PROBLEMS_PER_CATEGORY,
-    max_var = MAX_NVAR,
-    max_con = MAX_NCON,
-)
+        candidates;
+        max_problems = MAX_PROBLEMS_PER_CATEGORY,
+        max_var = MAX_NVAR,
+        max_con = MAX_NCON,
+    )
     selected = String[]
 
     for name in candidates
@@ -142,7 +144,7 @@ function retcode_name(retcode)
 end
 
 function print_exception(prefix, err, bt)
-    println(prefix, ": ", sprint(showerror, err, bt))
+    return println(prefix, ": ", sprint(showerror, err, bt))
 end
 
 elapsed_seconds(started_ns) = (time_ns() - started_ns) / 1.0e9
@@ -266,7 +268,8 @@ function run_single_solve(problem_name, solver_name)
                 finalize(nlp)
             catch err
                 @warn "Unable to finalize CUTEst problem" problem = problem_name exception = (
-                    err, catch_backtrace())
+                    err, catch_backtrace(),
+                )
             end
         end
     end
