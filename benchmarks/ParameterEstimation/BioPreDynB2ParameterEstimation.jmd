@@ -25,6 +25,7 @@ to the paper (Additional files 2-3, directory `BioPreDynBenchFiles/B2`).
 ```julia
 using OrdinaryDiffEq, DiffEqParamEstim, Optimization, ForwardDiff
 using OptimizationBBO, OptimizationNLopt, Plots, BenchmarkTools, DataFrames
+using ParallelParticleSwarms
 gr(fmt = :png)
 ```
 
@@ -339,13 +340,29 @@ given above (matching the original study's setup). This is a
 substantially harder problem than the other benchmarks in this folder
 (116 parameters vs. 4): the original study needed ~10⁵ evaluations of a
 more sophisticated hybrid metaheuristic (eSS) to reach `Jf ≈ 234.2`. We
-use a budget of 50,000 evaluations per optimizer here — large enough to
+use a budget of ~50,000 evaluations per optimizer here — large enough to
 show real convergence behavior, though (using simpler, off-the-shelf
 global optimizers rather than eSS) still not necessarily enough to fully
-match the literature optimum.
+match the literature optimum on its own.
 
-Each optimizer's raw per-evaluation cost is recorded via a callback, from
-which we compute the running best-found cost for a convergence plot.
+In addition to `BBO_adaptive_de_rand_1_bin` (BlackBoxOptim's differential
+evolution) and `GN_CRS2_LM` (NLopt's controlled random search), we
+include `ParallelPSOArray` from
+[ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl),
+a particle-swarm optimizer aimed at high-dimensional problems like this
+one. `ParallelParticleSwarms.jl` also ships `SerialPSO` and a built-in
+`HybridPSO` (PSO plus gradient-based local refinement in one call), but
+both currently error against this problem in the package version pinned
+here (a `Random.Sampler` `MethodError` in `SerialPSO`, and a `solve!`
+dispatch mismatch in `HybridPSO` that traces back to the same issue,
+since `HybridPSO` uses `SerialPSO` as its default swarm); `ParallelPSOArray`
+does not share that bug. It also does not yet support the `callback`
+keyword used below for the other optimizers, so its per-iteration
+history isn't available for the convergence plot, only its final result.
+
+Each trackable optimizer's raw per-evaluation cost is recorded via a
+callback, from which we compute the running best-found cost for a
+convergence plot.
 
 ```julia
 optf = OptimizationFunction((p, _) -> biopredyn_b2_cost(p))
@@ -368,33 +385,75 @@ opt = Opt(:GN_CRS2_LM, length(p_nom))
 res_nlopt.objective
 ```
 
-## Local refinement
+```julia
+n_particles = 60
+@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = 50000 ÷ n_particles)
+res_pso.objective
+```
 
-Global metaheuristics like `BBO_adaptive_de_rand_1_bin` and `GN_CRS2_LM`
-are good at finding a promising basin but slow to fine-tune within it. The
-original study's own eSS method is itself a *hybrid* global+local
-algorithm for exactly this reason. We mirror that here: take the better
-of the two global results and polish it with a derivative-free local
-optimizer (`LN_BOBYQA`), rather than spending the (very large) additional
-global-search budget a pure power-law extrapolation of the above would
-otherwise call for to close the gap to `Jf ≈ 234.2`.
+## Derivative-based vs. derivative-free polish
+
+Since the cost function's `DomainError`-triggered `1e20` penalty (see
+above) makes the landscape discontinuous in places, it's natural to ask
+whether a derivative-based local method still works here, or whether that
+discontinuity misleads it. We test this directly: starting from the same
+point, we run NLopt's `LD_LBFGS` with a `ForwardDiff`-computed gradient
+(propagated through the ODE solve) for a modest number of iterations,
+and compare against `LN_BOBYQA` (derivative-free) from the same start.
 
 ```julia
-best_global_u = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
-polish_prob = OptimizationProblem(optf, best_global_u, lb = p_lower, ub = p_upper)
+grad_start = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
+optf_grad = OptimizationFunction((p, _) -> biopredyn_b2_cost(p), Optimization.AutoForwardDiff())
+grad_prob = OptimizationProblem(optf_grad, grad_start, lb = p_lower, ub = p_upper)
+@time res_grad = solve(grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 100)
+res_grad.objective
+```
 
-losses_polish = Float64[]
-cb_polish = (state, l) -> (push!(losses_polish, l); false)
-opt_local = Opt(:LN_BOBYQA, length(p_nom))
-@time res_polish = solve(polish_prob, opt_local, maxiters = 20000, callback = cb_polish)
-res_polish.objective
+`LD_LBFGS` barely moves from its starting cost even after 100 iterations
+(each far more expensive than an `LN_BOBYQA` iteration, since a
+`ForwardDiff` gradient here needs the dual-number-propagated ODE solve
+rather than a single real-valued one) — consistent with a gradient/line
+search being misled by the penalty discontinuities and getting stuck.
+(A `FiniteDiff` gradient gives the same stalled result, ruling out an
+artifact of forward-mode autodiff specifically; not shown here since it
+adds no further information.) The rest of this benchmark uses the
+derivative-free `LN_BOBYQA` for local refinement instead.
+
+## Local refinement
+
+Global metaheuristics are good at finding a promising basin but slow to
+fine-tune within it. The original study's own eSS method is itself a
+*hybrid* global+local algorithm for exactly this reason. We mirror that
+here, polishing each of the three global results above with `LN_BOBYQA`
+rather than spending the (very large) additional global-search budget a
+pure power-law extrapolation would otherwise call for to close the gap to
+`Jf ≈ 234.2`.
+
+```julia
+function polish(start_u, label)
+    prob = OptimizationProblem(optf, start_u, lb = p_lower, ub = p_upper)
+    losses = Float64[]
+    cb = (state, l) -> (push!(losses, l); false)
+    t = @elapsed res = solve(
+        prob, Opt(:LN_BOBYQA, length(p_nom)), maxiters = 10000, callback = cb)
+    println(label, ": ", res.objective, " (", t, "s)")
+    return res, losses
+end
+
+res_bbo_polish, losses_bbo_polish = polish(res_bbo.u, "BBO -> LN_BOBYQA")
+res_nlopt_polish, losses_nlopt_polish = polish(res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
+res_pso_polish, losses_pso_polish = polish(res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
 ```
 
 ```julia
 df = DataFrame(
     method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM",
-        "LN_BOBYQA polish (from best global)"],
-    cost = [cost_nominal, res_bbo.objective, res_nlopt.objective, res_polish.objective])
+        "ParallelPSOArray", "LD_LBFGS polish (derivative-based)",
+        "LN_BOBYQA polish (from BBO)", "LN_BOBYQA polish (from GN_CRS2_LM)",
+        "LN_BOBYQA polish (from ParallelPSOArray)"],
+    cost = [cost_nominal, res_bbo.objective, res_nlopt.objective, res_pso.objective,
+        res_grad.objective, res_bbo_polish.objective, res_nlopt_polish.objective,
+        res_pso_polish.objective])
 ```
 
 ## Convergence
@@ -402,16 +461,28 @@ df = DataFrame(
 ```julia
 bestcost_bbo = accumulate(min, losses_bbo)
 bestcost_nlopt = accumulate(min, losses_nlopt)
-bestcost_polish = accumulate(min, losses_polish)
-polish_iters = length(losses_bbo) .+ (1:length(losses_polish))
+bestcost_bbo_polish = accumulate(min, losses_bbo_polish)
+bestcost_nlopt_polish = accumulate(min, losses_nlopt_polish)
+bestcost_pso_polish = accumulate(min, losses_pso_polish)
+
+bbo_polish_iters = length(losses_bbo) .+ (1:length(losses_bbo_polish))
+nlopt_polish_iters = length(losses_bbo) .+ (1:length(losses_nlopt_polish))
+pso_polish_iters = length(losses_bbo) .+ (1:length(losses_pso_polish))
 
 plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "iteration", ylabel = "best cost so far (log scale)",
     title = "B2 parameter estimation convergence")
 plot!(bestcost_nlopt, label = "GN_CRS2_LM")
-plot!(polish_iters, bestcost_polish, label = "LN_BOBYQA polish")
+plot!(bbo_polish_iters, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(nlopt_polish_iters, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(pso_polish_iters, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
 hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
+
+`ParallelPSOArray`'s own result isn't shown as a curve (no per-iteration
+history is available, as noted above), but its polish curve starts from
+wherever `res_pso.objective` landed, plotted alongside the other two
+polish curves for direct comparison.
 
 # Conclusion
 
@@ -424,6 +495,18 @@ this folder, global convergence to the literature-reported optimum
 the runs here are best read as relative comparisons between optimizers
 given a fixed, modest evaluation budget rather than as fully converged
 fits.
+
+Two practical findings stand out. First, derivative-free local
+refinement (`LN_BOBYQA`) substantially outperforms a derivative-based
+method (`LD_LBFGS` with a `ForwardDiff` gradient) on this problem, both
+in solution quality and iteration cost — the `DomainError`-penalized
+regions of the search space make the landscape locally discontinuous
+in a way that misleads gradient-based search. Second,
+`ParallelParticleSwarms.jl`'s `ParallelPSOArray` is a viable additional
+global optimizer for this kind of high-dimensional problem, though two
+of its other algorithms (`SerialPSO`, and by extension `HybridPSO`,
+which defaults to using it) currently error on this problem in the
+pinned package version.
 
 ```julia, echo = false
 using SciMLBenchmarks
