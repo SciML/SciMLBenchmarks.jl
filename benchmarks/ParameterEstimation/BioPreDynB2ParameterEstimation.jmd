@@ -368,10 +368,33 @@ opt = Opt(:GN_CRS2_LM, length(p_nom))
 res_nlopt.objective
 ```
 
+## Local refinement
+
+Global metaheuristics like `BBO_adaptive_de_rand_1_bin` and `GN_CRS2_LM`
+are good at finding a promising basin but slow to fine-tune within it. The
+original study's own eSS method is itself a *hybrid* global+local
+algorithm for exactly this reason. We mirror that here: take the better
+of the two global results and polish it with a derivative-free local
+optimizer (`LN_BOBYQA`), rather than spending the (very large) additional
+global-search budget a pure power-law extrapolation of the above would
+otherwise call for to close the gap to `Jf ≈ 234.2`.
+
+```julia
+best_global_u = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
+polish_prob = OptimizationProblem(optf, best_global_u, lb = p_lower, ub = p_upper)
+
+losses_polish = Float64[]
+cb_polish = (state, l) -> (push!(losses_polish, l); false)
+opt_local = Opt(:LN_BOBYQA, length(p_nom))
+@time res_polish = solve(polish_prob, opt_local, maxiters = 20000, callback = cb_polish)
+res_polish.objective
+```
+
 ```julia
 df = DataFrame(
-    method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM"],
-    cost = [cost_nominal, res_bbo.objective, res_nlopt.objective])
+    method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM",
+        "LN_BOBYQA polish (from best global)"],
+    cost = [cost_nominal, res_bbo.objective, res_nlopt.objective, res_polish.objective])
 ```
 
 ## Convergence
@@ -379,11 +402,14 @@ df = DataFrame(
 ```julia
 bestcost_bbo = accumulate(min, losses_bbo)
 bestcost_nlopt = accumulate(min, losses_nlopt)
+bestcost_polish = accumulate(min, losses_polish)
+polish_iters = length(losses_bbo) .+ (1:length(losses_polish))
 
 plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "iteration", ylabel = "best cost so far (log scale)",
     title = "B2 parameter estimation convergence")
 plot!(bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(polish_iters, bestcost_polish, label = "LN_BOBYQA polish")
 hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
 
