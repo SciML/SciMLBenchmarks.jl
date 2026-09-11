@@ -95,14 +95,22 @@ end
 
 ## OpenModelica Timings
 
+`omc` is not installed on the hosted benchmark runners. Skip OpenModelica timings when the compiler is missing rather than aborting the page (Dymola times below are already hardcoded).
+
 ```julia
-# OMJ
-const omod = OMJulia.OMCSession();
-OMJulia.sendExpression(omod, "getVersion()")
-OMJulia.sendExpression(omod, "installPackage(Modelica)")
+omod = try
+    sess = OMJulia.OMCSession()
+    OMJulia.sendExpression(sess, "getVersion()")
+    OMJulia.sendExpression(sess, "installPackage(Modelica)")
+    sess
+catch e
+    @warn "OpenModelica (omc) is not available; skipping OpenModelica timings" exception = (e, catch_backtrace())
+    nothing
+end
 const modelicafile = joinpath(@__DIR__, "RC_Circuit.mo")
 
 function time_open_modelica(n::Int)
+    omod === nothing && return NaN
     totaltime = @elapsed res = begin
         @sync ModelicaSystem(omod, modelicafile, "RC_Circuit.Test.RC_Circuit_MTK_test_$n")
         sendExpression(omod, "simulate(RC_Circuit.Test.RC_Circuit_MTK_test_$n)")
@@ -112,16 +120,18 @@ function time_open_modelica(n::Int)
 end
 
 function run_and_time_om!(total_times, max_sizes, i, n)
+    omod === nothing && return
     if n <= max_sizes[2]
         total_times[i, 2] = time_open_modelica(n)
     end
 end
 
-for (i, n) in enumerate(N)
-    @time run_and_time_om!(total_times, max_sizes, i, n)
+if omod !== nothing
+    for (i, n) in enumerate(N)
+        @time run_and_time_om!(total_times, max_sizes, i, n)
+    end
+    OMJulia.quit(omod)
 end
-
-OMJulia.quit(omod)
 ```
 
 ## Dymola Timings

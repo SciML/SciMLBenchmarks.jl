@@ -317,30 +317,37 @@ end
 
 ## Time OpenModelica
 
+`omc` is not installed on the hosted benchmark runners. Skip OpenModelica timings when the compiler is missing rather than aborting the page (Dymola times below are already hardcoded).
+
 ```julia
 using OMJulia, CSV, DataFrames
-mod = OMJulia.OMCSession();
-OMJulia.sendExpression(mod, "getVersion()")
-OMJulia.sendExpression(mod, "installPackage(Modelica)")
+mod = try
+    sess = OMJulia.OMCSession()
+    OMJulia.sendExpression(sess, "getVersion()")
+    OMJulia.sendExpression(sess, "installPackage(Modelica)")
+    sess
+catch e
+    @warn "OpenModelica (omc) is not available; skipping OpenModelica timings" exception = (e, catch_backtrace())
+    nothing
+end
 modelicafile = "../../benchmarks/ModelingToolkit/DhnControl.mo"
 resultfile = "modelica_res.csv"
 
-@show "Start OpenModelica Timings"
-
-for i in eachindex(N)
-    n = N[i]
-    n > max_sizes[end] && break
-    @show n
-    totaltime = @elapsed res = begin
-        @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$n")
-        sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$n)")
+if mod !== nothing
+    @show "Start OpenModelica Timings"
+    for i in eachindex(N)
+        n = N[i]
+        n > max_sizes[end] && break
+        @show n
+        totaltime = @elapsed res = begin
+            @sync ModelicaSystem(mod, modelicafile, "DhnControl.Test.test_preinsulated_470_$n")
+            sendExpression(mod, "simulate(DhnControl.Test.test_preinsulated_470_$n)")
+        end
+        @assert res["messages"][1:11] == "LOG_SUCCESS"
+        total_times[i, 2] = totaltime
     end
-    #runtime = res["timeTotal"]
-    @assert res["messages"][1:11] == "LOG_SUCCESS"
-    total_times[i, 2] = totaltime
+    OMJulia.quit(mod)
 end
-
-OMJulia.quit(mod)
 total_times[:, 2]
 ```
 
