@@ -97,20 +97,32 @@ end
 ```
 
 ```julia
-sys = pyimport("sys")
-sys.path.insert(0, @__DIR__)
-eu = pyimport("ensemble_utils")
-jax = pyimport("jax")
-torch = pyimport("torch")
+# Hosted V100s reject some CUDA 13 / generic PyTorch wheels (`no kernel image
+# is available for execution on the device`). Probe once and skip Python GPU
+# timings rather than aborting the Julia ensemble series.
+python_gpu = try
+    sys = pyimport("sys")
+    sys.path.insert(0, @__DIR__)
+    eu = pyimport("ensemble_utils")
+    jax = pyimport("jax")
+    torch = pyimport("torch")
+    jax_devs = jax.devices("gpu")
+    @assert pyconvert(Int, pyimport("builtins").len(jax_devs)) > 0 "JAX did not see a GPU"
+    println("JAX devices: ", jax.devices())
+    @assert pyconvert(Bool, torch.cuda.is_available()) "PyTorch did not see a CUDA GPU"
+    println("PyTorch CUDA: ", torch.cuda.get_device_name(0))
+    torch.zeros(1).cuda()
+    jax.numpy.zeros((1,))
+    (; eu, jax, torch)
+catch e
+    @warn "Python GPU backends unavailable; skipping JAX/PyTorch timings" exception = (e, catch_backtrace())
+    nothing
+end
 
-jax_devs = jax.devices("gpu")
-@assert pyconvert(Int, pyimport("builtins").len(jax_devs)) > 0 "JAX did not see a GPU"
-println("JAX devices: ", jax.devices())
-@assert pyconvert(Bool, torch.cuda.is_available()) "PyTorch did not see a CUDA GPU"
-println("PyTorch CUDA: ", torch.cuda.get_device_name(0))
-
-time_diffrax(n; adaptive) = pyconvert(Float64, eu.time_diffrax(n, adaptive))
-time_torch(n) = pyconvert(Float64, eu.time_torch_rk4(n))
+time_diffrax(n; adaptive) = python_gpu === nothing ? NaN :
+                            pyconvert(Float64, python_gpu.eu.time_diffrax(n, adaptive))
+time_torch(n) = python_gpu === nothing ? NaN :
+                pyconvert(Float64, python_gpu.eu.time_torch_rk4(n))
 ```
 
 Trajectory counts follow the paper's `8, 32, 128, …` geometric sequence.
