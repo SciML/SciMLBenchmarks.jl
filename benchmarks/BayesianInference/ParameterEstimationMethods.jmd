@@ -1,0 +1,55 @@
+# Parameter Estimation Methods for ODEs: A Comparative Benchmark
+
+## Mathematical Preliminaries
+
+Consider a system of ordinary differential equations (ODEs):
+
+$$\frac{d\mathbf{u}}{dt} = \mathbf{f}(\mathbf{u}, \boldsymbol{\theta}, t), \quad \mathbf{u}(0) = \mathbf{u}_0$$
+
+where $\mathbf{u} \in \mathbb{R}^n$ is the state vector and $\boldsymbol{\theta} \in \mathbb{R}^p$ are the unknown parameters we wish to estimate.
+
+Given noisy observations $\mathbf{y}_i = \mathbf{u}(t_i) + \boldsymbol{\epsilon}_i$ with $\boldsymbol{\epsilon}_i \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I})$, the parameter estimation problem seeks to find $\boldsymbol{\theta}$ that best explains the data.
+
+This benchmark compares six fundamentally different approaches to this problem, analyzing their theoretical foundations, computational costs, and practical accuracy.
+
+---
+
+## Test Problem: Lotka-Volterra with Known Ground Truth
+
+We use the classical Lotka-Volterra predator-prey model as our testbed because it exhibits nonlinear dynamics with a known analytical structure, making it ideal for benchmarking parameter recovery:
+
+$$\begin{aligned}
+\frac{du_1}{dt} &= \alpha u_1 - \beta u_1 u_2 \\
+\frac{du_2}{dt} &= -\delta u_2 + \gamma u_1 u_2
+\end{aligned}$$
+
+with true parameters $\boldsymbol{\theta}_{\text{true}} = [\alpha, \beta, \delta, \gamma] = [1.5, 1.0, 3.0, 1.0]$.
+
+```julia
+using DifferentialEquations, DiffEqFlux, Turing, Optimization, 
+      OptimizationOptimJL, MCMCChains, BenchmarkTools, Plots, 
+      LinearAlgebra, Statistics, SciMLBase, ForwardDiff
+
+# Define the ODE
+function lotka_volterra(du, u, p, t)
+    α, β, δ, γ = p
+    du[1] = α*u[1] - β*u[1]*u[2]
+    du[2] = -δ*u[2] + γ*u[1]*u[2]
+end
+
+u0 = [1.0, 1.0]
+tspan = (0.0, 10.0)
+p_true = [1.5, 1.0, 3.0, 1.0]
+
+# Generate clean data
+prob_true = ODEProblem(lotka_volterra, u0, tspan, p_true)
+sol_true = solve(prob_true, Tsit5(), saveat=0.1)
+t_data = sol_true.t
+
+# Add Gaussian noise (σ = 0.1) to simulate real experimental data
+Random.seed!(42)
+noise_level = 0.1
+y_data = Array(sol_true) + noise_level * randn(size(Array(sol_true)))
+
+println("Data points: ", length(t_data))
+println("Noise level: σ = ", noise_level)
