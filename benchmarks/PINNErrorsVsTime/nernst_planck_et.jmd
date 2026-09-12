@@ -25,6 +25,7 @@ using CUDA, LuxCUDA, ComponentArrays, Random
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
 const gpud = gpu_device()
+const cpud = cpu_device()
 ```
 
 ```julia
@@ -125,7 +126,7 @@ function nernst_planck(strategy, minimizer, maxIters)
             # Extract parameters for loss calculation
             params = p.u
             loss_ = loss_function_(p, nothing)
-            push!(error, only(Array(loss_)))
+            push!(error, only(cpud(loss_)))
 
             timeCounter += time_ns() - deltaT_s
             return false
