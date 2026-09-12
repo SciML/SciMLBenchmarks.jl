@@ -76,6 +76,7 @@ section_titles = [
     "GlobalOptimization" => "Global Optimization Benchmarks",
     "OptimizationFrameworks" => "Optimization Framework Benchmarks",
     "ParameterEstimation" => "Parameter Estimation and Inverse Problem Benchmarks",
+    "PSONeuralODE" => "Neural ODE Parameter Estimation with GPU-PSO",
     "BayesianInference" => "Bayesian Inference and Probabilistic Inverse Problem Benchmarks",
     "MethodOfLinesPDE" => "MethodOfLines.jl Partial Differential Equation (PDE) Formulations",
     "PINNErrorsVsTime" => "Physics-Informed Neural Network (Neural Network PDE Solver) Cost Function Benchmarks",
