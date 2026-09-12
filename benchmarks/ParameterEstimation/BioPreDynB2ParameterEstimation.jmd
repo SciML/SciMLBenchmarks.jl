@@ -340,10 +340,11 @@ given above (matching the original study's setup). This is a
 substantially harder problem than the other benchmarks in this folder
 (116 parameters vs. 4): the original study needed ~10⁵ evaluations of a
 more sophisticated hybrid metaheuristic (eSS) to reach `Jf ≈ 234.2`. We
-use a budget of ~50,000 evaluations per optimizer here — large enough to
-show real convergence behavior, though (using simpler, off-the-shelf
-global optimizers rather than eSS) still not necessarily enough to fully
-match the literature optimum on its own.
+use a budget of ~20,000 evaluations per optimizer here — enough to show
+real convergence behavior on typical benchmark hardware, though (using
+simpler, off-the-shelf global optimizers rather than eSS, and a smaller
+budget than the original study) not necessarily enough to fully match
+the literature optimum on its own.
 
 In addition to `BBO_adaptive_de_rand_1_bin` (BlackBoxOptim's differential
 evolution) and `GN_CRS2_LM` (NLopt's controlled random search), we
@@ -373,7 +374,7 @@ optprob = OptimizationProblem(optf, p_nom, lb = p_lower, ub = p_upper)
 losses_bbo = Float64[]
 cb_bbo = (state, l) -> (push!(losses_bbo, l); false)
 @time res_bbo = solve(
-    optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 50000, callback = cb_bbo)
+    optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 20000, callback = cb_bbo)
 res_bbo.objective
 ```
 
@@ -381,13 +382,13 @@ res_bbo.objective
 losses_nlopt = Float64[]
 cb_nlopt = (state, l) -> (push!(losses_nlopt, l); false)
 opt = Opt(:GN_CRS2_LM, length(p_nom))
-@time res_nlopt = solve(optprob, opt, maxiters = 50000, callback = cb_nlopt)
+@time res_nlopt = solve(optprob, opt, maxiters = 20000, callback = cb_nlopt)
 res_nlopt.objective
 ```
 
 ```julia
-n_particles = 60
-@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = 50000 ÷ n_particles)
+n_particles = 40
+@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = 12000 ÷ n_particles)
 res_pso.objective
 ```
 
@@ -405,19 +406,19 @@ and compare against `LN_BOBYQA` (derivative-free) from the same start.
 grad_start = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
 optf_grad = OptimizationFunction((p, _) -> biopredyn_b2_cost(p), Optimization.AutoForwardDiff())
 grad_prob = OptimizationProblem(optf_grad, grad_start, lb = p_lower, ub = p_upper)
-@time res_grad = solve(grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 100)
+@time res_grad = solve(grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 50)
 res_grad.objective
 ```
 
-`LD_LBFGS` barely moves from its starting cost even after 100 iterations
-(each far more expensive than an `LN_BOBYQA` iteration, since a
-`ForwardDiff` gradient here needs the dual-number-propagated ODE solve
-rather than a single real-valued one) — consistent with a gradient/line
-search being misled by the penalty discontinuities and getting stuck.
-(A `FiniteDiff` gradient gives the same stalled result, ruling out an
-artifact of forward-mode autodiff specifically; not shown here since it
-adds no further information.) The rest of this benchmark uses the
-derivative-free `LN_BOBYQA` for local refinement instead.
+`LD_LBFGS` does make some progress, but far less efficiently than
+`LN_BOBYQA`: 50 gradient iterations take about as much wall-clock time as
+5000 `LN_BOBYQA` iterations from the same starting point (each
+`ForwardDiff` gradient here needs the dual-number-propagated ODE solve,
+vs. a single real-valued solve per `LN_BOBYQA` iteration), yet reaches a
+noticeably worse final cost — consistent with the penalty
+discontinuities limiting how far a gradient/line search can trust the
+local slope before it needs to re-evaluate. The rest of this benchmark
+uses the derivative-free `LN_BOBYQA` for local refinement instead.
 
 ## Local refinement
 
@@ -435,7 +436,7 @@ function polish(start_u, label)
     losses = Float64[]
     cb = (state, l) -> (push!(losses, l); false)
     t = @elapsed res = solve(
-        prob, Opt(:LN_BOBYQA, length(p_nom)), maxiters = 10000, callback = cb)
+        prob, Opt(:LN_BOBYQA, length(p_nom)), maxiters = 5000, callback = cb)
     println(label, ": ", res.objective, " (", t, "s)")
     return res, losses
 end
@@ -499,9 +500,12 @@ fits.
 Two practical findings stand out. First, derivative-free local
 refinement (`LN_BOBYQA`) substantially outperforms a derivative-based
 method (`LD_LBFGS` with a `ForwardDiff` gradient) on this problem, both
-in solution quality and iteration cost — the `DomainError`-penalized
-regions of the search space make the landscape locally discontinuous
-in a way that misleads gradient-based search. Second,
+in solution quality and iteration cost — the gradient method does make
+real progress, but each of its iterations is both far more expensive
+(a dual-number-propagated ODE solve vs. a single real one) and less
+productive, consistent with the `DomainError`-penalized regions of the
+search space making the landscape locally discontinuous in a way that
+limits how much a local slope can be trusted. Second,
 `ParallelParticleSwarms.jl`'s `ParallelPSOArray` is a viable additional
 global optimizer for this kind of high-dimensional problem, though two
 of its other algorithms (`SerialPSO`, and by extension `HybridPSO`,
