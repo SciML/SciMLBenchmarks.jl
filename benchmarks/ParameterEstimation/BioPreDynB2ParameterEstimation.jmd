@@ -351,13 +351,22 @@ evolution) and `GN_CRS2_LM` (NLopt's controlled random search), we
 include `ParallelPSOArray` from
 [ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl),
 a particle-swarm optimizer aimed at high-dimensional problems like this
-one. `ParallelParticleSwarms.jl` also ships `SerialPSO` and a built-in
-`HybridPSO` (PSO plus gradient-based local refinement in one call), but
-both currently error against this problem in the package version pinned
-here (a `Random.Sampler` `MethodError` in `SerialPSO`, and a `solve!`
-dispatch mismatch in `HybridPSO` that traces back to the same issue,
-since `HybridPSO` uses `SerialPSO` as its default swarm); `ParallelPSOArray`
-does not share that bug. It also does not yet support the `callback`
+one. `ParallelParticleSwarms.jl` also ships `SerialPSO` (which errors
+here with a `Random.Sampler` `MethodError`) and a built-in `HybridPSO`
+that pairs PSO with a gradient-based local polish (`SimpleLBFGS` by
+default) in one call — a natural fit for exactly the two-stage
+global-then-local approach used later in this benchmark. We tried
+`HybridPSO` with both its default swarm and, to rule out that being
+the cause, explicitly with `ParallelPSOArray` as the swarm instead;
+both fail the same way. The reason turns out to be independent of which
+swarm is used: `HybridPSOCache` and the `SciMLBase.solve!` methods that
+implement its local-refinement stage exist in the package's source on
+GitHub but are not yet part of the latest registered release (v1.6.2,
+the version `Pkg.add` installs), so `HybridPSO` falls through to a
+generic code path that mishandles its own `local_opt` field. We
+therefore chain `ParallelPSOArray` with `LN_BOBYQA` manually below
+instead, which is not registered-version-dependent. `ParallelPSOArray`
+does not yet support the `callback`
 keyword used below for the other optimizers, so its per-iteration
 history isn't available for the convergence plot, only its final result.
 
@@ -372,7 +381,9 @@ optprob = OptimizationProblem(optf, p_nom, lb = p_lower, ub = p_upper)
 
 ```julia
 losses_bbo = Float64[]
-cb_bbo = (state, l) -> (push!(losses_bbo, l); false)
+times_bbo = Float64[]
+t0_bbo = time()
+cb_bbo = (state, l) -> (push!(losses_bbo, l); push!(times_bbo, time() - t0_bbo); false)
 @time res_bbo = solve(
     optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 20000, callback = cb_bbo)
 res_bbo.objective
@@ -380,7 +391,9 @@ res_bbo.objective
 
 ```julia
 losses_nlopt = Float64[]
-cb_nlopt = (state, l) -> (push!(losses_nlopt, l); false)
+times_nlopt = Float64[]
+t0_nlopt = time()
+cb_nlopt = (state, l) -> (push!(losses_nlopt, l); push!(times_nlopt, time() - t0_nlopt); false)
 opt = Opt(:GN_CRS2_LM, length(p_nom))
 @time res_nlopt = solve(optprob, opt, maxiters = 20000, callback = cb_nlopt)
 res_nlopt.objective
@@ -434,16 +447,20 @@ pure power-law extrapolation would otherwise call for to close the gap to
 function polish(start_u, label)
     prob = OptimizationProblem(optf, start_u, lb = p_lower, ub = p_upper)
     losses = Float64[]
-    cb = (state, l) -> (push!(losses, l); false)
+    times = Float64[]
+    t0 = time()
+    cb = (state, l) -> (push!(losses, l); push!(times, time() - t0); false)
     t = @elapsed res = solve(
         prob, Opt(:LN_BOBYQA, length(p_nom)), maxiters = 5000, callback = cb)
     println(label, ": ", res.objective, " (", t, "s)")
-    return res, losses
+    return res, losses, times
 end
 
-res_bbo_polish, losses_bbo_polish = polish(res_bbo.u, "BBO -> LN_BOBYQA")
-res_nlopt_polish, losses_nlopt_polish = polish(res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
-res_pso_polish, losses_pso_polish = polish(res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
+res_bbo_polish, losses_bbo_polish, times_bbo_polish = polish(res_bbo.u, "BBO -> LN_BOBYQA")
+res_nlopt_polish, losses_nlopt_polish, times_nlopt_polish = polish(
+    res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
+res_pso_polish, losses_pso_polish, times_pso_polish = polish(
+    res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
 ```
 
 ```julia
@@ -480,6 +497,23 @@ plot!(pso_polish_iters, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO
 hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
 
+Iteration count alone hides that these methods have very different
+per-iteration costs (a `GN_CRS2_LM` iteration isn't the same amount of
+work as an `LN_BOBYQA` one), so we also plot the same running-best costs
+against wall-clock seconds, with each curve measured from its own start
+(not stacked end-to-end the way the iteration plot is):
+
+```julia
+plot(times_bbo, bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
+    xlabel = "wall-clock time (s)", ylabel = "best cost so far (log scale)",
+    title = "B2 parameter estimation convergence (wall time)")
+plot!(times_nlopt, bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(times_bbo_polish, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(times_nlopt_polish, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(times_pso_polish, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
+hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
+```
+
 `ParallelPSOArray`'s own result isn't shown as a curve (no per-iteration
 history is available, as noted above), but its polish curve starts from
 wherever `res_pso.objective` landed, plotted alongside the other two
@@ -507,10 +541,13 @@ productive, consistent with the `DomainError`-penalized regions of the
 search space making the landscape locally discontinuous in a way that
 limits how much a local slope can be trusted. Second,
 `ParallelParticleSwarms.jl`'s `ParallelPSOArray` is a viable additional
-global optimizer for this kind of high-dimensional problem, though two
-of its other algorithms (`SerialPSO`, and by extension `HybridPSO`,
-which defaults to using it) currently error on this problem in the
-pinned package version.
+global optimizer for this kind of high-dimensional problem. Its
+`HybridPSO` would be a natural fit for the local-refinement step done
+manually here (it pairs PSO with `SimpleLBFGS` in one call), but its
+local-refinement code path isn't in the latest registered release yet
+(v1.6.2) regardless of which swarm algorithm it's given, and `SerialPSO`
+separately errors with a `Random.Sampler` `MethodError`; neither issue
+is specific to how this benchmark uses the package.
 
 ```julia, echo = false
 using SciMLBenchmarks
