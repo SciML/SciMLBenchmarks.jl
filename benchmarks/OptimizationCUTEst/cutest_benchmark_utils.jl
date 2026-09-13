@@ -11,7 +11,7 @@ using NLPModels
 using OptimizationNLPModels
 using OptimizationOptimJL
 using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing,
-    ParticleSwarm, BFGS, Newton, NewtonTrustRegion
+                           ParticleSwarm, BFGS, Newton, NewtonTrustRegion
 using OptimizationOptimisers: Optimisers
 using OptimizationMOI
 using OptimizationMOI: MOI
@@ -49,12 +49,12 @@ const GAP_TOL = 1.0e-6
 
 const KNOWN_BAD_PROBLEMS = Set(
     lowercase.(
-        String[
-            "BLOWEYA", "CHARDIS1", "CLEUVEN4", "CMPC3", "CMPC10", "CVXQP2",
-            "DITTERT", "HIER13", "LUKVLE8", "LUKVLI7", "MPC2", "PATTERNNE",
-            "READING2", "READING6", "NINENEW", "MSS1",
-        ],
-    ),
+    String[
+    "BLOWEYA", "CHARDIS1", "CLEUVEN4", "CMPC3", "CMPC10", "CVXQP2",
+    "DITTERT", "HIER13", "LUKVLE8", "LUKVLI7", "MPC2", "PATTERNNE",
+    "READING2", "READING6", "NINENEW", "MSS1"
+],
+),
 )
 
 const UNCONSTRAINED_SOLVERS = [
@@ -68,7 +68,7 @@ const UNCONSTRAINED_SOLVERS = [
     "NLopt_LN_BOBYQA",
     "SimulatedAnnealing",
     "ParticleSwarm",
-    "Adam",
+    "Adam"
 ]
 const CONSTRAINED_SOLVERS = ["Ipopt", "MadNLP", "NLopt-SLSQP", "NLopt-AUGLAG-LBFGS"]
 const NLOPT_SOLVERS = Set(["NLopt-SLSQP", "NLopt-AUGLAG-LBFGS"])
@@ -92,7 +92,7 @@ const SOLVER_CLASSES = Dict(
     "Ipopt" => "interior point",
     "MadNLP" => "interior point",
     "NLopt-SLSQP" => "sequential quadratic",
-    "NLopt-AUGLAG-LBFGS" => "augmented Lagrangian",
+    "NLopt-AUGLAG-LBFGS" => "augmented Lagrangian"
 )
 const BUDGET_LIMITED_CLASSES = Set(["global heuristic", "first-order (fixed budget)"])
 
@@ -132,7 +132,7 @@ function optimizer_from_name(name)
             "max_wall_time" => SOLVE_TIMEOUT_SECONDS,
             "hessian_approximation" => "limited-memory",
             "tol" => 1.0e-6,
-            "print_level" => 0,
+            "print_level" => 0
         )
     elseif name == "MadNLP"
         # CompactLBFGS matches Ipopt's limited-memory Hessian path and avoids
@@ -143,7 +143,7 @@ function optimizer_from_name(name)
             acceptable_tol = 1.0e-6,
             additional_options = Dict{Symbol, Any}(
                 :print_level => MadNLP.ERROR,
-            ),
+            )
         )
     elseif name == "NLopt-SLSQP"
         return NLopt.LD_SLSQP()
@@ -162,7 +162,7 @@ function solve_kwargs_from_name(name)
     elseif name == "NLopt-AUGLAG-LBFGS"
         return (;
             reltol = NLOPT_RELTOL, local_method = NLopt.LD_LBFGS(),
-            local_maxiters = SOLVE_MAXITERS,
+            local_maxiters = SOLVE_MAXITERS
         )
     else
         return (;)
@@ -186,7 +186,7 @@ end
 function solver_skip_reason(solver_name, meta)
     if solver_name in NLOPT_SOLVERS && !nlopt_constraint_form_ok(meta)
         return "constraint bounds are not of the cons(x) <= 0 / cons(x) == 0 form " *
-            "that OptimizationNLopt passes to NLopt"
+               "that OptimizationNLopt passes to NLopt"
     end
     # SLSQP's least-squares subproblem needs at most nvar equality constraints; NLopt
     # otherwise returns INVALID_ARGS before iterating.
@@ -202,8 +202,8 @@ function problem_metadata(name)
         nlp = CUTEstModel(name)
         return (; ok = true, nvar = nlp.meta.nvar, ncon = nlp.meta.ncon)
     catch err
-        @warn "Unable to load CUTEst problem metadata" problem = name exception = (
-            err, catch_backtrace(),
+        @warn "Unable to load CUTEst problem metadata" problem=name exception=(
+            err, catch_backtrace()
         )
         return (; ok = false, nvar = -1, ncon = -1)
     finally
@@ -211,8 +211,8 @@ function problem_metadata(name)
             try
                 finalize(nlp)
             catch err
-                @warn "Unable to finalize CUTEst problem metadata" problem = name exception = (
-                    err, catch_backtrace(),
+                @warn "Unable to finalize CUTEst problem metadata" problem=name exception=(
+                    err, catch_backtrace()
                 )
             end
         end
@@ -223,8 +223,8 @@ function select_safe_problems(
         candidates;
         max_problems = MAX_PROBLEMS_PER_CATEGORY,
         max_var = MAX_NVAR,
-        max_con = MAX_NCON,
-    )
+        max_con = MAX_NCON
+)
     selected = String[]
 
     for name in candidates
@@ -274,21 +274,24 @@ elapsed_seconds(started_ns) = (time_ns() - started_ns) / 1.0e9
 # (a bare integer on older versions); recompilation is a subset of compilation, so the
 # first element is the total compile time (this is what `@time` reports).
 compile_ns(t) = t isa Tuple ? first(t) : t
-compile_seconds_since(before) = (compile_ns(Base.cumulative_compile_time_ns()) - compile_ns(before)) / 1.0e9
+function compile_seconds_since(before)
+    (compile_ns(Base.cumulative_compile_time_ns()) - compile_ns(before)) / 1.0e9
+end
 
 function solve_once(prob, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS)
     return solve(
         prob, optimizer_from_name(solver_name);
         maxiters = SOLVE_MAXITERS,
         maxtime = maxtime,
-        solve_kwargs_from_name(solver_name)...,
+        solve_kwargs_from_name(solver_name)...
     )
 end
 
 # The second (clean) solve is skipped when the first one already hit the time cap or
 # errored, so a timed-out pair costs one cap, not two.
-rerun_worthwhile(first_retcode, first_solve_secs; maxtime = SOLVE_TIMEOUT_SECONDS) =
+function rerun_worthwhile(first_retcode, first_solve_secs; maxtime = SOLVE_TIMEOUT_SECONDS)
     first_retcode != "MaxTime" && first_solve_secs < maxtime
+end
 
 function build_problem(nlp, solver_name)
     if solver_class(solver_name) != "first-order (fixed budget)"
@@ -300,7 +303,7 @@ function build_problem(nlp, solver_name)
     fg(G, x, p) = first(NLPModels.objgrad!(nlp, x, G))
     return OptimizationProblem(
         OptimizationNLPModels.OptimizationFunction(nlp; fg),
-        nlp.meta.x0,
+        nlp.meta.x0
     )
 end
 
@@ -390,7 +393,7 @@ function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SEC
             retcode = "LOAD_FAILED",
             first_retcode = "LOAD_FAILED",
             status = "LOAD_FAILED",
-            NO_QUALITY...,
+            NO_QUALITY...
         )
     end
     decode_secs = elapsed_seconds(decode_started)
@@ -417,7 +420,7 @@ function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SEC
                 retcode = "SKIPPED",
                 first_retcode = "SKIPPED",
                 status = "SKIPPED",
-                NO_QUALITY...,
+                NO_QUALITY...
             )
         end
 
@@ -470,7 +473,7 @@ function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SEC
             retcode = retcode_name(sol.retcode),
             first_retcode = first_retcode,
             status = "OK",
-            quality...,
+            quality...
         )
     catch err
         bt = catch_backtrace()
@@ -489,24 +492,25 @@ function run_single_solve(problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SEC
             retcode = "FAILED",
             first_retcode = first_retcode,
             status = "FAILED",
-            NO_QUALITY...,
+            NO_QUALITY...
         )
     finally
         if nlp !== nothing
             try
                 finalize(nlp)
             catch err
-                @warn "Unable to finalize CUTEst problem" problem = problem_name exception = (
-                    err, catch_backtrace(),
+                @warn "Unable to finalize CUTEst problem" problem=problem_name exception=(
+                    err, catch_backtrace()
                 )
             end
         end
     end
 end
 
-warmup_problem_for(solver_name) =
+function warmup_problem_for(solver_name)
     solver_name in CONSTRAINED_SOLVERS ? WARMUP_CONSTRAINED_PROBLEM :
     WARMUP_UNCONSTRAINED_PROBLEM
+end
 
 # Run one throwaway solve per solver on a tiny problem so that JIT compilation of the
 # solver / NLPModels / MOI code paths is not attributed to whichever problem comes first
@@ -526,19 +530,17 @@ function warmup_solvers(solvers; problem = nothing, maxtime = SOLVE_TIMEOUT_SECO
         started = time_ns()
         row = run_single_solve(problem_name, solver_name; maxtime)
         push!(rows, row)
-        @printf(
-            " %s %s first %.3fs compile %.3fs clean %.3fs (total %.3fs)\n", row.status,
+        @printf(" %s %s first %.3fs compile %.3fs clean %.3fs (total %.3fs)\n", row.status,
             row.retcode, row.first_solve_secs, row.compile_secs, row.secs,
-            elapsed_seconds(started)
-        )
+            elapsed_seconds(started))
     end
     return DataFrame(rows)
 end
 
 function run_benchmarks(
         category, problems, solvers;
-        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS,
-    )
+        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS
+)
     rows = NamedTuple[]
 
     warmup && warmup_solvers(solvers; maxtime)
@@ -554,21 +556,22 @@ function run_benchmarks(
             @printf("  %-18s %-24s", solver_name, problem_name)
             row = run_single_solve(problem_name, solver_name; maxtime)
             push!(rows, merge((category = category,), row))
-            @printf(
-                " %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n", row.status,
-                row.retcode, row.secs, row.first_solve_secs, row.compile_secs, row.decode_secs
-            )
+            @printf(" %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n",
+                row.status,
+                row.retcode, row.secs, row.first_solve_secs, row.compile_secs,
+                row.decode_secs)
         end
     end
 
-    results = isempty(rows) ? DataFrame(
-            category = String[], problem = String[], solver = String[],
-            solver_class = String[], n_vars = Int[], secs = Float64[],
-            first_solve_secs = Float64[], compile_secs = Float64[], decode_secs = Float64[],
-            solver_reported_secs = Float64[], retcode = String[], first_retcode = String[],
-            status = String[],
-            objective = Float64[], grad_norm = Float64[], cons_viol = Float64[]
-        ) : DataFrame(rows)
+    results = isempty(rows) ?
+              DataFrame(
+        category = String[], problem = String[], solver = String[],
+        solver_class = String[], n_vars = Int[], secs = Float64[],
+        first_solve_secs = Float64[], compile_secs = Float64[], decode_secs = Float64[],
+        solver_reported_secs = Float64[], retcode = String[], first_retcode = String[],
+        status = String[],
+        objective = Float64[], grad_norm = Float64[], cons_viol = Float64[]
+    ) : DataFrame(rows)
 
     add_quality_columns!(results)
     assert_has_measurements(results, category)
@@ -595,7 +598,7 @@ function is_verified_success(retcode, cons_viol, grad_norm, obj_gap)
     retcode in SUCCESS_RETCODES || return false
     isfinite(cons_viol) && cons_viol <= FEAS_TOL || return false
     return (isfinite(grad_norm) && grad_norm <= OPT_TOL) ||
-        (isfinite(obj_gap) && obj_gap <= GAP_TOL)
+           (isfinite(obj_gap) && obj_gap <= GAP_TOL)
 end
 
 # Add the cross-solver quality columns: `best_objective` (per category/problem),
@@ -611,10 +614,10 @@ function add_quality_columns!(results)
 
     transform!(
         groupby(results, [:category, :problem]),
-        [:objective, :cons_viol] => best_feasible_objective => :best_objective,
+        [:objective, :cons_viol] => best_feasible_objective => :best_objective
     )
     results.obj_gap = (results.objective .- results.best_objective) ./
-        max.(1.0, abs.(results.best_objective))
+                      max.(1.0, abs.(results.best_objective))
     results.verified_success = is_verified_success.(
         results.retcode, results.cons_viol, results.grad_norm, results.obj_gap
     )
@@ -645,10 +648,9 @@ function assert_has_measurements(results, category)
 
     failures = String[]
     if completed_fraction < MIN_COMPLETED_FRACTION
-        msg = @sprintf(
-            "only %d/%d attempted rows (%.1f%%) completed, below MIN_COMPLETED_FRACTION = %.1f%%",
-            completed, nrow(attempted), 100 * completed_fraction, 100 * MIN_COMPLETED_FRACTION
-        )
+        msg = @sprintf("only %d/%d attempted rows (%.1f%%) completed, below MIN_COMPLETED_FRACTION = %.1f%%",
+            completed, nrow(attempted), 100 * completed_fraction,
+            100 * MIN_COMPLETED_FRACTION)
         push!(failures, msg)
     end
 
@@ -663,16 +665,18 @@ function assert_has_measurements(results, category)
     if !isempty(failures)
         error(
             "CUTEst benchmark for $category is degenerate: " * join(failures, "; ") *
-                ". Status distribution: $status_distribution. " *
-                "Return code distribution: $retcode_distribution",
+            ". Status distribution: $status_distribution. " *
+            "Return code distribution: $retcode_distribution",
         )
     end
 
     no_success_solvers = filter(solvers) do solver
-        count(row -> row.solver == solver && row.retcode in SUCCESS_RETCODES, eachrow(attempted)) == 0
+        count(row -> row.solver == solver && row.retcode in SUCCESS_RETCODES, eachrow(attempted)) ==
+        0
     end
     if !isempty(no_success_solvers)
-        @warn "CUTEst benchmark for $category has solver(s) with 0% success (no retcode in SUCCESS_RETCODES); allowed, but worth a look" category solvers = join(no_success_solvers, ", ") retcode_distribution
+        @warn "CUTEst benchmark for $category has solver(s) with 0% success (no retcode in SUCCESS_RETCODES); allowed, but worth a look" category solvers = join(
+            no_success_solvers, ", ") retcode_distribution
     end
 
     skipped = count(==("SKIPPED"), results.status)
@@ -680,7 +684,7 @@ function assert_has_measurements(results, category)
     println(
         "  $category: $completed/$(nrow(attempted)) attempted rows completed ($completed_pct%)",
         skipped > 0 ? "; $skipped skipped" : "",
-        "; status: $status_distribution",
+        "; status: $status_distribution"
     )
     return nothing
 end
@@ -709,7 +713,7 @@ function summarize_results(results)
         :retcode => length => :total_runs,
         [:status, :secs] => median_attempted_secs => :median_secs,
         :compile_secs => median => :median_compile_secs,
-        :compile_secs => sum => :total_compile_secs,
+        :compile_secs => sum => :total_compile_secs
     )
 
     summary.completion_rate = round.(summary.completed_runs ./ summary.total_runs .* 100; digits = 1)
@@ -718,7 +722,8 @@ function summarize_results(results)
         summary.verified_runs ./ summary.total_runs .* 100; digits = 1
     )
     summary.convergence_based = convergence_based.(summary.solver_class)
-    sort!(summary, [:category, order(:convergence_based; rev = true), :solver_class, :solver])
+    sort!(summary, [
+        :category, order(:convergence_based; rev = true), :solver_class, :solver])
 
     local_summary = filter(:convergence_based => identity, summary)
     budget_summary = filter(:convergence_based => !, summary)
@@ -726,7 +731,7 @@ function summarize_results(results)
     println()
     println(
         "Summary (local convergence-based solvers; success = return code in ",
-        join(sort(collect(SUCCESS_RETCODES)), "/"), "):",
+        join(sort(collect(SUCCESS_RETCODES)), "/"), "):"
     )
     display(select(local_summary, Not(:convergence_based)))
 
@@ -734,17 +739,17 @@ function summarize_results(results)
         println()
         println(
             "Summary (budget-limited solvers; these run until maxiters and do not report ",
-            "convergence through the return code, so only completion and time are shown):",
+            "convergence through the return code, so only completion and time are shown):"
         )
         display(
             select(
-                budget_summary, Not(
-                    [
-                        :successful_runs, :success_rate, :verified_runs, :verified_success_rate,
-                        :convergence_based,
-                    ]
-                )
+            budget_summary, Not(
+                [
+                :successful_runs, :success_rate, :verified_runs, :verified_success_rate,
+                :convergence_based
+            ]
             )
+        )
         )
     end
 
@@ -766,7 +771,7 @@ function plot_solve_times(results, title)
         title = title,
         yscale = :log10,
         legend = :topleft,
-        size = (900, 600),
+        size = (900, 600)
     )
 
     return display(solve_time_plot)
@@ -790,7 +795,7 @@ function plot_compile_times(results, title)
         title = title,
         yscale = :log10,
         legend = :topleft,
-        size = (900, 600),
+        size = (900, 600)
     )
 
     return display(compile_time_plot)
@@ -814,7 +819,7 @@ function plot_success_rates(summary, title)
         title = title,
         xrotation = 30,
         legend = :topright,
-        size = (900, 600),
+        size = (900, 600)
     )
 
     return display(success_rate_plot)
@@ -853,7 +858,7 @@ function performance_profile_subplot(results, title)
         ylabel = "Fraction of problems solved",
         title = title,
         ylims = (0, 1.02),
-        legend = :bottomright,
+        legend = :bottomright
     )
     for solver in solvers
         log_ratios = log2.(ratios[solver])
@@ -870,13 +875,11 @@ function plot_performance_profile(results, title)
     nrow(results) == 0 && return nothing
 
     categories = unique(results.category)
-    subplots = [
-        performance_profile_subplot(
-                filter(:category => ==(category), results),
-                length(categories) == 1 ? title : "$title: $category",
-            )
-            for category in categories
-    ]
+    subplots = [performance_profile_subplot(
+                    filter(:category => ==(category), results),
+                    length(categories) == 1 ? title : "$title: $category"
+                )
+                for category in categories]
 
     profile_plot = plot(
         subplots...; layout = (length(subplots), 1),
@@ -912,7 +915,7 @@ function plot_work_precision(results, title; metric = :obj_gap, floor = 1.0e-16)
         xscale = :log10,
         yscale = :log10,
         legend = :topright,
-        size = (900, 600),
+        size = (900, 600)
     )
 
     return display(work_precision_plot)
