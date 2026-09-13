@@ -36,7 +36,9 @@ We benchmark three formulations:
    directly to ModelingToolkit, which uses `structural_simplify` to
    automatically perform index reduction and generate an index-1 DAE.
    This benchmarks MTK's symbolic transformation pipeline on a large-scale
-   constrained mechanical system.
+   constrained mechanical system. It is currently excluded from the
+   work-precision diagrams because it does not solve — see "Why the MTK
+   index-reduced formulation is excluded" below.
 
 Reference: Bendtsen, C., Thomsen, P.G.: Numerical solution of differential
 algebraic equations. IMM-DTU, Tech. Report (1999). Available at the
@@ -371,7 +373,8 @@ for i in 1:N_ART
         ps_mtk[idx] = only(@variables $(Symbol("p$(i)_$(k)"))(t) = y0[idx])
         qs_mtk[idx] = only(@variables $(Symbol("q$(i)_$(k)"))(t) = 0.0)
     end
-    λs_mtk[i] = only(@variables $(Symbol("lam$(i)"))(t) = 0.0)
+    # λ is algebraic — determined by the constraint derivative, not prescribed
+    λs_mtk[i] = only(@variables $(Symbol("lam$(i)"))(t))
 end
 
 eqs_mtk = Equation[]
@@ -590,14 +593,9 @@ ref_sol = solve(mmprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
 println("  retcode = $(ref_sol.retcode), npoints = $(length(ref_sol.t)), ",
         "t_final = $(ref_sol.t[end])")
 
-println("Computing MTK reference solution with Rodas5P...")
-mtk_ref = solve(mtkprob, Rodas5P(), reltol = 1e-8, abstol = 1e-8,
-                maxiters = 10_000_000)
-println("  retcode = $(mtk_ref.retcode), npoints = $(length(mtk_ref.t))")
-
-# We use separate references: the canonical mass-matrix reference for
-# mass-matrix and DAE forms, and an MTK reference for the MTK form
-# (structural_simplify may change the state layout).
+# The mass-matrix reference above is the reference for both the mass-matrix
+# and the DAE residual forms. There is no MTK reference because the
+# index-reduced MTK problem does not solve (see below).
 ```
 
 ## Verification against Fortran Reference
@@ -663,26 +661,63 @@ plot(ref_sol, idxs = [121, 122, 123, 124, 125],
 ## Problem Setup for Benchmarks
 
 We set up the problem array and reference array for `WorkPrecisionSet`.
-The three formulations are: (1) mass-matrix ODE, (2) DAE residual,
-(3) MTK index-reduced.
+Two formulations are benchmarked: (1) mass-matrix ODE and (2) DAE residual.
+The MTK index-reduced form is excluded — the next section shows why.
 
 ```julia
-probs = [mmprob, daeprob, mtkprob]
-refs  = [ref_sol, ref_sol, mtk_ref]
+probs = [mmprob, daeprob]
+refs  = [ref_sol, ref_sol]
 ```
+
+## Why the MTK index-reduced formulation is excluded
+
+The MTK problem built above is not benchmarked because it does not solve.
+With λ left unprescribed the initialization is consistent and converges,
+but the index-reduced system then goes `Unstable` near t ≈ 4 of the
+[0, 1000] span for every solver tried. This needs an upstream fix in
+ModelingToolkit; the chunk below shows it.
+
+```julia
+println("ModelingToolkit version : ", pkgversion(ModelingToolkit))
+println("unknowns(sys_mtk)       : ", length(unknowns(sys_mtk)))
+println("equations(sys_mtk)      : ", length(equations(sys_mtk)))
+
+iprob = mtkprob.f.initialization_data.initializeprob
+println("initialization system   : ", length(equations(iprob.f.sys)),
+        " equations, ", length(unknowns(iprob.f.sys)), " unknowns")
+isol = solve(iprob)
+res = zeros(length(equations(iprob.f.sys)))
+iprob.f(res, isol.u, iprob.p)
+println("init solve retcode      : ", isol.retcode,
+        ", ‖residual‖∞ = ", maximum(abs, res))
+
+for (solver_name, alg_) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()),
+                            ("QNDF", QNDF()), ("NordsieckBDF", NordsieckBDF()))
+    sol = solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
+                save_everystep = false, maxiters = Int(1e6))
+    println(rpad(solver_name, 14), " retcode = ", rpad(string(sol.retcode), 15),
+            " reached t = ", round(sol.t[end], sigdigits = 5),
+            " of ", tspan[2])
+end
+```
+
+To re-enable the sweep, restore `mtkprob` to `probs` and the
+`:prob_choice => 3` setups.
 
 ## High Tolerances
 
 ```julia
-# Tightened reltols (was 10.0.^-(1:4)) so that IDA/DASKR are not asked for the
-# loose (abstol=1e-5, reltol=1e-1) pairing — Sundials grinds with repeated
-# error-test failures for hours on that pairing. Pairing abstol with reltol
-# 4 orders of magnitude tighter keeps the per-step error control sane.
-# `verbose=false` silences Sundials' repeated-error-test warnings on the still
-# moderately-loose end of the grid.
+# Tightened reltols so that IDA/DASKR are not asked for the loose
+# (abstol=1e-5, reltol=1e-1) pairing — Sundials grinds with repeated
+# error-test failures for hours on that pairing. `verbose=false` silences the
+# repeated-error-test warnings on the still moderately-loose end of the grid.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
-# RadauIIA5 fails on this mass-matrix form (FunctionWrappers mass-matrix jac path).
+# RadauIIA5 is not in this list: on this mass-matrix form it aborts
+# (`DtLessThanMin`) at every tolerance on these grids.
+# numruns = 1: each point is a multi-second-to-minute solve of a 160-equation
+# index-2 DAE over t in [0, 1000], so run-to-run timing noise is far below the
+# cost of repeating it.
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -691,52 +726,24 @@ setups = [
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
     Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: All Formulations (High Tol)")
 ```
 
-Solver performance differs significantly across formulations, particularly
-between residual DAE, mass-matrix ODE, and MTK index-reduced forms.
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-setups = [
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
-]
-
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE vs MTK (High Tol)")
-```
+Solver performance differs significantly between the residual DAE and
+mass-matrix ODE formulations.
 
 ### Timeseries Errors
 
 ```julia
-# Same tightening as above (was reltols = 10.0.^-(1:4)) and verbose=false on
-# IDA/DASKR so the loose abstol/reltol pairings don't fail Sundials' error test
-# repeatedly.
+# Same reltol tightening and verbose=false on IDA/DASKR as above.
+# RadauIIA5 stays out: it aborts at every tolerance on this grid.
 abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (4:7)
 setups = [
@@ -746,44 +753,16 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
     Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
     Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
 ]
 
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: Timeseries (L2)")
-```
-
-```julia
-abstols = 1.0 ./ 10.0 .^ (6:8)
-reltols = 1.0 ./ 10.0 .^ (2:4)
-setups = [
-    Dict(:prob_choice => 1, :alg => Rodas4()),
-    Dict(:prob_choice => 1, :alg => Rodas5P()),
-    Dict(:prob_choice => 1, :alg => FBDF()),
-    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
-]
-
-labels = ["Rodas4 (MM)" "Rodas5P (MM)" "FBDF (MM)" "NordsieckBDF (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
-
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: MM vs DAE vs MTK Timeseries (L2)")
 ```
 
 ### Low Tolerances
@@ -791,9 +770,14 @@ plot(wp, title = "Fekete Problem: MM vs DAE vs MTK Timeseries (L2)")
 This measures solver performance when high accuracy is needed.
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (7:12)
-reltols = 1.0 ./ 10.0 .^ (4:9)
+# Past abstol = 1e-10 every mass-matrix solver either bails out
+# (FBDF/QNDF/NordsieckBDF return `Unstable`, radau returns `DtLessThanMin`)
+# or costs minutes per solve, so the grid stops at 1e-10.
+abstols = 1.0 ./ 10.0 .^ (7:10)
+reltols = 1.0 ./ 10.0 .^ (4:7)
 
+# RadauIIA5 dropped: aborts at every tolerance on these grids. `radau()`
+# (ODEInterface) is a different implementation and does produce points here.
 setups = [
     Dict(:prob_choice => 1, :alg => Rodas5()),
     Dict(:prob_choice => 1, :alg => Rodas5P()),
@@ -802,28 +786,18 @@ setups = [
     Dict(:prob_choice => 1, :alg => QNDF()),
     Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => radau()),
-    Dict(:prob_choice => 1, :alg => RadauIIA5()),
-    Dict(:prob_choice => 2, :alg => IDA()),
-    Dict(:prob_choice => 2, :alg => DASKR.daskr()),
-    Dict(:prob_choice => 3, :alg => Rodas5P()),
-    Dict(:prob_choice => 3, :alg => Rodas4()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
+    # verbose=false to match the two blocks above: at abstol 1e-10 Sundials
+    # reports repeated error-test failures on every retry.
+    Dict(:prob_choice => 2, :alg => IDA(), :verbose => false),
+    Dict(:prob_choice => 2, :alg => DASKR.daskr(), :verbose => false),
 ]
 
-labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "RadauIIA5 (MM)" "IDA (DAE)" "DASKR (DAE)" "Rodas5P (MTK)" "Rodas4 (MTK)" "FBDF (MTK)" "NordsieckBDF (MTK)"]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "radau (MM)" "IDA (DAE)" "DASKR (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
+    maxiters = Int(1e7), numruns = 1)
 plot(wp, title = "Fekete Problem: Low Tolerances")
-```
-
-```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    names = labels, save_everystep = false, appxsol = refs,
-    maxiters = Int(1e7), numruns = 5)
-plot(wp, title = "Fekete Problem: Low Tolerances (L2)")
 ```
 
 ### Conclusion
