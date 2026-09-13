@@ -310,15 +310,6 @@ function fekete_jac!(J, y, p, t)
 
     nothing
 end
-
-# Out-of-place method: the instability diagnostic calls `f.jac(u, p, t)` when
-# a solve aborts, and on OrdinaryDiffEqDifferentiation < v3.9.0 it throws
-# without one — turning a failed work-precision point into a hard error.
-function fekete_jac!(y, p, t)
-    J = zeros(eltype(y), length(y), length(y))
-    fekete_jac!(J, y, p, t)
-    return J
-end
 ```
 
 ### Mass-Matrix ODE Formulation
@@ -332,11 +323,7 @@ for i in 1:6*N_ART
     M[i,i] = 1.0
 end
 
-# FullSpecialize leaves `f.jac` unwrapped so the out-of-place call above
-# dispatches to it (AutoSpecialize is also discouraged for benchmarking).
-# SciMLBase is reached through OrdinaryDiffEq, not a direct dependency here.
-mmf = ODEFunction{true, OrdinaryDiffEq.SciMLBase.FullSpecialize}(
-    fekete_rhs!, mass_matrix = M, jac = fekete_jac!)
+mmf = ODEFunction(fekete_rhs!, mass_matrix = M, jac = fekete_jac!)
 tspan = (0.0, 1000.0)
 mmprob = ODEProblem(mmf, y0, tspan)
 ```
