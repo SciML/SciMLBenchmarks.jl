@@ -386,7 +386,8 @@ for i in 1:N_ART
         ps_mtk[idx] = only(@variables $(Symbol("p$(i)_$(k)"))(t) = y0[idx])
         qs_mtk[idx] = only(@variables $(Symbol("q$(i)_$(k)"))(t) = 0.0)
     end
-    λs_mtk[i] = only(@variables $(Symbol("lam$(i)"))(t) = 0.0)
+    # λ is algebraic — determined by the constraint derivative, not prescribed
+    λs_mtk[i] = only(@variables $(Symbol("lam$(i)"))(t))
 end
 
 eqs_mtk = Equation[]
@@ -684,37 +685,16 @@ refs  = [ref_sol, ref_sol]
 ## Why the MTK index-reduced formulation is excluded
 
 The MTK problem built above is not benchmarked because it does not solve.
-Defaults on unknowns (`p1_1(t) = y0[1]`, `q1_1(t) = 0.0`, `lam1(t) = 0.0`)
-are treated by ModelingToolkit as hard initial conditions — 120 prescriptions
-for the 60 unknowns initialization is free to choose — and they are
-inconsistent: `λ(0) = 0` contradicts the acceleration-level constraint that
-determines λ (the reference solution has λ → −4.75). So initialization
-stalls and every solver returns `InitialFailure` at t = 0. Forcing
-initialization (`BrownFullBasicInit()`, or prescribing only the positions)
-gets past t = 0 but exposes a second, independent failure: the integration
-goes `Unstable` near t ≈ 4 of the [0, 1000] span for every solver tried.
+With λ left unprescribed the initialization is consistent and converges,
+but the index-reduced system then goes `Unstable` near t ≈ 4 of the
+[0, 1000] span for every solver tried. This needs an upstream fix in
+ModelingToolkit; the chunk below shows it.
 
 ```julia
-const MTK = ModelingToolkit
 println("ModelingToolkit version : ", pkgversion(ModelingToolkit))
 println("unknowns(sys_mtk)       : ", length(unknowns(sys_mtk)))
 println("equations(sys_mtk)      : ", length(equations(sys_mtk)))
 
-# Which unknowns survive index reduction, and which carry a hard initial condition?
-uns = unknowns(sys_mtk)
-ics = MTK.initial_conditions(sys_mtk)
-isdd(u) = occursin("ˍt", string(u))
-groups = (("positions p",        u -> startswith(string(u), "p") && !isdd(u)),
-          ("dummy derivatives",  u -> startswith(string(u), "p") &&  isdd(u)),
-          ("velocities q",       u -> startswith(string(u), "q")),
-          ("multipliers λ",      u -> startswith(string(u), "lam")))
-for (name, pred) in groups
-    sel = filter(pred, uns)
-    println(rpad(name, 20), " count = ", rpad(length(sel), 4),
-            " prescribed as initial conditions = ", count(u -> haskey(ics, u), sel))
-end
-
-# The initialization system MTK builds from those prescriptions.
 iprob = mtkprob.f.initialization_data.initializeprob
 println("initialization system   : ", length(equations(iprob.f.sys)),
         " equations, ", length(unknowns(iprob.f.sys)), " unknowns")
@@ -724,32 +704,18 @@ iprob.f(res, isol.u, iprob.p)
 println("init solve retcode      : ", isol.retcode,
         ", ‖residual‖∞ = ", maximum(abs, res))
 
-# The positions are on the sphere — the inconsistency is in the multipliers.
-println("max |‖p_i(0)‖² − 1| over particles  : ",
-        maximum(abs(sum(y0[3*(i-1)+k]^2 for k in 1:3) - 1) for i in 1:N_ART))
-
-for (solver_name, alg_) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()))
-    for (init_name, initalg) in (("default", nothing),
-                                 ("BrownFullBasicInit", BrownFullBasicInit()))
-        solver_name == "Rodas5P" && init_name != "default" && continue
-        sol = if initalg === nothing
-            solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
-                  save_everystep = false, maxiters = Int(1e6))
-        else
-            solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
-                  save_everystep = false, maxiters = Int(1e6),
-                  initializealg = initalg)
-        end
-        println(rpad(solver_name, 8), " / ", rpad(init_name, 19),
-                " retcode = ", rpad(string(sol.retcode), 15),
-                " reached t = ", round(sol.t[end], sigdigits = 5),
-                " of ", tspan[2])
-    end
+for (solver_name, alg_) in (("Rodas5P", Rodas5P()), ("FBDF", FBDF()),
+                            ("QNDF", QNDF()), ("NordsieckBDF", NordsieckBDF()))
+    sol = solve(mtkprob, alg_; abstol = 1e-8, reltol = 1e-8,
+                save_everystep = false, maxiters = Int(1e6))
+    println(rpad(solver_name, 14), " retcode = ", rpad(string(sol.retcode), 15),
+            " reached t = ", round(sol.t[end], sigdigits = 5),
+            " of ", tspan[2])
 end
 ```
 
-Both failures need upstream fixes in ModelingToolkit. To re-enable the sweep,
-restore `mtkprob` to `probs` and the `:prob_choice => 3` setups.
+To re-enable the sweep, restore `mtkprob` to `probs` and the
+`:prob_choice => 3` setups.
 
 ## High Tolerances
 
