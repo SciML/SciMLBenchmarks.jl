@@ -419,7 +419,12 @@ and compare against `LN_BOBYQA` (derivative-free) from the same start.
 grad_start = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
 optf_grad = OptimizationFunction((p, _) -> biopredyn_b2_cost(p), Optimization.AutoForwardDiff())
 grad_prob = OptimizationProblem(optf_grad, grad_start, lb = p_lower, ub = p_upper)
-@time res_grad = solve(grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 50)
+losses_grad = Float64[]
+times_grad = Float64[]
+t0_grad = time()
+cb_grad = (state, l) -> (push!(losses_grad, l); push!(times_grad, time() - t0_grad); false)
+@time res_grad = solve(
+    grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 50, callback = cb_grad)
 res_grad.objective
 ```
 
@@ -479,6 +484,7 @@ df = DataFrame(
 ```julia
 bestcost_bbo = accumulate(min, losses_bbo)
 bestcost_nlopt = accumulate(min, losses_nlopt)
+bestcost_grad = accumulate(min, losses_grad)
 bestcost_bbo_polish = accumulate(min, losses_bbo_polish)
 bestcost_nlopt_polish = accumulate(min, losses_nlopt_polish)
 bestcost_pso_polish = accumulate(min, losses_pso_polish)
@@ -486,11 +492,13 @@ bestcost_pso_polish = accumulate(min, losses_pso_polish)
 bbo_polish_iters = length(losses_bbo) .+ (1:length(losses_bbo_polish))
 nlopt_polish_iters = length(losses_bbo) .+ (1:length(losses_nlopt_polish))
 pso_polish_iters = length(losses_bbo) .+ (1:length(losses_pso_polish))
+grad_iters = length(losses_bbo) .+ (1:length(losses_grad))
 
 plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "iteration", ylabel = "best cost so far (log scale)",
     title = "B2 parameter estimation convergence")
 plot!(bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(grad_iters, bestcost_grad, label = "LD_LBFGS polish (derivative-based)")
 plot!(bbo_polish_iters, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
 plot!(nlopt_polish_iters, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
 plot!(pso_polish_iters, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
@@ -499,15 +507,18 @@ hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 
 Iteration count alone hides that these methods have very different
 per-iteration costs (a `GN_CRS2_LM` iteration isn't the same amount of
-work as an `LN_BOBYQA` one), so we also plot the same running-best costs
-against wall-clock seconds, with each curve measured from its own start
-(not stacked end-to-end the way the iteration plot is):
+work as an `LN_BOBYQA` one and a `LD_LBFGS` iteration, with its
+`ForwardDiff`-propagated ODE solve, is far more expensive still), so we
+also plot the same running-best costs against wall-clock seconds, with
+each curve measured from its own start (not stacked end-to-end the way
+the iteration plot is):
 
 ```julia
 plot(times_bbo, bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "wall-clock time (s)", ylabel = "best cost so far (log scale)",
     title = "B2 parameter estimation convergence (wall time)")
 plot!(times_nlopt, bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(times_grad, bestcost_grad, label = "LD_LBFGS polish (derivative-based)")
 plot!(times_bbo_polish, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
 plot!(times_nlopt_polish, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
 plot!(times_pso_polish, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
