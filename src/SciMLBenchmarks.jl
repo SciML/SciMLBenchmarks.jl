@@ -41,6 +41,11 @@ function weave_file(folder, file, build_list = (:script, :github))
         Pkg.activate(folder)
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
             Pkg.instantiate()
+            # Conda.jl's module body validates its env dir at load time; on
+            # runners with a persistent depot a deleted env breaks precompile.
+            # Building first recreates it (build_benchmark.sh does the same
+            # for the root env).
+            Pkg.build()
         end
         Pkg.precompile()
     end
