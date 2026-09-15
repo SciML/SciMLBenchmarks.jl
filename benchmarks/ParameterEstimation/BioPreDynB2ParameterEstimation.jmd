@@ -405,50 +405,32 @@ n_particles = 40
 res_pso.objective
 ```
 
-## Derivative-based vs. derivative-free polish
-
-Since the cost function's `DomainError`-triggered `1e20` penalty (see
-above) makes the landscape discontinuous in places, it's natural to ask
-whether a derivative-based local method still works here, or whether that
-discontinuity misleads it. We test this directly: starting from the same
-point, we run NLopt's `LD_LBFGS` with a `ForwardDiff`-computed gradient
-(propagated through the ODE solve) for a modest number of iterations,
-and compare against `LN_BOBYQA` (derivative-free) from the same start.
-
-```julia
-grad_start = res_bbo.objective <= res_nlopt.objective ? res_bbo.u : res_nlopt.u
-optf_grad = OptimizationFunction((p, _) -> biopredyn_b2_cost(p), Optimization.AutoForwardDiff())
-grad_prob = OptimizationProblem(optf_grad, grad_start, lb = p_lower, ub = p_upper)
-losses_grad = Float64[]
-times_grad = Float64[]
-t0_grad = time()
-cb_grad = (state, l) -> (push!(losses_grad, l); push!(times_grad, time() - t0_grad); false)
-@time res_grad = solve(
-    grad_prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 50, callback = cb_grad)
-res_grad.objective
-```
-
-`LD_LBFGS` does make some progress, but far less efficiently than
-`LN_BOBYQA`: 50 gradient iterations take about as much wall-clock time as
-5000 `LN_BOBYQA` iterations from the same starting point (each
-`ForwardDiff` gradient here needs the dual-number-propagated ODE solve,
-vs. a single real-valued solve per `LN_BOBYQA` iteration), yet reaches a
-noticeably worse final cost — consistent with the penalty
-discontinuities limiting how far a gradient/line search can trust the
-local slope before it needs to re-evaluate. The rest of this benchmark
-uses the derivative-free `LN_BOBYQA` for local refinement instead.
-
-## Local refinement
+## Local refinement: derivative-free vs. derivative-based polish
 
 Global metaheuristics are good at finding a promising basin but slow to
 fine-tune within it. The original study's own eSS method is itself a
-*hybrid* global+local algorithm for exactly this reason. We mirror that
-here, polishing each of the three global results above with `LN_BOBYQA`
-rather than spending the (very large) additional global-search budget a
-pure power-law extrapolation would otherwise call for to close the gap to
-`Jf ≈ 234.2`.
+*hybrid* global+local algorithm for exactly this reason. We polish each
+of the three global results above with **two** different local methods,
+from identical starting points, rather than spending the (very large)
+additional global-search budget a pure power-law extrapolation would
+otherwise call for to close the gap to `Jf ≈ 234.2`:
+
+  - `LN_BOBYQA`, derivative-free;
+  - NLopt's `LD_LBFGS`, derivative-based, using a `ForwardDiff`-computed
+    gradient propagated through the ODE solve.
+
+Since the cost function's `DomainError`-triggered `1e20` penalty (see
+above) makes the landscape discontinuous in places, it's natural to ask
+whether a derivative-based local method still works here, or whether
+that discontinuity misleads it — comparing both methods from the same
+three starting points answers that directly. `LD_LBFGS` is given a much
+smaller iteration budget than `LN_BOBYQA` below because each `ForwardDiff`
+gradient requires a dual-number-propagated ODE solve, which costs far
+more per iteration than `LN_BOBYQA`'s single real-valued solve.
 
 ```julia
+optf_grad = OptimizationFunction((p, _) -> biopredyn_b2_cost(p), Optimization.AutoForwardDiff())
+
 function polish(start_u, label)
     prob = OptimizationProblem(optf, start_u, lb = p_lower, ub = p_upper)
     losses = Float64[]
@@ -461,22 +443,51 @@ function polish(start_u, label)
     return res, losses, times
 end
 
+function polish_grad(start_u, label)
+    prob = OptimizationProblem(optf_grad, start_u, lb = p_lower, ub = p_upper)
+    losses = Float64[]
+    times = Float64[]
+    t0 = time()
+    cb = (state, l) -> (push!(losses, l); push!(times, time() - t0); false)
+    t = @elapsed res = solve(
+        prob, Opt(:LD_LBFGS, length(p_nom)), maxiters = 50, callback = cb)
+    println(label, ": ", res.objective, " (", t, "s)")
+    return res, losses, times
+end
+
 res_bbo_polish, losses_bbo_polish, times_bbo_polish = polish(res_bbo.u, "BBO -> LN_BOBYQA")
 res_nlopt_polish, losses_nlopt_polish, times_nlopt_polish = polish(
     res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
 res_pso_polish, losses_pso_polish, times_pso_polish = polish(
     res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
+
+res_bbo_lbfgs, losses_bbo_lbfgs, times_bbo_lbfgs = polish_grad(res_bbo.u, "BBO -> LD_LBFGS")
+res_nlopt_lbfgs, losses_nlopt_lbfgs, times_nlopt_lbfgs = polish_grad(
+    res_nlopt.u, "GN_CRS2_LM -> LD_LBFGS")
+res_pso_lbfgs, losses_pso_lbfgs, times_pso_lbfgs = polish_grad(
+    res_pso.u, "ParallelPSOArray -> LD_LBFGS")
 ```
+
+`LD_LBFGS` does make some progress from every starting point, but far
+less efficiently than `LN_BOBYQA`: 50 gradient iterations take about as
+much wall-clock time as 5000 `LN_BOBYQA` iterations from the same start,
+yet consistently reaches a noticeably worse final cost regardless of
+which global optimizer it polishes — consistent with the penalty
+discontinuities limiting how far a gradient/line search can trust the
+local slope before it needs to re-evaluate.
 
 ```julia
 df = DataFrame(
     method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM",
-        "ParallelPSOArray", "LD_LBFGS polish (derivative-based)",
-        "LN_BOBYQA polish (from BBO)", "LN_BOBYQA polish (from GN_CRS2_LM)",
-        "LN_BOBYQA polish (from ParallelPSOArray)"],
+        "ParallelPSOArray",
+        "LN_BOBYQA polish (from BBO)", "LD_LBFGS polish (from BBO)",
+        "LN_BOBYQA polish (from GN_CRS2_LM)", "LD_LBFGS polish (from GN_CRS2_LM)",
+        "LN_BOBYQA polish (from ParallelPSOArray)",
+        "LD_LBFGS polish (from ParallelPSOArray)"],
     cost = [cost_nominal, res_bbo.objective, res_nlopt.objective, res_pso.objective,
-        res_grad.objective, res_bbo_polish.objective, res_nlopt_polish.objective,
-        res_pso_polish.objective])
+        res_bbo_polish.objective, res_bbo_lbfgs.objective,
+        res_nlopt_polish.objective, res_nlopt_lbfgs.objective,
+        res_pso_polish.objective, res_pso_lbfgs.objective])
 ```
 
 ## Convergence
@@ -484,30 +495,37 @@ df = DataFrame(
 ```julia
 bestcost_bbo = accumulate(min, losses_bbo)
 bestcost_nlopt = accumulate(min, losses_nlopt)
-bestcost_grad = accumulate(min, losses_grad)
 bestcost_bbo_polish = accumulate(min, losses_bbo_polish)
 bestcost_nlopt_polish = accumulate(min, losses_nlopt_polish)
 bestcost_pso_polish = accumulate(min, losses_pso_polish)
+bestcost_bbo_lbfgs = accumulate(min, losses_bbo_lbfgs)
+bestcost_nlopt_lbfgs = accumulate(min, losses_nlopt_lbfgs)
+bestcost_pso_lbfgs = accumulate(min, losses_pso_lbfgs)
 
 bbo_polish_iters = length(losses_bbo) .+ (1:length(losses_bbo_polish))
 nlopt_polish_iters = length(losses_bbo) .+ (1:length(losses_nlopt_polish))
 pso_polish_iters = length(losses_bbo) .+ (1:length(losses_pso_polish))
-grad_iters = length(losses_bbo) .+ (1:length(losses_grad))
+bbo_lbfgs_iters = length(losses_bbo) .+ (1:length(losses_bbo_lbfgs))
+nlopt_lbfgs_iters = length(losses_bbo) .+ (1:length(losses_nlopt_lbfgs))
+pso_lbfgs_iters = length(losses_bbo) .+ (1:length(losses_pso_lbfgs))
 
 plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "iteration", ylabel = "best cost so far (log scale)",
-    title = "B2 parameter estimation convergence")
+    title = "B2 parameter estimation convergence", legend = :outertopright,
+    size = (900, 500))
 plot!(bestcost_nlopt, label = "GN_CRS2_LM")
-plot!(grad_iters, bestcost_grad, label = "LD_LBFGS polish (derivative-based)")
 plot!(bbo_polish_iters, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(bbo_lbfgs_iters, bestcost_bbo_lbfgs, label = "LD_LBFGS polish (from BBO)")
 plot!(nlopt_polish_iters, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(nlopt_lbfgs_iters, bestcost_nlopt_lbfgs, label = "LD_LBFGS polish (from GN_CRS2_LM)")
 plot!(pso_polish_iters, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
+plot!(pso_lbfgs_iters, bestcost_pso_lbfgs, label = "LD_LBFGS polish (from PSO)")
 hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
 
 Iteration count alone hides that these methods have very different
 per-iteration costs (a `GN_CRS2_LM` iteration isn't the same amount of
-work as an `LN_BOBYQA` one and a `LD_LBFGS` iteration, with its
+work as an `LN_BOBYQA` one, and an `LD_LBFGS` iteration, with its
 `ForwardDiff`-propagated ODE solve, is far more expensive still), so we
 also plot the same running-best costs against wall-clock seconds, with
 each curve measured from its own start (not stacked end-to-end the way
@@ -516,19 +534,22 @@ the iteration plot is):
 ```julia
 plot(times_bbo, bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "wall-clock time (s)", ylabel = "best cost so far (log scale)",
-    title = "B2 parameter estimation convergence (wall time)")
+    title = "B2 parameter estimation convergence (wall time)", legend = :outertopright,
+    size = (900, 500))
 plot!(times_nlopt, bestcost_nlopt, label = "GN_CRS2_LM")
-plot!(times_grad, bestcost_grad, label = "LD_LBFGS polish (derivative-based)")
 plot!(times_bbo_polish, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(times_bbo_lbfgs, bestcost_bbo_lbfgs, label = "LD_LBFGS polish (from BBO)")
 plot!(times_nlopt_polish, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(times_nlopt_lbfgs, bestcost_nlopt_lbfgs, label = "LD_LBFGS polish (from GN_CRS2_LM)")
 plot!(times_pso_polish, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
+plot!(times_pso_lbfgs, bestcost_pso_lbfgs, label = "LD_LBFGS polish (from PSO)")
 hline!([234.2], label = "paper reference (eSS, ~10^5 evals)", linestyle = :dash)
 ```
 
 `ParallelPSOArray`'s own result isn't shown as a curve (no per-iteration
-history is available, as noted above), but its polish curve starts from
-wherever `res_pso.objective` landed, plotted alongside the other two
-polish curves for direct comparison.
+history is available, as noted above), but both of its polish curves
+start from wherever `res_pso.objective` landed, plotted alongside the
+BBO- and `GN_CRS2_LM`-seeded polish curves for direct comparison.
 
 # Conclusion
 
@@ -545,8 +566,10 @@ fits.
 Two practical findings stand out. First, derivative-free local
 refinement (`LN_BOBYQA`) substantially outperforms a derivative-based
 method (`LD_LBFGS` with a `ForwardDiff` gradient) on this problem, both
-in solution quality and iteration cost — the gradient method does make
-real progress, but each of its iterations is both far more expensive
+in solution quality and iteration cost, and consistently so from all
+three global-search starting points (BBO, `GN_CRS2_LM`, and
+`ParallelPSOArray`) — the gradient method does make real progress from
+every start, but each of its iterations is both far more expensive
 (a dual-number-propagated ODE solve vs. a single real one) and less
 productive, consistent with the `DomainError`-penalized regions of the
 search space making the landscape locally discontinuous in a way that
