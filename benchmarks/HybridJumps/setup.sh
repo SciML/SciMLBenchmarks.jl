@@ -6,7 +6,7 @@ BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JULIA_PKG_PRECOMPILE_AUTO=0 julia --startup-file=no --project="${BENCH_DIR}" -e '
     using Pkg
     Pkg.instantiate()
-    # Rebuild Conda before loading it: its module body errors when the depot's
+    # Rebuild Conda before loading it: its module body errors when the depot
     # conda env dir is missing (persistent CI depots can lose it).
     Pkg.build("Conda")
     using Conda
