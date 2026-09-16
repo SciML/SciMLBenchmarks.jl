@@ -491,6 +491,34 @@ which global optimizer it polishes — consistent with the penalty
 discontinuities limiting how far a gradient/line search can trust the
 local slope before it needs to re-evaluate.
 
+Is this specific to `LD_LBFGS`'s particular implementation, or does any
+derivative-based local method struggle here? We checked directly (outside
+this benchmark's executed script, since — see below — its cost made
+including it here impractical) using `SimpleLBFGS`, the exact bounded
+L-BFGS-with-Strong-Wolfe-line-search algorithm `HybridPSO` itself pairs
+PSO with by default; unlike `HybridPSO`'s own kernel-based PSO stage,
+`SimpleLBFGS`'s solver runs on ordinary `Vector`s and isn't affected by
+the `SArray` scaling limitation described above, so it could be tested
+independently of `HybridPSO`. From the same three starting points used
+above, `SimpleLBFGS` made *less* progress than `LD_LBFGS` in a comparable
+or smaller number of iterations, and typically returned
+`ReturnCode.Failure` rather than converging or hitting `MaxIters` —
+consistent with the same explanation given above for `LD_LBFGS`: the
+`DomainError`-penalized `1e20` regions violate the smoothness a line
+search assumes, and `SimpleLBFGS`'s more aggressive Strong Wolfe search
+trips on this at least as often as `LD_LBFGS`'s own NLopt step
+heuristics. It was also far more expensive per iteration than `LD_LBFGS`
+here — one 5-iteration test run took over an hour, since each failed
+Wolfe-condition check inside a single L-BFGS step can trigger many more
+dual-number ODE solves via the line search's own internal iteration
+budget — which is why it isn't included as an executed step in this
+benchmark: at the 50-iteration budget used for `LD_LBFGS` above, it would
+likely run for many hours per starting point. So the derivative-based
+disadvantage documented here isn't an artifact of our particular choice
+of `LD_LBFGS`; the "standard" `SimpleLBFGS` alternative fares no better
+on this problem's discontinuous penalty landscape, and costs substantially
+more to run besides.
+
 ```julia
 df = DataFrame(
     method = ["Nominal (no fit)", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM",
@@ -588,7 +616,16 @@ every start, but each of its iterations is both far more expensive
 (a dual-number-propagated ODE solve vs. a single real one) and less
 productive, consistent with the `DomainError`-penalized regions of the
 search space making the landscape locally discontinuous in a way that
-limits how much a local slope can be trusted. Second,
+limits how much a local slope can be trusted. This isn't specific to
+`LD_LBFGS`'s particular implementation: `SimpleLBFGS` — the exact
+bounded L-BFGS-with-Strong-Wolfe algorithm `HybridPSO` itself uses for
+local refinement — was checked directly (outside this benchmark's
+executed script, for the runtime reasons given above) from the same
+starting points and did no better, typically returning
+`ReturnCode.Failure` rather than converging, while also costing far more
+per iteration. So the derivative-based disadvantage documented here
+reflects this problem's discontinuous penalty landscape, not an
+artifact of our particular choice of local solver. Second,
 `ParallelParticleSwarms.jl`'s `ParallelPSOArray` is a viable additional
 global optimizer for this kind of high-dimensional problem. Its
 `HybridPSO` would be a natural fit for the local-refinement step done
