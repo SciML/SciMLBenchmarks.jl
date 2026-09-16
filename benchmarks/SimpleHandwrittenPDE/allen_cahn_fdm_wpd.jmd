@@ -382,15 +382,17 @@ function full_branched_f!(du,u,p,t)
     du[1]=0.0; du[end]=0.0
 end
 prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
-numruns = parse(Int, get(ENV,"NUMRUNS","1"))
-# Used only if the Stage 1 auto-pick below finds no point near its target and throws;
-# otherwise both are overwritten from the measured sweep.
+numruns = parse(Int, get(ENV,"NUMRUNS","5"))
+# Fallback for when the Stage 1 auto-pick below finds no measured point inside its target
+# window; otherwise both are overwritten from the sweep.
 best_m = 15; best_iop = 2
 ```
 
-### Stage 1: Within-method tuning WITH baseline — always runs, identifies best (future-proof)
+### Stage 1: Within-method tuning with a Newton baseline
 
-Addresses feedback: establish a baseline and use the in-method logic to identify the best methods. Previously optional via PLOT_TUNING, now always-on. If methods improve (e.g., EPIRK block 2→1 builds), tuning will pick new best automatically.
+Establishes the Newton baseline, then sweeps the Krylov dimension `m` within the exponential
+family and carries the best-performing configuration into Stage 2. The winner is selected from
+the measured sweep rather than hardcoded, so it stays correct if the methods improve.
 
 ```julia
 # Overlapping regime for fair within-method comparison + baseline
