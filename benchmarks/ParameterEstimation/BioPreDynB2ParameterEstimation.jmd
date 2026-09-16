@@ -355,18 +355,33 @@ one. `ParallelParticleSwarms.jl` also ships `SerialPSO` (which errors
 here with a `Random.Sampler` `MethodError`) and a built-in `HybridPSO`
 that pairs PSO with a gradient-based local polish (`SimpleLBFGS` by
 default) in one call — a natural fit for exactly the two-stage
-global-then-local approach used later in this benchmark. We tried
-`HybridPSO` with both its default swarm and, to rule out that being
-the cause, explicitly with `ParallelPSOArray` as the swarm instead;
-both fail the same way. The reason turns out to be independent of which
-swarm is used: `HybridPSOCache` and the `SciMLBase.solve!` methods that
-implement its local-refinement stage exist in the package's source on
-GitHub but are not yet part of the latest registered release (v1.6.2,
-the version `Pkg.add` installs), so `HybridPSO` falls through to a
-generic code path that mishandles its own `local_opt` field. We
-therefore chain `ParallelPSOArray` with `LN_BOBYQA` manually below
-instead, which is not registered-version-dependent. `ParallelPSOArray`
-does not yet support the `callback`
+global-then-local approach used later in this benchmark. An earlier
+version of this benchmark reported `HybridPSO` as broken on the
+registered release; that was wrong. Reading `ParallelParticleSwarms`'s
+source directly shows `HybridPSOCache` and its `solve!` methods for both
+`SimpleLBFGS` and `BFGS` local refinement are present in v1.6.2, and
+`HybridPSO` does work correctly with its actual default swarm
+(`ParallelPSOKernel`) — confirmed on a small test problem. The earlier
+`MethodError` came from our own nonstandard substitution: we had swapped
+in `ParallelPSOArray` as `HybridPSO`'s inner swarm to "isolate" what we
+assumed was a swarm-independent bug, but `ParallelPSOArray` (unlike
+`ParallelPSOKernel`/`ParallelSyncPSOKernel`) has no custom
+`SciMLBase.init`, so it falls back to a generic `OptimizationBase` cache
+that doesn't support the calling convention `HybridPSO`'s `solve!`
+relies on — an artifact of that substitution, not a real library defect.
+
+`HybridPSO`'s default swarm also requires `SArray`-typed bounds and
+initial guess (`ParallelPSOKernel`'s `init` asserts `prob.u0 isa SArray`),
+so using it here means passing `p_nom`/`p_lower`/`p_upper` as
+`StaticArrays.SVector`s of length 116 instead of `Vector`s. At that
+dimension this did not finish: a test run with a modest budget did not
+return within two hours and was killed, consistent with the
+`StaticArrays`/`KernelAbstractions`-based kernels underlying `HybridPSO`
+not scaling to 116 static parameters in practical compile/run time (it
+worked fine on a 20-parameter test problem). We therefore chain
+`ParallelPSOArray` with `LN_BOBYQA`/`LD_LBFGS` manually below instead,
+which needs no `SArray` conversion and has no such blowup at this
+dimension. `ParallelPSOArray` does not yet support the `callback`
 keyword used below for the other optimizers, so its per-iteration
 history isn't available for the convergence plot, only its final result.
 
@@ -577,11 +592,13 @@ limits how much a local slope can be trusted. Second,
 `ParallelParticleSwarms.jl`'s `ParallelPSOArray` is a viable additional
 global optimizer for this kind of high-dimensional problem. Its
 `HybridPSO` would be a natural fit for the local-refinement step done
-manually here (it pairs PSO with `SimpleLBFGS` in one call), but its
-local-refinement code path isn't in the latest registered release yet
-(v1.6.2) regardless of which swarm algorithm it's given, and `SerialPSO`
-separately errors with a `Random.Sampler` `MethodError`; neither issue
-is specific to how this benchmark uses the package.
+manually here (it pairs PSO with `SimpleLBFGS` in one call), and does
+work correctly with its default swarm at moderate dimension, but its
+`SArray`-based kernels did not finish within two hours at this problem's
+116-parameter scale — a practical scaling limit rather than a missing
+or broken feature. `SerialPSO` separately errors with a
+`Random.Sampler` `MethodError`; neither issue is specific to how this
+benchmark uses the package.
 
 ```julia, echo = false
 using SciMLBenchmarks
