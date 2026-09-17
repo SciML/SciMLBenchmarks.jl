@@ -1,0 +1,543 @@
+---
+title: "Symbolic Engine Comparison: Symbolics.jl vs SymEngine.jl"
+author: Aayush Sabharwal, Chris Rackauckas
+---
+
+The following benchmarks compare two symbolic-manipulation packages usable from
+Julia:
+
+* [SymbolicUtils.jl](https://github.com/JuliaSymbolics/SymbolicUtils.jl) (with
+  [Symbolics.jl](https://github.com/JuliaSymbolics/Symbolics.jl) for
+  differentiation) -- a pure-Julia term-rewriting system. Expressions are
+  `BasicSymbolic` trees, manipulated by rewrite rules.
+* [SymEngine.jl](https://github.com/symengine/SymEngine.jl) -- Julia wrapper over
+  the [symengine](https://github.com/symengine/symengine) C++ library, which
+  implements its core operations in compiled C++.
+
+The workloads are adapted from symengine's own C++ benchmark suite
+(`symengine/benchmarks/`), recreated on the Julia side for both packages, plus a
+set of SymbolicUtils-native workloads taken from SymbolicUtils' own benchmark
+suite (substitution with and without its `IRStructure` acceleration structure,
+and `search_variables!` expression traversal). The first set plays to
+SymEngine's strengths (a compiled symbolic kernel); the second set exercises
+workloads where a Julia-native representation is expected to compete.
+
+Both packages are driven through their public Julia APIs, and every workload
+uses structurally equivalent expressions on each side (random-term generators
+use the same RNG seed and atom/function pools, producing identical trees).
+
+```julia
+using SymEngine, SymbolicUtils, Symbolics, Chairmarks, Random,
+      CairoMakie, PrettyTables, OrderedCollections
+
+const SU = SymbolicUtils
+tmin(b) = minimum(s -> s.time, b.samples)
+
+# results collected for the summary table/plot:
+# name => (symengine_seconds, symbolicutils_seconds)
+const RESULTS = OrderedCollections.OrderedDict{String, NTuple{2, Float64}}()
+```
+
+# Setup
+
+The SymbolicUtils side needs a few helpers that SymEngine provides natively:
+an iterative numeric evaluator (SymbolicUtils' recursive `evaluate`
+stack-overflows on very deep expressions), a Taylor-series routine driven by
+`Symbolics.executediff`, and a shared random-expression generator.
+
+```julia
+# shared random-expression generator: builds a random binary tree by
+# repeatedly pairing off nodes with random binary functions. With the same
+# RNG seed and equivalent atom/function pools both packages build
+# structurally identical trees.
+function random_term(len; atoms, funs, rng, fallback_atom = 1)
+    xs = rand(rng, atoms, len)
+    while length(xs) > 1
+        xs = map(Iterators.partition(xs, 2)) do xy
+            x = xy[1]; y = get(xy, 2, fallback_atom)
+            rand(rng, funs)(x, y)
+        end
+    end
+    return xs[]
+end
+
+# Iterative numeric evaluator over the BasicSymbolic variant tree.
+# SymbolicUtils.evaluate recurses and overflows the stack on very deep
+# expressions, so this walks the tree with an explicit stack instead.
+function su_eval_double(e)
+    vals = IdDict{Any,Float64}()
+    order = Any[]
+    stack = Any[e]
+    while !isempty(stack)
+        n = pop!(stack)
+        push!(order, n)
+        u = SU.unwrap(n)
+        if SU.isterm(u)
+            for a in u.args
+                a isa SU.BasicSymbolic && push!(stack, a)
+            end
+        elseif SU.isaddmul(u)
+            for (t, _) in u.dict
+                push!(stack, t)
+            end
+        elseif SU.isdiv(u)
+            push!(stack, u.num, u.den)
+        end
+    end
+    for n in Iterators.reverse(order)
+        haskey(vals, n) && continue
+        u = SU.unwrap(n)
+        vals[n] = if SU.isconst(u)
+            Float64(u.val)
+        elseif SU.isterm(u)
+            u.f((a isa SU.BasicSymbolic ? vals[a] : Float64(a) for a in u.args)...)
+        elseif SU.isadd(u)
+            Float64(u.coeff) + sum(c * vals[t] for (t, c) in u.dict)
+        elseif SU.ismul(u)
+            foldl(*, (vals[b]^k for (b, k) in u.dict); init = Float64(u.coeff))
+        elseif SU.isdiv(u)
+            vals[u.num] / vals[u.den]
+        else
+            error("su_eval_double: unexpected node")
+        end
+    end
+    return vals[e]
+end
+
+# Taylor series of `ex` about x = x0 to order n, computed by repeated
+# Symbolics.executediff + substitution (mirrors what SymEngine.series does
+# internally).
+function su_series(ex, x, x0 = 0, n::Integer = 15)
+    D = Symbolics.Differential(x)
+    fc = SU.substitute(ex, Dict(x => x0); fold = Val(true))
+    fp = ex
+    for k in 1:n
+        fp = Symbolics.executediff(D, fp)
+        fc = fc + SU.substitute(fp, Dict(x => x0); fold = Val(true)) *
+                  (x - x0)^k / factorial(big(k))
+    end
+    return fc
+end
+
+# IRSubstituter.clear_cache! is only defined on some SymbolicUtils versions.
+@static if length(methods(SU.clear_cache!)) < 4
+    SU.clear_cache!(sub::SU.IRSubstituter) = empty!(sub.cache)
+end
+# Substituter/IRSubstituter cache results; clear before each timed call so
+# every sample measures a full substitution pass.
+function sub_call(subber, ex)
+    SU.clear_cache!(subber)
+    subber(ex)
+end
+
+# SymbolicUtils variables used throughout
+@syms s_x s_y s_z s_w s_a s_b s_c s_d s_px
+# SymEngine variables used throughout
+SymEngine.@vars e_x e_y e_z e_w e_a e_b e_c e_d
+const e_px = SymEngine.symbols(:e_px)
+const su_const = SU.Const{SU.SymReal}
+```
+
+# Polynomial expansion
+
+`expand((x + y + z + w)^n)` -- dense multinomial expansion. This is the
+canonical symengine benchmark and plays to the compiled C++ kernel;
+SymbolicUtils' `expand` routes through DynamicPolynomials.jl.
+
+Caveat: SymbolicUtils' expansion uses `Int64` coefficients, so multinomial
+coefficients exceeding `2^63` silently wrap. Term counts and tree shapes stay
+correct, so the timing workload is representative, but expanded values are
+only exact below the overflow threshold.
+
+```julia
+expand_ns = [8, 16, 24, 32]
+
+se_expand_t = [tmin(@be SymEngine.expand($(e_x + e_y + e_z + e_w)^$n)) for n in expand_ns]
+su_expand_t = [tmin(@be SU.expand($(s_x + s_y + s_z + s_w)^$n)) for n in expand_ns]
+
+pretty_table(hcat(expand_ns, se_expand_t, su_expand_t);
+    column_labels = ["n", "SymEngine (s)", "SymbolicUtils (s)"], backend = :html)
+```
+
+```julia
+f = Figure(size = (600, 350))
+ax = Axis(f[1, 1], xlabel = "exponent n", ylabel = "time (s)",
+    title = "expand((x+y+z+w)^n)", xticks = expand_ns, yscale = log10)
+scatterlines!(ax, expand_ns, se_expand_t, label = "SymEngine")
+scatterlines!(ax, expand_ns, su_expand_t, label = "SymbolicUtils")
+axislegend(ax, position = :lt)
+f
+```
+
+# Symbolic differentiation
+
+`d/dx` of `expand((x^y + y^z + z^x)^50)` (1326 expanded terms). SymEngine calls
+its C++ `diff`; SymbolicUtils has no `diff`, so this uses
+`Symbolics.executediff`, which differentiates `BasicSymbolic` expressions
+directly.
+
+```julia
+s3_se = SymEngine.expand((e_x^e_y + e_y^e_z + e_z^e_x)^50)
+s3_su = SU.expand((s_x^s_y + s_y^s_z + s_z^s_x)^50)
+
+se_diff_t = tmin(@be SymEngine.diff($s3_se, $e_x))
+su_diff_t = tmin(@be Symbolics.executediff($(Symbolics.Differential(s_x)), $s3_su))
+RESULTS["diff of expand((x^y+y^z+z^x)^50)"] = (se_diff_t, su_diff_t)
+
+pretty_table(hcat(["d/dx expand((x^y+y^z+z^x)^50)"], se_diff_t, su_diff_t);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)"], backend = :html)
+```
+
+# Taylor series
+
+`series(sin(cos(1 + x)), x, 0, 15)` -- order-15 Taylor expansion about `x = 0`.
+SymEngine's `series` does repeated `diff` + `subs` internally; the
+SymbolicUtils version does the same with `executediff` + `substitute`
+(`su_series` in the setup block).
+
+```julia
+ser_se = sin(cos(1 + e_x))
+ser_su = sin(cos(1 + s_x))
+
+se_series_t = tmin(@be SymEngine.series($ser_se, $e_x, 0, 15))
+su_series_t = tmin(@be su_series($ser_su, $s_x, 0, 15))
+RESULTS["series(sin(cos(1+x)), 15 terms)"] = (se_series_t, su_series_t)
+
+pretty_table(hcat(["series(sin(cos(1+x)), x=0, 15)"], se_series_t, su_series_t);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)"], backend = :html)
+```
+
+# Substitution
+
+Two workloads from SymbolicUtils' own benchmark suite. First a small
+trigonometric product, substituting `{a, b, c} -> {1, 2, 3}`:
+
+```julia
+trig_se = (sin(e_a + e_b) + cos(e_b + e_c)) * (sin(e_b + e_c) + cos(e_c + e_a)) *
+          (sin(e_c + e_a) + cos(e_a + e_b))
+trig_su = (sin(s_a + s_b) + cos(s_b + s_c)) * (sin(s_b + s_c) + cos(s_c + s_a)) *
+          (sin(s_c + s_a) + cos(s_a + s_b))
+
+se_trig_t = tmin(@be SymEngine.subs($trig_se, $(Dict(e_a => 1, e_b => 2, e_c => 3))))
+su_trig_t = tmin(@be SU.substitute($trig_su, $(Dict(s_a => 1, s_b => 2, s_c => 3))))
+RESULTS["substitute trig product {a,b,c}"] = (se_trig_t, su_trig_t)
+
+pretty_table(hcat(["{a,b,c} -> {1,2,3} in trig product"], se_trig_t, su_trig_t);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)"], backend = :html)
+```
+
+Then substitution in a ~100k-node random expression. On the SymbolicUtils side
+there are two drivers: `Substituter` (plain tree traversal) and
+`IRSubstituter`, which substitutes through a shared `IRStructure` so repeated
+subexpressions are visited once. The **dense** rule `a -> 2 sin(b)` matches
+many nodes; the **sparse** rule `abs(b+c) -> 2 sin(b)` matches almost none --
+the case where skipping subtrees pays off. SymEngine has no IRStructure
+equivalent, so only `subs` is compared.
+
+```julia
+rng = MersenneTwister(123)
+se_atoms = [e_a, e_b, e_c, e_d, e_a^2, e_b^2, e_a^1.5, (e_b + e_c), e_b^e_c,
+            SymEngine.Basic(1), SymEngine.Basic(2.0)]
+se_funs = [+, *, (x, y) -> SymFunction(:hypot)(x, y), (x, y) -> abs(x),
+           (x, y) -> exp(x)]
+rt_se = random_term(100000; atoms = se_atoms, funs = se_funs, rng)
+
+rng = MersenneTwister(123)  # same seed -> structurally identical tree
+su_atoms = [s_a, s_b, s_c, s_d, s_a^2, s_b^2, s_a^1.5, (s_b + s_c), s_b^s_c, 1, 2.0]
+su_funs = [+, *, hypot, (x, y) -> abs(x), (x, y) -> exp(x)]
+rt_su = random_term(100000; atoms = su_atoms, funs = su_funs, rng)
+
+dense_se = Dict(e_a => 2 * sin(e_b))
+dense_su = Dict(s_a => 2 * sin(s_b))
+sparse_se = Dict(abs(e_b + e_c) => 2 * sin(e_b))
+sparse_su = Dict(abs(s_b + s_c) => 2 * sin(s_b))
+
+sub_dense_ref = SU.Substituter{false}(dense_su)
+sub_dense_ir = SU.IRSubstituter{false}(SU.IRStructure{SU.SymReal}(), dense_su)
+sub_sparse_ref = SU.Substituter{false}(sparse_su)
+sub_sparse_ir = SU.IRSubstituter{false}(SU.IRStructure{SU.SymReal}(), sparse_su)
+
+se_sub_dense_t = tmin(@be SymEngine.subs($rt_se, $dense_se))
+su_sub_dense_ref_t = tmin(@be sub_call($sub_dense_ref, $rt_su))
+su_sub_dense_ir_t = tmin(@be sub_call($sub_dense_ir, $rt_su))
+RESULTS["substitute 100k-node expr (dense rule)"] = (se_sub_dense_t, su_sub_dense_ref_t)
+
+se_sub_sparse_t = tmin(@be SymEngine.subs($rt_se, $sparse_se))
+su_sub_sparse_ref_t = tmin(@be sub_call($sub_sparse_ref, $rt_su))
+su_sub_sparse_ir_t = tmin(@be sub_call($sub_sparse_ir, $rt_su))
+RESULTS["substitute 100k-node expr (sparse rule)"] = (se_sub_sparse_t, su_sub_sparse_ir_t)
+
+pretty_table(
+    hcat(["dense rule", "sparse rule"],
+         [se_sub_dense_t, se_sub_sparse_t],
+         [su_sub_dense_ref_t, su_sub_sparse_ref_t],
+         [su_sub_dense_ir_t, su_sub_sparse_ir_t]);
+    column_labels = ["workload", "SymEngine subs (s)",
+                     "SU Substituter (s)", "SU IRSubstituter (s)"], backend = :html)
+```
+
+```julia
+colors = Makie.wong_colors()
+f = Figure(size = (620, 330))
+ax = Axis(f[1, 1], ylabel = "time (s)", yscale = log10,
+    title = "Substitution in a ~100k-node expression",
+    xticks = (1:2, ["dense rule", "sparse rule"]))
+w = 0.22
+barplot!(ax, [0.78, 1.78], [se_sub_dense_t, se_sub_sparse_t], width = w,
+    color = colors[1], label = "SymEngine subs")
+barplot!(ax, [1.0, 2.0], [su_sub_dense_ref_t, su_sub_sparse_ref_t], width = w,
+    color = colors[2], label = "SU Substituter")
+barplot!(ax, [1.22, 2.22], [su_sub_dense_ir_t, su_sub_sparse_ir_t], width = w,
+    color = colors[3], label = "SU IRSubstituter")
+axislegend(ax)
+f
+```
+
+# Searching expressions for variables
+
+`search_variables!` walks an expression collecting the symbolic variables
+(here: any node passing the internal variable filter) into a buffer. Given a
+populated `IRStructure`, shared subexpressions are visited once. Ten
+expressions are searched; the **common** set shares a ~5000-node subtree
+(`hypot` wraps it to prevent AC-flattening eliminating the shared node), the
+**dissimilar** set shares nothing. SymEngine's equivalent is accumulating
+`free_symbols` into a set.
+
+```julia
+rng = MersenneTwister(123)
+base_se = random_term(5000; atoms = se_atoms, funs = se_funs, rng)
+common_se = [SymFunction(:hypot)(base_se, e_px + i) for i in 1:10]
+dissim_se = [random_term(1000; atoms = se_atoms, funs = se_funs, rng) for _ in 1:10]
+
+rng = MersenneTwister(123)
+base_su = random_term(5000; atoms = su_atoms, funs = su_funs, rng)
+common_su = [hypot(base_su, s_px + i) for i in 1:10]
+dissim_su = [random_term(1000; atoms = su_atoms, funs = su_funs, rng) for _ in 1:10]
+
+function se_search!(buf, exprs)
+    empty!(buf)
+    for e in exprs
+        union!(buf, SymEngine.free_symbols(e))
+    end
+    return buf
+end
+function su_search_ref!(buf, exprs)
+    empty!(buf)
+    SU.search_variables!(buf, exprs)
+    return buf
+end
+function su_search_ir!(buf, ir, exprs)
+    empty!(buf)
+    for e in exprs
+        SU.search_variables!(buf, ir, e)
+    end
+    return buf
+end
+
+se_buf = Set{SymEngine.Basic}()
+su_buf = Set{SU.BasicSymbolic{SU.SymReal}}()
+ir_common = SU.IRStructure{SU.SymReal}()
+for e in common_su; SU.populate_ir!(ir_common, e); end
+ir_dissim = SU.IRStructure{SU.SymReal}()
+for e in dissim_su; SU.populate_ir!(ir_dissim, e); end
+
+se_sv_common_t = tmin(@be se_search!($se_buf, $common_se))
+su_sv_common_ref_t = tmin(@be su_search_ref!($su_buf, $common_su))
+su_sv_common_ir_t = tmin(@be su_search_ir!($su_buf, $ir_common, $common_su))
+RESULTS["variable search (common subtrees)"] = (se_sv_common_t, su_sv_common_ir_t)
+
+se_sv_dissim_t = tmin(@be se_search!($se_buf, $dissim_se))
+su_sv_dissim_ref_t = tmin(@be su_search_ref!($su_buf, $dissim_su))
+su_sv_dissim_ir_t = tmin(@be su_search_ir!($su_buf, $ir_dissim, $dissim_su))
+RESULTS["variable search (dissimilar exprs)"] = (se_sv_dissim_t, su_sv_dissim_ir_t)
+
+pretty_table(
+    hcat(["common subtree", "dissimilar"],
+         [se_sv_common_t, se_sv_dissim_t],
+         [su_sv_common_ref_t, su_sv_dissim_ref_t],
+         [su_sv_common_ir_t, su_sv_dissim_ir_t]);
+    column_labels = ["workload", "SymEngine free_symbols (s)",
+                     "SU search_variables! (s)", "SU + IRStructure (s)"],
+    backend = :html)
+```
+
+```julia
+f = Figure(size = (620, 330))
+ax = Axis(f[1, 1], ylabel = "time (s)", yscale = log10,
+    title = "Variable search over 10 expressions",
+    xticks = (1:2, ["common subtree", "dissimilar"]))
+barplot!(ax, [0.78, 1.78], [se_sv_common_t, se_sv_dissim_t], width = w,
+    color = colors[1], label = "SymEngine free_symbols")
+barplot!(ax, [1.0, 2.0], [su_sv_common_ref_t, su_sv_dissim_ref_t], width = w,
+    color = colors[2], label = "SU search_variables!")
+barplot!(ax, [1.22, 2.22], [su_sv_common_ir_t, su_sv_dissim_ir_t], width = w,
+    color = colors[3], label = "SU + IRStructure")
+axislegend(ax)
+f
+```
+
+# Numeric evaluation
+
+Evaluating a 10000-deep nested expression `((e + 1/8)*3 + 1)^(2/3)` (applied
+repeatedly to `sin(1)`) to double precision. SymEngine evaluates the tree in
+C++; the SymbolicUtils side uses the iterative `su_eval_double` helper from
+the setup block.
+
+```julia
+function se_deep_expr(n)
+    e = sin(SymEngine.Basic(1)); c = SymEngine.Basic(2)^(-3); t = SymEngine.Basic(2) / 3
+    for _ in 1:n
+        e = ((e + c) * 3 + 1)^t
+    end
+    return e
+end
+function su_deep_expr(n)
+    e = SU.term(sin, 1); c = 1 // 8; t = 2 // 3
+    for _ in 1:n
+        e = SU.term(^, SU.term(+, SU.term(*, SU.term(+, e, c), 3), 1), t)
+    end
+    return e
+end
+
+deep_se = se_deep_expr(10000)
+deep_su = su_deep_expr(10000)
+
+se_eval_t = tmin(@be Float64(SymEngine.evalf($deep_se, 53, true)))
+su_eval_t = tmin(@be su_eval_double($deep_su))
+RESULTS["eval_double of 10000-deep expr"] = (se_eval_t, su_eval_t)
+
+# sanity check: both should evaluate the same expression
+@assert isapprox(Float64(SymEngine.evalf(deep_se, 53, true)), su_eval_double(deep_su);
+    rtol = 1e-10)
+
+pretty_table(hcat(["eval_double(10000-deep nest)"], se_eval_t, su_eval_t);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)"], backend = :html)
+```
+
+# Compiled function evaluation
+
+Both packages can turn a symbolic expression into a callable. SymEngine
+initializes a `LambdaRealDoubleVisitor` (an interpreter over the expression
+tree, optionally CSE'd); SymbolicUtils lowers through `Code.Func`/`toexpr` and
+`eval`s a native Julia function. We measure initialization and per-call cost
+on a moderately large expression (with and without common-subexpression
+elimination).
+
+```julia
+mutable struct LambdaVisitor
+    ptr::Ptr{Cvoid}
+    function LambdaVisitor()
+        v = new(ccall((:lambda_real_double_visitor_new, SymEngine.libsymengine),
+                      Ptr{Cvoid}, ()))
+        finalizer(v) do w
+            ccall((:lambda_real_double_visitor_free, SymEngine.libsymengine),
+                  Cvoid, (Ptr{Cvoid},), w.ptr)
+        end
+        return v
+    end
+end
+function lambda_init!(v, args, exprs; cse::Bool = false)
+    ccall((:lambda_real_double_visitor_init, SymEngine.libsymengine), Cvoid,
+          (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Cint), v.ptr, args.ptr, exprs.ptr, cse)
+    return v
+end
+function lambda_call!(v, outs::Vector{Cdouble}, inps::Vector{Cdouble})
+    ccall((:lambda_real_double_visitor_call, SymEngine.libsymengine), Cvoid,
+          (Ptr{Cvoid}, Ptr{Cdouble}, Ptr{Cdouble}), v.ptr, outs, inps)
+    return outs
+end
+
+function su_codegen(inputs, outputs; cse::Bool)
+    body = SU.Code.MakeTuple(outputs)
+    cse && (body = SU.Code.cse(body))
+    st = SU.Code.LazyState()
+    # NaNMath rewrites: return NaN on domain errors like the C++ visitors
+    st.rewrites[:nanmath] = true
+    return eval(SU.Code.toexpr(SU.Code.Func(collect(inputs), [], body), st))
+end
+
+function build_codegen_exprs()
+    v_se = [log(e_x), abs(e_x), tan(e_x), sinh(e_x), cosh(e_x), tanh(e_x),
+            asinh(e_y), acosh(e_y), atanh(e_x), asin(e_x), acos(e_x), atan(e_x)]
+    r_se = (sin(e_x) + (e_y^4 * e_z * 2 + sin(e_x)^2)) * foldl(+, v_se)
+    for _ in 1:4
+        r_se = (SymEngine.Basic(2)^SymEngine.E + r_se +
+                e_x^(SymEngine.E^cos(e_x))) * r_se
+    end
+
+    v_su = [log(s_x), abs(s_x), tan(s_x), sinh(s_x), cosh(s_x), tanh(s_x),
+            asinh(s_y), acosh(s_y), atanh(s_x), asin(s_x), acos(s_x), atan(s_x)]
+    r_su = (sin(s_x) + (s_y^4 * s_z * 2 + sin(s_x)^2)) * foldl(+, v_su)
+    # 2^e folded to a Const: a zero-symbol Term in an Add crashes get_degrees
+    # during codegen (empty degree list)
+    for _ in 1:4
+        r_su = (su_const(2^exp(1)) + r_su + s_x^(su_const(exp(1))^cos(s_x))) * r_su
+    end
+    return r_se, r_su
+end
+r_se, r_su = build_codegen_exprs()
+
+se_inputs = convert(SymEngine.CVecBasic, SymEngine.Basic[e_x, e_y, e_z])
+se_outputs = convert(SymEngine.CVecBasic, SymEngine.Basic[r_se])
+
+se_codegen_t = tmin(@be lambda_init!($LambdaVisitor(), $se_inputs, $se_outputs))
+se_codegen_cse_t = tmin(@be lambda_init!($LambdaVisitor(), $se_inputs, $se_outputs; cse = true))
+su_codegen_t = tmin(@be su_codegen($[s_x, s_y, s_z], $[r_su]; cse = false))
+su_codegen_cse_t = tmin(@be su_codegen($[s_x, s_y, s_z], $[r_su]; cse = true))
+RESULTS["codegen init (no CSE)"] = (se_codegen_t, su_codegen_t)
+
+# build the callers
+se_vis = lambda_init!(LambdaVisitor(), se_inputs, se_outputs)
+se_vis_cse = lambda_init!(LambdaVisitor(), se_inputs, se_outputs; cse = true)
+su_fn = su_codegen([s_x, s_y, s_z], [r_su]; cse = false)
+su_fn_cse = su_codegen([s_x, s_y, s_z], [r_su]; cse = true)
+
+inps = Cdouble[0.0, 1.732, 3.464]
+outs = zeros(Cdouble, 1)
+se_call_t = tmin(@be lambda_call!($se_vis, $outs, $(copy(inps))))
+se_call_cse_t = tmin(@be lambda_call!($se_vis_cse, $outs, $(copy(inps))))
+su_call_t = tmin(@be sum($su_fn($(copy(inps))...)))
+su_call_cse_t = tmin(@be sum($su_fn_cse($(copy(inps))...)))
+RESULTS["compiled call (CSE)"] = (se_call_cse_t, su_call_cse_t)
+
+pretty_table(
+    hcat(["init (no CSE)", "init (CSE)", "call (no CSE)", "call (CSE)"],
+         [se_codegen_t, se_codegen_cse_t, se_call_t, se_call_cse_t],
+         [su_codegen_t, su_codegen_cse_t, su_call_t, su_call_cse_t]);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)"],
+    backend = :html)
+```
+
+# Summary
+
+For the substitution and search workloads, the SymbolicUtils column reports
+the better of the two measured variants (`Substituter`/`search_variables!`
+vs their `IRStructure`-backed counterparts): `Substituter` for the dense
+rule, `IRStructure` for the sparse rule and both searches.
+
+```julia
+names = collect(keys(RESULTS))
+se_t = [RESULTS[n][1] for n in names]
+su_t = [RESULTS[n][2] for n in names]
+pretty_table(hcat(names, se_t, su_t, se_t ./ su_t);
+    column_labels = ["benchmark", "SymEngine (s)", "SymbolicUtils (s)",
+                     "SymEngine / SymbolicUtils"], backend = :html)
+```
+
+```julia
+ratios = se_t ./ su_t
+f = Figure(size = (700, 380))
+ax = Axis(f[1, 1], ylabel = "SymEngine time / SymbolicUtils time (log scale)",
+    yscale = log10, title = "Relative performance ( > 1 favors SymbolicUtils )",
+    xticks = (1:length(names), [replace(n, " " => "\n") for n in names]),
+    xticklabelsize = 8)
+barplot!(ax, 1:length(names), ratios,
+    color = [r > 1 ? colors[1] : colors[3] for r in ratios])
+hlines!(ax, [1.0], color = :black, linestyle = :dash)
+f
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
