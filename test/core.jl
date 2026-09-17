@@ -188,11 +188,10 @@ end
         imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
         @test !isnothing(imports)
         for name in ("@mtkbuild", "@mtkmodel")
-            @test occursin(name, imports[:code])
+            @test occursin(name, source)
         end
-        @test occursin("@static if isdefined(ModelingToolkit, Symbol(\"@mtkmodel\"))", imports[:code])
-        @test occursin("using ModelingToolkit: @mtkmodel", imports[:code])
-        @test occursin("using SciCompDSL: @mtkmodel", imports[:code])
+        @test occursin("using SciCompDSL", imports[:code])
+        @test occursin("using ModelingToolkit: @mtkbuild", imports[:code])
     end
 end
 
@@ -252,6 +251,11 @@ end
     @test occursin("CUDA = \"5\"", project)
     @test occursin("cuDNN = \"=1.4.4\"", project)
     @test occursin("Reactant = \"=0.2.171\"", project)
+    @test occursin("GPUCompiler = \"=1.9.1\"", project)
+    # CI reads the minor Julia version from the manifest's julia_version field;
+    # Reactant 0.2.171 does not support Julia 1.12, so the manifest must stay
+    # resolved under 1.11.
+    @test occursin(r"julia_version = \"1\.11\.", manifest)
     @test occursin(
         r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
     )
@@ -262,7 +266,7 @@ end
         r"(?s)\[\[deps\.Reactant_jll\]\].*?version = \"0\.0\.251\+0\"", manifest
     )
     @test occursin(
-        r"(?s)\[\[deps\.GPUCompiler\]\].*?pinned = true.*?version = \"1\.9\.1\"", manifest
+        r"(?s)\[\[deps\.GPUCompiler\]\].*?version = \"1\.9\.1\"", manifest
     )
     @test occursin("torch = \">=2.0,<2.11\"", python_dependencies)
     @test occursin(
