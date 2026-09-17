@@ -367,21 +367,19 @@ labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
 plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```
 
-#### Additional Benchmarks: Newton vs Exp - Final Single Plot
+## Newton-solve vs Exponential Integrators: a single Pareto comparison
 
 Stage 1 sweeps the Krylov dimension `m` and the incomplete-orthogonalisation length `iop` for
 the exponential family against an always-present Newton baseline, and picks the best form from
 the measured data. Stage 2 puts that winner on a single Pareto plot against the baseline.
 
+The two families are benchmarked on different formulations of the same PDE. That is forced
+rather than chosen: the exponential methods need the split form (`prob`, a `SplitODEProblem`)
+because they integrate the linear part exactly, while FBDF cannot take a `SplitODEProblem` at
+all — see the note in the Reference Solution section — so the Newton curves run on the combined
+`ODEProblem` (`prob_full`) constructed there and reused here.
+
 ```julia
-function full_branched_f!(du,u,p,t)
-    prob.f.f1(du, u, p, t)
-    tmp = similar(du)
-    prob.f.f2(tmp, u, p, t)
-    @. du += tmp
-    du[1]=0.0; du[end]=0.0
-end
-prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
 numruns = parse(Int, get(ENV,"NUMRUNS","5"))
 # Fallback for when the Stage 1 auto-pick below finds no measured point inside its target
 # window; otherwise both are overwritten from the sweep.
