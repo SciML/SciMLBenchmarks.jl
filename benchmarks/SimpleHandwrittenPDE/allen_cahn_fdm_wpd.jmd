@@ -155,6 +155,11 @@ plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 
 #### Comparisons Between Families
 
+The Newton-solve baseline needs its own `WorkPrecisionSet` call on the combined `ODEProblem`:
+FBDF cannot take a `SplitODEProblem`, and `WorkPrecisionSet` takes one problem per call.
+It also gets its own tolerance range, wider than the one above, so that its achieved errors
+span the same interval as the fixed-dt curves rather than sitting off one end of them.
+
 ```julia
 abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (1:4)
@@ -175,7 +180,14 @@ labels = hcat(
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between Families, High Tolerances")
+abstols_newton = 0.1 .^ (2:6); reltols_newton = abstols_newton
+@time wp_newton = WorkPrecisionSet(prob_full, abstols_newton, reltols_newton,
+    [Dict(:alg => FBDF())];
+    print_names=true, names=hcat("FBDF (Newton)"), numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+
+p_high = plot(wp, label=labels, markershape=:auto, title="Between Families, High Tolerances")
+plot!(p_high, wp_newton, label=hcat("FBDF (Newton)"), markershape=:auto)
 ```
 
 
@@ -327,6 +339,11 @@ plot(wp, label=labels, markershape=:auto, title="IMEX Methods, Krylov Linsolve, 
 
 #### Exponential Integrators
 
+The Krylov variants below vary both the subspace dimension `m` and the incomplete-orthogonalisation
+length `iop`. `iop` is worth sweeping *here* specifically: `arnoldi!` dispatches to `lanczos!`
+before `iop` is ever read when the operator is symmetric, but the SBP second-derivative operator
+used in this problem is not symmetric, so the truncated orthogonalisation actually takes effect.
+
 ```julia
 abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (4:8)
@@ -335,11 +352,17 @@ setups = [
     Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
     Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
     Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=15, iop=2), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => 1e-2 * multipliers),
 ]
 labels = hcat(
     "ETDRK3 (caching)",
     "ETDRK4 (caching)",
     "HochOst4 (caching)",
+    "ETDRK4 (m=15, iop=2)",
+    "ETDRK4 (m=30, iop=0)",
+    "ETDRK4 (m=30, iop=10)",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
@@ -359,124 +382,21 @@ setups = [
     Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
     Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
 ]
-labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3 ()", "ETDRK4 ()")
+labels = hcat("ARKODE (nondiagonal linsolve)", "ETDRK3", "ETDRK4")
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
-```
+# Newton baseline, separate call on the combined problem for the reason given in the
+# high-tolerance section above.
+abstols_newton = 0.1 .^ (6:12); reltols_newton = abstols_newton
+@time wp_newton = WorkPrecisionSet(prob_full, abstols_newton, reltols_newton,
+    [Dict(:alg => FBDF())];
+    print_names=true, names=hcat("FBDF (Newton)"), numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
 
-## Newton-solve vs Exponential Integrators: a single Pareto comparison
-
-Stage 1 sweeps the Krylov dimension `m` and the incomplete-orthogonalisation length `iop` for
-the exponential family against an always-present Newton baseline, and picks the best form from
-the measured data. Stage 2 puts that winner on a single Pareto plot against the baseline.
-
-The two families are benchmarked on different formulations of the same PDE. That is forced
-rather than chosen: the exponential methods need the split form (`prob`, a `SplitODEProblem`)
-because they integrate the linear part exactly, while FBDF cannot take a `SplitODEProblem` at
-all — see the note in the Reference Solution section — so the Newton curves run on the combined
-`ODEProblem` (`prob_full`) constructed there and reused here.
-
-```julia
-numruns = parse(Int, get(ENV,"NUMRUNS","5"))
-# Fallback for when the Stage 1 auto-pick below finds no measured point inside its target
-# window; otherwise both are overwritten from the sweep.
-best_m = 15; best_iop = 2
-```
-
-### Stage 1: Within-method tuning with a Newton baseline
-
-Establishes the Newton baseline, then sweeps the Krylov dimension `m` within the exponential
-family and carries the best-performing configuration into Stage 2. The winner is selected from
-the measured sweep rather than hardcoded, so it stays correct if the methods improve.
-
-```julia
-# Overlapping regime for fair within-method comparison + baseline
-abstols = 0.1 .^ (3:6); reltols = 0.1 .^ (3:6) # 4 vals: 1e-3..1e-6 Very Loose→Tight overlap
-dts = [0.025, 0.005, 0.001, 0.0005] # 4 vals: must match abstols length, drop 0.05 blowup
-
-# Baseline adaptive — establishes reference time at 1e-4
-@time wp_base = WorkPrecisionSet(prob_full, abstols, reltols, [Dict(:alg=>FBDF())];
-    print_names=true, names=hcat("FBDF (Newton baseline)"), numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
-
-# Within-method tuning for Exp family — DT vs TOL fair, 6 setups
-setups_tune = [
-    Dict(:alg => ETDRK2(krylov=true, m=15, iop=best_iop), :dts => dts),
-    Dict(:alg => ETDRK2(krylov=true, m=30, iop=best_iop), :dts => dts),
-    Dict(:alg => ETDRK2(krylov=true, m=60, iop=best_iop), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=0), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=2), :dts => dts),
-    Dict(:alg => ETDRK4(krylov=true, m=30, iop=10), :dts => dts),
-]
-labels_tune = hcat("ETDRK2 m=15", "ETDRK2 m=30", "ETDRK2 m=60", "ETDRK4 m=30 iop=0 full", "ETDRK4 m=15 iop=2 best", "ETDRK4 m=30 iop=10")
-
-@time wp_tune = WorkPrecisionSet(prob, abstols, reltols, setups_tune;
-    print_names=true, names=labels_tune, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5))
-
-# Combined tuning plot WITH baseline — establishes baseline + shows within-method best
-p_tune = plot(wp_base, label=hcat("FBDF (Newton baseline)"), markershape=:auto, title="Stage 1: Allen-Cahn Within-method tuning WITH baseline N=256\nSelects best Exp m/iop at 1e-4 target, spatial floor 1e-3")
-plot!(p_tune, wp_tune, label=labels_tune, markershape=:auto)
-display(p_tune)
-
-# Auto-pick best from tuning data (future-proof) — minimal time at error ~3e-4 spatial floor target
-try
-    target = 3e-4 # Allen-Cahn spatial floor
-    best_time = Inf; best_idx = 5 # default to ETDRK4 m=15 iop=2 best from prior
-    for (i, wp) in enumerate(wp_tune.wps)
-        for (e_dict, t) in zip(wp.errors, wp.times)
-            if !isnan(t) && haskey(e_dict, :l2) && !isnan(e_dict[:l2])
-                if abs(log10(e_dict[:l2]) - log10(target)) < 0.7
-                    if t < best_time
-                        best_time = t; best_idx = i
-                    end
-                end
-            end
-        end
-    end
-    ms = [15,30,60,30,15,30]; iops = [2,2,2,0,2,10]
-    global best_m = ms[best_idx]; global best_iop = iops[best_idx]
-    println("Auto-picked best from Stage 1 tuning at 3e-4 floor: idx=$best_idx m=$best_m iop=$best_iop time=$best_time")
-catch e
-    println("Auto-pick failed, using fallback best_m=15 iop=2: $e")
-end
-```
-
-### Stage 2: Final combined — Between-method with baseline, using best from Stage 1
-
-Single Pareto with baseline always present — uses best identified from Stage 1 (not static list), so future method improvements automatically reflected.
-
-```julia
-# Final uses tight-only FBDF for far left + best Exp from Stage 1
-abstols_final = 0.1 .^ (6:9); reltols_final = 0.1 .^ (6:9) # 4 vals: 1e-6..1e-9 tight-only left, avoids ref floor bug
-dts_final = [0.025, 0.005, 0.001, 0.0005] # 4 vals must match
-
-setups_ad_final = [
-    Dict(:alg => FBDF()), # Newton tight best 3ms flat
-    Dict(:alg => Exprb43(autodiff=AutoFiniteDiff(), m=best_m)), # adaptive best from Stage 1
-]
-labels_ad_final = hcat("FBDF (Newton) — tight", "Exprb43 m=$(best_m) (adaptive)")
-
-setups_dt_final = [
-    Dict(:alg => ETDRK4(krylov=true, m=best_m, iop=best_iop), :dts => dts_final), # fixed best from Stage 1
-]
-labels_dt_final = hcat("ETDRK4 m=$(best_m) iop=$(best_iop) (fixed)")
-
-@time wp_ad_final = WorkPrecisionSet(prob_full, abstols_final, reltols_final, setups_ad_final;
-    print_names=true, names=labels_ad_final, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
-
-@time wp_dt_final = WorkPrecisionSet(prob, abstols_final, reltols_final, setups_dt_final;
-    print_names=true, names=labels_dt_final, numruns=numruns, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6))
-
-p_final = plot(wp_ad_final, label=labels_ad_final, markershape=:auto, title="Allen-Cahn N=256 3-curve FBDF+Exprb43+ETDRK4 m=$(best_m) iop=$(best_iop)\nSpatial floor 1e-3 vertical")
-plot!(p_final, wp_dt_final, label=labels_dt_final, markershape=:auto)
-display(p_final)
-# Note: FBDF 2ms vs Exprb 25ms at same error due to tridiagonal LU O(N) 1k flops vs ETDRK 5 builds O(Nm²) 1.2M flops, plus spatial O(dx²) floor 1e-3 clumps vertical
+p_low = plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
+plot!(p_low, wp_newton, label=hcat("FBDF (Newton)"), markershape=:auto)
 ```
 
 ```julia, echo = false
