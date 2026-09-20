@@ -83,7 +83,11 @@ function full_branched_f!(du,u,p,t)
     tmp = similar(du)
     prob.f.f2(tmp, u, p, t)
     @. du += tmp
-    du[1]=0.0; du[end]=0.0
+    # Deliberately no boundary zeroing here. `forcing_term` already applies the BC to its
+    # own term; zeroing the combined right-hand side as well would make this a different
+    # problem from `prob` -- boundary frozen here, free there. Since `test_sol` is built
+    # from this function while every WorkPrecisionSet runs on `prob`, that mismatch showed
+    # up as a dt-independent l2 error of 3.36e-3 on every curve in the file.
 end
 prob_full = ODEProblem(full_branched_f!, prob.u0, prob.tspan, prob.p)
 @time sol = solve(prob_full, FBDF(autodiff=AutoFiniteDiff()), abstol=1e-12, reltol=1e-12, maxiters=Int(1e6), save_everystep=false)
