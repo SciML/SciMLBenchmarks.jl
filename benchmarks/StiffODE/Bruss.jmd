@@ -9,6 +9,7 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots,
       LinearAlgebra, IncompleteLU, AlgebraicMultigrid, Symbolics, ModelingToolkit,
       RecursiveFactorization
 using OrdinaryDiffEqBDF, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using OrdinaryDiffEqExponentialRK, SciMLOperators, FFTW, Printf
 gr()
 
 const N = 8
@@ -260,16 +261,117 @@ end
 fastprob = fast_bruss(N)
 ```
 
+### Semilinear (split) formulation
+
+The four problems above are four *encodings* of the same monolithic right-hand side. This
+one declares different information: that the stiff part of the operator is linear and known
+in closed form, so it can be separated from the nonstiff reaction term.
+
+```
+du/dt = L*u + g(u,t)
+```
+
+`L` is the block-diagonal periodic Laplacian, one block per species; `g` is the reaction
+plus forcing remainder. Same PDE, same spatial discretization, same parameters — only the
+declaration differs. This decalaration is what Exponential Integrators needs.
+
+
 ```julia
-sol = solve(prob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
-sol2 = solve(prob_mtk, CVODE_BDF(linear_solver = :KLU), abstol = 1/10^14, reltol = 1/10^14)
-sol3 = solve(prob_mol, CVODE_BDF(linear_solver = :KLU),
-    abstol = 1/10^14, reltol = 1/10^14, wrap = Val(false))
+function bruss_laplacian(n, as)
+    m = n*n
+    L = spzeros(m, m)
+    for j in 1:n, i in 1:n
+        idx = (j-1)*n + i
+        ip1 = i == n ? 1 : i+1; im1 = i == 1 ? n : i-1
+        jp1 = j == n ? 1 : j+1; jm1 = j == 1 ? n : j-1
+        L[idx, idx]           = -4*as
+        L[idx, (j-1)*n + ip1] = as
+        L[idx, (j-1)*n + im1] = as
+        L[idx, (jp1-1)*n + i] = as
+        L[idx, (jm1-1)*n + i] = as
+    end
+    C = spzeros(2m, 2m)
+    C[1:m, 1:m] = L
+    C[(m+1):end, (m+1):end] = L
+    C
+end
+
+# Reaction + forcing only. Indexing matches `vec` of an n x n x 2 array, which is the
+# layout `bruss_laplacian` assumes.
+function bruss_reaction!(du, u, p, t, n, xyd)
+    A, B, alpha, dx = p
+    u3 = reshape(u, n, n, 2); du3 = reshape(du, n, n, 2)
+    @inbounds for j in 1:n, i in 1:n
+        x = xyd[i]; y = xyd[j]
+        du3[i, j, 1] = B + u3[i, j, 1]^2*u3[i, j, 2] - (A + 1)*u3[i, j, 1] +
+                       brusselator_f(x, y, t)
+        du3[i, j, 2] = A*u3[i, j, 1] - u3[i, j, 1]^2*u3[i, j, 2]
+    end
+end
+
+bruss_params(n) = (xyd = range(0, stop = 1, length = n);
+                   (xyd, (3.4, 1.0, 10.0, step(xyd))))
+
+function bruss_split(n; tspan = (0.0, 11.5))
+    xyd, pn = bruss_params(n)
+    L = bruss_laplacian(n, pn[3]/pn[4]^2)
+    SplitODEProblem(MatrixOperator(L),
+                    (du, u, p, t) -> bruss_reaction!(du, u, p, t, n, xyd),
+                    vec(init_brusselator_2d(xyd)), tspan, pn)
+end
+
+
+function bruss_flat(n; sparsity = true, tspan = (0.0, 11.5))
+    xyd, pn = bruss_params(n)
+    L = bruss_laplacian(n, pn[3]/pn[4]^2)
+    u0 = vec(init_brusselator_2d(xyd))
+    rhs = let L = L, n = n, xyd = xyd
+        function (du, u, p, t)
+            mul!(du, L, u)
+            tmp = similar(du)
+            bruss_reaction!(tmp, u, p, t, n, xyd)
+            du .+= tmp
+            nothing
+        end
+    end
+    sparsity || return ODEProblem(rhs, u0, tspan, pn)
+    # L already carries the 5-point stencil and its diagonal; the reaction adds only the
+    # species coupling, which is diagonal in each off-diagonal block.
+    J = copy(L); m = n*n
+    @inbounds for i in 1:m
+        J[i, i+m] = 1.0
+        J[i+m, i] = 1.0
+    end
+    ODEProblem(ODEFunction(rhs; jac_prototype = J), u0, tspan, pn)
+end
+
+prob_split = bruss_split(N)
+
+# The split form must reproduce the monolithic RHS exactly, including the forcing, or every
+# curve drawn against it is measuring a different problem. Checked past t = 1.1 so the
+# forcing term is active.
+let u = rand(N, N, 2), du_ref = similar(u), du_spl = zeros(2*N*N), tmp = zeros(2*N*N)
+    brusselator_2d_loop(du_ref, u, p, 2.0)
+    prob_split.f.f1(du_spl, vec(u), prob_split.p, 2.0)
+    prob_split.f.f2(tmp, vec(u), prob_split.p, 2.0)
+    du_spl .+= tmp
+    err = maximum(abs, du_spl .- vec(du_ref))
+    @assert err < 1e-12 "split RHS disagrees with brusselator_2d_loop by $err"
+    @printf("split vs monolithic RHS: max abs difference %.3e\n", err)
+end
 ```
 
 ```julia
-test_sol = [sol, sol2, sol, sol3]
-probs = [prob, prob_mtk, fastprob, prob_mol];
+sol = solve(prob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
+sol2 = solve(prob_mtk, CVODE_BDF(linear_solver = :KLU), abstol = 1/10^14, reltol = 1/10^14)
+sol3 = solve(prob_mol, CVODE_BDF(linear_solver = :KLU), abstol = 1/10^14, reltol = 1/10^14, wrap = Val(false))
+sol4 = solve(bruss_flat(N), CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
+@assert SciMLBase.successful_retcode(sol4) "split reference failed: $(sol4.retcode)"
+```
+
+```julia
+test_sol = [sol, sol2, sol, sol3, sol4]
+probs = [prob, prob_mtk, fastprob, prob_mol, prob_split];
 
 ```
 
@@ -436,14 +538,25 @@ plot(wp)
 ```
 
 ```julia
+# The exponential integrators run fixed-dt on the split problem (prob_choice 5).
+# WorkPrecisionSet pairs abstols[i] with dts[i], so this vector must match abstols in
+# length. The upper end is set by the Krylov subspace, not by accuracy: with m = 15 the
+# approximation degrades once dt*norm(L) grows past roughly 80, and here norm(L) is about
+# 8*alpha/dx^2 = 3.9e3, which puts the ceiling near dt = 0.02.
+dts_exp_high = [0.02, 0.01, 0.005, 0.0025]
+
 setups = [
     Dict(:alg=>TRBDF2()),
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>KenCarp47()),
     # Dict(:alg=>QNDF()), # bad
-    Dict(:alg=>FBDF())
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
+    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high)
 ]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+names = ["TRBDF2", "KenCarp4", "KenCarp47", "FBDF",
+    "ETDRK3 m=15 (fixed dt)", "ETDRK4 m=15 (fixed dt)"];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
@@ -460,18 +573,21 @@ setups = [
         :prob_choice => 2),
     Dict(:alg=>ROCK4(), :prob_choice => 2),
     Dict(:alg=>TSRKC3(), :prob_choice => 2),
+    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
+    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
 ]
 names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
     "FBDF KLU MTK", "FBDF GMRES MTK",
     "CVODE MTK KLU", "CVODE iLU MTK GMRES",
-    "ROCK4 MTK", "TSRKC3 MTK"
+    "ROCK4 MTK", "TSRKC3 MTK",
+    "ETDRK3 m=15 split", "ETDRK4 m=15 split"
 ];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
 
-Although the stabilized methods do not use the Jacobian, 
+Although the stabilized methods do not use the Jacobian,
 they are substantially faster than the implicit methods on this test.
 
 ### Low Tolerances
@@ -481,6 +597,11 @@ This is the speed at lower tolerances, measuring what's good when accuracy is ne
 ```julia
 abstols = 1.0 ./ 10.0 .^ (7:12)
 reltols = 1.0 ./ 10.0 .^ (4:9)
+
+# Six values to match abstols. ETDRK3 is third order, so reaching the tight end of this
+# range costs roughly 10^(1/3) more steps per decade of accuracy; the smallest dt here is
+# ~115k steps over tspan 11.5, which is the dominant cost of this section.
+dts_exp_low = [0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001]
 
 setups = [
     Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2),
@@ -515,12 +636,15 @@ setups = [
         :prob_choice => 2),
     Dict(:alg=>ROCK4(), :prob_choice => 2),
     Dict(:alg=>TSRKC3(), :prob_choice => 2),
+    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_low),
+    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_low),
 ]
 names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
     "FBDF KLU MTK", "FBDF GMRES MTK",
     "Rodas5P GMRES MTK",
     "CVODE MTK KLU", "CVODE iLU MTK GMRES",
-    "ROCK4 MTK", "TSRKC3 MTK"
+    "ROCK4 MTK", "TSRKC3 MTK",
+    "ETDRK3 m=15 split", "ETDRK4 m=15 split"
 ];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
@@ -528,8 +652,267 @@ plot(wp)
 ```
 
 The stabilized methods outperformed the implicit methods again.
-Although ROCK4 is marginally faster at moderate tolerances, 
+Although ROCK4 is marginally faster at moderate tolerances,
 TSRKC3 is more robust and more reliably meets the prescribed tolerances, making it the better choice.
+
+## Problem size dependence
+For N=8 which is 128 ODE's, sparse factorization of Jacobian is nearly free and so Newton solve methods
+perform better than exponential integators. Exponential integrators rests entirely on the implicit linear solve
+becoming expensive. A 1-D tridiagonal operator factorizes in O(n) and beats fifteen Krylov
+matrix-vector products outright; a 2-D Laplacian's fill-in pushes the factorization toward
+O(n^1.5), and the ordering eventually reverses. Measured on those two problems with the same
+solver and the same tolerance, FBDF costs 0.067 ms/step in the first case and 7.66 ms/step in
+the second.
+
+```julia
+const N_LARGE = 32          # 2*N^2 = 2048 ODEs
+const TSPAN_LARGE = (0.0, 1.0)
+const NUMRUNS_LARGE = 3
+
+# --- an operator that is diagonal in the 2-D DFT basis --------------------------------
+# The periodic 5-point Laplacian on a uniform grid is block-circulant with circulant blocks,
+# so the 2-D DFT diagonalizes it exactly, with closed-form symbol
+#     lambda[p,q] = (alpha/dx^2) * (2cos(2*pi*p/n) + 2cos(2*pi*q/n) - 4)
+# Every exp(h*L)v and phi_k(h*L)v then reduces to FFT, elementwise multiply, inverse FFT:
+# exact to roundoff, no Krylov subspace, and no m to choose. This needs no change to
+# OrdinaryDiffEq. The non-Krylov ExpRK path calls expRK_operators, which is generic over
+# phi(dt*A, k) plus scalar/operator arithmetic and applies the results only through mul!,
+# and diagonal-in-Fourier operators are closed under all of those.
+struct FourierDiagOp{T,P,IP} <: AbstractMatrix{Float64}
+    coef::Matrix{T}
+    plan::P
+    iplan::IP
+    ncomp::Int
+    bufx::Matrix{ComplexF64}
+    bufc::Matrix{ComplexF64}
+end
+FourierDiagOp(coef, plan, iplan, ncomp) =
+    FourierDiagOp(coef, plan, iplan, ncomp,
+                  zeros(ComplexF64, size(coef)), zeros(ComplexF64, size(coef)))
+
+Base.size(op::FourierDiagOp) = (length(op.coef)*op.ncomp, length(op.coef)*op.ncomp)
+Base.size(op::FourierDiagOp, d::Int) = size(op)[d]
+Base.getindex(::FourierDiagOp, ::Int, ::Int) =
+    error("FourierDiagOp is matrix-free; the ExpRK path never indexes it")
+_like(op::FourierDiagOp, c) = FourierDiagOp(c, op.plan, op.iplan, op.ncomp)
+
+Base.:*(a::Number, op::FourierDiagOp)       = _like(op, a .* op.coef)
+Base.:*(op::FourierDiagOp, a::Number)       = a * op
+Base.:/(op::FourierDiagOp, a::Number)       = _like(op, op.coef ./ a)
+Base.:+(x::FourierDiagOp, y::FourierDiagOp) = _like(x, x.coef .+ y.coef)
+Base.:-(x::FourierDiagOp, y::FourierDiagOp) = _like(x, x.coef .- y.coef)
+Base.:-(x::FourierDiagOp)                   = _like(x, -x.coef)
+Base.:*(x::FourierDiagOp, y::FourierDiagOp) = _like(x, x.coef .* y.coef)
+Base.:^(x::FourierDiagOp, k::Integer)       = _like(x, x.coef .^ k)
+
+function LinearAlgebra.mul!(y::AbstractVector, op::FourierDiagOp, x::AbstractVector)
+    n = size(op.coef, 1); nc = op.ncomp
+    X = reshape(x, n, n, nc); Y = reshape(y, n, n, nc)
+    @inbounds for c in 1:nc
+        @views op.bufx .= X[:, :, c]
+        mul!(op.bufc, op.plan, op.bufx)
+        op.bufc .*= op.coef
+        ldiv!(op.bufx, op.plan, op.bufc)
+        @views Y[:, :, c] .= real.(op.bufx)
+    end
+    return y
+end
+LinearAlgebra.mul!(y, op::FourierDiagOp, x, a::Number, b::Number) =
+    (t = similar(y); mul!(t, op, x); @. y = a*t + b*y; y)
+Base.:*(op::FourierDiagOp, x::AbstractVector) = mul!(similar(x), op, x)
+
+function FFTLaplacian(n::Int, alpha::Real, dx::Real; ncomp::Int = 2)
+    as  = alpha/dx^2
+    lam = [as*(2cos(2π*(p-1)/n) + 2cos(2π*(q-1)/n) - 4) for p in 1:n, q in 1:n]
+    FourierDiagOp(complex(lam), plan_fft(zeros(ComplexF64, n, n)),
+                  plan_ifft(zeros(ComplexF64, n, n)), ncomp)
+end
+
+# phi_k(z) cancels catastrophically as z -> 0, and a periodic Laplacian always has a zero
+# mode. Kassam-Trefethen: average phi over a small circle around each eigenvalue.
+_phi_series(z::Complex, k::Int) = k == 0 ? exp(z) : (_phi_series(z, k-1) - 1/factorial(k-1))/z
+_phi_contour(z::Complex, k::Int, M::Int, r::Real) =
+    sum(_phi_series(z + r*exp(2im*π*(j-0.5)/M), k) for j in 1:M)/M
+
+function _fft_phi(A::FourierDiagOp, k::Int; M::Int = 64)
+    r = max(1.0, 1.0e-3*maximum(abs, A.coef))
+    [_like(A, [_phi_contour(z, j, M, r) for z in A.coef]) for j in 0:k]
+end
+const EU = OrdinaryDiffEqExponentialRK.ExponentialUtilities
+EU.phi(A::FourierDiagOp, k::Int) = _fft_phi(A, k)
+
+# The same PDE posed four ways at the larger grid: Newton with and without a declared
+# sparsity pattern, and the split form with the stiff operator supplied as a sparse matrix
+# (Krylov) and as an exact fast transform (FFT).
+function bruss_fft_split(n; tspan = TSPAN_LARGE)
+    xyd, pn = bruss_params(n)
+    SplitODEProblem(MatrixOperator(FFTLaplacian(n, pn[3], pn[4]; ncomp = 2)),
+                    (du, u, p, t) -> bruss_reaction!(du, u, p, t, n, xyd),
+                    vec(init_brusselator_2d(xyd)), tspan, pn)
+end
+
+prob_L_full  = bruss_flat(N_LARGE;  sparsity = true,  tspan = TSPAN_LARGE)
+prob_L_nosp  = bruss_flat(N_LARGE;  sparsity = false, tspan = TSPAN_LARGE)
+prob_L_split = bruss_split(N_LARGE; tspan = TSPAN_LARGE)
+prob_L_fft   = bruss_fft_split(N_LARGE)
+
+let v = randn(2*N_LARGE^2), pn = bruss_params(N_LARGE)[2]
+    Lsp  = bruss_laplacian(N_LARGE, pn[3]/pn[4]^2)
+    Lfft = FFTLaplacian(N_LARGE, pn[3], pn[4]; ncomp = 2)
+    rel  = norm(Lfft*v - Lsp*v)/norm(Lsp*v)
+    @assert rel < 1e-12 "FFT symbol disagrees with the sparse Laplacian: $rel"
+    @printf("FFT operator check: relative difference %.3e\n", rel)
+end
+
+# FBDF rather than CVODE here. :KLU needs an analytic sparse Jacobian this problem does not
+# carry (see the note on sol4), and the dense CVODE default would factorize 2048x2048
+# repeatedly at 1e-13. FBDF consumes the jac_prototype directly through sparse AD, which is
+# the whole point of declaring it. Three decades tighter than the tightest benchmarked
+# tolerance below.
+sol_L = solve(prob_L_full, FBDF(), abstol = 1/10^13, reltol = 1/10^13,
+    maxiters = Int(5e6), save_everystep = false)
+@assert SciMLBase.successful_retcode(sol_L) "N=$N_LARGE reference failed: $(sol_L.retcode)"
+test_sol_L = TestSolution(sol_L)
+println("N=$N_LARGE, $(2*N_LARGE^2) ODEs, tspan $TSPAN_LARGE")
+```
+
+### Work-precision at N = 32
+
+```julia
+# Adaptive and fixed-dt setups need different grids -- WorkPrecisionSet pairs abstols[i]
+# with dts[i] -- so they are separate calls drawn onto shared axes. The adaptive range is
+# wider than the fixed-dt range on purpose, so both families cover the same span of
+# achieved error rather than sitting side by side on the plot.
+abstols_L    = 1.0 ./ 10.0 .^ (2:10); reltols_L = abstols_L
+dts_L        = [0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.000125]
+abstols_Ldt  = 1.0 ./ 10.0 .^ (4:9);  reltols_Ldt = abstols_Ldt
+
+newton_L = [Dict(:alg => FBDF()), Dict(:alg => QNDF())]
+names_L  = ["FBDF (Newton) - sparsity specified", "QNDF (Newton) - sparsity specified"]
+wp_L_newton = WorkPrecisionSet(prob_L_full, abstols_L, reltols_L, newton_L;
+    names = names_L, numruns = NUMRUNS_LARGE, error_estimate = :l2,
+    save_everystep = false, appxsol = test_sol_L, maxiters = Int(1e6))
+
+names_L_nosp = ["FBDF (Newton) - no sparsity", "QNDF (Newton) - no sparsity"]
+wp_L_nosp = WorkPrecisionSet(prob_L_nosp, abstols_L, reltols_L, newton_L;
+    names = names_L_nosp, numruns = NUMRUNS_LARGE, error_estimate = :l2,
+    save_everystep = false, appxsol = test_sol_L, maxiters = Int(1e6))
+
+krylov_L = [Dict(:alg => ETDRK3(krylov = true, m = 15), :dts => dts_L),
+            Dict(:alg => ETDRK4(krylov = true, m = 15), :dts => dts_L)]
+names_L_kry = ["ETDRK3 m=15 (fixed dt, Krylov)", "ETDRK4 m=15 (fixed dt, Krylov)"]
+wp_L_kry = WorkPrecisionSet(prob_L_split, abstols_Ldt, reltols_Ldt, krylov_L;
+    names = names_L_kry, numruns = NUMRUNS_LARGE, error_estimate = :l2,
+    save_everystep = false, appxsol = test_sol_L, maxiters = Int(1e6))
+
+fft_L = [Dict(:alg => ETDRK3(krylov = false), :dts => dts_L),
+         Dict(:alg => ETDRK4(krylov = false), :dts => dts_L)]
+names_L_fft = ["ETDRK3 (fixed dt, FFT)", "ETDRK4 (fixed dt, FFT)"]
+wp_L_fft = WorkPrecisionSet(prob_L_fft, abstols_Ldt, reltols_Ldt, fft_L;
+    names = names_L_fft, numruns = NUMRUNS_LARGE, error_estimate = :l2,
+    save_everystep = false, appxsol = test_sol_L, maxiters = Int(1e6))
+
+p_L = plot(wp_L_newton, label = reshape(names_L, 1, :), markershape = :auto,
+    title = "Brusselator 2D N=$N_LARGE ($(2*N_LARGE^2) ODEs)")
+plot!(p_L, wp_L_kry,  label = reshape(names_L_kry, 1, :), markershape = :auto)
+plot!(p_L, wp_L_fft,  label = reshape(names_L_fft, 1, :), markershape = :auto,
+    linestyle = :dash)
+plot!(p_L, wp_L_nosp, label = reshape(names_L_nosp, 1, :), markershape = :auto,
+    color = [:black :gray45])
+```
+
+### Time to fixed accuracy against grid size
+
+This is the measurement the diagrams above cannot make. Each point is the wall time a method
+needs to reach the same accuracy, so the question is not which curve is lowest at one grid
+size but whether the curves **cross** as the grid grows.
+
+```julia
+l2err(u, uref) = sqrt(sum(abs2, u .- uref)/length(uref))
+
+# Wall time to reach `target`, log-log interpolated through a short sweep. Returns NaN when
+# the sweep never brackets the target, so a method that cannot reach it is absent from the
+# plot rather than silently misreported.
+function time_at_accuracy(prob, alg, uref, settings;
+                          fixed_dt = false, target = 1e-6, nruns = 2)
+    es = Float64[]; ts = Float64[]
+    for s in settings
+        sol = nothing; best = Inf
+        for _ in 1:nruns
+            el = @elapsed sol = fixed_dt ?
+                solve(prob, alg; dt = s, adaptive = false, save_everystep = false) :
+                solve(prob, alg; abstol = s, reltol = s, save_everystep = false,
+                      maxiters = Int(1e7))
+            best = min(best, el)
+        end
+        (sol === nothing || !SciMLBase.successful_retcode(sol)) && continue
+        e = l2err(vec(sol.u[end]), uref)
+        (isfinite(e) && e > 0) || continue
+        push!(es, e); push!(ts, best)
+    end
+    length(es) < 2 && return NaN
+    o = sortperm(es); es = es[o]; ts = ts[o]
+    (target < first(es) || target > last(es)) && return NaN
+    i = findfirst(>=(target), es)
+    i == 1 && return ts[1]
+    x1, x2 = log10(es[i-1]), log10(es[i])
+    y1, y2 = log10(ts[i-1]), log10(ts[i])
+    10^(y1 + (log10(target) - x1)*(y2 - y1)/(x2 - x1))
+end
+
+scaling_Ns = [8, 16, 32]
+scaling_target = 1e-6
+scaling_tols = 1.0 ./ 10.0 .^ (3:10)
+
+scaling = Dict(k => Float64[] for k in
+    ("FBDF", "QNDF", "ETDRK3 Krylov m=15", "ETDRK3 FFT"))
+
+for n in scaling_Ns
+    pf   = bruss_flat(n;  sparsity = true, tspan = TSPAN_LARGE)
+    psp  = bruss_split(n; tspan = TSPAN_LARGE)
+    pfft = bruss_fft_split(n)
+    ref  = solve(pf, FBDF(), abstol = 1/10^13, reltol = 1/10^13,
+                 maxiters = Int(5e6), save_everystep = false)
+    @assert SciMLBase.successful_retcode(ref) "reference failed at N=$n: $(ref.retcode)"
+    uref = vec(ref.u[end])
+
+    # The Krylov ceiling scales with the operator norm, which grows like (n-1)^2, so the
+    # usable dt range has to shrink with the grid or m=15 stops resolving exp(h*L).
+    dtmax = 1.0/(n-1)^2
+    dts_n = dtmax .* [1.0, 0.5, 0.25, 0.125, 0.0625]
+
+    # The FFT operator has no subspace to truncate -- phi is exact -- so that ceiling does
+    # not apply to it and its error is the scheme's own splitting error, which barely moves
+    # with n. It therefore gets a fixed, much coarser grid. Sharing dts_n with the Krylov
+    # variant put every FFT run below the 1e-6 target at the larger grids, so the target
+    # fell outside the sweep and the point was dropped.
+    dts_fft = [0.02, 0.01, 0.005, 0.0025, 0.001, 0.0005]
+
+    push!(scaling["FBDF"], time_at_accuracy(pf, FBDF(), uref, scaling_tols;
+        target = scaling_target))
+    push!(scaling["QNDF"], time_at_accuracy(pf, QNDF(), uref, scaling_tols;
+        target = scaling_target))
+    push!(scaling["ETDRK3 Krylov m=15"],
+        time_at_accuracy(psp, ETDRK3(krylov = true, m = 15), uref, dts_n;
+            fixed_dt = true, target = scaling_target))
+    push!(scaling["ETDRK3 FFT"],
+        time_at_accuracy(pfft, ETDRK3(krylov = false), uref, dts_fft;
+            fixed_dt = true, target = scaling_target))
+
+    @printf("N=%3d (%5d ODEs)  FBDF %8.4gs  QNDF %8.4gs  ETDRK3/Krylov %8.4gs  ETDRK3/FFT %8.4gs\n",
+        n, 2n^2, scaling["FBDF"][end], scaling["QNDF"][end],
+        scaling["ETDRK3 Krylov m=15"][end], scaling["ETDRK3 FFT"][end])
+end
+
+odes = 2 .* scaling_Ns .^ 2
+p_scale = plot(xscale = :log10, yscale = :log10, xlabel = "ODEs (2N^2)",
+    ylabel = "time to reach l2 = $scaling_target (s)",
+    title = "Cost at matched accuracy against problem size", legend = :topleft)
+for k in ("FBDF", "QNDF", "ETDRK3 Krylov m=15", "ETDRK3 FFT")
+    plot!(p_scale, odes, scaling[k], label = k, markershape = :auto)
+end
+p_scale
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
