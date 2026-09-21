@@ -1,0 +1,248 @@
+---
+title: RODE Convergence and the Cost of Classical Order
+author: Harsh Singh
+---
+
+A random ordinary differential equation (RODE) is an ODE whose right-hand side is driven by a
+stochastic process sampled pathwise,
+
+$$\frac{du}{dt} = f(u, t, W(t)),$$
+
+with $W$ a Wiener path supplied to the solver. Because each realisation of $W$ is a fixed
+function of time, a RODE is a genuine ODE for that realisation, and it is tempting to hand it
+to a high-order ODE integrator and expect the usual rate.
+
+That expectation is wrong, and it is wrong in a way that is cheap to measure. A Wiener path is
+nowhere differentiable, so the right-hand side is only Hölder-$1/2$ continuous in $t$ and the
+Taylor expansion a classical Runge-Kutta method relies on does not exist. Grüne and Kloeden
+observed the resulting order loss; Kloeden and Rosa later showed that for semimartingale noise
+the attainable pathwise rate is $1$, not the $1/2$ the Hölder exponent alone would suggest.
+
+This page measures both halves of that statement: the rate the dedicated RODE solvers reach,
+and the rate a nominally 5th and 9th order ODE method reaches on the same problem.
+
+```julia
+using StochasticDiffEq, DiffEqNoiseProcess, OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqTsit5,
+      OrdinaryDiffEqVerner, Plots, Random, Statistics, Printf
+gr()
+
+const SEED = 20260921
+const TEND = 1.0
+const FINE = 2^18
+const FDT = TEND / FINE
+const GRID = collect(range(0.0, TEND; length = FINE + 1))
+const STEPS = [16, 32, 64, 128, 256]
+const PATHS = 16
+```
+
+## Test problem
+
+The problem is scalar and linear in $u$, which is what makes an accurate reference available:
+
+$$\frac{du}{dt} = -u \cos(5 W(t)), \qquad u(0) = 1,$$
+
+whose solution is $u(t) = \exp\left(-\int_0^t \cos(5W(s))\,ds\right)$. The reference is that
+quadrature on the fine grid, so it is only as good as the grid. Every convergence study below
+reports a *reference floor*: the change in the reference when the fine grid is coarsened by
+four. Measured errors must stay well above that floor, otherwise the fitted slope is describing
+the reference rather than the method.
+
+```julia
+wiener_path(rng) = (W = zeros(FINE + 1); W[2:end] .= cumsum(sqrt(FDT) .* randn(rng, FINE)); W)
+
+function cumulative_trapezoid(g, dt)
+    I = zeros(length(g)); acc = zero(eltype(g))
+    @inbounds for k in 1:(length(g) - 1)
+        acc += dt * (g[k] + g[k + 1]) / 2
+        I[k + 1] = acc
+    end
+    return I
+end
+
+function fitted_slope(ns, errs)
+    x = log2.(1 ./ ns); y = log2.(errs); n = length(x)
+    return (n * sum(x .* y) - sum(x) * sum(y)) / (n * sum(x .^ 2) - sum(x)^2)
+end
+
+rode_f(u, p, t, W) = -u * cos(5W)
+
+# W(t) by linear interpolation of the stored path, the way a practitioner hands a
+# sampled path to an ODE solver
+function make_W(path)
+    return function (t)
+        s = t / FDT
+        i = clamp(floor(Int, s), 0, FINE - 1)
+        theta = s - i
+        return (1 - theta) * path[i + 1] + theta * path[i + 2]
+    end
+end
+```
+
+## Strong convergence of the RODE solvers
+
+`RandomEM`, `RandomHeun` and `RandomTamedEM` are measured against the exact pathwise solution,
+the error being the maximum over the saved steps, reported as a root-mean-square over
+independent paths.
+
+```julia
+function strong_errors(solve_one)
+    rng = MersenneTwister(SEED)
+    E = zeros(PATHS, length(STEPS))
+    floors = zeros(PATHS)
+    for m in 1:PATHS
+        path = wiener_path(rng)
+        g = cos.(5 .* path)
+        exact = exp.(-cumulative_trapezoid(g, FDT))
+        floors[m] = maximum(abs, exp.(-cumulative_trapezoid(g[1:4:end], 4FDT)) .- exact[1:4:end])
+        for (j, n) in enumerate(STEPS)
+            u = solve_one(path, n)
+            stride = FINE ÷ n
+            E[m, j] = maximum(abs(u[k + 1] - exact[k * stride + 1]) for k in 0:n)
+        end
+    end
+    return [sqrt(mean(E[:, j] .^ 2)) for j in eachindex(STEPS)], maximum(floors)
+end
+
+rode_solver(alg) = (path, n) -> solve(
+    RODEProblem{false}(rode_f, 1.0, (0.0, TEND), noise = NoiseGrid(GRID, path)),
+    alg, dt = TEND / n, adaptive = false, save_everystep = true).u
+
+rode_algs = ["RandomEM" => RandomEM(), "RandomHeun" => RandomHeun(),
+             "RandomTamedEM" => RandomTamedEM()]
+rode_results = Dict(name => strong_errors(rode_solver(alg)) for (name, alg) in rode_algs)
+
+for (name, _) in rode_algs
+    errs, fl = rode_results[name]
+    @printf("%-16s slope %.3f   floor margin %.1fx\n", name,
+            fitted_slope(STEPS, errs), minimum(errs) / fl)
+end
+```
+
+All three sit at order 1. `RandomHeun` costs a second right-hand side evaluation per step and
+does not convert it into a rate, for the same reason the classical methods below do not: the
+second stage is an expansion the path does not support.
+
+```julia
+dts = TEND ./ STEPS
+plt = plot(xscale = :log10, yscale = :log10, xlabel = "dt", ylabel = "strong error",
+           title = "RODE solvers on a Wiener-driven RODE", legend = :bottomright)
+for (name, _) in rode_algs
+    plot!(plt, dts, rode_results[name][1], marker = :circle, label = name)
+end
+plot!(plt, dts, dts .* (rode_results["RandomEM"][1][end] / dts[end]),
+      linestyle = :dash, color = :black, label = "slope 1")
+plt
+```
+
+## The same problem given to classical ODE solvers
+
+Now the identical path is handed to `Euler`, `Tsit5` and `Vern9` as an ODE whose right-hand
+side happens to call `W(t)`. The solver steps are far coarser than the grid the path is stored
+on, so the path is fully resolved beneath every step; nothing here is a sampling artefact.
+
+```julia
+ode_solver(alg) = function (path, n)
+    Wf = make_W(path)
+    odef(u, p, t) = -u * cos(5 * Wf(t))
+    return solve(ODEProblem(odef, 1.0, (0.0, TEND)), alg,
+                 dt = TEND / n, adaptive = false, save_everystep = true).u
+end
+
+ode_algs = ["Euler (order 1)" => Euler(), "Tsit5 (order 5)" => Tsit5(),
+            "Vern9 (order 9)" => Vern9()]
+ode_results = Dict(name => strong_errors(ode_solver(alg)) for (name, alg) in ode_algs)
+
+for (name, _) in ode_algs
+    errs, fl = ode_results[name]
+    @printf("%-16s slope %.3f   error at dt=1/256 %.3g\n", name,
+            fitted_slope(STEPS, errs), errs[end])
+end
+
+@printf("\nmax |Euler - RandomEM| over the step counts: %.3g\n",
+        maximum(abs, ode_results["Euler (order 1)"][1] .- rode_results["RandomEM"][1]))
+```
+
+Nominal orders 1, 5 and 9 all measure close to 1. `Vern9` buys a smaller constant and no rate;
+`Tsit5` spends six stages per step to land beside `Euler`. `Euler` on the interpolated path
+agrees with `RandomEM` to rounding error, printed above, which is the expected identity: at
+order 1 the two formulations coincide.
+
+```julia
+plt = plot(xscale = :log10, yscale = :log10, xlabel = "dt", ylabel = "strong error",
+           title = "Classical Runge-Kutta on the same RODE", legend = :bottomright)
+for (name, _) in ode_algs
+    plot!(plt, dts, ode_results[name][1], marker = :square, label = name)
+end
+plot!(plt, dts, rode_results["RandomEM"][1], marker = :circle, linestyle = :dot,
+      label = "RandomEM")
+plot!(plt, dts, dts .* (ode_results["Euler (order 1)"][1][end] / dts[end]),
+      linestyle = :dash, color = :black, label = "slope 1")
+plt
+```
+
+## Work-precision
+
+Rate is not the whole story: a method with the same rate and a smaller constant can still be
+the right choice. This measures error against wall-clock time for one path, so the question
+becomes whether `Vern9`'s smaller constant pays for its stages.
+
+```julia
+function timed_errors(solve_one)
+    rng = MersenneTwister(SEED)
+    path = wiener_path(rng)
+    g = cos.(5 .* path)
+    exact = exp.(-cumulative_trapezoid(g, FDT))
+    errs = zeros(length(STEPS)); times = zeros(length(STEPS))
+    solve_one(path, STEPS[1])                       # warm up compilation
+    for (j, n) in enumerate(STEPS)
+        t0 = time()
+        reps = 0
+        u = solve_one(path, n)
+        while time() - t0 < 0.05                    # accumulate at least 50ms of work
+            u = solve_one(path, n); reps += 1
+        end
+        times[j] = (time() - t0) / max(reps, 1)
+        stride = FINE ÷ n
+        errs[j] = maximum(abs(u[k + 1] - exact[k * stride + 1]) for k in 0:n)
+    end
+    return errs, times
+end
+
+wp = Dict{String, Tuple{Vector{Float64}, Vector{Float64}}}()
+for (name, alg) in rode_algs
+    wp[name] = timed_errors(rode_solver(alg))
+end
+for (name, alg) in ode_algs
+    wp[name] = timed_errors(ode_solver(alg))
+end
+
+plt = plot(xscale = :log10, yscale = :log10, xlabel = "time (s)", ylabel = "error",
+           title = "Work-precision, single path", legend = :bottomleft)
+for (name, _) in rode_algs
+    plot!(plt, wp[name][2], wp[name][1], marker = :circle, label = name)
+end
+for (name, _) in ode_algs
+    plot!(plt, wp[name][2], wp[name][1], marker = :square, linestyle = :dash, label = name)
+end
+plt
+```
+
+## What this means for choosing a solver
+
+Throwing classical order at a RODE does not raise the rate. Every method above converges at
+about order 1, and the differences between them are constants. The rate is capped by what the
+solver knows about the driving path: a method that only evaluates $W$ at points cannot do
+better, whatever its tableau.
+
+Getting past order 1 requires the step to use information about $W$ *between* its endpoints,
+for example the integral $\int_t^{t+h}(W_s - W_t)\,ds$, which is not a function of the
+increment alone. That integral can be recovered when the path is supplied on a grid finer than
+the solver steps, which is the case in most applications where the noise is measured data or
+generated once at high resolution. Methods of that kind are omitted here because they are not
+in a released version of StochasticDiffEq.jl at the time of writing; this page should be
+extended when they are.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

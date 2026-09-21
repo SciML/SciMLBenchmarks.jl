@@ -67,6 +67,7 @@ section_titles = [
     "NBodySimulator" => "N-Body Problem Benchmarks",
     "NonStiffSDE" => "Non-Stiff Stochastic Differential Equations (SDEs)",
     "StiffSDE" => "Stiff Stochastic Differential Equations (SDEs)",
+    "RODE" => "Random Ordinary Differential Equations (RODEs)",
     "NonStiffDDE" => "Non-Stiff Delay Differential Equations (DDEs)",
     "StiffDDE" => "Stiff Delay Differential equations (DDEs)",
     "Jumps" => "Jump Process Equations (Gillespie Benchmarks)",
