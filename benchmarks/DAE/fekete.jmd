@@ -15,21 +15,33 @@ $A_i = -\alpha q_i$ ($\alpha = 0.5$). The particles are constrained to the
 unit sphere via Lagrange multipliers $\lambda_i$.
 
 The **original index-3 system** has the physics:
-$$\ddot{p}_i = -\alpha \dot{p}_i + 2\lambda_i p_i + \sum_{j \neq i} \frac{p_i - p_j}{\|p_i - p_j\|^2}$$
-$$0 = \|p_i\|^2 - 1$$
+
+```math
+\ddot{p}_i = -\alpha \dot{p}_i + 2\lambda_i p_i + \sum_{j \neq i} \frac{p_i - p_j}{\|p_i - p_j\|^2}
+```
+
+```math
+0 = \|p_i\|^2 - 1
+```
 
 The **stabilized index-2 formulation** (from the Fortran test set) introduces
 velocity variables $q_i = \dot{p}_i$ and Baumgarte stabilization multipliers
 $\mu_i$, giving 160 = 8N state variables with mass matrix
 $M = \text{diag}(I_{6N}, 0_{2N})$:
-$$\dot{p}_i = q_i + 2\mu_i p_i, \quad
-\dot{q}_i = -\alpha q_i + 2\lambda_i p_i + \sum_{j\neq i}\frac{p_i - p_j}{\|p_i - p_j\|^2}$$
-$$0 = \|p_i\|^2 - 1, \quad 0 = 2p_i \cdot q_i$$
+
+```math
+\dot{p}_i = q_i + 2\mu_i p_i, \quad
+\dot{q}_i = -\alpha q_i + 2\lambda_i p_i + \sum_{j\neq i}\frac{p_i - p_j}{\|p_i - p_j\|^2}
+```
+
+```math
+0 = \|p_i\|^2 - 1, \quad 0 = 2p_i \cdot q_i
+```
 
 We benchmark three formulations:
 
 1. **Mass-Matrix ODE Form:** The stabilized index-2 system as `M·du/dt = f(u, t)`,
-   solved with Rosenbrock-W and BDF methods.
+   solved with Rosenbrock, BDF and RADAU methods.
 2. **DAE Residual Form:** Same system as `F(du, u, t) = M·du − f(u, t) = 0`,
    solved with IDA and DASKR.
 3. **MTK Automatic Index Reduction:** The original index-3 system is given
@@ -414,8 +426,9 @@ println("MTK automatic reduction → $(length(unknowns(sys_mtk))) states")
 ## Reference Solution
 
 The Fortran test set provides a high-accuracy reference solution at $t = 1000$,
-computed with RADAU5 at `rtol = atol = 1e-12`. We use this as our ground truth
-and also compute a high-accuracy Julia reference for timeseries comparison.
+computed with RADAU5 at `rtol = atol = 1e-12`. We use it to verify our own
+reference solution (Rodas5P at `rtol = atol = 1e-8`), which is the reference
+for all work-precision diagrams below.
 
 ```julia
 # Reference values from Fortran solut() subroutine (RADAU5, tol=1e-12)

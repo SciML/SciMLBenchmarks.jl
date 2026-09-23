@@ -22,7 +22,7 @@ impractical.
 We benchmark three formulations of this problem:
 
 1. **DAE Residual Form:** `F(du, u, t) = 0`, solved with IDA (Sundials).
-2. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with Rosenbrock-W and
+2. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with Rosenbrock and
    BDF methods. The mass matrix is position-dependent (through φ) and frozen
    at t = 0.
 3. **ModelingToolkit Structural Simplified:** The residual function is wrapped
@@ -32,7 +32,9 @@ We benchmark three formulations of this problem:
 
 The mass matrix depends on the roll angle φ through cos(φ) and sin(φ) in the
 Euler equations. Since φ remains small throughout the integration (≈ 10⁻³ rad),
-freezing the mass matrix at t = 0 introduces negligible error.
+we freeze the mass matrix at t = 0. This is an approximation: in the latest run
+the resulting reference solution differs from the IVP Test Set values at t = 10
+by relative errors of up to about 3% (see the verification below).
 
 Reference: Simeon, B., Führer, C., Rentrop, P.: Differential-algebraic equations
 in vehicle system dynamics. Surv. Math. Ind., 1:1–37 (1991).
@@ -692,7 +694,11 @@ println("Reference (MTK): retcode = $(ref_sol_mtk.retcode), npoints = $(length(r
 ### Verification against IVP Test Set Reference
 
 The IVP Test Set provides reference values at t = 10, computed by DASSL with
-`rtol = atol = 1e-9` for (p, v, q) and `1e-10` for λ.
+`rtol = atol = 1e-9` for (p, v, q) and `1e-10` for λ. In the latest run our
+reference agrees with them only to relative errors between about `6e-5`
+(ξ_L, ξ_R) and `3e-2` (ż), far above the `1e-10` solve tolerance, so errors
+in the work-precision diagrams below that are smaller than this level measure
+agreement with our frozen-mass-matrix reference rather than with the test-set solution.
 
 ```julia
 u_ref = zeros(17)

@@ -22,7 +22,7 @@ We benchmark three formulations of this problem:
 2. **MTK Index-Reduced ODE:** The system defined symbolically with position-level
    constraints, automatically index-reduced by `mtkcompile` to a 13-state ODE.
 3. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
-   handle singular mass matrices (Rosenbrock-W methods, multistep BDF).
+   handle singular mass matrices (Rosenbrock methods, multistep BDF).
 
 The mass matrix is frozen at t = 0, which limits achievable tolerance to around 1e-7.
 
@@ -509,7 +509,10 @@ println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
 We compute a high-accuracy reference solution using Rodas5P at moderate
 tolerance. The frozen mass matrix limits how tight we can push tolerances
 before instability sets in, so `reltol = abstol = 1e-6` provides the best
-balance of accuracy and stability for this problem.
+balance of accuracy and stability for this problem. The MTK form gets its own
+reference, solved at `1e-5`; in the latest run that solve returns
+`InitialFailure` without leaving $t = 0$, so the MTK entries in the diagrams
+below have no valid reference in that run.
 
 ```julia
 ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-6, abstol = 1e-6,
@@ -567,26 +570,26 @@ catch e
 end
 ```
 
-IDA fails with `ConvergenceFailure` at the first step on this problem, even with
-fully consistent initial conditions (DAE residual norm ≈ 7×10⁻²¹). The extreme
-stiffness from the elastic modulus (E = 2×10¹¹ Pa) causes the Newton solver
-to diverge, with step size collapsing to h ≈ 10⁻¹⁷. DASKR and DASSL exhibit
-the same failure mode.
+In the latest run IDA stops with `Unstable` at $t \approx 2.5 \times 10^{-4}$
+(of the $[0, 0.1]$ interval), with or without `init_all = false`, even though the
+initial conditions are consistent (DAE residual norm ≈ 7×10⁻¹⁵). We attribute
+this to the extreme stiffness from the elastic modulus (E = 2×10¹¹ Pa).
 
-This demonstrates that **formulation choice critically affects solver performance**
-for this problem: the mass-matrix ODE form avoids DAE solver difficulties by
-letting Rosenbrock-W methods handle the algebraic constraints through the
-singular mass matrix structure.
+By contrast, Rodas5P on the mass-matrix ODE form reaches $t = 0.1$ (see the
+reference solution above), so **formulation choice critically affects solver
+performance** for this problem: the mass-matrix form lets Rosenbrock methods
+handle the algebraic constraints through the singular mass matrix structure.
 
 ## Work-Precision Diagrams
 
 We compare solvers across all three formulations using `WorkPrecisionSet` with
 `prob_choice` to overlay DAE, MTK, and mass-matrix results on the same plot.
 IDA operates on the DAE residual form, the MTK index-reduced form is solved
-with Rosenbrock-W methods, and the mass-matrix ODE form uses Rosenbrock-W
+with Rosenbrock methods, and the mass-matrix ODE form uses Rosenbrock
 and BDF methods. The tolerance range is limited by the frozen mass matrix
-(instability above ~1e-7). The MTK form's overdetermined initialization
-system limits it to tolerances above ~1e-5.
+(instability at tolerances tighter than ~1e-7). The MTK form's initialization
+system is overdetermined, and in the latest run even its `1e-5` reference
+solve fails at initialization (see above).
 
 ```julia
 probs = [prob_dae, prob_mtk, prob_mm]
@@ -657,7 +660,10 @@ plot(wp, title = "Slider-Crank: Timeseries Error (L2)")
 ## Verification against ARCHIMEDE Reference
 
 The IVP Test Set (`crank.f`, `solut` subroutine) provides reference values at
-t = 0.1. We verify our solution reproduces these values.
+t = 0.1. We compare our reference solution against these values. In the latest
+run, the positions and $\lambda_1$, $\lambda_2$ agree (relative errors of about
+`2e-8` for φ₂ and x₃ and below `1e-3` for the elastic modes, λ₁ and λ₂), but λ₃
+does not: our solution gives about −18.21 against the reference value 25.30.
 
 ```julia
 archimede_refs = Dict(
