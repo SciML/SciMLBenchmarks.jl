@@ -228,7 +228,7 @@ opt = Opt(:GN_ESCH, 4)
 ```
 
 ```julia
-optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
+optprob = OptimizationProblem(obj, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
 ```
 
 ```julia
@@ -250,15 +250,14 @@ opt = Opt(:LD_SLSQP, 4)
 
 The parameters used to generate the data are `[0.7, 0.8, 0.08, 0.5]`. In the latest run:
 
-  - On the short (300-observation) problem, `GN_CRS2_LM` and the local methods `LN_BOBYQA`, `LN_NELDERMEAD`, `LD_SLSQP`
-    and `LN_PRAXIS` recover these values to within about `1e-9`, and `LN_NEWUOA_BOUND` and `LD_MMA` get close.
-    `GN_ORIG_DIRECT_L`, `GN_ISRES`, `GN_ESCH`, `LN_COBYLA` and `LN_SBPLX` do not.
-  - BBO gets close on the short problem with the default `Tsit5` tolerances, but tightening the ODE solver tolerances
-    (`reltol = 1e-9`, then `Vern9` at `1e-9`) moved its estimate further from the true values and made the run slower.
-  - On the longer (3000-observation) problem, `GN_CRS2_LM` and `GN_ISRES` recover the true values, BBO only gets close,
-    and `GN_ORIG_DIRECT_L` and `GN_ESCH` do not. Every global run takes considerably longer than on the short problem.
-  - The local optimizers in the longer-problem section are run on the short objective `obj_short`, so they repeat the
-    short-problem results rather than testing the longer problem.
+  - On the short (300-observation) problem, `GN_CRS2_LM` and the local methods `LN_BOBYQA`, `LD_SLSQP`, `LN_PRAXIS`
+    and `LN_SBPLX` recover these values to within about `1e-6`, while `GN_ORIG_DIRECT_L`, `GN_ISRES`, `GN_ESCH`,
+    `LN_NELDERMEAD`, `LN_COBYLA`, `LN_NEWUOA_BOUND` and `LD_MMA` do not.
+  - BBO does not recover the parameters on the short problem at any of the three tolerance settings tried here.
+  - On the longer (3000-observation) problem, `GN_CRS2_LM` and `GN_ISRES` recover the true values, while BBO,
+    `GN_ORIG_DIRECT_L` and `GN_ESCH` do not. Every global run takes considerably longer than on the short problem.
+  - The local optimizers on the longer problem start from `loc_init` on the long objective: `LN_BOBYQA` recovers
+    the true values, while `LN_NELDERMEAD` and `LD_SLSQP` stop at the upper bounds (about `[1, 1, 1, 0.87]`).
 
 ```julia, echo = false
 using SciMLBenchmarks
