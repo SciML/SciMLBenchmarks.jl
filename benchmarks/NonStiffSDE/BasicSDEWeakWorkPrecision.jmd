@@ -7,17 +7,23 @@ author: Chris Rackauckas
 
 In this notebook we will run some benchmarks for the weak error on some simple sample SDEs. The weak error is defined as:
 
-$$E_W = \mathbb{E}[Y_\delta(t)] - \mathbb{E}[Y(t)]$$
+```math
+E_W = \mathbb{E}[Y_\delta(t)] - \mathbb{E}[Y(t)]
+```
 
-and is thus a measure of how close the mean of the numerical solution is to the mean of the true solution. Other moments can be measured as well, but the mean is a good stand-in for other properties. Note that convergence of the mean is calculated on a sample. Thus there's actually two sources of error. We have not only the error between the numerical and actual results, but we also have the error of the mean to the true mean due to only taking a finite sample. Using the normal confidence interval of the mean due to the Central Limit Theorem, the error due to finite sampling is
+and is thus a measure of how close the mean of the numerical solution is to the mean of the true solution. Other moments can be measured as well, but the mean is a good stand-in for other properties. Note that convergence of the mean is calculated on a sample. Thus there are actually two sources of error. We have not only the error between the numerical and actual results, but we also have the error of the mean to the true mean due to only taking a finite sample. Using the normal confidence interval of the mean due to the Central Limit Theorem, the error due to finite sampling is
 
-$$E_S = V[Y(t)]/\sqrt(N)$$
+```math
+E_S = \sqrt{V[Y(t)]/N}
+```
 
 for $N$ being the number of samples. In practice,
 
-$$E = minimum(E_W,E_S)$$
+```math
+E = \max(E_W,E_S)
+```
 
-Thus in each case, we will determine the variance of the true solution and use that to estimate the sample error, and the goal is to thus find the numerical method that achieves the sample error most efficiently.
+Thus in each case, we will determine the variance of the true solution and use that to estimate the sample error, and the goal is thus to find the numerical method that achieves the sample error most efficiently.
 
 ```julia
 using StochasticDiffEq, DiffEqDevTools, ParameterizedFunctions, SDEProblemLibrary
@@ -30,11 +36,15 @@ const N = 1000
 
 ### Additive Noise Problem
 
-$$dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+```math
+dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=1
+```
 
 where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
 
-$$X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).$$
+```math
+X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).
+```
 
 ```julia
 prob = prob_sde_additive
@@ -100,13 +110,17 @@ plot!([se[end]; se[end]], times, color = :red,
 
 ### Scalar Noise
 
-We will use a the linear SDE (also known as the Black-Scholes equation)
+We will use the linear SDE (also known as the Black-Scholes equation)
 
-$$dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+```math
+dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
+```
 
-where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
+where $\alpha=1.01$ and $\beta=0.87$. Actual Solution:
 
-$$X_{t}=X_{0}e^{\left(\beta-\frac{\alpha^{2}}{2}\right)t+\alpha W_{t}}.$$
+```math
+X_{t}=X_{0}e^{\left(\alpha-\frac{\beta^{2}}{2}\right)t+\beta W_{t}}.
+```
 
 ```julia
 prob = prob_sde_linear
@@ -173,13 +187,17 @@ plot!([se[end]; se[end]], times, color = :red,
     linestyle = :dash, label = "Sample Error: 1000", lw = 3)
 ```
 
-## Scalar Wave SDE
+### Scalar Wave SDE
 
-$$dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}$$
+```math
+dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=1
+```
 
 Actual Solution:
 
-$$X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).$$
+```math
+X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).
+```
 
 ```julia
 prob = prob_sde_wave
@@ -249,7 +267,7 @@ plot!([se[end]; se[end]], times, color = :red,
 
 ## Summary
 
-In the additive noise problem, the `EM` and `RKMil` algorithms are not effective at reaching the sample error. In the other two problems, the `EM` and `RKMil` algorithms are as efficient as the higher order methods at achieving the maximal weak error.
+In the additive noise problem, the `EM` and `RKMil` algorithms do not reach the sample error in the latest run. On the scalar wave SDE, `EM` and `RKMil` reach the sample error about as cheaply as the higher order methods, while on the linear scalar noise problem they need several times more time than the Rössler methods to reach it.
 
 ```julia, echo = false
 using SciMLBenchmarks

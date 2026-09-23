@@ -26,15 +26,17 @@ where $Y_\delta$ is the numerical approximation to $Y$. This is the same as sayi
 
 ### Additive Noise Problem
 
-\begin{equation}
-dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
-where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
-\begin{equation}
-X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).
-\end{equation}
+```math
+dX_{t}=\left(\frac{\beta}{\sqrt{1+t}}-\frac{1}{2\left(1+t\right)}X_{t}\right)dt+\frac{\alpha\beta}{\sqrt{1+t}}dW_{t},\thinspace\thinspace\thinspace X_{0}=1
+```
 
-First let's solve this using a system of SDEs, repeating this same problem 4 times.
+where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
+
+```math
+X_{t}=\frac{1}{\sqrt{1+t}}X_{0}+\frac{\beta}{\sqrt{1+t}}\left(t+\alpha W_{t}\right).
+```
+
+First let's solve this using a system of 4 independent copies of this SDE, each with a different $\beta$.
 
 ```julia
 prob = prob_sde_additivesystem
@@ -110,13 +112,15 @@ plot(wp)
 
 We will use a 4x2 matrix of independent linear SDEs (also known as the Black-Scholes equation)
 
-\begin{equation}
+```math
 dX_{t}=\alpha X_{t}dt+\beta X_{t}dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
-where $\alpha=\frac{1}{10}$ and $\beta=\frac{1}{20}$. Actual Solution:
-\begin{equation}
-X_{t}=X_{0}e^{\left(\beta-\frac{\alpha^{2}}{2}\right)t+\alpha W_{t}}.
-\end{equation}
+```
+
+where $\alpha=1.01$ and $\beta=0.87$. Actual Solution:
+
+```math
+X_{t}=X_{0}e^{\left(\alpha-\frac{\beta^{2}}{2}\right)t+\beta W_{t}}.
+```
 
 ```julia
 prob = prob_sde_2Dlinear
@@ -188,13 +192,15 @@ plot(wp)
 
 Now a scalar wave SDE:
 
-\begin{equation}
-dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=\frac{1}{2}
-\end{equation}
+```math
+dX_{t}=-\left(\frac{1}{10}\right)^{2}\sin\left(X_{t}\right)\cos^{3}\left(X_{t}\right)dt+\frac{1}{10}\cos^{2}\left(X_{t}\right)dW_{t},\thinspace\thinspace\thinspace X_{0}=1
+```
+
 Actual Solution:
-\begin{equation}
+
+```math
 X_{t}=\arctan\left(\frac{1}{10}W_{t}+\tan\left(X_{0}\right)\right).
-\end{equation}
+```
 
 ```julia
 prob = prob_sde_wave
@@ -213,7 +219,7 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; numruns = N,
 plot(wp)
 ```
 
-Note that in this last problem, the adaptivity algorithm accurately detects that the error is already low enough, and does not increase the number of steps as the tolerance drops further.
+Note that in this last problem, the adaptive `SRIW1` already reaches small errors at the loosest tolerances, so in the latest run its cost grows only slightly as the tolerance drops further.
 
 ```julia
 setups = [Dict(:alg=>EM(), :dts=>1.0 ./ 5.0 .^ ((1:length(reltols)) .+ 2))
