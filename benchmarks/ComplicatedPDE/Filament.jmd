@@ -298,14 +298,20 @@ The model quickly falls into a highly oscillatory mode which then dominates thro
 
 # Work-Precision Diagrams
 
-Now let's build the problem and solve it once at high accuracy to get a reference solution:
+Now let's build the problem and solve it once at high accuracy to get a
+reference solution. The `ODEFunction` is given the analytical Jacobian
+`J = P*A`, the same one the `run` helper passes; the implicit solvers in the
+diagrams below pick it up from the problem.
 
 ```julia
 N=20
 f = FilamentCache(N, Solver = SolverDiffEq)
 r0 = initialize!(:StraightX, f)
 stiffness_matrix!(f)
-prob = ODEProblem(f, r0, (0.0, 0.01))
+filament_jac! = let f = f
+    (J, u, p, t) -> (mul!(J, f.P.P, f.A); nothing)
+end
+prob = ODEProblem(ODEFunction(f, jac = filament_jac!), r0, (0.0, 0.01))
 
 sol = solve(prob, Vern9(), reltol = 1e-14, abstol = 1e-14)
 test_sol = TestSolution(sol);
@@ -472,14 +478,13 @@ setups = [
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
-    maxiters = Int(1e6), verbose = SciMLLogging.None())
+    maxiters = Int(1e6), verbose = SciMLLogging.None(), error_estimate = :l2)
 plot(wp)
 ```
 
-Note that this cell does not set `error_estimate = :l2`, so despite the heading
-it measures the final-point error again (the x-axis of the plot reads
-"Error (final)") and says nothing about timeseries errors. Timeseries errors are
-not computed in the benchmarks below.
+With `error_estimate = :l2` this cell measures the L2 error over the saved time
+series rather than the error at the final point, so it can be compared with the
+endpoint diagrams above.
 
 ### Dense Error
 
@@ -601,11 +606,9 @@ plot(wp)
 # No Jacobian Work-Precision Diagrams
 
 Here the problem is built with `jac = nothing`, so no analytical Jacobian is
-available to the solvers. Note that the problem in the previous sections,
-`ODEProblem(f, r0, (0.0, 0.01))`, was also built without one (only the `run`
-helper above passes an analytical Jacobian), so this section solves the same
-problem as before, and in the latest run its diagrams match the corresponding
-ones above.
+available to the solvers. The problem in the previous sections passes the
+analytical Jacobian `J = P*A` (the same one the `run` helper uses), so this
+section repeats the diagrams without it for comparison.
 
 Note that the pre-caching means that the model is not compatible with automatic differentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use FiniteDiff.jl's numerical differentiation backend.
 
@@ -723,9 +726,9 @@ diagram, and in the low-tolerance (high-accuracy) diagrams it is at least about
 2x faster than every other method tested. The ESDIRK methods (`TRBDF2`,
 `KenCarp3`, `KenCarp4`) take roughly twice as long as `CVODE_BDF` at matched
 error. At the high tolerances, the stabilized explicit methods `RKC` and `ROCK2`
-are faster than `CVODE_BDF` for errors of about `1e-4` and larger. As noted
-above, the "Work-Precision Diagrams" and "No Jacobian Work-Precision Diagrams"
-sections solve the same problem, and their results agree.
+are faster than `CVODE_BDF` for errors of about `1e-4` and larger. The "No
+Jacobian Work-Precision Diagrams" section repeats these diagrams on the same
+problem without the analytical Jacobian.
 
 ```julia, echo = false
 using SciMLBenchmarks
