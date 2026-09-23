@@ -9,7 +9,7 @@ challenging test functions from the literature.
 
 ## `Roots.jl` baseline
 
-To give us sensible measure to compare with, we will use the `Roots.jl` package
+To give us a sensible measure to compare with, we will use the `Roots.jl` package
 as a baseline,
 
 ```julia
@@ -95,7 +95,7 @@ end
 ```
 
 Although each method finds the roots with different accuracies, we can see that
-all the `NonlinearSolve.jl` algorithms are performant and non-allocating.
+all the `BracketingNonlinearSolve.jl` algorithms are performant and non-allocating.
 
 ## A different function
 
@@ -241,7 +241,7 @@ all_algorithms = [
 
 # Benchmark function for testing all algorithms on a given function
 function benchmark_function(test_func, N_samples = 10000)
-    println("\\n=== Testing: $(test_func.name) ===")
+    println("\n=== Testing: $(test_func.name) ===")
     println("Interval: $(test_func.interval)")
     println("Parameter: $(test_func.p)")
 
@@ -328,7 +328,7 @@ Let's create a summary table of the results:
 using Printf
 
 function print_summary_table(all_results)
-    println("\\n" * "="^80)
+    println("\n" * "="^80)
     println("COMPREHENSIVE BENCHMARK SUMMARY")
     println("="^80)
 
@@ -365,7 +365,7 @@ function print_summary_table(all_results)
         println()
     end
 
-    println("\\n" * "="^80)
+    println("\n" * "="^80)
     println("Notes:")
     println("- Times shown in milliseconds for 10000 function evaluations")
     println("- BNS = BracketingNonlinearSolve.jl, SNS = SimpleNonlinearSolve.jl")
@@ -383,7 +383,7 @@ Now let's examine the accuracy of each method:
 
 ```julia
 function print_accuracy_table(all_results)
-    println("\\n" * "="^80)
+    println("\n" * "="^80)
     println("ACCURACY ANALYSIS (Absolute Error)")
     println("="^80)
 
@@ -430,7 +430,7 @@ Finally, let's rank the algorithms by overall performance:
 
 ```julia
 function rank_algorithms(all_results)
-    println("\\n" * "="^60)
+    println("\n" * "="^60)
     println("ALGORITHM RANKINGS")
     println("="^60)
 
@@ -485,7 +485,7 @@ function rank_algorithms(all_results)
     println("Rank | Algorithm          | Success Rate | Combined Score")
     println("-"^60)
     for (i, alg) in enumerate(algorithm_rankings)
-        @printf "%-4d | %-18s | %-11.1f%% | %-12.3f\\n" i alg.name[1:min(18, length(alg.name))] (alg.success_rate*100) alg.combined_score
+        @printf "%-4d | %-18s | %-11.1f%% | %-12.3f\n" i alg.name[1:min(18, length(alg.name))] (alg.success_rate*100) alg.combined_score
     end
 
     println("="^60)
@@ -497,16 +497,16 @@ rank_algorithms(all_results)
 
 ## Conclusion
 
-This extended benchmark suite demonstrates the performance and accuracy characteristics of interval rootfinding algorithms across a diverse set of challenging test functions. The test functions include:
+This extended benchmark suite measures the performance and accuracy of interval rootfinding algorithms on eight challenging test functions:
 
- 1. **Polynomial functions** with multiple roots
- 2. **Trigonometric functions** with oscillatory behavior
- 3. **Exponential functions** with high sensitivity
- 4. **Rational functions** with singularities
- 5. **Logarithmic functions** with domain restrictions
- 6. **Highly oscillatory functions** testing robustness
- 7. **Functions with flat regions** challenging convergence
- 8. **Bessel-like functions** with complex behavior
+ 1. a **Wilkinson-like polynomial** with several roots in the bracket,
+ 2. `sin(x) - 0.5x`, a **trigonometric function** with several roots,
+ 3. `exp(x) - 1 - x - x²/2`, an **exponential function** that is very flat near zero,
+ 4. `1/(x-0.5) - 2`, a **rational function** with a pole just outside the bracket,
+ 5. `log(x) - x + 2`, a **logarithmic function**,
+ 6. `sin(20x) + sin(x) + x`, a **highly oscillatory function**,
+ 7. `x³ - 2x² + x`, a **polynomial with a flat region** around its double root at `x = 1`,
+ 8. `x·sin(1/x) - 0.1`, which **oscillates increasingly fast** toward the left end of the bracket.
 
 The benchmark compares algorithms from both `BracketingNonlinearSolve.jl` and `SimpleNonlinearSolve.jl`, providing insights into:
 
@@ -515,7 +515,13 @@ The benchmark compares algorithms from both `BracketingNonlinearSolve.jl` and `S
   - **Accuracy**: Precision of the found roots
   - **Reliability**: Success rates across diverse test cases
 
-This comprehensive evaluation helps users choose the most appropriate interval rootfinding algorithm for their specific applications.
+In the latest run, every method found an accurate root of all eight functions except `Alefeld` from
+`BracketingNonlinearSolve.jl`, which failed on `x·sin(1/x) - 0.1` with a `DomainError`. `ModAB`,
+`Roots.jl` and `ITP` had the highest combined scores, and `Bisection` and `Falsi` (from both packages)
+the lowest; `Falsi` was also by far the slowest method on `exp(x) - 1 - x - x²/2` (about 0.7 s,
+against roughly 6–60 ms for the other methods). Note that the combined score is dominated by its
+accuracy term — the success-rate term contributes at most 0.4 to scores in the hundreds — so the
+ranking is effectively an accuracy ranking rather than the 40/30/30 blend its note describes.
 
 ```julia, echo = false
 using SciMLBenchmarks
