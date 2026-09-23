@@ -33,6 +33,7 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDif
       Plots, DASSL, DASKR, StaticArrays
 using OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock
 using LinearAlgebra, SparseArrays
+using SymbolicIndexingInterface: getsym, remake_buffer
 using ModelingToolkit: t_nounits as t, D_nounits as D
 const SA = StaticArrays.SA
 
@@ -278,6 +279,16 @@ gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
 The 7-variable three-mass matrices are defined for reference, but the benchmarked
 system is the 5-variable two-mass version (`E_spring_5`, `A_spring_5`).
 
+The input force jumps from 10 to 0.1·e⁻⁵ᵗ at t = 0.1. The Lagrange multiplier λ depends
+algebraically on the input, so it jumps there too. A step that crosses t = 0.1 has an error
+in λ of the size of the jump however short the step is, so an adaptive solver cannot step
+over it. The problem therefore stops the integration at t = 0.1 (`tstops`), switches the input with a
+`DiscreteCallback` that sets the parameter `impulse_on` to 0, and resets λ to the value that
+satisfies the algebraic equation with the new input. The differential states x1 and v1 are
+continuous and left unchanged. The benchmark solves do not save the two event points, so
+errors are measured at the same saved points as for the other systems. The reference solves
+save both sides of the jump, so their interpolant is correct up to t = 0.1 and after it.
+
 ```julia
 # Mass-Spring Parameters (3 masses)
 m_spring, k_spring, d_spring = 100.0, 2.0, 5.0
@@ -325,18 +336,37 @@ C_spring_5 = [1 0 0 0 0; 0 1 0 0 0]
 x = [x1_spring, x2_spring, v1_spring, v2_spring, λ_spring]
 Dx = D.(x)
 
-# Input function: impulse force followed by decay
-u(t) = ifelse((t < 0.1), 10.0, 0.1*exp(-5*t))  # Initial impulse then decay
+# Input: impulse force of 10 until t = 0.1, then 0.1*exp(-5t)
+@parameters impulse_on = 1.0
+u_spring = impulse_on * 10.0 + (1 - impulse_on) * 0.1 * exp(-5 * t)
 
 # E*Dx = A*x + B*u
-spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
+spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u_spring
 
 @mtkcompile spring_sys = System(spring_eqs, t)
 
+# λ enters the algebraic equation linearly, so its consistent value after the switch
+# is the symbolic solution of that equation.
+λ_consistent = getsym(spring_sys,
+    Symbolics.symbolic_linear_solve(only(alg_equations(spring_sys)), λ_spring))
+λ_idx = findfirst(isequal(λ_spring), unknowns(spring_sys))
+function end_impulse!(integ)
+    integ.p = remake_buffer(spring_sys, integ.p, (impulse_on,), (0.0,))
+    λ = λ_consistent(integ)
+    if integ.u isa SVector
+        integ.u = Base.setindex(integ.u, λ, λ_idx)
+    else
+        integ.u[λ_idx] = λ
+    end
+end
+impulse_end(save) = DiscreteCallback((u, t, integ) -> t == 0.1, end_impulse!;
+    save_positions = (save, save), initializealg = SciMLBase.NoInit())
+
 # Problems using force input
-spring_prob = ODEProblem(spring_sys, [x1_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
-spring_static_prob = ODEProblem{false}(spring_sys, SA[x1_spring => 0.0, v1_spring => 1.0], (
-    0.0, 20.0))
+spring_prob = ODEProblem(spring_sys, [x1_spring => 0.0, v1_spring => 1.0], (0.0, 20.0);
+    callback = impulse_end(false), tstops = [0.1])
+spring_static_prob = ODEProblem{false}(spring_sys, SA[x1_spring => 0.0, v1_spring => 1.0],
+    (0.0, 20.0); callback = impulse_end(false), tstops = [0.1])
 ```
 
 ## Generate Reference Solutions
@@ -358,8 +388,15 @@ cart_static_ref = solve(cart_static_prob, Rodas5P(), abstol = abstol_ref, reltol
 gen_ref = solve(gen_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
 gen_static_ref = solve(gen_static_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
 
-spring_ref = solve(spring_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
-spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
+spring_ref = solve(spring_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref,
+    callback = impulse_end(true))
+spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol = abstol_ref,
+    reltol = reltol_ref, callback = impulse_end(true))
+
+# λ on both sides of the input switch in the mass-spring reference
+i_switch = findall(==(0.1), spring_ref.t)
+println("Mass-spring reference at t = 0.1: λ = ", spring_ref[λ_spring][i_switch],
+    ", retcodes = ", (spring_ref.retcode, spring_static_ref.retcode))
 
 # Problem and reference solution arrays
 all_probs = [
