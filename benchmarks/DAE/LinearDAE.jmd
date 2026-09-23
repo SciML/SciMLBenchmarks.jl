@@ -22,11 +22,11 @@ The benchmark systems are sourced from:
 
 The suite includes:
 
-  - **Index-1 DAEs**: RLC Circuit
+  - **Index-1 DAEs**: RLC Circuit, Electric Generator
   - **Index-2 DAEs**: Two Interconnected Rotating Masses, RL Network
-  - **Index-3 DAEs**: Cart Pendulum, Electric Generator, Damped Mass-Spring System
+  - **Index-3 DAEs**: Cart Pendulum, Damped Mass-Spring System
 
-Each DAE is defined using both ModelingToolkit symbolic form and static array mass matrix form with physically meaningful time-dependent input functions.
+Each DAE is written symbolically in ModelingToolkit, with physically meaningful time-dependent input functions, and compiled with `@mtkcompile`. Every system is benchmarked both as an in-place problem and as an out-of-place `StaticArrays` problem.
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
@@ -217,7 +217,7 @@ cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0]
     0.0, 1.0))
 ```
 
-## Index-3 DAE: Electric Generator
+## Index-1 DAE: Electric Generator
 
 **System**: E*dx/dt = A*x + B*u, where x = [ω, i, v_emf, v_load]
 
@@ -273,7 +273,10 @@ gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
 
 ## Index-3 DAE: Damped Mass-Spring System
 
-**System**: E*dx/dt = A*x + B*u, where x = [x1, x2, x3, v1, v2, v3, λ]
+**System**: E*dx/dt = A*x + B*u, where x = [x1, x2, v1, v2, λ]
+
+The 7-variable three-mass matrices are defined for reference, but the benchmarked
+system is the 5-variable two-mass version (`E_spring_5`, `A_spring_5`).
 
 ```julia
 # Mass-Spring Parameters (3 masses)
@@ -365,7 +368,7 @@ all_probs = [
     # Index-2: Two Masses and RL Network
     [masses_prob, masses_static_prob],
     [rl_prob, rl_static_prob],
-    # Index-3: Cart, Generator, Spring
+    # Index-3: Cart and Spring; Index-1: Generator
     [cart_prob, cart_static_prob],
     [gen_prob, gen_static_prob],
     [spring_prob, spring_static_prob]
@@ -381,7 +384,7 @@ all_refs = [
 ]
 
 system_names = ["RLC Circuit (Index-1)", "Two Masses (Index-2)", "RL Network (Index-2)",
-    "Cart Pendulum (Index-3)", "Electric Generator (Index-3)", "Mass-Spring (Index-3)"]
+    "Cart Pendulum (Index-3)", "Electric Generator (Index-1)", "Mass-Spring (Index-3)"]
 ```
 
 ## Visualize Solutions
@@ -485,7 +488,7 @@ wp_cart = WorkPrecisionSet(all_probs[4], abstols, reltols, setups_cart;
 plot(wp_cart, title = "Cart Pendulum (Index-3) Work-Precision")
 ```
 
-### Index-3 DAE: Electric Generator
+### Index-1 DAE: Electric Generator
 
 ```julia
 setups_gen = [
@@ -501,7 +504,7 @@ setups_gen = [
 
 wp_gen = WorkPrecisionSet(all_probs[5], abstols, reltols, setups_gen;
     save_everystep = false, appxsol = all_refs[5], maxiters = Int(1e5), numruns = 10)
-plot(wp_gen, title = "Electric Generator (Index-3) Work-Precision")
+plot(wp_gen, title = "Electric Generator (Index-1) Work-Precision")
 ```
 
 ### Index-3 DAE: Damped Mass-Spring System

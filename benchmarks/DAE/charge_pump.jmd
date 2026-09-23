@@ -14,7 +14,9 @@ charge distribution effects.* Preprint 1745, May 1995, Technische Hochschule Dar
 
 The system is:
 
-$$M \frac{dy}{dt} = f(t, y), \quad y(0) = y_0, \quad 0 \le t \le 1.2 \times 10^{-6}$$
+```math
+M \frac{dy}{dt} = f(t, y), \quad y(0) = y_0, \quad 0 \le t \le 1.2 \times 10^{-6}
+```
 
 where $y \in \mathbb{R}^9$ and the mass matrix $M$ is singular (rows 4–9 are zero).
 
@@ -30,12 +32,12 @@ Fortran solvers (RADAU, RADAU5, MEBDFDAE, MEBDFI) fail at all tolerances. Only B
 and PSIDE-1 succeed, and even those only at loose tolerances.
 
 **ModelingToolkit Index Reduction:** This is an index-2 DAE. ModelingToolkit's Pantelides
-algorithm successfully reduces it to index-1, collapsing 9 unknowns to 4 (node potentials
-$U_2$, $U_3$ and their dummy derivatives). However, the index-reduced system introduces
+algorithm successfully reduces it to index-1, collapsing 9 unknowns to 6 (the transistor
+charges $Y_{T2}$, $Y_{T3}$, the node potentials $U_2$, $U_3$ and their dummy derivatives). However, the index-reduced system introduces
 explicit derivatives of the piecewise charge functions $Q_G$, $Q_S$, $Q_D$, which have
 discontinuous first-order partial derivatives at the MOS operating-region boundaries.
-Standard implicit ODE solvers (Rodas5P, FBDF, etc.) fail on the reduced system because
-they cannot resolve the resulting non-smooth algebraic constraints. The MTK formulation is
+Rodas5P, the implicit ODE solver tested below, fails on the reduced system, which we
+attribute to the resulting non-smooth algebraic constraints. The MTK formulation is
 included below to demonstrate the structural analysis; the WPD benchmarks use the direct
 DAE residual form with IDA and DASKR.
 
@@ -258,21 +260,20 @@ eqs = [
 @mtkbuild sys = ODESystem(eqs, t)
 ```
 
-Pantelides reduces the 9-variable index-2 system to a 4-variable index-1 system with
-unknowns $(U_3, U_2, \dot{U}_2, \dot{U}_3)$. The remaining 5 variables become observed
-(algebraic) functions.
+Pantelides reduces the 9-variable index-2 system to a 6-variable index-1 system with
+unknowns $(Y_{T3}, Y_{T2}, U_2, U_3, \dot{U}_2, \dot{U}_3)$. The remaining original
+variables become observed (algebraic) functions.
 
 ```julia
 println("MTK index reduction: $(9) original → $(length(unknowns(sys))) unknowns")
 println("States: ", unknowns(sys))
 ```
 
-The index-reduced ODEProblem is an index-1 DAE in mass-matrix form (2 differential + 2
-algebraic equations). However, all tested ODE solvers fail on this reduced system
-because the RHS involves the partial derivatives `dqgate_i`, `dqsrc_i`, `dqdrain_i`,
-which are discontinuous at the MOS operating-region boundaries ($V_{gb} = V_{fb}$,
-$V_{gs} = V_{te}$). The solvers' step size collapses to zero at the transistor threshold
-crossing points (e.g., when $V_{in}(t)$ crosses $V_{T0} = 0.2\,$V).
+The index-reduced ODEProblem is an index-1 DAE in mass-matrix form. Its RHS involves the
+partial derivatives `dqgate_i`, `dqsrc_i`, `dqdrain_i`, which are discontinuous at the MOS
+operating-region boundaries ($V_{gb} = V_{fb}$, $V_{gs} = V_{te}$), and Rodas5P fails on it:
+in the latest run it returns `Unstable` after 8 steps at $t = 6 \times 10^{-8}$ (60 ns, the
+end of the first input ramp).
 
 ```julia
 mtkprob = ODEProblem(sys, [], tspan)
@@ -287,7 +288,8 @@ println("Rodas5P on MTK-reduced system: retcode = $(mtk_test.retcode), ",
 The mass matrix has the banded structure from the Fortran `meval` subroutine (stored in banded
 format with `mlmas=0, mumas=2`). In full $9 \times 9$ form:
 
-$$M = \begin{pmatrix}
+```math
+M = \begin{pmatrix}
 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 1 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 1 & 1 & 0 & 0 & 0 & 0 \\
@@ -297,7 +299,8 @@ $$M = \begin{pmatrix}
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0
-\end{pmatrix}$$
+\end{pmatrix}
+```
 
 **Note:** Standard mass-matrix ODE solvers (Rodas4, Rodas5P, FBDF, QNDF, RadauIIA5)
 return `Unstable` on this index-2 problem. The mass-matrix form is included for documentation
@@ -378,10 +381,14 @@ to handle the dormant initial phase (nothing happens until $V_{in}$ starts risin
 
 The IVP Test Set provides a quadruple-precision GAMD reference at $t = 1.2 \times 10^{-6}$:
 
-$$y_1^{\mathrm{ref}} = 0.126280 \times 10^{-12},\quad y_2 \!=\! \cdots \!=\! y_8 = 0,\quad y_9^{\mathrm{ref}} = 0.152256 \times 10^{-3}$$
+```math
+y_1^{\mathrm{ref}} = 0.126280 \times 10^{-12},\quad y_2 \!=\! \cdots \!=\! y_8 = 0,\quad y_9^{\mathrm{ref}} = 0.152256 \times 10^{-3}
+```
 
-**Note:** IDA fails at tolerances tighter than $5 \times 10^{-4}$ on this index-2 problem
-(see Omissions below). The reference uses the tightest stable tolerance.
+**Note:** IDA fails at tight tolerances on this index-2 problem (see Omissions below), so
+the reference is computed at a tolerance of $5 \times 10^{-4}$. In the latest run it matches
+the GAMD value of $y_1$ to a relative error of about $6 \times 10^{-14}$, but $y_9$ (the
+index-2 current) only to about $0.9\%$, which limits the error levels the WPDs below can resolve.
 
 ```julia
 ref_sol = solve(daeprob, IDA(), abstol = 5e-4, reltol = 5e-4,
@@ -443,8 +450,9 @@ are **not** included in the WPD because they fail on this index-2 system:
 
 ## Work-Precision Benchmarks
 
-Only the DAE residual form is benchmarked. The usable tolerance range is approximately
-$10^{-1}$ to $10^{-3}$ for DASKR, and $2 \times 10^{-3}$ to $2 \times 10^{-4}$ for IDA.
+Only the DAE residual form is benchmarked, with IDA and DASKR both run at tolerances
+$10^{-1}$ to $10^{-3}$. In the latest run DASKR reports a nonlinear-solver convergence failure
+(`ABS(H)=HMIN` at $t \approx 1.01 \times 10^{-6}$) within this range.
 
 ### Loose Tolerances (Final-Value Error)
 

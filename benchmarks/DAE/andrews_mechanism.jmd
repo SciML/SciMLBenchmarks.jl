@@ -14,7 +14,9 @@ $y = (q, \dot{q}, \ddot{q}, \lambda) \in \mathbb{R}^{27}$ consists of
 
 The underlying constrained mechanical system is:
 
-$$M(q)\ddot{q} = f(q, \dot{q}) - G^T(q)\lambda, \quad 0 = g(q)$$
+```math
+M(q)\ddot{q} = f(q, \dot{q}) - G^T(q)\lambda, \quad 0 = g(q)
+```
 
 We benchmark three formulations of this problem:
 
@@ -518,8 +520,9 @@ each formulation with standard solvers to demonstrate this challenge.
 
 The singular mass matrix $K = \text{diag}(I_{14}, 0_{13})$ creates difficulties
 for standard implicit methods. Without DIMOFIND index hints, solvers cannot
-exploit the Hessenberg structure. Rosenbrock-W methods fail due to singular
-Jacobian.
+exploit the Hessenberg structure. In the latest run, Rodas5P, FBDF and
+NordsieckBDF all stop with `MaxIters`, and the Fortran RADAU/RADAU5 codes stop
+at $t = 0$ with a repeatedly singular iteration matrix.
 
 ```julia
 println("=== Mass-Matrix ODE Form ===")
@@ -564,8 +567,9 @@ end
 
 ### MTK Index-Reduced Form
 
-After `structural_simplify`, the system has fewer states but the numerical
-conditioning of the reduced system may still be challenging:
+After `structural_simplify`, the system has 25 states (up from the 20 original
+unknowns, since index reduction adds derivative variables), and the reduced
+system is still numerically challenging:
 
 ```julia
 println("\n=== MTK Index-Reduced Form ===")
@@ -607,13 +611,15 @@ plot(wp; title = "Andrews' Mechanism WPD")
 Andrews' squeezing mechanism is one of the most challenging standard DAE
 benchmarks. This index-3 problem reveals fundamental solver limitations:
 
-- **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock-W, BDF) fail due
-  to singular Jacobian from the zero mass-matrix block.
+- **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock, BDF) do not reach
+  the final time (`MaxIters`), and RADAU/RADAU5 without index hints fail at
+  $t = 0$ with a repeatedly singular iteration matrix.
 - **DAE residual:** IDA (Sundials) cannot handle index-3 DAEs (designed for
   index-1 only).
-- **MTK index-reduced:** `structural_simplify` produces a numerically challenging
-  system that standard solvers struggle with.
-- **RADAU5 with DIMOFIND:** The only reliable approach. The Hessenberg index
+- **MTK index-reduced:** all four tested solvers (Rodas5P, FBDF, NordsieckBDF,
+  Rodas4P) return `Unstable` at $t = 0$ on the `structural_simplify`-reduced system.
+- **RADAU5 with DIMOFIND:** The only approach tested here that succeeds; it
+  matches the PSIDE reference positions to relative errors below `2e-8`. The Hessenberg index
   dimensions `(14, 7, 6)` are essential for correct error estimation and step
   size control on this index-3 system.
 
