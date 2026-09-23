@@ -59,24 +59,24 @@ Let's try to find the highest possible dt:
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.1);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.1);
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.01);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.01);
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.001);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.001);
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitEM(),progress=true,dt=0.001);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitEM(),progress=true,adaptive=false,dt=0.001);
 ```
 
 ## Simple Error Analysis
 
-Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratonovich sense, so we are limited in the methods we can calculate errors for.
+Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratonovich sense, so we are limited in the methods we can calculate errors for. All runs below use fixed steps, so `dt` is the step size actually taken.
 
 ```julia
 function simple_error(alg;kwargs...)
@@ -91,27 +91,27 @@ mean(simple_error(EulerHeun(),dt=0.00005) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.1) for i in 1:400)
+mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.1) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.01) for i in 1:400)
+mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.01) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.001) for i in 1:400)
+mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.001) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.001) for i in 1:400)
+mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.001) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.01) for i in 1:400)
+mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.01) for i in 1:400)
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.1) for i in 1:400)
+mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.1) for i in 1:400)
 ```
 
 ## Interesting Property
@@ -124,7 +124,7 @@ sol = solve(generate_stiff_stoch_heat(1.0,1.0,adaptivealg=:RSwM1),SRIW1());
 
 ## Conclusion
 
-In this problem, the implicit methods do not have a stepsize limit. This is because the stiffness is almost entirely deterministic due to diffusion. In that case, if we do not care about the error too much, the implicit methods dominate. Of course, as the tolerance gets lower there is a tradeoff point where the higher order methods will become more efficient. The explicit methods are clearly stability-bound and thus unless we want an error of around $10^{-10}$ we are better off using an implicit method here. Note, however, that in the latest run the errors of the implicit methods stay between roughly $7 \times 10^{-3}$ and $2 \times 10^{-2}$ for every `dt` from 0.1 down to 0.001, while `EulerHeun` at `dt = 0.00005` reaches about $3 \times 10^{-9}$.
+In this problem, the implicit methods do not have a stepsize limit. This is because the stiffness is almost entirely deterministic due to diffusion. In that case, if we do not care about the error too much, the implicit methods dominate. Of course, as the tolerance gets lower there is a tradeoff point where the higher order methods will become more efficient. The explicit methods are clearly stability-bound and thus unless we want an error of around $10^{-10}$ we are better off using an implicit method here. In the latest run, with fixed steps the squared error of both implicit methods drops from about 1 at `dt = 0.1` to about $10^{-2}$ at `dt = 0.01` and about $10^{-4}$ at `dt = 0.001`, a factor of roughly 100 per tenfold reduction of `dt`, while `EulerHeun` at `dt = 0.00005` reaches about $3 \times 10^{-9}$.
 
 ```julia, echo = false
 using SciMLBenchmarks
