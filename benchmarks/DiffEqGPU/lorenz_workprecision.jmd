@@ -100,21 +100,43 @@ function reference(rhos)
     end
 end
 
-function measurement(rhos::Vector{T}, method, tol, indices, refs) where {T}
+function julia_kernel_runner(rhos::Vector{T}, method, tol) where {T}
+    prob = ODEProblem{false}(lorenz_wp, SVector{3, T}(1, 0, 0), (zero(T), one(T)), SVector(rhos[1]))
+    probs = CuArray([DiffEqGPU.make_prob_compatible(remake(prob; p = SVector(rho))) for rho in rhos])
+    alg = method == "GPUTsit5 (PI)" ? GPUTsit5() : GPUTsit5IController()
+    call() = CUDA.@sync DiffEqGPU.vectorized_asolve(
+        probs, prob, alg; dt = T(0.01), reltol = T(tol), abstol = T(tol / 1000),
+        save_everystep = false
+    )
+    function host()
+        _, us = call()
+        states = permutedims(reduce(hcat, Array(us)[end, :]))
+        @assert size(states) == (length(rhos), 3)
+        @assert eltype(states) === T
+        @assert all(isfinite, states)
+        return states
+    end
+    return call, host
+end
+
+function measurement(rhos::Vector{T}, method, tol, indices, refs; kernel = false) where {T}
     if startswith(method, "GPUTsit5")
-        run = julia_runner(rhos, method, tol)
-        seconds = measure_julia(run)
+        call, run = kernel ? julia_kernel_runner(rhos, method, tol) :
+            (r -> (r, r))(julia_runner(rhos, method, tol))
+        seconds = measure_julia(call)
         states = run()
     else
-        run = gu.prepare(pylist(rhos), lowercase(string(T)), tol, method)
-        seconds = pyconvert(Float64, gu.measure(run))
+        precision = lowercase(string(T))
+        call, run = kernel ? gu.prepare_kernel(pylist(rhos), precision, tol) :
+            (r -> (r, r))(gu.prepare(pylist(rhos), precision, tol, method))
+        seconds = pyconvert(Float64, gu.measure(call))
         states = pyconvert(Matrix{T}, run())
     end
     error = maximum(enumerate(indices)) do (j, i)
         norm(Float64.(states[i, :]) - refs[j]) / max(norm(refs[j]), 1)
     end
     @assert isfinite(error)
-    return (; method, precision = string(T), n = length(rhos), tol, seconds, error)
+    return (; method, precision = string(T), n = length(rhos), tol, seconds, error, kernel)
 end
 ```
 
@@ -155,6 +177,65 @@ panels = map(("Float32", "Float64")) do precision
     )
     for method in METHODS
         rows = filter(r -> r.method == method && r.precision == precision, wp)
+        plot!(
+            p, getproperty.(rows, :error), 1000 .* getproperty.(rows, :seconds);
+            label = method, marker = :circle
+        )
+    end
+    p
+end
+plot(panels...; layout = (1, 2), size = (1100, 450))
+```
+
+## Kernel-only timings at the paper's setting
+
+The GRADSOLVE paper reports a forward-only speedup over DiffEqGPU 3.15.3 of
+2.8x in Float64 and 1.95x in Float32 for this Lorenz ensemble with about
+`2^20` trajectories, `reltol=1e-6`, and `abstol=1e-9`, timed at the kernel with
+inputs and outputs resident on the device. This section uses that boundary:
+DiffEqGPU through its public low-level `vectorized_asolve` on problems already
+on the GPU, and GRADSOLVE through the device-resident FFI runner that its own
+paper harness (`benchmarks/forward_vs_diffeqgpu.py`) times. GRADSOLVE has no
+public kernel-only entry point, so that runner is a non-public GRADSOLVE
+internal pinned to the commit above. Diffrax has no comparable kernel boundary
+and is omitted here. Copying the endpoint back to the host and the accuracy
+check happen outside the timed call. Timings are the minimum of five
+synchronized runs after a warmup.
+
+Tolerances are swept so the comparison can be read at matched achieved error,
+not only at the paper's nominal `reltol=1e-6`.
+
+```julia
+kernel_n = 2^20
+kernel_methods = ("GPUTsit5 (PI)", "GPUTsit5 (I)", "GRADSOLVE")
+kernel_wp = NamedTuple[]
+for T in (Float32, Float64)
+    rhos = collect(range(zero(T), T(21); length = kernel_n))
+    indices = unique(round.(Int, range(1, kernel_n; length = 257)))
+    refs = reference(rhos[indices])
+    tolerances = T === Float32 ? 10.0 .^ (-3:-1:-7) : 10.0 .^ (-4:-1:-9)
+    for method in kernel_methods, tol in tolerances
+        row = measurement(rhos, method, tol, indices, refs; kernel = true)
+        push!(kernel_wp, row)
+        @printf("%s %s rtol=%.1e error=%.3e kernel time=%.3f ms\n", row.precision, method, tol, row.error, 1000row.seconds)
+    end
+end
+
+for T in ("Float32", "Float64")
+    at_paper = filter(r -> r.precision == T && r.tol == 1.0e-6, kernel_wp)
+    pi_row, gs = (only(filter(r -> r.method == m, at_paper)) for m in ("GPUTsit5 (PI)", "GRADSOLVE"))
+    @printf("%s at reltol=1e-6: GRADSOLVE/GPUTsit5 (PI) time ratio %.2f, error ratio %.2f\n", T, gs.seconds / pi_row.seconds, gs.error / pi_row.error)
+end
+```
+
+```julia
+panels = map(("Float32", "Float64")) do precision
+    p = plot(;
+        xscale = :log10, yscale = :log10, xlabel = "achieved endpoint error",
+        ylabel = "kernel time (ms)", title = "$precision, N = 2^20", legend = :topleft
+    )
+    for method in kernel_methods
+        rows = filter(r -> r.method == method && r.precision == precision, kernel_wp)
         plot!(
             p, getproperty.(rows, :error), 1000 .* getproperty.(rows, :seconds);
             label = method, marker = :circle

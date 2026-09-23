@@ -79,3 +79,33 @@ def measure(run, samples=5):
         run()
         times.append(time.perf_counter() - start)
     return min(times)
+
+
+def prepare_kernel(rhos, precision, rtol, device="gpu"):
+    """Device-resident cuda_tsit5 kernel call and a host-side checked result.
+
+    gradsolve exposes no public kernel-only API; this is the internal FFI runner
+    its paper harness (benchmarks/forward_vs_diffeqgpu.py) times.
+    """
+    from gradsolve.cuda._ffi_bridge import make_runner
+
+    dtype = np.dtype(precision)
+    target = jax.devices(device)[0]
+    y0 = np.zeros((3, len(rhos)), dtype=dtype)
+    y0[0] = 1
+    y0 = jax.device_put(y0, target)
+    rho = jax.device_put(np.asarray(rhos, dtype=dtype), target)
+    run = make_runner("lorenz", 3, precision, "cuda")
+
+    def call():
+        return jax.block_until_ready(run(y0, rho, 1.0, rtol, rtol / 1000, 100_000))
+
+    def checked():
+        result = np.ascontiguousarray(np.asarray(call()[0]).T)
+        if result.shape != (len(rhos), 3) or result.dtype != dtype:
+            raise AssertionError(f"Unexpected result shape/dtype: {result.shape}, {result.dtype}")
+        if not np.isfinite(result).all():
+            raise AssertionError("Non-finite solver output")
+        return result
+
+    return call, checked
