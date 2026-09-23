@@ -5,19 +5,19 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
+The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 1,~T = 1$, with the following initial and boundary conditions:
 ```math
 \begin{aligned}
     \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
-    u(0,x) & = \exp\left[\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
-    u(-L,x) & = u(L,x) = 0.
+    u(0,x) & = \exp\left[-\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
-The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{aligned}
     \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
-    u(0,x_s) & = \exp\left[\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(0,x_s) & = \exp\left[-\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
     u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
@@ -173,9 +173,10 @@ slow part; the diffusion here is only mildly stiff, so they are benchmarked on
 the Kuramoto-Sivashinsky problem instead, where the linear operator is stiff
 enough for the implicit treatment to matter.
 
-For cross family context the same five reference methods appear in every
-multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, and `FBDF` on
-the joined right hand side (`FBDF` cannot consume the split form), `KenCarp4`
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
 on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
 for it elsewhere. `CNAB2` and `ETDRK2` from the sections above stay in as
 local references.
@@ -233,25 +234,26 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
 ```
 
-The cross family view narrows the earlier reading of this figure. Adaptive
-`Tsit5` on the joined problem is the fastest method in the practical middle of
-the range: it holds a near constant 0.4 to 0.5 milliseconds per solve while
-its error falls from `9e-3` to `1.3e-7`, because the mild diffusion caps its
-step at the stability limit and tightening the tolerance costs it nothing
-until error control takes over. `FBDF` runs a clean curve to `2e-6` at about 3
-milliseconds and `Rodas5P` to `1.2e-7` at about 12 milliseconds. The multirate
-members' real estate is the tight end: `MREEF` reaches `2.2e-10` in about 10
-milliseconds and `MRIGARKERK45a` matches it at twice the cost, errors that no
-adaptive reference here touches, with fixed step `ETDRK4` the only method
-going deeper (`1.1e-11` at a quarter of a second, 25 times slower than
-`MREEF` at matched `2e-10`). That tight end margin is still a statement about
+The cross family view narrows the earlier reading of this figure. In the
+latest run, adaptive `Tsit5` on the joined problem stays at roughly one to two
+milliseconds per solve while its error falls from about `1e-2` to `1e-7`,
+because the mild diffusion caps its step at the stability limit and tightening
+the tolerance costs it little until error control takes over; in the middle of
+the range this puts it level with the cheapest multirate members rather than
+ahead of them. `FBDF` runs a clean curve to about `2e-6` at about 3
+milliseconds and `Rodas5P` to about `1e-7` at roughly 10 to 15 milliseconds.
+The multirate members' real estate is the tight end: `MREEF` reaches about
+`2e-10` in about 10 milliseconds and `MRIGARKERK45a` matches it at two to three
+times the cost, errors that no adaptive reference here touches, with fixed step
+`ETDRK4` the only method going deeper (about `1e-11`, but at over a second per
+solve, roughly a hundred times the cost of `MREEF` at `2e-10`). That tight end margin is still a statement about
 step economics rather than multirate structure: the macro steps are 200 times
 larger than the fixed steps the older references run at, and four cheap
 substeps keep the diffusion stable, so any stabilized explicit treatment of
-this split would do as well. `KenCarp4` only reaches `1e-4` at these pairs
-and is slower than every multirate member at matched error. `MRAB` remains
-the weak member: freezing the slow rate over the macro step caps it at first
-order and holds its error above `7e-4` across the sweep.
+this split would do as well. `KenCarp4` only reaches about `1e-4` at these
+pairs and is slower than every multirate member at matched error. `MRAB`
+remains the weak member: freezing the slow rate over the macro step caps it at
+first order and holds its error above about `7e-4` across the sweep.
 
 #### Comparisons Between Families
 

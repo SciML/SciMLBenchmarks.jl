@@ -5,7 +5,7 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 2,~T = 1$, with the following initial and Dirichlet boundary conditions:
+The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 2,~T = 1$, with the following initial and Dirichlet boundary conditions:
 ```math
 \begin{align}
    \partial_t u(t,x) & = p(u(t,x) - u(t,x)^3) + \epsilon \partial_x^2 u(t,x), \\
@@ -13,7 +13,7 @@ The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \t
     u(t,-L) & = u(t,L) = 0.
 \end{align}
 ```
-The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $p = 3,~\epsilon = 10^{-3}$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $p = 3,~\epsilon = 10^{-3}$ are chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{align}
     \frac{du}{dt} & = p(u - u^3) + \epsilon D_x^2 u, \\
@@ -154,9 +154,10 @@ work; the macro steps below go up to `1e-1`, far inside every stability bound
 at this spectral radius. Fixed macro steps are used as elsewhere in this file,
 with `CNAB2` and `ETDRK2` from the other sections as local references.
 
-For cross family context the same five reference methods appear in every
-multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, and `FBDF` on
-the joined right hand side (`FBDF` cannot consume the split form), `KenCarp4`
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
 on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
 for it elsewhere.
 
@@ -213,17 +214,18 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
 ```
 
-The measured curves confirm the null case cleanly. `Tsit5` is the fastest
-method at every error it reaches, from `1.1e-4` in about 50 microseconds down
-to `5.4e-7` in about 80 microseconds, two to three times cheaper than the
+The measured curves confirm the null case cleanly. In the latest run `Tsit5`
+is the fastest method at every error it reaches, from about `1e-4` in roughly
+50 microseconds down to about `5e-7` in roughly 0.1 milliseconds, two to three
+times cheaper than the
 best multirate member at overlapping errors, and within this sweep its
 stability limit never bites because the reaction stiffness is of the same
 mild order as everything else. `FBDF` and `Rodas5P` run clean curves in the
 low millisecond range and `KenCarp4` tracks the trajectory at all four pairs
-(`5.8e-4` down to `1.9e-5`). The multirate members converge at nominal order
-and `MREEF` passes `1e-9` in about a millisecond, below the floor of the
-adaptive references' sweeps, with fixed step `ETDRK4` owning the accuracy end
-at `1.6e-13` in a third of a second. `MRAB` remains the weak member at first
+(from about `6e-4` down to `2e-5`). `MREEF` reaches about `1e-9` in about a
+millisecond, below the floor of the adaptive references' sweeps, with fixed
+step `ETDRK4` owning the accuracy end at about `2e-13`, though at over a second
+per solve. `MRAB` remains the weak member at first
 order. With no scale separation to exploit the micro substepping is overhead;
 on this problem the family is neither the fastest loose answer, which is
 `Tsit5`, nor the most accurate one, which is `ETDRK4`.
