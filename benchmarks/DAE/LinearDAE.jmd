@@ -64,7 +64,7 @@ B_rlc = [0; 0; 0; -1]
 C_rlc = [1 0 0 0; 0 0 1 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables i_L(t)=0.0 v_C(t)=0.0 i_R(t)=0.0 i_C(t)=0.0
+@variables i_L(t) [guess = 0.0] v_C(t) [guess = 0.0] i_R(t) [guess = 0.0] i_C(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [i_L, v_C, i_R, i_C]
@@ -79,8 +79,8 @@ rlc_eqs = E_rlc * Dx ~ A_rlc * x + B_rlc .* u(t)
 @mtkcompile rlc_sys = System(rlc_eqs, t)
 
 # Problems using constant voltage input
-rlc_prob = ODEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
-rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
+rlc_prob = ODEProblem(rlc_sys, [i_L => 0.0, i_R => 0.0], (0.0, 1e-3))
+rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_L => 0.0, i_R => 0.0], (0.0, 1e-3))
 ```
 
 ## Index-2 DAE: Two Interconnected Rotating Masses
@@ -106,7 +106,7 @@ B_masses = [1 0; 0 1; 0 0; 0 0]
 C_masses = [1 0 0 0; 0 0 1 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables θ1(t)=0.0 θ2(t)=0.0 ω1(t)=0.0 ω2(t)=0.0
+@variables θ1(t) [guess = 0.0] θ2(t) [guess = 0.0] ω1(t) [guess = 0.0] ω2(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [θ1, θ2, ω1, ω2]
@@ -123,8 +123,8 @@ masses_eqs = E_masses * Dx ~ A_masses * x + B_masses * u(t)
 @mtkcompile masses_sys = System(masses_eqs, t)
 
 # Problems using torque inputs
-masses_prob = ODEProblem(masses_sys, [], (0.0, 1.0))
-masses_static_prob = ODEProblem{false}(masses_sys, SA[], (0.0, 1.0))
+masses_prob = ODEProblem(masses_sys, [θ1 => 0.0], (0.0, 1.0))
+masses_static_prob = ODEProblem{false}(masses_sys, SA[θ1 => 0.0], (0.0, 1.0))
 ```
 
 ## Index-2 DAE: RL Network
@@ -148,7 +148,7 @@ B_rl = [1; 0; 0]
 C_rl = [1 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables i1(t)=0.0 i2(t)=0.0 v_L(t)=0.0
+@variables i1(t) [guess = 0.0] i2(t) [guess = 0.0] v_L(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [i1, i2, v_L]
@@ -196,8 +196,8 @@ B_cart = [0; 0; 0; 1; 0; 0; 0]
 C_cart = [1 0 0 0 0 0 0; 0 0 1 0 0 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u  
-@variables x_cart(t)=0.0 y_cart(t)=0.0 φ_cart(t)=0.1
-@variables dx_cart(t)=0.0 dy_cart(t)=0.0 dφ_cart(t)=0.0 λ_cart(t)=0.0
+@variables x_cart(t) [guess = 0.0] y_cart(t) [guess = 0.0] φ_cart(t) [guess = 0.0]
+@variables dx_cart(t) [guess = 0.0] dy_cart(t) [guess = 0.0] dφ_cart(t) [guess = 0.0] λ_cart(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [x_cart, y_cart, φ_cart, dx_cart, dy_cart, dφ_cart, λ_cart]
@@ -252,7 +252,7 @@ B_gen = [1; 0; 0; 0]
 C_gen = [1 0 0 0; 0 0 0 1]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables ω_gen(t)=1.0 i_gen(t)=0.0 v1_gen(t)=0.0 v2_gen(t)=0.0
+@variables ω_gen(t) [guess = 1.0] i_gen(t) [guess = 0.0] v1_gen(t) [guess = 0.0] v2_gen(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [ω_gen, i_gen, v1_gen, v2_gen]
@@ -319,7 +319,7 @@ B_spring_5 = [0; 0; 1; 0; 0]
 C_spring_5 = [1 0 0 0 0; 0 1 0 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables x1_spring(t)=0.0 x2_spring(t)=0.0 v1_spring(t)=0.0 v2_spring(t)=0.0 λ_spring(t)=0.0
+@variables x1_spring(t) [guess = 0.0] x2_spring(t) [guess = 0.0] v1_spring(t) [guess = 0.0] v2_spring(t) [guess = 0.0] λ_spring(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [x1_spring, x2_spring, v1_spring, v2_spring, λ_spring]
@@ -334,8 +334,8 @@ spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
 @mtkcompile spring_sys = System(spring_eqs, t)
 
 # Problems using force input
-spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
-spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 1.0], (
+spring_prob = ODEProblem(spring_sys, [x1_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
+spring_static_prob = ODEProblem{false}(spring_sys, SA[x1_spring => 0.0, v1_spring => 1.0], (
     0.0, 20.0))
 ```
 
