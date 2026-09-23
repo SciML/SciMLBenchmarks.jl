@@ -24,7 +24,9 @@ We benchmark three formulations of this problem:
 3. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
    handle singular mass matrices (Rosenbrock methods, multistep BDF).
 
-The mass matrix is frozen at t = 0, which limits achievable tolerance to around 1e-7.
+In the residual and mass-matrix forms the mass matrix is frozen at t = 0, which limits
+achievable tolerance to around 1e-7; the MTK form keeps the configuration-dependent
+mass matrix.
 
 Reference: Simeon, B.: Modelling a flexible slider crank mechanism by a mixed
 system of DAEs and PDEs, Math. Modelling of Systems 2, 1-18 (1996).
@@ -404,25 +406,39 @@ We define the full system symbolically — with the 7 kinematic equations,
 the 3 position-level holonomic constraints — and let MTK differentiate and
 eliminate the Lagrange multipliers, producing a 13-state ODE.
 
+Only the elastic coordinates $q_1, \dots, q_4$ and their velocities are given
+initial conditions; the crank angle is prescribed, $\varphi_2$ and $x_3$ follow
+from the position constraints, their velocities from the differentiated
+constraints, and the multipliers are algebraic, so all of these are guesses
+solved by initialization. Fixing them as well would make the initialization
+system overdetermined.
+
+Left to itself, index reduction keeps $\varphi_2$ as a state and solves the first
+constraint $L_1 \sin\varphi_1 + (L_2 + q_4)\sin\varphi_2 = 0$ for $q_4$, dividing by
+$\sin\varphi_2$, which is zero at $t = 0$: the reduced system is then singular at the
+initial time. The `state_priority` metadata makes it keep $q_4$ and $\dot q_4$ as
+states instead, so that constraint is solved for $\varphi_2$ (dividing by
+$(L_2 + q_4)\cos\varphi_2 \approx L_2$).
+
 ```julia
 @variables begin
-    φ1(t) = pos0[1]
-    φ2(t) = pos0[2]
-    x₃(t) = pos0[3]
-    q₁(t) = pos0[4]
-    q₂(t) = pos0[5]
-    q₃(t) = pos0[6]
-    q₄(t) = pos0[7]
-    vφ1(t) = vel0[1]
-    vφ2(t) = vel0[2]
-    vx₃(t) = vel0[3]
-    vq₁(t) = vel0[4]
-    vq₂(t) = vel0[5]
-    vq₃(t) = vel0[6]
-    vq₄(t) = vel0[7]
-    λ₁(t) = lam0[1]
-    λ₂(t) = lam0[2]
-    λ₃(t) = lam0[3]
+    φ1(t), [guess = pos0[1]]
+    φ2(t), [guess = pos0[2], state_priority = -10]
+    x₃(t), [guess = pos0[3]]
+    q₁(t), [guess = pos0[4]]
+    q₂(t), [guess = pos0[5]]
+    q₃(t), [guess = pos0[6]]
+    q₄(t), [guess = pos0[7], state_priority = 10]
+    vφ1(t), [guess = vel0[1]]
+    vφ2(t), [guess = vel0[2], state_priority = -10]
+    vx₃(t), [guess = vel0[3]]
+    vq₁(t), [guess = vel0[4]]
+    vq₂(t), [guess = vel0[5]]
+    vq₃(t), [guess = vel0[6]]
+    vq₄(t), [guess = vel0[7], state_priority = 10]
+    λ₁(t), [guess = lam0[1]]
+    λ₂(t), [guess = lam0[2]]
+    λ₃(t), [guess = lam0[3]]
 end
 
 pvec = [φ1, φ2, x₃, q₁, q₂, q₃, q₄]
@@ -499,7 +515,8 @@ eqs = vcat(
 )
 
 @mtkcompile sys = System(eqs, t)
-prob_mtk = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+prob_mtk = ODEProblem(sys, vcat([qvec[i] => pos0[3 + i] for i in 1:NQ],
+                               [vqvec[i] => vel0[3 + i] for i in 1:NQ]), tspan)
 println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
         "(from 17 original)")
 ```
@@ -509,10 +526,10 @@ println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
 We compute a high-accuracy reference solution using Rodas5P at moderate
 tolerance. The frozen mass matrix limits how tight we can push tolerances
 before instability sets in, so `reltol = abstol = 1e-6` provides the best
-balance of accuracy and stability for this problem. The MTK form gets its own
-reference, solved at `1e-5`; in the latest run that solve returns
-`InitialFailure` without leaving $t = 0$, so the MTK entries in the diagrams
-below have no valid reference in that run.
+balance of accuracy and stability for this problem. The MTK form keeps the
+configuration-dependent mass matrix, so it gets its own reference solved at
+`1e-10`; both references are checked against the IVP Test Set at the end of
+this page.
 
 ```julia
 ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-6, abstol = 1e-6,
@@ -520,7 +537,7 @@ ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-6, abstol = 1e-6,
 println("Reference solution: retcode = $(ref_sol.retcode), ",
         "npoints = $(length(ref_sol.t)), t_final = $(ref_sol.t[end])")
 
-mtk_ref = solve(prob_mtk, Rodas5P(), reltol = 1e-5, abstol = 1e-5,
+mtk_ref = solve(prob_mtk, Rodas5P(), reltol = 1e-10, abstol = 1e-10,
                 maxiters = 10_000_000);
 println("MTK reference: retcode = $(mtk_ref.retcode), ",
         "npoints = $(length(mtk_ref.t)), t_final = $(mtk_ref.t[end])")
@@ -587,9 +604,8 @@ We compare solvers across all three formulations using `WorkPrecisionSet` with
 IDA operates on the DAE residual form, the MTK index-reduced form is solved
 with Rosenbrock methods, and the mass-matrix ODE form uses Rosenbrock
 and BDF methods. The tolerance range is limited by the frozen mass matrix
-(instability at tolerances tighter than ~1e-7). The MTK form's initialization
-system is overdetermined, and in the latest run even its `1e-5` reference
-solve fails at initialization (see above).
+(instability at tolerances tighter than ~1e-7); the MTK form is measured
+against its own reference.
 
 ```julia
 probs = [prob_dae, prob_mtk, prob_mm]
@@ -660,10 +676,15 @@ plot(wp, title = "Slider-Crank: Timeseries Error (L2)")
 ## Verification against ARCHIMEDE Reference
 
 The IVP Test Set (`crank.f`, `solut` subroutine) provides reference values at
-t = 0.1. We compare our reference solution against these values. In the latest
-run, the positions and $\lambda_1$, $\lambda_2$ agree (relative errors of about
-`2e-8` for φ₂ and x₃ and below `1e-3` for the elastic modes, λ₁ and λ₂), but λ₃
-does not: our solution gives about −18.21 against the reference value 25.30.
+t = 0.1. We compare both reference solutions against these values: the
+mass-matrix reference (frozen mass matrix) and the MTK reference (full
+configuration-dependent mass matrix). The table prints the relative error of each.
+In the latest run the MTK reference matches all nine values to relative errors of
+at most `3e-8`, including $\lambda_3 \approx 25.30$. The mass-matrix reference matches
+φ₂ and x₃ to about `2e-8` and the elastic modes, λ₁ and λ₂ to below `1e-3`, but gives
+$\lambda_3 \approx -18.21$; since the two forms differ in whether the mass matrix is
+frozen at t = 0, the λ₃ error lies in the frozen-mass-matrix form, not in the
+test-set value.
 
 ```julia
 archimede_refs = Dict(
@@ -679,24 +700,28 @@ archimede_refs = Dict(
 )
 
 # Mass-matrix form indices: [p(1:7), v(8:14), λ(15:17)]
-idxmap = [("φ₂", 2), ("x₃", 3), ("q₁", 4), ("q₂", 5), ("q₃", 6), ("q₄", 7),
-          ("λ₁", 15), ("λ₂", 16), ("λ₃", 17)]
+idxmap = [("φ₂", 2, φ2), ("x₃", 3, x₃), ("q₁", 4, q₁), ("q₂", 5, q₂), ("q₃", 6, q₃),
+          ("q₄", 7, q₄), ("λ₁", 15, λ₁), ("λ₂", 16, λ₂), ("λ₃", 17, λ₃)]
 
-sol_final = ref_sol.u[end]
+relerr(val, ref) = abs((val - ref) / ref)
 println("=== Verification at t = 0.1 ===")
-println("Variable    | ARCHIMEDE Reference  | Our Solution         | Rel Error")
-println("-"^75)
-for (name, idx) in idxmap
+println("Variable | ARCHIMEDE Reference   | Mass-matrix ref | Rel Error | MTK ref         | Rel Error")
+println("-"^95)
+for (name, idx, var) in idxmap
     ref_val = archimede_refs[name]
-    our_val = sol_final[idx]
-    relerr = abs(ref_val) > 0 ? abs((our_val - ref_val) / ref_val) : abs(our_val)
-    status = relerr < 1e-3 ? "✓" : (relerr < 1e-1 ? "~" : "✗")
-    println("$(rpad(name, 12))| $(lpad(string(ref_val), 21)) | $(lpad(string(round(our_val, sigdigits=10)), 21)) | $(relerr) $status")
+    mm_val = ref_sol.u[end][idx]
+    mtk_val = mtk_ref[var][end]
+    println("$(rpad(name, 9))| $(lpad(string(ref_val), 21)) | ",
+            "$(lpad(string(round(mm_val, sigdigits=8)), 15)) | $(lpad(string(round(relerr(mm_val, ref_val), sigdigits=3)), 9)) | ",
+            "$(lpad(string(round(mtk_val, sigdigits=8)), 15)) | $(round(relerr(mtk_val, ref_val), sigdigits=3))")
 end
+```
 
+```julia
 # Overlay ARCHIMEDE reference point on q₁ timeseries
 p_verify = plot(ref_sol, idxs = [4], title = "Verification: Elastic Mode q₁",
-    xlabel = "Time (s)", ylabel = "Amplitude", lw = 2, label = "SciML Rodas5P")
+    xlabel = "Time (s)", ylabel = "Amplitude", lw = 2, label = "Mass-matrix reference")
+plot!(p_verify, mtk_ref, idxs = [q₁], lw = 2, ls = :dash, label = "MTK reference")
 scatter!(p_verify, [0.1], [0.1893192899613509e-3],
     label = "ARCHIMEDE Reference", color = :red, markersize = 8)
 plot(p_verify)
