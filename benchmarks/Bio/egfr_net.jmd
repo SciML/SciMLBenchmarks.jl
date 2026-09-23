@@ -173,7 +173,7 @@ names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRE
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using sparse jacobian)
+#### Declare solvers (using sparse Jacobian)
 
 We designate the solvers we wish to use.
 
@@ -191,7 +191,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using sparse jacobian)
+#### Plot Work-Precision Diagram (using sparse Jacobian)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 
@@ -209,7 +209,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes lsoda and CVODE.
+We designate the solvers we wish to use; this also includes `lsoda` and `CVODE_Adams`.
 
 ```julia
 setups = [
@@ -238,9 +238,13 @@ plot(wp; label = names)
 
 ## Loser methods (large cost in isolation)
 
-`ROCK2` is not competitive with the explicit set above. It is **not** folded into
-the multi-tolerance / multi-run work-precision suites; a single-tolerance isolation
-timing against a competitive explicit (`Vern6`) shows the wall-time gap.
+`ROCK2` is **not** folded into the multi-tolerance / multi-run work-precision
+suites; instead a single-tolerance timing against a competitive explicit method
+(`Vern6`) is meant to show the wall-time gap. In the latest run, however, both
+isolated solves took 2-3 s, about 100x the per-solve time of `Vern6` in the
+explicit diagram above, so these single timings are
+dominated by one-off overhead (most likely first-call compilation) rather than
+by solver cost, and they do not show a gap between the methods.
 
 ```julia
 const _loser_tol = 1e-6
