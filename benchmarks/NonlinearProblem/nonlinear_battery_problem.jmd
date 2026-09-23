@@ -408,6 +408,19 @@ println(io, "```")
 Docs.Text(String(take!(io)))
 ```
 
+None of the six PETSc SNES configurations solves this problem, for three different reasons.
+The runs without a line search (plain Newton Raphson, with QR, and Newton-Krylov with GMRES)
+stop after one iteration at a residual norm of about 9e8. PETSc's default divergence tolerance
+ends a solve once the residual exceeds 10⁴ times the initial residual, and the first undamped
+Newton step here raises it from about 292 to about 9e8. The native `NewtonRaphson`, which has no
+such check, recovers from that step and converges. If the divergence tolerance is lifted
+(`snes_divergence_tolerance = 1e30`), PETSc reports convergence by its relative criterion
+(`snes_rtol`) at a residual norm of about 0.02, but the `PETScSNES` wrapper judges success only
+by `abstol` and still returns `Failure`
+([NonlinearSolve.jl#1318](https://github.com/SciML/NonlinearSolve.jl/issues/1318)). The
+backtracking line-search and trust-region configurations exhaust PETSc's function-evaluation
+limit at residual norms of about 280 and 200, much like the native line-search variants.
+
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
