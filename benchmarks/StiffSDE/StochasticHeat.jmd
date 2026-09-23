@@ -5,16 +5,7 @@ author: Chris Rackauckas
 
 # Stochastic Heat Equation Benchmarks
 
-In this notebook we will benchmark against the stochastic heat equation with Dirichlet BCs and scalar noise. The function for generating the problem is as follows:
-
-Stochastic Heat Equation with scalar multiplicative noise
-
-S-ROCK: CHEBYSHEV METHODS FOR STIFF STOCHASTIC
-DIFFERENTIAL EQUATIONS
-
-ASSYR ABDULLE AND STEPHANE CIRILLI
-
-Raising D or k increases stiffness
+In this notebook we will benchmark against the stochastic heat equation with Dirichlet BCs and scalar multiplicative noise, taken from A. Abdulle and S. Cirilli, "S-ROCK: Chebyshev methods for stiff stochastic differential equations". Raising `D` or `k` increases stiffness. The function for generating the problem is as follows:
 
 ```julia
 using StochasticDiffEq, DiffEqNoiseProcess, LinearAlgebra, Statistics, SciMLBase
@@ -44,7 +35,7 @@ D = 1; k = 1
     A = D/(dx^2) * A;
 ```
 
-Now lets solve it with high accuracy.
+Now let's solve it with high accuracy.
 
 ```julia
 prob = generate_stiff_stoch_heat(1.0,1.0)
@@ -84,7 +75,8 @@ Let's try to find the highest possible dt:
 ```
 
 ## Simple Error Analysis
-Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratanovich sense, so we are limited in the methods we can calculate errors for.
+
+Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratonovich sense, so we are limited in the methods we can calculate errors for.
 
 ```julia
 function simple_error(alg;kwargs...)
@@ -132,7 +124,7 @@ sol = solve(generate_stiff_stoch_heat(1.0,1.0,adaptivealg=:RSwM1),SRIW1());
 
 ## Conclusion
 
-In this problem, the implicit methods do not have a stepsize limit. This is because the stiffness almost entirely deteriministic due to diffusion. In that case, if we do not care about the error too much, the implicit methods dominate. Of course, as the tolerance gets lower there is a tradeoff point where the higher order methods will become more efficient. The explicit methods are clearly stability-bound and thus unless we want an error of like 10^-10 we are better off using an implicit method here.
+In this problem, the implicit methods do not have a stepsize limit. This is because the stiffness is almost entirely deterministic due to diffusion. In that case, if we do not care about the error too much, the implicit methods dominate. Of course, as the tolerance gets lower there is a tradeoff point where the higher order methods will become more efficient. The explicit methods are clearly stability-bound and thus unless we want an error of around $10^{-10}$ we are better off using an implicit method here. Note, however, that in the latest run the errors of the implicit methods stay between roughly $7 \times 10^{-3}$ and $2 \times 10^{-2}$ for every `dt` from 0.1 down to 0.001, while `EulerHeun` at `dt = 0.00005` reaches about $3 \times 10^{-9}$.
 
 ```julia, echo = false
 using SciMLBenchmarks
