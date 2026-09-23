@@ -209,7 +209,7 @@ wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
 plot(wp)
 ```
 
-Notice that `KenCarp4` is the same overarching algorithm as `ARKODE` here (with major differences to stage predictors and adaptivity though). In this case, `KenCarp4` is more robust and more efficient than `ARKODE`. `CVODE_BDF` does quite well here, which is unusual for it on small equations. You can see that the low-order Rosenbrock methods `Rosenbrock23` and `Rodas3` dominate this test.
+Notice that `KenCarp4` is the same overarching algorithm as `ARKODE` here (with major differences to stage predictors and adaptivity though). In this case, `KenCarp4` is much faster than `ARKODE` but only reaches errors of about 1, while `ARKODE` reaches much smaller errors at a much higher cost. `CVODE_BDF` is in the middle of the pack. The low-order Rosenbrock methods `Rosenbrock23` and `Rodas3` do well on this test, with `Rosenbrock23` the fastest.
 
 #### Timeseries error
 
@@ -367,7 +367,7 @@ wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
 plot(wp)
 ```
 
-Multithreading benchmarks with Parallel Extrapolation Methods
+### Multithreading Benchmarks with Parallel Extrapolation Methods
 
 ```julia
 #Setting BLAS to one thread to measure gains
@@ -387,11 +387,11 @@ plot(wp)
 
 The timeseries test is a little odd here because of the high peaks in the VanDerPol oscillator. At a certain accuracy, the steps try to resolve those peaks and so the error becomes higher.
 
-While the higher order order Julia-based Rodas methods (`Rodas4` and `Rodas4P`) Rosenbrock methods are not viable at higher tolerances, they dominate for a large portion of this benchmark. When the tolerance gets low enough, `radau` adaptive high order (up to order 13) takes the lead.
+The higher order Julia Rosenbrock methods (`Rodas4`, `Rodas4P` and `Rodas5P`) dominate a large portion of this benchmark, with `Rodas5P` and `Rodas4` the fastest in the latest run. At the tightest tolerances, `radau` (adaptive high order, up to order 13) reaches the smallest timeseries errors.
 
 ### Conclusion
 
-`Rosenbrock23` and `Rodas3` do well when tolerances are higher. In most standard tolerances, `Rodas4` and `Rodas4P` do extremely well. Only when the tolerances get very low does `radau` do well. The Julia Rosenbrock methods vastly outperform their Fortran counterparts. `CVODE_BDF` is a top performer in the final timepoint errors with low accuracy, but take that with a grain of salt because the problem is periodic which means it's getting the spikes wrong but the low parts correct. `ARKODE` does poorly in these tests. `lsoda` does quite well in both low and high accuracy domains, but is never the top.
+`Rosenbrock23` and `Rodas3` do well when tolerances are higher. In most standard tolerances, `Rodas5P` and `Rodas4` do extremely well. `radau` reaches the smallest timeseries errors only at the tightest tolerances. `ARKODE` does poorly in these tests. `lsoda` is in the middle of the pack in both the low and high accuracy domains.
 
 ```julia, echo = false
 using SciMLBenchmarks
