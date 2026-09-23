@@ -84,6 +84,33 @@ end
     end
 end
 
+module MarkdownPages
+    include(joinpath(@__DIR__, "..", "docs", "markdown_pages.jl"))
+end
+
+@testset "docs page titles" begin
+    page(text) = MarkdownPages.benchmark_page(split(text, '\n'), "fallback")
+
+    @test page("---\nauthor: \"A\"\ntitle: \"T\"\n---\nbody")[1] == "T"
+    @test page("---\ntitle: \"T\"\nauthor: \"A\"\n---\nbody") == ("T", ["body"])
+    @test page("---\npriority: 80\nauthor: \"A\"\ntitle: \"A — B: C?\"\n---\n")[1] ==
+        "A — B: C?"
+    @test page("---\ntitle: \"Say \\\"hi\\\"\"\n---\n")[1] == "Say \"hi\""
+    @test page("---\nauthor: \"A\"\n---\nbody") == ("fallback", ["body"])
+    @test page("no front matter") == ("fallback", ["no front matter"])
+
+    _, body = page("---\ntitle: \"T\"\n---\n\n# T\n\ntext\n## Sub")
+    @test body == ["", "text", "## Sub"]
+
+    _, body = page(
+        "---\ntitle: \"T\"\n---\n# Setup\n```julia\n# comment\n```\n## Sub\n###### Deep"
+    )
+    @test body == ["## Setup", "```julia", "# comment", "```", "### Sub", "###### Deep"]
+
+    _, body = page("---\ntitle: \"T\"\n---\n## Setup\n#hashtag")
+    @test body == ["## Setup", "#hashtag"]
+end
+
 function benchmark_assignment(path, variable)
     prefix = string(variable, " = ")
     line = only(line for line in eachline(path) if startswith(strip(line), prefix))
