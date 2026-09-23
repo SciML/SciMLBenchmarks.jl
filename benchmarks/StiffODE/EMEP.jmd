@@ -7,7 +7,7 @@ author: Chris Rackauckas
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using SciMLLogging
-using LinearAlgebra, RecursiveFactorization, Polyester, PreallocationTools, OrdinaryDiffEqCore
+using LinearAlgebra, RecursiveFactorization, Polyester, StaticArrays, OrdinaryDiffEqCore
 gr()
 
 # EMEP MSC-W Ozone Model Chemistry problem from the IVP Test Set
@@ -65,7 +65,7 @@ const B_emep = [0.60, 1.40, 0.40, 0.75, 1.25,
                 0.79, 0.79, 0.081, 0.059, 0.57,
                 0.62]
 
-function emepcf!(time, rc, dj)
+@inline function emepcf!(time, rc, dj, daylight)
     timeh = time / 3600.0
     timeod = mod(timeh, 24.0)
 
@@ -84,7 +84,7 @@ function emepcf!(time, rc, dj)
     h2o = 6.1078 * exp(-xz) * 10.0 / (1.38e-16 * t_temp) * rh
 
     # Photolysis rates
-    if timeod < 4.0 || timeod >= 20.0
+    if !daylight
         for i in 1:NDJ_emep
             dj[i] = 1.0e-40
         end
@@ -199,7 +199,7 @@ function emepcf!(time, rc, dj)
 
     # Deposition loss rate coefficients vd/hmix
     delta = 1.0
-    if timeod >= 20.0 || timeod < 4.0
+    if !daylight
         delta = 0.25
     end
     rc[46] = 2.0 * delta / HMIX_emep
@@ -213,14 +213,21 @@ function emepcf!(time, rc, dj)
     return h2o
 end
 
-# Pre-allocate work buffers using DiffCache for ForwardDiff compatibility
-const _emep_rc = DiffCache(zeros(NRC_emep))
-const _emep_dj = DiffCache(zeros(NDJ_emep))
+# Night is TIMEOD < 4 or TIMEOD >= 20, as in the Fortran EMEPCF.
+is_daylight(t) = 4.0 <= mod(t / 3600.0, 24.0) < 20.0
+
+# Holds the day/night state between discontinuities; updated by `daylight_cb` below.
+mutable struct EMEPDaylight
+    daylight::Bool
+end
 
 function emep!(dy, y, p, t)
-    rc = get_tmp(_emep_rc, dy)
-    dj = get_tmp(_emep_dj, dy)
-    h2o = emepcf!(t, rc, dj)
+    # rc and dj depend only on t. They are per-call stack buffers, not shared globals,
+    # because the threaded extrapolation methods evaluate f concurrently.
+    rc = zeros(MVector{NRC_emep, typeof(t)})
+    dj = zeros(MVector{NDJ_emep, typeof(t)})
+    daylight = p === nothing ? is_daylight(t) : p.daylight
+    h2o = emepcf!(t, rc, dj, daylight)
 
     m = 2.55e19
     o2 = 5.2e18
@@ -341,20 +348,32 @@ u0[38] = 1.0e-3
 # T(0) = 4*3600 = 14400, T(end) = 20*3600 + 4*24*3600 = 417600
 tspan = (4.0*3600.0, 20.0*3600.0 + 4.0*24.0*3600.0)
 
-prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan)
-
 # Discontinuity times at dawn (4:00) and dusk (20:00) transitions
 # The photolysis rates and deposition coefficients change discontinuously at these times
 # T(1)=72000 (dusk day 0), then for days 1-4: T(2i)=dawn, T(2i+1)=dusk
 disc_times = [72000.0, 100800.0, 158400.0, 187200.0, 244800.0, 273600.0, 331200.0, 360000.0]
 
-# Generate reference solution - requires tstops at discontinuities for solver stability.
-# CVODE_BDF cannot integrate this problem to the end: at abstol=reltol=1e-8 it returns
-# ReturnCode.Unstable at t = 360000 (1e-10: t = 273600), leaving a reference that stops
-# short of tspan[2] = 417600. Every WorkPrecisionSet below then failed with
-# "Solution interpolation cannot extrapolate past the final timepoint", so this file has
-# been publishing no work-precision diagrams at all. Rodas5P at 1e-10 reaches 417600 with
-# ReturnCode.Success in ~18 s (RadauIIA5 and FBDF also go Unstable), so use that.
+# The day/night switch is evaluated from t, so a step that ends exactly on a dawn/dusk
+# tstop sees the next regime at its endpoint and is rejected until dt < eps(t). The
+# test set restarts the integration at each T(i) instead. `prob` does the same: the
+# regime is a parameter that `daylight_cb` flips at each tstop, which also restarts the
+# integrator there (multistep history, FSAL).
+daylight_cb = DiscreteCallback((u, t, integrator) -> t in disc_times,
+    integrator -> (integrator.p.daylight = is_daylight(integrator.t));
+    initialize = (c, u, t, integrator) -> (integrator.p.daylight = is_daylight(t)),
+    save_positions = (false, false))
+prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan,
+    EMEPDaylight(is_daylight(tspan[1])); callback = daylight_cb)
+
+# lsoda does not accept callbacks, and the ODEInterfaceDiffEq version in this
+# environment (4.x) errors on any callback, so rodas, radau, seulex and lsoda use
+# `:prob_choice => 2`: the same ODE with the switch evaluated from t, and only tstops.
+prob_tstops = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan, nothing)
+probs = [prob, prob_tstops]
+
+# Reference solution. With the callback, Rodas5P at 1e-10 matches the IVP test set
+# reference (RADAU5, rtol = 1e-14) to a maximum relative difference of 1.5e-5 over all
+# components except y(38), which is O(1e-37) at the final time.
 sol = solve(prob, Rodas5P(), abstol=1/10^10, reltol=1/10^10, maxiters=Int(1e7), tstops=disc_times)
 test_sol = TestSolution(sol)
 
@@ -365,8 +384,16 @@ reltols = 1.0 ./ 10.0 .^ (1:8);
 The EMEP MSC-W Ozone Model Chemistry describes atmospheric chemistry with 66 species,
 266 reaction rate coefficients, and 16 photolysis reactions. The rate coefficients
 depend on time through the solar zenith angle and day/night cycling, creating
-discontinuities at dawn (4:00) and dusk (20:00) transitions. All solvers require
-`tstops` at the 8 discontinuity times for reliable integration.
+discontinuities at dawn (4:00) and dusk (20:00) transitions. All solvers get
+`tstops` at the 8 discontinuity times. The solvers that accept callbacks (OrdinaryDiffEq
+and Sundials) also switch the day/night regime and restart at those times through
+`daylight_cb`, like the test set driver. `rodas`, `radau`, `seulex` and `lsoda` cannot
+take the callback in this environment, so they integrate the right-hand side that
+switches on `t`.
+
+O(¹D) (y(38)) has a lifetime of about 1e-9 s. Resolving its initial transient at
+t = 14400 needs steps near `eps(14400) ≈ 1.8e-12` at the tightest tolerances. This is
+where the `CVODE_BDF` `t + h = t` warnings below come from.
 
 ```julia
 # Plot key species matching reference: NO, NO2, SO2, CH4, O3, N2O5
@@ -399,13 +426,13 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>NordsieckBDF()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>CVODE_BDF()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>lsoda()),
+          Dict(:alg=>rodas(), :prob_choice=>2),
+          Dict(:alg=>radau(), :prob_choice=>2),
+          Dict(:alg=>lsoda(), :prob_choice=>2),
           Dict(:alg=>RadauIIA5()),
           ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=SciMLLogging.None(),
+                      save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                       tstops=disc_times)
 plot(wp)
 ```
@@ -418,10 +445,10 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>KenCarp3()),
           Dict(:alg=>Rodas4()),
-          Dict(:alg=>lsoda()),
-          Dict(:alg=>radau())]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+          Dict(:alg=>lsoda(), :prob_choice=>2),
+          Dict(:alg=>radau(), :prob_choice=>2)]
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
+                      save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                       tstops=disc_times)
 plot(wp)
 ```
@@ -436,8 +463,8 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>FBDF()),
           Dict(:alg=>NordsieckBDF()),
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
+                      save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                       tstops=disc_times)
 plot(wp)
 ```
@@ -464,12 +491,12 @@ setups = [Dict(:alg=>FBDF()),
           # Julia process; so does weaving the file.
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5P()),
-          Dict(:alg=>rodas()),
-          Dict(:alg=>radau()),
-          Dict(:alg=>lsoda()),
+          Dict(:alg=>rodas(), :prob_choice=>2),
+          Dict(:alg=>radau(), :prob_choice=>2),
+          Dict(:alg=>lsoda(), :prob_choice=>2),
 ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups;verbose=SciMLLogging.None(),
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=SciMLLogging.None(),
+                      save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                       tstops=disc_times)
 plot(wp)
 ```
@@ -482,13 +509,13 @@ setups = [Dict(:alg=>Kvaerno4()),
           Dict(:alg=>KenCarp5()),
           Dict(:alg=>Rodas4()),
           Dict(:alg=>Rodas5P()),
-          Dict(:alg=>radau()),
+          Dict(:alg=>radau(), :prob_choice=>2),
           Dict(:alg=>ImplicitEulerExtrapolation()),
           Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
           Dict(:alg=>ImplicitHairerWannerExtrapolation()),
           ]
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                      save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
+                      save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                       tstops=disc_times)
 plot(wp)
 ```
@@ -509,9 +536,9 @@ setups = [
             Dict(:alg=>Rodas5P()),
             Dict(:alg=>QNDF()),
             Dict(:alg=>NordsieckBDF()),
-            Dict(:alg=>lsoda()),
-            Dict(:alg=>radau()),
-            Dict(:alg=>seulex()),
+            Dict(:alg=>lsoda(), :prob_choice=>2),
+            Dict(:alg=>radau(), :prob_choice=>2),
+            Dict(:alg=>seulex(), :prob_choice=>2),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = false)),
             Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
@@ -523,8 +550,8 @@ setups = [
 solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","NordsieckBDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
 
-wp = WorkPrecisionSet(prob,abstols,reltols,setups; verbose=SciMLLogging.None(),
-                    names = solnames,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
+                    names = solnames,save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
                     tstops=disc_times)
 
 plot(wp, title = "Implicit Methods: EMEP",legend=:outertopleft,size = (1000,500),
@@ -535,7 +562,7 @@ plot(wp, title = "Implicit Methods: EMEP",legend=:outertopleft,size = (1000,500)
 
 ### Conclusion
 
-The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients. The day/night discontinuities make it challenging for adaptive methods. In the latest run, `NordsieckBDF`, `TRBDF2`, `QNDF` and `FBDF` are the fastest at high tolerances, ahead of `CVODE_BDF`. At low tolerances `Rodas4` and `Rodas5P` reach the smallest errors; in the first low-tolerance comparison the other methods produce only one or two points or none, and `CVODE_BDF` prints many `t + h = t` warnings.
+The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients and day/night discontinuities. At high tolerances, `NordsieckBDF` is the fastest, followed by `TRBDF2`, `QNDF` and `FBDF`, and `CVODE_BDF` is slower than these. At low tolerances, `Rodas5P` and `Rodas4` complete every tolerance, `CVODE_BDF` and `NordsieckBDF` complete most of them, and `Rodas5P` reaches the smallest errors. `FBDF` and `QNDF` complete only the loosest low tolerance. Tighter than that, they abort at t = 14400 because their first step falls below `eps(t)` ([OrdinaryDiffEq.jl#4606](https://github.com/SciML/OrdinaryDiffEq.jl/issues/4606)). `rodas`, `radau` and `lsoda` integrate without the restart callback. At low tolerances they give two points, one point or none. Most of their failed runs stop at a dawn or dusk `tstop` (mostly t = 100800), and `lsoda` also hits `maxiters`. In the multithreading comparison, each threaded extrapolation method reaches the same errors as its non-threaded version. Threading is not faster at these tolerances. `Rodas5P` and `Rodas4` reach the smallest errors there.
 
 ```julia, echo = false
 using SciMLBenchmarks
