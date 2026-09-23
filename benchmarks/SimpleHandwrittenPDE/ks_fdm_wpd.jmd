@@ -5,7 +5,7 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
+The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
 ```math
 \begin{align}
     \partial_t u & =  -\kappa u(t,x)\partial_x u(t,x) - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x), \\
@@ -13,7 +13,7 @@ The Kuramoto-Sivashinsky partial differential equation is solved on the domain $
     u(t,-L) & = u(t,L) = 1.
 \end{align}
 ```
-The spatial derivative operators are represented via finite difference approximations, incorporating the periodic boundary conditions on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $\kappa = 1,~\beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations, incorporating the periodic boundary conditions on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $\kappa = 1,~\beta = 1/2,~\gamma = 1/8$ are chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{align}
     \frac{du}{dt} & =  -\kappa u D_x u - \beta D_x^2 u - \gamma D_x^4 u, \\
@@ -195,9 +195,10 @@ unchanged, so the macro error dominates and larger `m` is pure cost. The
 methods are run at fixed macro steps, matching the other fixed step methods in
 this file.
 
-For cross family context the same five reference methods appear in every
-multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, and `FBDF` on
-the joined right hand side (`FBDF` cannot consume the split form), `KenCarp4`
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
 on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
 for it elsewhere. On this problem `KenCarp4` gets the Krylov linear solver:
 its dense default spends minutes per solve even at loose tolerances here, the
@@ -261,15 +262,18 @@ plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Toleran
 
 The measured curves make this a much harder problem for the explicit
 multirate members than Burgers, and the cross family references decide it.
-`FBDF` dominates the figure outright: 7 to 9 milliseconds per solve across
-the whole sweep with errors from `6e-4` down to `1.4e-7`, one to two orders
-of magnitude cheaper than any other method at matched error. `Tsit5` on the
-joined problem runs at a stability capped, nearly constant 0.07 seconds while
-its error falls from `6e-6` to `1.1e-8` for free, and `Rodas5P` reaches
-`7.9e-8` in 0.16 seconds. Against that, the explicit multirate members are
-not competitive: `MREEF` needs 0.78 seconds for `1.1e-8`, eleven times
-`Tsit5`'s cost at the same error, and every decade carries the `m = 32` micro
-stepping tax. Within the fixed step family the old reading still holds
+In the latest run the two adaptive BDF methods dominate the figure: `FBDF`
+takes roughly 7 to 13 milliseconds per solve across the whole sweep with
+errors from about `7e-4` down to `1e-7`, and `NordsieckBDF` is cheaper still
+(roughly 4 to 8 milliseconds) over the part of that range it reaches (down to
+about `1e-6`); both are several times to more than an order of magnitude
+cheaper than any other method at matched error. `Tsit5` on the joined problem
+runs at a stability capped, nearly constant 0.13 seconds or so while its error
+falls from about `7e-6` to `1e-8` for free, and `Rodas5P` reaches about `1e-7`
+in roughly a quarter of a second. Against that, the explicit multirate members
+are not competitive: `MREEF` needs about 1.3 seconds for `1e-8`, roughly ten
+times `Tsit5`'s cost at the same error, and every decade carries the `m = 32`
+micro stepping tax. Within the fixed step family the old reading still holds
 (`MRIGARKERK33a` and `CNAB2` tie near `1e-4`, the multirate members extend
 below the references' `2.4e-5` floor), `MRAB` is unusable here since the
 convection it freezes is not slow, and `MRIGARKERK45a` loses order at the
@@ -333,24 +337,26 @@ plot(wp, label=labels, markershape=:auto, title="Implicit Multirate Methods")
 ```
 
 Within the split constrained comparison the reversed orientation works:
-`MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines (the second
-order member from `3.8e-4` in 24 milliseconds to `3.1e-8` in 2.6 seconds,
-the third order member to `6.1e-10` at about 10 seconds), and against the
-`KenCarp` references making the same term assignment they come out 30 to 300
-times faster at matched error, for example `MRIGARKESDIRK34a` at `3.3e-5` in
-0.11 seconds against `KenCarp4` at `4.4e-5` in 2.3 seconds.
-`MRIGARKESDIRK46a` is the cheapest member at mid accuracies (`1.8e-6` in a
-quarter of a second) but its error stops responding at the tightest pairs,
-rising back toward `1e-6`, so its tolerance is not a trustworthy control knob
-at that end. The cross family references cap the claim, though: `FBDF` on the
-joined problem reaches `1.2e-7` in under 15 milliseconds and `Tsit5` reaches
-`9.3e-10` in 0.074 seconds, so at matched error the free choice single rate
-methods beat the best multirate member by one to two orders of magnitude.
-The reading these curves support is narrow: among methods constrained to
-treat this split implicitly and explicitly by term, the solve decoupled
-members are much cheaper than the IMEX family in this range; once that
-constraint is dropped, an adaptive BDF or a stability capped explicit method
-solves the problem faster than any of them.
+`MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines (in the latest
+run, the second order member from about `4e-4` in roughly 30 milliseconds to
+about `3e-8` in roughly 4 seconds, the third order member to about `6e-10` in
+roughly 15 seconds). The Krylov `KenCarp` references making the same term
+assignment stop at about `1e-4` (`KenCarp3`) and `4e-5` (`KenCarp4`) at
+roughly 0.15 seconds, and where their errors overlap with the multirate members
+the costs are comparable (for example `MRIGARKESDIRK34a` also needs about 0.15
+seconds for about `4e-5`); the multirate members' advantage is that they
+continue to much tighter errors. `MRIGARKESDIRK46a` is the cheapest member at
+mid accuracies but its error stops responding at the tightest pairs, so its
+tolerance is not a trustworthy control knob at that end. The cross family
+references cap the claim, though: `FBDF` on the joined problem reaches about
+`1e-7` in about 15 milliseconds and `Tsit5` reaches about `1e-9` in about 0.2
+seconds, so at matched error the free choice single rate methods beat the best
+multirate member by one to two orders of magnitude. The reading these curves
+support is narrow: among methods constrained to treat this split implicitly and
+explicitly by term, the solve decoupled members reach errors the Krylov IMEX
+references do not, at similar cost where both apply; once that constraint is
+dropped, an adaptive BDF or a stability capped explicit method solves the
+problem faster than any of them.
 
 #### Comparisons Between Families
 
