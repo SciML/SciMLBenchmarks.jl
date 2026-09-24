@@ -50,10 +50,13 @@ end
 @mtkbuild g1 = LorenzExample()
 p = [10.0, 28.0, 2.66] # Parameters used to construct the dataset
 r0 = [1.0; 0.0; 0.0]                #[-11.8,-5.1,37.5] PODES Initial values of the system in space # [0.1, 0.0, 0.0]
+# unknowns(g1) is ordered [z, y, x] rather than in declaration order, so the
+# initial condition and parameters are keyed by name instead of positionally.
+varmap = merge(Dict([g1.x, g1.y, g1.z] .=> r0), Dict([g1.σ, g1.ρ, g1.β] .=> p))
 tspan = (0.0, 30.0)                 # PODES sample of 3000 observations over the (0,30) timespan
-prob = ODEProblem(g1, r0, tspan, p)
+prob = ODEProblem(g1, varmap, tspan)
 tspan2 = (0.0, 3.0)                 # Xiang test sample of 300 observations with a timestep of 0.01
-prob_short = ODEProblem(g1, r0, tspan2, p)
+prob_short = ODEProblem(g1, varmap, tspan2)
 ```
 
 ```julia
@@ -227,7 +230,7 @@ Vern9 solver with reltol=1e-9 and abstol=1e-9 has been established to be accurat
 ```julia
 # BB with Vern9 converges very slowly. The final values are within the NarrowBounds.
 obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data),
-    tstops = time_points, reltol = 1e-9, abstol = 1e-9)
+    Optimization.AutoForwardDiff(), tstops = time_points, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj, GloIniPar, lb = first.(LooserBounds), ub = last.(LooserBounds))
 @btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 4e3) # Default adaptive_de_rand_1_bin_radiuslimited 33 sec [10.2183, 24.6711, 2.28969]
 #@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :adaptive_de_rand_1_bin, MaxSteps = 4e3) # Method 32 sec [13.2222, 25.8589, 2.56176]
@@ -263,32 +266,32 @@ opt = Opt(:GN_ESCH, 3)
 @btime res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12) # Approximately accurate
 ```
 
-In the latest run, BlackBoxOptim, `GN_ORIG_DIRECT_L`, `GN_CRS2_LM` and `GN_ISRES` recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample to at least four significant digits, while `GN_ESCH` only gets close. All of the global runs take considerably longer than on the short sample.
+In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample: every run stops at `MaxIters`. `GN_CRS2_LM` gets closest at `[10.54, 27.19, 2.75]` and BlackBoxOptim lands inside the narrow bounds at `[11.93, 26.62, 2.70]`, while `GN_ORIG_DIRECT_L`, `GN_ISRES` and `GN_ESCH` stop further away. All of the global runs take considerably longer than on the short sample.
 
 ```julia
 opt = Opt(:LN_BOBYQA, 3)
-optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12) # Claims SUCCESS but does not iterate to the true values.
+optprob = OptimizationProblem(obj, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12) # Inaccurate final values
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12) # Inaccurate final values
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
-These local optimizers are run on the short objective `obj_short` from `LocIniPar`, not from the global solutions of the longer problem, so they repeat the short-problem results above, where all three recover the true parameters.
+These local optimizers run on the long objective `obj` from `LocIniPar` inside the narrow bounds. None of them reach the true parameters: `LN_BOBYQA` and `LD_SLSQP` return `Success` at wrong points (`[9.86, 20.58, 2.0]` on the β bound and `[9.25, 21.23, 2.11]` respectively) and `LN_NELDERMEAD` stops at `MaxIters` near `[9.68, 23.52, 2.16]`.
 
 # Conclusion
 
- 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. In the latest run, with the short sample of 300 observations, all the global optimizers except `GN_ESCH` (which only gets close) and all the local optimizers except `LN_PRAXIS` recover the true parameters. With the longer sample of 3000 observations, BlackBoxOptim, `GN_ORIG_DIRECT_L`, `GN_CRS2_LM` and `GN_ISRES` still recover them. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
+ 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. In the latest run, with the short sample of 300 observations, all the global optimizers except `GN_ESCH` (which only gets close) and all the local optimizers except `LN_PRAXIS` (which stops on the σ bound) recover the true parameters. With the longer sample of 3000 observations, no global optimizer recovers them — `GN_CRS2_LM` gets closest — and the local optimizers started from `LocIniPar` converge to wrong points or bounds instead. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
  2. When trying to hit the real data, having a low enough tolerance on the numerical solution is key. If the numerical solution is too rough, then we can never actually hone in on the true parameters since even with the true parameters we will erroneously induce numerical error. Maybe this could be adaptive?
  3. Tighter tolerances make each objective evaluation more expensive: on the short problem, BBO reached the same estimate with `Vern9` at `reltol = abstol = 1e-9` as with the default `Tsit5` tolerances, but took longer.
- 4. The estimation method and the global versus local optimization make a huge difference in the timings. Here, BBO finds the correct solution in every global optimization setup. For local optimization, several NLopt methods (`LN_BOBYQA`, `LD_SLSQP`, `LD_LBFGS`, `LD_TNEWTON_PRECOND_RESTART`) solve the short problem in under 0.05 seconds. These methods can scale a local optimization, but we are aiming to scale a global optimization.
+ 4. The estimation method and the global versus local optimization make a huge difference in the timings. Here, BBO finds the correct solution on the short problem but not on the long one, where the chaotic trajectory makes the loss landscape much rougher. For local optimization, most NLopt methods solve the short problem in under half a second (`LD_LBFGS` and `LD_TNEWTON_PRECOND_RESTART` in tens of milliseconds), while `LN_COBYLA`, `LD_SLSQP` and `LD_MMA` take 2.5–15 seconds. These methods can scale a local optimization, but we are aiming to scale a global optimization.
  5. Fitting the shorter timespan is much cheaper... maybe this can lead to determining a minimal sample size for the optimizers and the estimator to succeed.
 
 ```julia, echo = false
