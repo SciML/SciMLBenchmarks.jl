@@ -50,9 +50,12 @@ u0 = [1.0, 1.0]                          #initial values
 tspan = (0.0, 10.0)
 p = [1.5, 1.0, 3.0, 1.0]                   #parameters used, these need to be estimated from the data
 tspan = (0.0, 30.0)                     # sample of 3000 observations over the (0,30) timespan
-prob = ODEProblem(f, u0, tspan, p)
-tspan2 = (0.0, 3.0)                     # sample of 3000 observations over the (0,30) timespan
-prob_short = ODEProblem(f, u0, tspan2, p)
+# unknowns(f) is ordered [y, x] rather than in declaration order, so the
+# initial condition and parameters are keyed by name instead of positionally.
+varmap = merge(Dict([f.x, f.y] .=> u0), Dict([f.a, f.b, f.c, f.d] .=> p))
+prob = ODEProblem(f, varmap, tspan)
+tspan2 = (0.0, 3.0)                     # sample of 300 observations over the (0,3) timespan
+prob_short = ODEProblem(f, varmap, tspan2)
 ```
 
 ```julia
@@ -204,9 +207,8 @@ opt = Opt(:LD_TNEWTON_PRECOND_RESTART, 4)
 The Vern9 solver with reltol=1e-9 and abstol=1e-9 is used, and the dataset is increased to 3000 observations per variable with the same integration time step of 0.01.
 
 ```julia
-t_concrete = collect(0.0:dt:tf)
-obj = build_loss_objective(prob, Vern9(), L2Loss(t_concrete, data),
-    tstops = t_concrete, reltol = 1e-9, abstol = 1e-9)
+obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data),
+    tstops = time_points, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj, glo_init, lb = first.(glo_bounds), ub = last.(glo_bounds))
 ```
 
@@ -237,9 +239,9 @@ opt = Opt(:GN_ESCH, 4)
 ## Local problem
 
 ```julia
-obj = build_loss_objective(prob, Vern9(), L2Loss(t, data), Optimization.AutoForwardDiff(),
-    tstops = t, reltol = 1e-9, abstol = 1e-9)
-optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
+obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data), Optimization.AutoForwardDiff(),
+    tstops = time_points, reltol = 1e-9, abstol = 1e-9)
+optprob = OptimizationProblem(obj, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
 ```
 
 ```julia
