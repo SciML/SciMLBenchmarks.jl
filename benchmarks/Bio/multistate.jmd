@@ -206,26 +206,26 @@ plot(wp; label = names)
 
 `CVODE_Adams` and `ROCK2` are **not** folded into the multi-tolerance /
 multi-run work-precision suites; instead a single-tolerance timing against a
-competitive explicit method (`Vern7`) is meant to show the wall-time gap. In the
-latest run, however, the isolated solves took between about 0.5 s and 3 s
-(`CVODE_Adams` was the fastest of the three), several hundred times the
-few-millisecond per-solve time of `Vern7` in the explicit diagram above, so
-these single timings are
-dominated by one-off overhead (most likely first-call compilation) rather than
-by solver cost, and they do not show a gap between the methods.
+competitive explicit method (`Vern7`) shows the wall-time gap. Each method is
+solved once untimed so that first-call compilation stays out of the
+measurement, then timed as the best of five solves; in the latest run
+`CVODE_Adams` took roughly 7x and `ROCK2` roughly 14x as long as `Vern7` at
+this tolerance.
 
 ```julia
 const _loser_tol = 1e-6
 const _loser_maxiters = Int(1e7)
 _solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
     save_everystep = false)
+const _loser_runs = 5
 
 loser_labels = String[]
 loser_elapsed = Float64[]
 
 function _time_loser!(label, alg)
     println("--- $label ---")
-    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    sol = solve(oprob, alg; _solve_kwargs...)
+    t = minimum(@elapsed(solve(oprob, alg; _solve_kwargs...)) for _ in 1:_loser_runs)
     @show sol.retcode
     println("elapsed = ", t, " s")
     push!(loser_labels, label)
@@ -242,7 +242,7 @@ _time_loser!("ROCK2 (loser)", ROCK2())
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; legend = false, xrotation = 20,
     ylabel = "wall time / Vern7 reference",
-    title = "multistate loser isolation (tol=$_loser_tol, one solve each)",
+    title = "multistate loser isolation (tol=$_loser_tol, best of $_loser_runs after warm-up)",
     size = (700, 400), bottom_margin = 8Plots.mm)
 ```
 
