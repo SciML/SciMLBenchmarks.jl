@@ -49,9 +49,12 @@ end
 p = [0.7, 0.8, 0.08, 0.5]              # Parameters used to construct the dataset
 r0 = [1.0; 1.0]                     # initial value
 tspan = (0.0, 30.0)                 # sample of 3000 observations over the (0,30) timespan
-prob = ODEProblem(fitz, r0, tspan, p)
+# unknowns(fitz) is ordered [w, v] rather than in declaration order, so the
+# initial condition and parameters are keyed by name instead of positionally.
+varmap = merge(Dict([fitz.v, fitz.w] .=> r0), Dict([fitz.a, fitz.b, fitz.τinv, fitz.l] .=> p))
+prob = ODEProblem(fitz, varmap, tspan)
 tspan2 = (0.0, 3.0)                 # sample of 300 observations with a timestep of 0.01
-prob_short = ODEProblem(fitz, r0, tspan2, p)
+prob_short = ODEProblem(fitz, varmap, tspan2)
 ```
 
 ```julia
