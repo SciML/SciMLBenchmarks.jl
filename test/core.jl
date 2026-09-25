@@ -420,6 +420,22 @@ end
     @test benchmark_assignment(benchmark, "times") == :(fill(NaN, length(dts), 3))
 end
 
+@testset "Oval2Timings conclusion is load-invariant" begin
+    source = read(
+        joinpath(dirname(@__DIR__), "benchmarks", "StiffSDE", "Oval2Timings.jmd"),
+        String,
+    )
+    conclusion = match(r"(?ms)## Conclusion\n(?<body>.*?)(?=\n```julia|\z)", source)
+    @test !isnothing(conclusion)
+    body = conclusion[:body]
+    # Absolute wall-clock seconds and fixed speedup ratios vary with machine load
+    # (CI vs a heavily loaded host disagree by several×). Keep Δt / failure claims only.
+    @test !occursin(r"(?i)\d+(\.\d+)?\s*s\b", body)
+    @test !occursin(r"(?i)\d+\s*times\s+faster", body)
+    @test occursin("2^{-19}", body)
+    @test occursin("order of magnitude", body)
+end
+
 @testset "Enright-Pryce initial conditions" begin
     source = read(
         joinpath(
