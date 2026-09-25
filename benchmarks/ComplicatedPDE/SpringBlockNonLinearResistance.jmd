@@ -217,6 +217,7 @@ function spring_block_wp(prob, test_sol, cb)
                 println("$name at abstol=$(abstols[i]), reltol=$(reltols[i]): no valid work-precision point (error = $e)")
             end
         end
+        @assert any(error -> isfinite(error[:final]) && error[:final] > 0, w.errors) "$name produced no valid work-precision point at any tolerance"
     end
     return wp
 end
@@ -238,10 +239,13 @@ plot(wp2, label = reduce(hcat, names), markershape = :auto,
     title = "Spring Block PDE, phase 2 (slip event)")
 ```
 
-`Rodas5` does not produce a valid point at the loosest tolerance here
-(`abstol = 1e-6`, `reltol = 1e-2`): the solve is interrupted at `maxiters`
-during the slip event, so its series is missing that point rather than showing
-a wrong one.
+In the run at the time of writing, `Rodas5` does not produce a valid point at
+the loosest tolerance here (`abstol = 1e-6`, `reltol = 1e-2`): the solve is
+interrupted at `maxiters` during the slip event, so its series is missing that
+point rather than showing a wrong one. The same failure occurs when `Rodas5`
+and `Rodas5P` are run with the default linear solver, so it is not specific to
+the KLU factorization. The printed check output above lists any missing points
+in the current build.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -483,8 +483,9 @@ plot(wp)
 ```
 
 With `error_estimate = :l2` this cell measures the L2 error over the saved time
-series rather than the error at the final point, so it can be compared with the
-endpoint diagrams above.
+series rather than the error at the final point. That is a different error
+metric than the endpoint diagrams above use, so the x-axes are not directly
+comparable; this diagram shows how the methods order under trajectory error.
 
 ### Dense Error
 
@@ -721,14 +722,28 @@ plot(wp)
 
 ## Conclusion
 
-In the latest run, Sundials' `CVODE_BDF` is the fastest implicit method in every
-diagram, and in the low-tolerance (high-accuracy) diagrams it is at least about
-2x faster than every other method tested. The ESDIRK methods (`TRBDF2`,
-`KenCarp3`, `KenCarp4`) take roughly twice as long as `CVODE_BDF` at matched
-error. At the high tolerances, the stabilized explicit methods `RKC` and `ROCK2`
-are faster than `CVODE_BDF` for errors of about `1e-4` and larger. The "No
-Jacobian Work-Precision Diagrams" section repeats these diagrams on the same
-problem without the analytical Jacobian.
+In the run at the time of writing, Sundials' `CVODE_BDF` is the fastest
+implicit method in the high-tolerance endpoint diagram, the timeseries and
+dense-error diagrams, and the GMRES comparison. In the SDIRK-focused diagram
+it leads at the loosest tolerance, but `QNDF` and `NordsieckBDF` edge ahead
+of it for errors below `1e-4`. In the low-tolerance diagrams it leads — by
+several times at matched error — until the tightest tolerances, where `radau`
+and `RadauIIA5` become comparable and `radau` is the only method that reaches
+errors below `1e-11`. The ESDIRK methods (`TRBDF2`, `KenCarp3`, `KenCarp4`)
+take several times as long as `CVODE_BDF` at matched error, and the
+lower-order ones (`TRBDF2`, `KenCarp3`) level off at errors of about `1e-5`
+to `1e-6`.
+
+The stabilized explicit methods `RKC`, `ROCK2`, and `TSRKC3` do not use the
+Jacobian and are slower than `CVODE_BDF` at every tolerance in the
+Jacobian-enabled diagrams. In the "No Jacobian Work-Precision Diagrams"
+section they are a good choice: there `CVODE_BDF` is still the fastest
+implicit method — by at least about 2x at low tolerance — but it is slowed
+enough at high tolerance that `RKC` and `ROCK2` beat it for errors of about
+`1e-4` and larger. Supplying the analytical Jacobian makes the implicit
+methods faster overall — `CVODE_BDF` gains up to roughly an order of
+magnitude at loose tolerance — so `CVODE_BDF` is the default choice for this
+problem.
 
 ```julia, echo = false
 using SciMLBenchmarks
