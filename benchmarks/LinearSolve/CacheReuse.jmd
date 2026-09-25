@@ -207,11 +207,11 @@ end
   effectively a benchmark of each backend's refactorization path.
 * **allocs/solve near zero** is what makes `solve!` safe inside hot loops. In the
   latest run every backend allocates nothing on a warm re-solve except Sparspak
-  and ParU, which each allocate close to 1 MB per solve. Sparspak's allocation is
-  three length-`N` temporaries inside Sparspak's own triangular solve (`ldiv!` on
-  a `sparspaklu` factorization allocates the same amount outside LinearSolve).
-  ParU's includes two length-`N` copies that LinearSolve's wrapper makes of `b`
-  and of the solution on every call
+  and ParU. Sparspak allocates about 1 MB per solve (three length-`N` temporaries
+  inside Sparspak's own triangular solve; `ldiv!` on a `sparspaklu` factorization
+  allocates the same amount outside LinearSolve). ParU allocates about 0.64 MB
+  (`2 · 8N` plus a few bytes), which is the two length-`N` copies that LinearSolve's
+  wrapper makes of `b` and of the solution on every call
   ([LinearSolve.jl#1343](https://github.com/SciML/LinearSolve.jl/pull/1343)
   passes them to ParU directly).
 * **`cache.A = X` aliasing differs by backend.** Some factorizations (RFLU, MKL LU)

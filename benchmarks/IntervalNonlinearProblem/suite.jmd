@@ -439,7 +439,8 @@ weights:
     zero, 0 for an error of 1 or more, and for a failure), averaged over functions.
 
 ```julia
-accuracy_digits(err) = clamp(log10(max(err, eps())) / log10(eps()), 0.0, 1.0)
+accuracy_digits(err) = isfinite(err) ?
+                       clamp(log10(max(err, eps())) / log10(eps()), 0.0, 1.0) : 0.0
 
 function rank_algorithms(all_results)
     println("\n" * "="^78)
@@ -506,12 +507,12 @@ The benchmark compares algorithms from both `BracketingNonlinearSolve.jl` and `S
 In the latest run, every method finds an accurate root of all eight functions except `Alefeld`
 from `BracketingNonlinearSolve.jl`, which fails on `x·sin(1/x) - 0.1` with a `DomainError`:
 on its first iteration it evaluates the function at `x = 0`, outside the bracket
-([NonlinearSolve.jl#1317](https://github.com/SciML/NonlinearSolve.jl/pull/1317)). `ModAB` and
-`ITP` have the highest combined scores, followed by the two `Ridder` implementations. `Roots.jl`
-is as accurate as the best methods but ranks ninth, because on most functions it is several times
-slower than the fastest method. `Falsi` (from both packages) and `Alefeld` rank last; `Falsi` is by
-far the slowest method on `exp(x) - 1 - x - x²/2` (about 1.0–1.2 s, against roughly 10–220 ms for
-the other methods).
+([NonlinearSolve.jl#1317](https://github.com/SciML/NonlinearSolve.jl/pull/1317)). Absolute
+timings and the middle of the ranking depend on the machine, because the combined score now
+gives speed a real 30% weight. What holds up across runs is that `ModAB` ranks first,
+`Roots.jl` is as accurate as the best methods but several times slower than the fastest method
+on most functions, and that `Falsi` (from both packages) and `Alefeld` form the bottom three.
+`Falsi` is also by far the slowest method on `exp(x) - 1 - x - x²/2`.
 
 ```julia, echo = false
 using SciMLBenchmarks

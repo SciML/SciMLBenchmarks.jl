@@ -220,6 +220,31 @@ end
     end
 end
 
+@testset "IntervalNonlinearProblem accuracy_digits NaN guard" begin
+    source = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "IntervalNonlinearProblem", "suite.jmd"
+        ),
+        String,
+    )
+    definition = match(
+        r"(?ms)^accuracy_digits\(err\) = .*?(?=\n\n|\nfunction )",
+        source,
+    )
+    @test !isnothing(definition)
+    # Eval into a fresh module so the short-form definition does not collide with
+    # any existing binding in the test module.
+    scratch = Module()
+    Core.eval(scratch, Meta.parse(definition.match))
+    accuracy_digits = scratch.accuracy_digits
+    # A non-throwing NaN residual must not poison the combined score / sort.
+    @test accuracy_digits(NaN) == 0.0
+    @test accuracy_digits(Inf) == 0.0
+    @test accuracy_digits(eps()) == 1.0
+    @test accuracy_digits(1.0) == 0.0
+    @test 0.0 < accuracy_digits(1.0e-8) < 1.0
+end
+
 @testset "subprocess" begin
     process = SciMLBenchmarks.@subprocess exit()
     @test success(process)
