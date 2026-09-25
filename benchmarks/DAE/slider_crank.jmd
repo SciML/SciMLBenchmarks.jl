@@ -24,9 +24,8 @@ We benchmark three formulations of this problem:
 3. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with ODE solvers that
    handle singular mass matrices (Rosenbrock methods, multistep BDF).
 
-In the residual and mass-matrix forms the mass matrix is frozen at t = 0, which limits
-achievable tolerance to around 1e-7; the MTK form keeps the configuration-dependent
-mass matrix.
+All three forms use the configuration-dependent generalized mass matrix `AM(p)`,
+evaluated at the current state.
 
 Reference: Simeon, B.: Modelling a flexible slider crank mechanism by a mixed
 system of DAEs and PDEs, Math. Modelling of Systems 2, 1-18 (1996).
@@ -119,7 +118,8 @@ velocities. We ensure full consistency by:
 1. Using init1 positions (which satisfy the position-level constraints).
 2. Projecting init1 velocities onto the constraint manifold via minimum-norm correction.
 3. Computing consistent accelerations and Lagrange multipliers by solving the
-   augmented saddle-point system `[AM GP'; GP 0] * [w; λ] = [F; γ]`.
+   augmented saddle-point system `[AM GP'; GP 0] * [w; λ] = [F; γ]`, with
+   `γ = -(dGP/dt)·v` evaluated analytically.
 
 ```julia
 function build_GP(p1, p2, q)
@@ -145,12 +145,13 @@ function build_AM(p1, p2, q)
     cosp12 = cos(p1 - p2); sinp12 = sin(p1 - p2)
     c1Tq = dot(c1, q); c2Tq = dot(c2, q)
     c12Tq = dot(c12, q); qtmqq = dot(q, MQ * q)
-    QtBQ = zeros(NQ)
+    T = promote_type(typeof(p1), typeof(p2), eltype(q))
+    QtBQ = zeros(T, NQ)
     for i in 1:NQ
         QtBQ[i] = dot(q, @view BQ[:, i])
     end
 
-    AM = zeros(NP, NP)
+    AM = zeros(T, NP, NP)
     AM[1,1] = J1 + M2 * L1^2
     AM[1,2] = 0.5 * L1 * L2 * M2 * cosp12 +
               RHO * L1 * (sinp12 * c2Tq + cosp12 * c1Tq)
@@ -219,11 +220,12 @@ function get_consistent_ic()
     AM0 = build_AM(p1, p2, q)
     F0 = compute_force_vector(p1, p2, q, v_fixed[1], v_fixed[2], v_fixed[4:7])
 
-    # dGP/dt * v via finite differences
-    eps_fd = 1e-8
-    pos_p = pos .+ eps_fd .* v_fixed
-    GP_p = build_GP(pos_p[1], pos_p[2], pos_p[4:7])
-    dGPdt_v = (GP_p - GP0) / eps_fd * v_fixed
+    # dGP/dt * v (KU = 4, KV = 0)
+    v1, v2, vq4 = v_fixed[1], v_fixed[2], v_fixed[7]
+    lq = L2 + q[KU]
+    dGPdt_v = [-L1 * sin(p1) * v1^2 - lq * sin(p2) * v2^2 + 2.0 * cos(p2) * v2 * vq4,
+                L1 * cos(p1) * v1^2 + lq * cos(p2) * v2^2 + 2.0 * sin(p2) * v2 * vq4,
+                0.0]
 
     # Augmented saddle-point system: [AM GP'; GP 0] [w; λ] = [F; -dGP/dt*v]
     n = NP + NL
@@ -253,20 +255,27 @@ println("Velocity constraint norm: ", norm(GP0 * vel0 - [0, 0, OMEGA]))
 
 ## Mass-Matrix ODE Formulation
 
-The index-2 DAE is reformulated as a singular mass-matrix ODE with 17 state
-variables `u = [p; v; λ]`. The mass matrix `M` has the structure:
+The index-2 DAE of the IVP Test Set,
 
 ```
-M = [I   0   0 ]    du = [v            ]
-    [0  AM   0 ]         [F - Gᵀλ      ]
-    [0   0   0 ]         [G*v - r'(t)   ]
+dp/dt = v,    AM(p)·dv/dt = F(p, v) - G(p)ᵀλ,    0 = G(p)·v - r'(t),
 ```
 
-where `AM` is the 7×7 generalized mass matrix (frozen at t=0) and `G` is
-the 3×7 constraint Jacobian (evaluated at current state).
+is written as a singular mass-matrix ODE with 17 state variables
+`u = [p; v; λ]` and the constant mass matrix `M = diag(I₁₄, 0₃)`:
+
+```
+du = [v                              ]
+     [AM(p) \ (F(p, v) - G(p)ᵀλ)     ]
+     [G(p)·v - r'(t)                 ]
+```
+
+`AM(p)` is the 7×7 configuration-dependent generalized mass matrix and `G(p)`
+the 3×7 constraint Jacobian. Both are evaluated at the current state, and the
+7×7 system for the accelerations is solved inside the right-hand side.
 
 ```julia
-function slider_crank_mm!(du, u, p, t)
+function slider_crank_f!(du, u, p, t)
     T = eltype(u)
     p1, p2, x3 = u[1], u[2], u[3]
     q  = @view u[4:7]
@@ -287,14 +296,8 @@ function slider_crank_mm!(du, u, p, t)
     MQq  = MQ * q;   KQq  = KQ * q
     DQqd = DQ * vq;  BQqd = BQ * vq
 
-    qtmqq   = dot(q, MQq)
     qdtmqq  = dot(vq, MQq)
     qdtbqqd = dot(vq, BQqd)
-
-    QtBQ = zeros(T, NQ)
-    for i in 1:NQ
-        QtBQ[i] = dot(q, @view BQ[:, i])
-    end
 
     # Constraint Jacobian GP (3×7) — evaluated at current state
     GP = zeros(T, 3, NP)
@@ -336,7 +339,7 @@ function slider_crank_mm!(du, u, p, t)
         du[i] = u[7+i]
     end
 
-    # Block 2 (rows 8:14): AM * dv/dt = F - Gᵀλ
+    # Block 2 (rows 8:14): F - Gᵀλ
     for i in 1:NP
         du[7+i] = F[i] - GP[1,i] * lam1 - GP[2,i] * lam2 - GP[3,i] * lam3
     end
@@ -355,18 +358,15 @@ function slider_crank_mm!(du, u, p, t)
     nothing
 end
 
-function build_mass_matrix(AM)
-    Mfull = zeros(17, 17)
-    for i in 1:7
-        Mfull[i, i] = 1.0        # identity block for dp/dt = v
-    end
-    Mfull[8:14, 8:14] .= AM      # AM block for dv/dt equations
-    # rows 15:17 are zero → algebraic (velocity constraints)
-    return Mfull
+function slider_crank_mm!(du, u, p, t)
+    slider_crank_f!(du, u, p, t)
+    AM = build_AM(u[1], u[2], @view u[4:7])
+    du[8:14] .= lu(AM; check = false) \ du[8:14]
+    nothing
 end
 
 u0_mm = vcat(pos0, vel0, lam0)
-M_mm = build_mass_matrix(AM0)
+M_mm = Matrix(Diagonal([ones(14); zeros(3)]))
 mmf = ODEFunction(slider_crank_mm!, mass_matrix = M_mm)
 tspan = (0.0, 0.1)
 prob_mm = ODEProblem(mmf, u0_mm, tspan)
@@ -374,16 +374,19 @@ prob_mm = ODEProblem(mmf, u0_mm, tspan)
 
 ## DAE Residual Form
 
-The same system can be written as a DAE residual `F(du, u, t) = M·du − f(u, t) = 0`,
-where `M` is the mass matrix and `f` is the right-hand side from the ODE form.
+The same system written as a DAE residual `F(du, u, t) = M(p)·du − f(u, t) = 0`,
+where `M(p) = diag(I₇, AM(p), 0₃)` is evaluated at the current state and
+`f = [v; F - Gᵀλ; G·v - r'(t)]`.
 This enables testing DAE-specific solvers like IDA (Sundials) and comparing
 how formulation choice affects solver performance.
 
 ```julia
 function slider_crank_dae!(res, du, u, p, t)
-    f = similar(u)
-    slider_crank_mm!(f, u, p, t)
-    res .= M_mm * du - f
+    slider_crank_f!(res, u, p, t)
+    AM = build_AM(u[1], u[2], @view u[4:7])
+    res[1:7] .= @view(du[1:7]) .- @view(res[1:7])
+    res[8:14] .= AM * @view(du[8:14]) .- @view(res[8:14])
+    res[15:17] .= .-@view(res[15:17])
     nothing
 end
 
@@ -393,9 +396,9 @@ prob_dae = DAEProblem(slider_crank_dae!, du0_dae, u0_mm, tspan,
                       differential_vars = differential_vars)
 
 # Verify DAE consistency at initial conditions
-f_check = similar(u0_mm)
-slider_crank_mm!(f_check, u0_mm, nothing, 0.0)
-println("DAE residual norm at IC: ", norm(M_mm * du0_dae - f_check))
+res_check = similar(u0_mm)
+slider_crank_dae!(res_check, du0_dae, u0_mm, nothing, 0.0)
+println("DAE residual norm at IC: ", norm(res_check))
 ```
 
 ## MTK Index-Reduced Formulation
@@ -523,13 +526,12 @@ println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
 
 ## Reference Solution
 
-We compute a high-accuracy reference solution using Rodas5P at moderate
-tolerance. The frozen mass matrix limits how tight we can push tolerances
-before instability sets in, so `reltol = abstol = 1e-6` provides the best
-balance of accuracy and stability for this problem. The MTK form keeps the
-configuration-dependent mass matrix, so it gets its own reference solved at
-`1e-10`; both references are checked against the IVP Test Set at the end of
-this page.
+We compute the reference for the residual and mass-matrix forms with Rodas5P
+on the mass-matrix form at `reltol = abstol = 1e-6`. Rodas5P does not complete
+this index-2 form at much tighter tolerances, but at `1e-6` it already matches
+the IVP Test Set values to relative errors below `1e-7` (see the verification
+at the end of this page). The MTK index-reduced form gets its own reference
+solved at `1e-10`.
 
 ```julia
 ref_sol = solve(prob_mm, Rodas5P(), reltol = 1e-6, abstol = 1e-6,
@@ -589,7 +591,7 @@ end
 
 In the latest run IDA stops with `Unstable` at $t \approx 2.5 \times 10^{-4}$
 (of the $[0, 0.1]$ interval), with or without `init_all = false`, even though the
-initial conditions are consistent (DAE residual norm ≈ 7×10⁻¹⁵). We attribute
+initial conditions are consistent (DAE residual norm ≈ 6×10⁻¹⁴). We attribute
 this to the extreme stiffness from the elastic modulus (E = 2×10¹¹ Pa).
 
 By contrast, Rodas5P on the mass-matrix ODE form reaches $t = 0.1$ (see the
@@ -603,9 +605,11 @@ We compare solvers across all three formulations using `WorkPrecisionSet` with
 `prob_choice` to overlay DAE, MTK, and mass-matrix results on the same plot.
 IDA operates on the DAE residual form, the MTK index-reduced form is solved
 with Rosenbrock methods, and the mass-matrix ODE form uses Rosenbrock
-and BDF methods. The tolerance range is limited by the frozen mass matrix
-(instability at tolerances tighter than ~1e-7); the MTK form is measured
-against its own reference.
+and BDF methods. The MTK form is measured against its own reference. FBDF
+and NordsieckBDF on the mass-matrix form only complete the loosest tolerances;
+at tighter ones their step size collapses near t = 0, so they run with
+`dtmin = 1e-14`, which makes them stop with `DtLessThanMin` and drops those
+points from the diagram instead of letting the step size shrink toward 1e-300.
 
 ```julia
 probs = [prob_dae, prob_mtk, prob_mm]
@@ -623,8 +627,8 @@ setups = [
     Dict(:prob_choice => 2, :alg => Rodas4P()),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
     Dict(:prob_choice => 3, :alg => Rodas4P()),
-    Dict(:prob_choice => 3, :alg => FBDF()),
-    Dict(:prob_choice => 3, :alg => NordsieckBDF()),
+    Dict(:prob_choice => 3, :alg => FBDF(), :dtmin => 1e-14),
+    Dict(:prob_choice => 3, :alg => NordsieckBDF(), :dtmin => 1e-14),
 ]
 labels = ["IDA (DAE)" "Rodas5P (MTK)" "Rodas4P (MTK)" "Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "NordsieckBDF (MM)"]
 
@@ -677,14 +681,10 @@ plot(wp, title = "Slider-Crank: Timeseries Error (L2)")
 
 The IVP Test Set (`crank.f`, `solut` subroutine) provides reference values at
 t = 0.1. We compare both reference solutions against these values: the
-mass-matrix reference (frozen mass matrix) and the MTK reference (full
-configuration-dependent mass matrix). The table prints the relative error of each.
-In the latest run the MTK reference matches all nine values to relative errors of
-at most `3e-8`, including $\lambda_3 \approx 25.30$. The mass-matrix reference matches
-φ₂ and x₃ to about `2e-8` and the elastic modes, λ₁ and λ₂ to below `1e-3`, but gives
-$\lambda_3 \approx -18.21$; since the two forms differ in whether the mass matrix is
-frozen at t = 0, the λ₃ error lies in the frozen-mass-matrix form, not in the
-test-set value.
+mass-matrix reference and the MTK reference. The table prints the relative
+error of each. In the latest run the mass-matrix reference matches all nine
+values to relative errors of at most `7.2e-8` and the MTK reference to at most
+`3e-8`; both give $\lambda_3 \approx 25.30$.
 
 ```julia
 archimede_refs = Dict(

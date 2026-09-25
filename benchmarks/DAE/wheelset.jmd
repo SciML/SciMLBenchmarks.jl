@@ -23,18 +23,15 @@ We benchmark three formulations of this problem:
 
 1. **DAE Residual Form:** `F(du, u, t) = 0`, solved with IDA (Sundials).
 2. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)`, solved with Rosenbrock and
-   BDF methods. The mass matrix is position-dependent (through φ) and frozen
-   at t = 0.
+   BDF methods. The φ-dependent coupling of the Euler equations is solved
+   in the right-hand side, so the mass matrix is constant.
 3. **ModelingToolkit Structural Simplified:** The residual function is wrapped
    via `@register_array_symbolic` and converted to an `ODESystem`. MTK
    algebraically eliminates the mass-matrix coefficients so the solver sees
    an explicit ODE + algebraic constraints.
 
 The mass matrix depends on the roll angle φ through cos(φ) and sin(φ) in the
-Euler equations. Since φ remains small throughout the integration (≈ 10⁻³ rad),
-we freeze the mass matrix at t = 0. This is an approximation: in the latest run
-the resulting reference solution differs from the IVP Test Set values at t = 10
-by relative errors of up to about 3% (see the verification below).
+Euler equations. All three forms evaluate this dependence at the current state.
 
 Reference: Simeon, B., Führer, C., Rentrop, P.: Differential-algebraic equations
 in vehicle system dynamics. Surv. Math. Ind., 1:1–37 (1991).
@@ -527,79 +524,59 @@ println("DAE residual norm at IC (IVP ref du0):  ", norm(res0_ref))
 
 ## Form 2: Mass-Matrix ODE
 
-The DAE is rewritten as `M · du/dt = f(u)` where M has the block structure:
+The DAE is rewritten as `M · du/dt = f(u)` with a constant mass matrix
 
 ```
-M = diag(I₅, MR·I₃, M_euler, 0₆)
+M = diag(I₅, MR·I₃, I₃, 0₆)
 ```
 
-The 3×3 Euler mass sub-block depends on φ through cos(φ) and sin(φ).
-We freeze it at t = 0.
+The accelerations of the Euler equations are coupled through a 3×3 block
+that depends on φ:
+
+```
+[LI2·cos φ   0     0  ] [θ̈]
+[0           LI2   0  ] [φ̈]  = r(u)
+[LI1·sin φ   0    LI1 ] [β̈]
+```
+
+This block is solved in closed form at the current state inside `f`, so the
+mass matrix is constant and the formulation is exact.
 
 ```julia
-function build_wheelset_mass_matrix(phi0)
+function build_wheelset_mass_matrix()
     M = zeros(17, 17)
-    # Kinematic block: dp/dt = v
     for i in 1:5
         M[i, i] = 1.0
     end
-    # Newton's law: MR * dv/dt = ...
     M[6, 6] = MR
     M[7, 7] = MR
     M[8, 8] = MR
-    # Euler equations (extracted from the residual coefficients of accelerations)
-    cop0 = cos(phi0)
-    sip0 = sin(phi0)
-    M[9, 9]   = LI2 * cop0     # θ̈ coefficient in delta[9]
-    M[10, 10] = LI2            # φ̈ coefficient in delta[10]
-    M[11, 9]  = LI1 * sip0     # θ̈ coefficient in delta[11]
-    M[11, 11] = LI1            # β̈ coefficient in delta[11]
-    # Rows 12-17: algebraic (zero mass)
+    for i in 9:11
+        M[i, i] = 1.0
+    end
     return M
 end
 
 function wheelset_mm!(du, u, p, t)
-    # Compute the residual F(0, u, t) and rearrange:
-    # Since F(dy, y, t) = M_terms(dy) + rhs(y,t) = 0
-    # We want: du such that M*du = f(u)
-    # Compute residual with zero accelerations
+    # The residual at zero derivatives is the right-hand side r(u).
     T = eltype(u)
     dy_zero = zeros(T, 17)
     delta = zeros(T, 17)
     wheelset_residual!(delta, dy_zero, u)
 
-    # For rows 1-5:  delta = v - dy → with dy=0, delta = v → du = v
-    du[1] = u[6]
-    du[2] = u[7]
-    du[3] = u[8]
-    du[4] = u[9]
-    du[5] = u[10]
+    du[1:5] .= @view u[6:10]
+    du[6:8] .= @view delta[6:8]
 
-    # For rows 6-8:  delta = MR*(-acc) + rhs → with acc=0, delta = rhs
-    #                Mass-matrix form: M*acc = rhs = delta
-    du[6] = delta[6]
-    du[7] = delta[7]
-    du[8] = delta[8]
+    phi = u[5]
+    du[9] = delta[9] / (LI2 * cos(phi))
+    du[10] = delta[10] / LI2
+    du[11] = delta[11] / LI1 - sin(phi) * du[9]
 
-    # For rows 9-10: delta = -LI2*(...acc...) + rhs → with acc=0, delta = rhs
-    du[9]  = delta[9]
-    du[10] = delta[10]
-
-    # For row 11: delta = -LI1*(...acc...) + rhs → with acc=0, delta = rhs
-    du[11] = delta[11]
-
-    # For rows 12-17: algebraic → du = delta (constraint violation)
-    du[12] = delta[12]
-    du[13] = delta[13]
-    du[14] = delta[14]
-    du[15] = delta[15]
-    du[16] = delta[16]
-    du[17] = delta[17]
-
+    du[12:17] .= @view delta[12:17]
     nothing
 end
 
-M_wh = build_wheelset_mass_matrix(u0[5])
+M_wh = build_wheelset_mass_matrix()
 mmf_wh = ODEFunction(wheelset_mm!, mass_matrix = M_wh)
 prob_mm = ODEProblem(mmf_wh, u0, tspan)
 ```
@@ -647,7 +624,6 @@ end
 state_vec = [x_w, y_w, z_w, theta_w, phi_w, xp_w, yp_w, zp_w, tetap_w, phip_w,
              betap_w, psiL_w, xiL_w, psiR_w, xiR_w, lam1_w, lam2_w]
 delta_sym = wheelset_rhs_vec(state_vec)
-phi0_mtk = u0[5]
 
 eqs_mtk = [
     # Kinematics (identity mass)
@@ -661,9 +637,9 @@ eqs_mtk = [
     MR * D(yp_w) ~ delta_sym[7],
     MR * D(zp_w) ~ delta_sym[8],
     # Euler (coupled mass)
-    LI2 * cos(phi0_mtk) * D(tetap_w) ~ delta_sym[9],
+    LI2 * cos(phi_w) * D(tetap_w) ~ delta_sym[9],
     LI2 * D(phip_w) ~ delta_sym[10],
-    LI1 * sin(phi0_mtk) * D(tetap_w) + LI1 * D(betap_w) ~ delta_sym[11],
+    LI1 * sin(phi_w) * D(tetap_w) + LI1 * D(betap_w) ~ delta_sym[11],
     # Algebraic constraints
     0 ~ delta_sym[12],  0 ~ delta_sym[13],
     0 ~ delta_sym[14],  0 ~ delta_sym[15],
@@ -695,10 +671,8 @@ println("Reference (MTK): retcode = $(ref_sol_mtk.retcode), npoints = $(length(r
 
 The IVP Test Set provides reference values at t = 10, computed by DASSL with
 `rtol = atol = 1e-9` for (p, v, q) and `1e-10` for λ. In the latest run our
-reference agrees with them only to relative errors between about `6e-5`
-(ξ_L, ξ_R) and `3e-2` (ż), far above the `1e-10` solve tolerance, so errors
-in the work-precision diagrams below that are smaller than this level measure
-agreement with our frozen-mass-matrix reference rather than with the test-set solution.
+reference matches all 17 of them to relative errors between about `3e-9`
+(ξ_L, ξ_R) and `5e-6` (y).
 
 ```julia
 u_ref = zeros(17)

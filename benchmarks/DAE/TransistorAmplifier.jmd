@@ -98,6 +98,27 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
+RADAU prints `EXIT OF RADAU … MATRIX IS REPEATEDLY SINGULAR` during this
+sweep and the first timeseries sweep. The message comes from the loosest
+pair, abstol 1e-5 with reltol 1e-1. The chunk below shows where each Radau
+implementation ends at that pair.
+
+```julia
+for (name, alg) in (("radau", radau()), ("radau5", radau5()),
+                    ("RadauIIA5", RadauIIA5()))
+    sol = solve(mmprob, alg; abstol = 1e-5, reltol = 1e-1)
+    println(rpad(name, 10), " retcode = ", rpad(string(sol.retcode), 9),
+            " t_final = ", round(sol.t[end], sigdigits = 4),
+            ", steps = ", length(sol.t) - 1)
+end
+```
+
+At reltol 1e-1 the Fortran codes RADAU and RADAU5 take 14 steps, against
+304 for RadauIIA5. They then stop at t ≈ 0.0126 of 0.2 because their Newton
+iteration matrix is singular. That point is therefore missing from the
+`radau` curve in this diagram and in the first timeseries diagram. RadauIIA5
+completes the interval, and RADAU completes every tighter pair.
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (2:4);
