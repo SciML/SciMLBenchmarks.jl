@@ -212,6 +212,8 @@ plot(wp)
 
 Since the correct solution is in the range of 1e-7, we see that most solutions, even at the lower end of tested tolerances, always lead to relative maximal interpolation errors of at least 1e-1 (and usually worse). `RK4` performs slightly better with relative maximal errors of at least 1e-2. This matches our qualitative analysis above.
 
+The `Tsit5` point at an error of about $10^{10}$, present in all three work-precision diagrams above, is a genuine divergence rather than a plotting artifact. At the loosest tolerance pair an accepted step perturbs the third component slightly below zero near $t \approx 35.5$; the model guards only against negative $u_1$ and $u_4$, and once $u_4$ exceeds the receptor level $R$ the coupling between the third and fourth components amplifies the perturbation until the trajectory blows up. The solve still reports success because the relative error test scales with the exploding components. `MethodOfSteps(Tsit5(); constrained = true)` does not diverge at the same tolerance.
+
 #### Rosenbrock methods
 
 We repeat these tests with Rosenbrock methods, and include `RK4` as reference.
