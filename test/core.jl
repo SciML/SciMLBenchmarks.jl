@@ -214,12 +214,9 @@ end
         source = read(joinpath(benchmarks_dir, filename), String)
         imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
         @test !isnothing(imports)
-        for name in ("@mtkbuild", "@mtkmodel")
-            @test occursin(name, imports[:code])
-        end
-        @test occursin("@static if isdefined(ModelingToolkit, Symbol(\"@mtkmodel\"))", imports[:code])
-        @test occursin("using ModelingToolkit: @mtkmodel", imports[:code])
-        @test occursin("using SciCompDSL: @mtkmodel", imports[:code])
+        @test occursin("using ModelingToolkit: @mtkbuild", imports[:code])
+        @test occursin("using SciCompDSL", imports[:code])
+        @test occursin("@mtkmodel", source)
     end
 end
 
