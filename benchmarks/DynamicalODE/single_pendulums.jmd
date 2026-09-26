@@ -249,21 +249,55 @@ k = 0.999
 singlependulum(k, SymplecticEuler(), Δt)
 ```
 
+```julia
+# Observed convergence orders: halve Δt and compare the endpoint (p, q) of each
+# run with the exact solution. This measures the order of each component
+# separately, since the momentum and position need not converge at the same rate.
+k = 0.999
+Δts = (0.04, 0.02, 0.01, 0.005)
+H_conv(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1
+prob_conv = HamiltonianProblem(H_conv, [2k], [0.0], (0.0, 1.0))
+for integrator in (SymplecticEuler(), VelocityVerlet(), McAte4(), McAte42())
+    p_errs = Float64[]
+    q_errs = Float64[]
+    for Δt in Δts
+        sol_conv = solve(prob_conv, integrator, dt = Δt)
+        p_end, q_end = sol_conv.u[end]
+        push!(p_errs, abs(p_end - 2k * Jacobi.cn(1.0, k^2)))
+        push!(q_errs, abs(q_end - 2asin(k * sn(1.0, k))))
+    end
+    p_orders = log2.(p_errs[1:end-1] ./ p_errs[2:end])
+    q_orders = log2.(q_errs[1:end-1] ./ q_errs[2:end])
+    integrator_str = replace("$integrator", r"^[^.]*\." => "")
+    @printf("%-16s observed orders:  p = %s   q = %s\n", integrator_str,
+        join([@sprintf("%.2f", o) for o in p_orders], ", "),
+        join([@sprintf("%.2f", o) for o in q_orders], ", "))
+end
+```
+
 ## Results
 
-With $k = 0.999$ the pendulum starts close to the separatrix, and over $t \in [0, 100]$ with
-$\Delta t = 0.1$ the second-order methods (`SymplecticEuler`, `VelocityVerlet`, `VerletLeapfrog`,
-`PseudoVerletLeapfrog`, `McAte2`) accumulate enough phase error that the maximum difference to the
-exact $y(t)$ is of order 1, even though their energy error stays bounded (standard deviation between
-about 1e-4 and 3e-2). The third- to fifth-order methods reach phase errors between about 1e-4 and
-4e-2, the sixth-order `Yoshida6` and `KahanLi6` reach 1e-5 to 1e-6, and the eighth- and tenth-order
-`McAte8`, `KahanLi8` and `SofSpa10` reach 1e-9 to 1e-11 with energy fluctuations near machine precision.
-`McAte42` is the exception among the fourth-order methods: it only achieves second order
-(a known bug, [OrdinaryDiffEq.jl#85](https://github.com/SciML/OrdinaryDiffEq.jl/issues/85)),
-so its energy standard deviation of about 6e-3 and phase error of order 1 match the
-second-order methods. With $\Delta t = 0.01$ the
-second-order methods reach phase errors of about 5e-2 to 9e-2, and `SymplecticEuler` reaches about 1e-3
-at $\Delta t = 0.001$ and 1e-5 at $\Delta t = 0.0001$.
+With $k = 0.999$ the pendulum starts close to the separatrix. The last run above measures
+endpoint convergence orders directly: `SymplecticEuler` is first order in the momentum while
+its position converges at second order, `VelocityVerlet` is second order in both components,
+and `McAte4` shows about third order. `McAte42`, nominally fourth order, is first order in
+the momentum and second order in the position — a known bug
+([OrdinaryDiffEq.jl#85](https://github.com/SciML/OrdinaryDiffEq.jl/issues/85)).
+
+Over $t \in [0, 100]$ with $\Delta t = 0.1$ the lowest-order methods (`SymplecticEuler`,
+`VelocityVerlet`, `VerletLeapfrog`, `PseudoVerletLeapfrog`, `McAte2`) accumulate enough phase
+error that the maximum difference to the exact $y(t)$ is of order 1, even though their energy
+error stays bounded (standard deviation between about 1e-4 and 3e-2). The methods of nominal
+order three to five (`Ruth3`, `McAte3`, `CandyRoz4`, `McAte4`, `CalvoSanz4`, `McAte5`) reach
+phase errors between about 1e-4 and 4e-2, the sixth-order `Yoshida6` and `KahanLi6` reach
+1e-5 to 1e-6, and the eighth- and tenth-order `McAte8`, `KahanLi8` and `SofSpa10` reach
+1e-9 to 1e-11 with energy fluctuations near machine precision. `McAte42`'s first-order
+momentum error puts it with the low-order methods here: its energy standard deviation of
+about 6e-3 and phase error of order 1 match theirs. Because the comparison measures the
+position-like observable $y = \sin(q/2)$, its errors follow the position component: with
+$\Delta t = 0.01$ the low-order methods reach phase errors of about 5e-2 to 9e-2, and
+`SymplecticEuler` reaches about 9e-4 at $\Delta t = 0.001$ and 9e-6 at $\Delta t = 0.0001$ —
+the second-order scaling of its position error even though its momentum error is first order.
 
 ```julia, echo = false
 using SciMLBenchmarks
