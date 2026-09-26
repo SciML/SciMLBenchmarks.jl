@@ -16,8 +16,9 @@ using Turing, StochasticDiffEq
 using Distributions, BenchmarkTools
 using OrdinaryDiffEq, RecursiveArrayTools
 using Optimization, OptimizationOptimJL
-using Plots, LinearAlgebra, Statistics, Printf
+using Plots, LinearAlgebra, Statistics, Printf, Random
 gr(fmt = :png)
+Random.seed!(42)
 ```
 
 ```julia
@@ -90,15 +91,22 @@ the process.
     d ~ truncated(Normal(1.0, 0.5), 0.0, 2.0)
     σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
     σ_obs ~ filldist(InverseGamma(2, 3), 2)
-    p = [a, b, c, d, σ]
-    _prob = remake(prob; p = p)
-    sol = solve(_prob, SRIW1(); saveat = t)
-    if sol.retcode != ReturnCode.Success || size(Array(sol), 2) != length(t)
-        Turing.@addlogprob! -Inf
-        return
-    end
-    for i in 1:length(t)
-        data[:, i] ~ MvNormal(sol[i], Diagonal(σ_obs .^ 2))
+
+    # Euler-Maruyama pseudo-likelihood between consecutive observations
+    for i in 1:(length(t) - 1)
+        Δt = t[i+1] - t[i]
+        u  = data[:, i]
+
+        drift = [
+            a * u[1] - b * u[1] * u[2],
+            -c * u[2] + d * u[1] * u[2]
+        ]
+        diffusion = [σ * u[1], σ * u[2]]
+
+        μ = u + drift * Δt
+        Σ = Diagonal((diffusion .^ 2) .* Δt) + Diagonal(σ_obs .^ 2)
+
+        data[:, i+1] ~ MvNormal(μ, Σ)
     end
 end
 model = fitlv_sde(data, t, prob)
@@ -118,13 +126,22 @@ No uncertainty is expressed — the bias from the discretization is locked in.
 function neg_log_pseudo_likelihood(θ, _)
     a, b, c, d, σ, σ1, σ2 = θ
     any(x -> x <= 0, θ) && return Inf
-    p     = [a, b, c, d, σ]
-    _prob = remake(prob; p = p)
-    sol   = solve(_prob, SRIW1(); saveat = t)
-    (sol.retcode != ReturnCode.Success || size(Array(sol), 2) != length(t)) && return Inf
+
     ll = 0.0
-    for i in 1:length(t)
-        ll += logpdf(MvNormal(sol[i], Diagonal([σ1, σ2] .^ 2)), data[:, i])
+    for i in 1:(length(t) - 1)
+        Δt = t[i+1] - t[i]
+        u  = data[:, i]
+
+        drift = [
+            a * u[1] - b * u[1] * u[2],
+            -c * u[2] + d * u[1] * u[2]
+        ]
+        diffusion = [σ * u[1], σ * u[2]]
+
+        μ = u + drift * Δt
+        Σ = Diagonal((diffusion .^ 2) .* Δt) + Diagonal([σ1, σ2] .^ 2)
+
+        ll += logpdf(MvNormal(μ, Σ), data[:, i+1])
     end
     return -ll
 end
@@ -133,7 +150,9 @@ opt_f    = OptimizationFunction(neg_log_pseudo_likelihood, Optimization.AutoForw
 opt_prob = OptimizationProblem(opt_f, θ0)
 elapsed_mle = @elapsed opt_result = solve(opt_prob, LBFGS())
 mle_params  = opt_result.u
-@printf "MLE: a=%.3f  b=%.3f  c=%.3f  d=%.3f\n" mle_params[1] mle_params[2] mle_params[3] mle_params[4]
+@printf("MLE: a=%.3f  b=%.3f  c=%.3f  d=%.3f\n",
+        mle_params[1], mle_params[2], mle_params[3], mle_params[4])
+@printf("MLE retcode: %s\n", opt_result.retcode)
 ```
 
 ### Comparison: posterior vs point estimate
@@ -144,13 +163,13 @@ true_vals   = [1.5, 1.0, 3.0, 1.0]
 bayes_means = [mean(chain[p]) for p in param_names]
 bayes_stds  = [std(chain[p])  for p in param_names]
 mle_vals    = mle_params[1:4]
-@printf "\n%-6s  %-5s  %-22s  %-6s\n" "Param" "True" "Bayes mean ± std" "MLE"
-@printf "%s\n" "-"^48
+@printf("\n%-6s  %-5s  %-22s  %-6s\n", "Param", "True", "Bayes mean ± std", "MLE")
+@printf("%s\n", "-"^48)
 for i in 1:4
-    @printf "%-6s  %-5.2f  %.3f ± %.3f %14s  %.3f\n" \
-        string(param_names[i]) true_vals[i] bayes_means[i] bayes_stds[i] "" mle_vals[i]
+    @printf("%-6s  %-5.2f  %.3f ± %.3f %14s  %.3f\n",
+            string(param_names[i]), true_vals[i], bayes_means[i], bayes_stds[i], "", mle_vals[i])
 end
-@printf "\nBayesian MCMC : %.1f s\nMLE           : %.3f s\n" elapsed_bayes elapsed_mle
+@printf("\nBayesian MCMC : %.1f s\nMLE           : %.3f s\n", elapsed_bayes, elapsed_mle)
 ```
 
 ```julia
@@ -165,13 +184,20 @@ plot!(pl, legend = :topright)
 ```
 
 ## Conclusion
+
 For SDE parameter estimation, the Bayesian pseudo-likelihood approach
 provides full posterior distributions over parameters, naturally quantifying
 uncertainty from both measurement noise and the intrinsic stochasticity of
-the process. The MLE baseline recovers similar point estimates but cannot
-express this uncertainty — and as σ increases or the dataset shrinks, the
-Bayesian posterior widens appropriately, a property point estimates
-fundamentally lack.
+the process.
+
+The MLE baseline recovers similar point estimates but cannot express this
+uncertainty. The Euler-Maruyama pseudo-likelihood introduces a discretization
+bias that is present in both methods — the Bayesian posterior does not correct
+this bias, but it does propagate the discretization error into the reported
+uncertainty.
+
+A systematic investigation of this bias across observation intervals and
+higher-order pseudo-likelihoods (Milstein, Itô–Taylor) is left for future work.
 
 ```julia, echo = false
 using SciMLBenchmarks
