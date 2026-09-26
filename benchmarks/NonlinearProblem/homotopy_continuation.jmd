@@ -295,10 +295,18 @@ uncontrolled jump across the non-monotone region — that happens to work here b
 the ``\lambda = 1`` cubic has a single real root, but it is exactly the failure mode
 that returns a wrong-basin root when multiple roots exist. `ArcLengthContinuation`
 (with either predictor) follows the branch connected to the starting point, rounding both
-folds in the augmented ``(u, \lambda)`` space. `HomotopySweep` does not get past the folds
-in the latest run: both variants end on the wrong sheet (return codes `Default` and
-`MaxIters`). The default `solve(prob)` dispatch does reach the root, but it is the most
-expensive successful solver here (2439 residual calls).
+folds in the augmented ``(u, \lambda)`` space. Both `HomotopySweep` variants stop at the
+first fold, ``(\lambda, u) \approx (5/6, -1)``, and report failure; the ``\|u - u^*\|_\infty``
+of 3.1 is the distance from ``u = -1`` to the root. This is the expected limit of
+natural-parameter continuation: past ``\lambda = 5/6`` the branch it is tracking no longer
+exists, so the step size shrinks until the sweep gives up. With the default inner
+polyalgorithm the reported return code is `Default` rather than a failure code. That is
+a reporting bug in the polyalgorithm, which on a failed attempt can return a stale
+subsolver result
+([NonlinearSolve.jl#1322](https://github.com/SciML/NonlinearSolve.jl/pull/1322)).
+The default `solve(prob)` dispatch (`HomotopyPolyAlgorithm`: the sweep, then
+`ArcLengthContinuation` from where the sweep stopped) does reach the root, but it is the
+most expensive successful solver here (2439 residual calls).
 
 ## Problem 3: n = 50 coupled cubic, good start
 

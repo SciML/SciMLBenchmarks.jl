@@ -426,70 +426,59 @@ print_accuracy_table(all_results)
 
 ## Algorithm Rankings
 
-Finally, let's rank the algorithms by overall performance:
+Finally, let's rank the algorithms by overall performance. Each of the three terms is
+scaled to lie in ``[0, 1]`` before weighting, so the stated weights are the actual
+weights:
+
+  - **success**: the fraction of the test functions the method solved without error;
+  - **speed**: per function, the time of the fastest successful method divided by this
+    method's time (1 for the fastest method, 0 for a failure), averaged over functions;
+  - **accuracy**: per function, ``\log_{10}(\text{error}) / \log_{10}(\epsilon)`` clamped
+    to ``[0, 1]``, i.e. how many of the roughly 16 decimal orders of magnitude between 1
+    and machine precision the residual has dropped (1 at machine precision or an exact
+    zero, 0 for an error of 1 or more, and for a failure), averaged over functions.
 
 ```julia
-function rank_algorithms(all_results)
-    println("\n" * "="^60)
-    println("ALGORITHM RANKINGS")
-    println("="^60)
+accuracy_digits(err) = isfinite(err) ?
+                       clamp(log10(max(err, eps())) / log10(eps()), 0.0, 1.0) : 0.0
 
-    # Calculate scores for each algorithm
-    alg_scores = Dict()
+function rank_algorithms(all_results)
+    println("\n" * "="^78)
+    println("ALGORITHM RANKINGS")
+    println("="^78)
+
+    alg_names = unique([r.name for func_results in all_results
+                        for r in func_results.results])
+    nfuncs = length(all_results)
+    scores = Dict(alg => Dict(:success => 0.0, :speed => 0.0, :accuracy => 0.0)
+    for alg in alg_names)
 
     for func_result in all_results
-        for result in func_result.results
-            if !haskey(alg_scores, result.name)
-                alg_scores[result.name] = Dict(:time_score => 0.0, :accuracy_score => 0.0, :success_count => 0)
-            end
-
-            if result.success
-                alg_scores[result.name][:success_count] += 1
-                # Lower time is better (inverse score)
-                alg_scores[result.name][:time_score] += result.time < 1.0 ?
-                                                        1.0 / result.time : 0.0
-                # Lower error is better (inverse score) 
-                alg_scores[result.name][:accuracy_score] += result.error < 1e10 ?
-                                                            1.0 / (result.error + 1e-15) :
-                                                            0.0
-            end
+        successful = filter(r -> r.success, func_result.results)
+        isempty(successful) && continue
+        t_best = minimum(r.time for r in successful)
+        for r in successful
+            scores[r.name][:success] += 1 / nfuncs
+            scores[r.name][:speed] += (t_best / r.time) / nfuncs
+            scores[r.name][:accuracy] += accuracy_digits(r.error) / nfuncs
         end
     end
 
-    # Normalize and combine scores
-    total_functions = length(all_results)
-    algorithm_rankings = []
+    algorithm_rankings = [(name = alg, success = s[:success], speed = s[:speed],
+                              accuracy = s[:accuracy],
+                              combined = 0.4 * s[:success] + 0.3 * s[:speed] +
+                                         0.3 * s[:accuracy])
+                          for (alg, s) in scores]
+    sort!(algorithm_rankings, by = x -> x.combined, rev = true)
 
-    for (alg, scores) in alg_scores
-        success_rate = scores[:success_count] / total_functions
-        avg_speed_score = scores[:time_score] / total_functions
-        avg_accuracy_score = scores[:accuracy_score] / total_functions
-
-        # Combined score (weighted: 40% success rate, 30% speed, 30% accuracy)
-        combined_score = 0.4 * success_rate + 0.3 * (avg_speed_score / 1000) +
-                         0.3 * (avg_accuracy_score / 1e12)
-
-        push!(algorithm_rankings,
-            (
-                name = alg,
-                success_rate = success_rate,
-                speed_score = avg_speed_score,
-                accuracy_score = avg_accuracy_score,
-                combined_score = combined_score
-            ))
-    end
-
-    # Sort by combined score
-    sort!(algorithm_rankings, by = x -> x.combined_score, rev = true)
-
-    println("Rank | Algorithm          | Success Rate | Combined Score")
-    println("-"^60)
+    println("Rank | Algorithm          | Success | Speed | Accuracy | Combined")
+    println("-"^78)
     for (i, alg) in enumerate(algorithm_rankings)
-        @printf "%-4d | %-18s | %-11.1f%% | %-12.3f\n" i alg.name[1:min(18, length(alg.name))] (alg.success_rate*100) alg.combined_score
+        @printf "%-4d | %-18s | %6.1f%% | %5.3f | %8.3f | %8.3f\n" i alg.name[1:min(18, length(alg.name))] (alg.success*100) alg.speed alg.accuracy alg.combined
     end
 
-    println("="^60)
-    println("Note: Combined score weights success rate (40%), speed (30%), and accuracy (30%)")
+    println("="^78)
+    println("Combined = 0.4 × success + 0.3 × speed + 0.3 × accuracy (each term in [0, 1])")
 end
 
 rank_algorithms(all_results)
@@ -515,13 +504,15 @@ The benchmark compares algorithms from both `BracketingNonlinearSolve.jl` and `S
   - **Accuracy**: Precision of the found roots
   - **Reliability**: Success rates across diverse test cases
 
-In the latest run, every method found an accurate root of all eight functions except `Alefeld` from
-`BracketingNonlinearSolve.jl`, which failed on `x·sin(1/x) - 0.1` with a `DomainError`. `ModAB`,
-`Roots.jl` and `ITP` had the highest combined scores, and `Bisection` and `Falsi` (from both packages)
-the lowest; `Falsi` was also by far the slowest method on `exp(x) - 1 - x - x²/2` (about 0.7 s,
-against roughly 6–60 ms for the other methods). Note that the combined score is dominated by its
-accuracy term — the success-rate term contributes at most 0.4 to scores in the hundreds — so the
-ranking is effectively an accuracy ranking rather than the 40/30/30 blend its note describes.
+In the latest run, every method finds an accurate root of all eight functions except `Alefeld`
+from `BracketingNonlinearSolve.jl`, which fails on `x·sin(1/x) - 0.1` with a `DomainError`:
+on its first iteration it evaluates the function at `x = 0`, outside the bracket
+([NonlinearSolve.jl#1317](https://github.com/SciML/NonlinearSolve.jl/pull/1317)). Absolute
+timings and the middle of the ranking depend on the machine, because speed carries a
+30% weight. What holds up across runs is that `ModAB` ranks first,
+`Roots.jl` is as accurate as the best methods but several times slower than the fastest method
+on most functions, and that `Falsi` (from both packages) and `Alefeld` form the bottom three.
+`Falsi` is also by far the slowest method on `exp(x) - 1 - x - x²/2`.
 
 ```julia, echo = false
 using SciMLBenchmarks
