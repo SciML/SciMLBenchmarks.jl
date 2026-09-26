@@ -9,7 +9,7 @@ In this notebook we will benchmark a real-world biological model from a paper en
 
 ## Model Implementation
 
-First we will show the full model implementation. It is not necessary to understand the full model specification in order to understand the benchmark results, but it's all contained here for completeness. The model is highly optimized, with all internal vectors pre-cached, loops unrolled for efficiency (along with `@simd` annotations), a pre-defined Jacobian, matrix multiplications are all in-place, etc. Thus this model is a good stand-in for other optimized PDE solving cases.
+First we will show the full model implementation. It is not necessary to understand the full model specification in order to understand the benchmark results, but it's all contained here for completeness. The model is highly optimized, with all internal vectors pre-cached, loops unrolled for efficiency (along with `@simd` annotations), a pre-defined Jacobian, all matrix multiplications in-place, etc. Thus this model is a good stand-in for other optimized PDE solving cases.
 
 The model is thus defined as follows:
 
@@ -333,16 +333,19 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
-Rosenbrock23, Rodas4, Exprb32, Exprb43, extrapolation methods, and Rodas5 do
-not perform well at all and are thus dropped from future tests. For reference,
-they are in the 10^(2.5) range in for their most accurate run (with
-ImplicitEulerExtrapolation takes over a day to run, and had to be prematurely
-stopped), so about 500x slower than CVODE_BDF and
-thus make the benchmarks take forever. It looks like `radau` fails on this
-problem with high tolerance so its values should be ignored since it exits
-early. It is thus removed from the next sections.
+This cell is not evaluated in the current build. When it was last run,
+`Rosenbrock23`, `Rodas4`, `Exprb32`, `Exprb43`, the extrapolation methods, and
+`Rodas5` did not perform well at all, so they are dropped from the remaining
+tests. For reference, their most accurate runs took around 10^2.5 s
+(`ImplicitEulerExtrapolation` took over a day and had to be stopped early),
+about 500x slower than `CVODE_BDF`, which would make the benchmarks take far too
+long. `radau` appeared to fail on this problem at high tolerances, exiting
+early, so its values there should be ignored; it is thus removed from the
+high-tolerance sections.
 
-The EPIRK methods currently do not work on this problem
+The EPIRK methods have not worked on this problem in the past, so they are not
+part of the diagrams. The fixed-step `EPIRK4s3B` solve below is kept to track
+this; in the latest run it returned `Success`.
 
 ```julia
 try
@@ -352,7 +355,7 @@ catch e
 end
 ```
 
-but would be called like:
+In the diagrams they would be called like:
 
 ```julia;eval=false
 abstols=1 ./ 10 .^ (3:5)
@@ -411,6 +414,7 @@ setups = [
     Dict(:alg => Kvaerno4(autodiff = AutoFiniteDiff())),
     Dict(:alg => ABDF2(autodiff = AutoFiniteDiff())),
     Dict(:alg => QNDF(autodiff = AutoFiniteDiff())),
+    Dict(:alg => NordsieckBDF(autodiff = AutoFiniteDiff())),
     Dict(:alg => RadauIIA5(autodiff = AutoFiniteDiff()))
 ];
 
@@ -472,10 +476,10 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
-Timeseries errors seem to match final point errors very closely in this problem,
-so these are turned off in future benchmarks.
-
-(Confirmed in the other cases)
+Note that this cell does not set `error_estimate = :l2`, so despite the heading
+it measures the final-point error again (the x-axis of the plot reads
+"Error (final)") and says nothing about timeseries errors. Timeseries errors are
+not computed in the benchmarks below.
 
 ### Dense Error
 
@@ -501,10 +505,9 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
-Dense errors seem to match timeseries errors very closely in this problem, so
-these are turned off in future benchmarks.
-
-(Confirmed in the other cases)
+In the latest run the dense (L2) errors are of the same order as the
+final-point errors in the endpoint diagrams above, with a similar ordering of
+the methods, so dense errors are turned off in the benchmarks below.
 
 ## Low Tolerance (High Accuracy)
 
@@ -597,9 +600,14 @@ plot(wp)
 
 # No Jacobian Work-Precision Diagrams
 
-In the previous cases the analytical Jacobian is given and is used by the solvers. Now we will solve the same problem without the analytical Jacobian.
+Here the problem is built with `jac = nothing`, so no analytical Jacobian is
+available to the solvers. Note that the problem in the previous sections,
+`ODEProblem(f, r0, (0.0, 0.01))`, was also built without one (only the `run`
+helper above passes an analytical Jacobian), so this section solves the same
+problem as before, and in the latest run its diagrams match the corresponding
+ones above.
 
-Note that the pre-caching means that the model is not compatible with autodifferentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use DiffEqDiffTools.jl's numerical differentiation backend. We'll only benchmark the methods that did well before.
+Note that the pre-caching means that the model is not compatible with automatic differentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use FiniteDiff.jl's numerical differentiation backend.
 
 ```julia
 N=20
@@ -710,7 +718,14 @@ plot(wp)
 
 ## Conclusion
 
-Sundials' `CVODE_BDF` does the best in this test. When the Jacobian is given, the ESDIRK methods `TRBDF2` and `KenCarp3` are able to do almost as well as it until `<1e-6` error is needed. When Jacobians are not given, Sundials is the fastest without competition.
+In the latest run, Sundials' `CVODE_BDF` is the fastest implicit method in every
+diagram, and in the low-tolerance (high-accuracy) diagrams it is at least about
+2x faster than every other method tested. The ESDIRK methods (`TRBDF2`,
+`KenCarp3`, `KenCarp4`) take roughly twice as long as `CVODE_BDF` at matched
+error. At the high tolerances, the stabilized explicit methods `RKC` and `ROCK2`
+are faster than `CVODE_BDF` for errors of about `1e-4` and larger. As noted
+above, the "Work-Precision Diagrams" and "No Jacobian Work-Precision Diagrams"
+sections solve the same problem, and their results agree.
 
 ```julia, echo = false
 using SciMLBenchmarks

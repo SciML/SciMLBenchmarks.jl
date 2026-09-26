@@ -6,6 +6,11 @@ author: Chris Rackauckas
 ```julia
 using BenchmarkTools, Random, VectorizationBase
 using LinearAlgebra, LinearSolve, RecursiveFactorization, MKL_jll
+# FastLapackInterface backs FastLUFactorization: its `init_cacheval`/`solve!` live in
+# LinearSolveFastLapackInterfaceExt, so the algorithm silently has no method unless the
+# package is loaded here. Same reason RecursiveFactorization is loaded above (it backs
+# both RFLUFactorization and ButterflyFactorization).
+using FastLapackInterface
 nc = min(Int(VectorizationBase.num_cores()), Threads.nthreads())
 BLAS.set_num_threads(nc)
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
@@ -13,19 +18,32 @@ BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
 function luflop(m, n = m; innerflop = 2)
     sum(1:min(m, n)) do k
         invflop = 1
-        scaleflop = isempty((k + 1):m) ? 0 : sum((k + 1):m)
-        updateflop = isempty((k + 1):n) ? 0 :
-                     sum((k + 1):n) do j
-            isempty((k + 1):m) ? 0 : sum((k + 1):m) do i
-                innerflop
-            end
-        end
+        scaleflop = max(m - k, 0)
+        updateflop = innerflop * max(m - k, 0) * max(n - k, 0)
         invflop + scaleflop + updateflop
     end
 end
 
+# LinearSolve's LoadMKL_JLL preference defaults to false on AMD EPYC (this
+# runner's CPU; SciML/LinearSolve.jl#518), and when it is false MKL_jll is not loaded
+# at all, so MKLLUFactorization throws instead of running. This folder's
+# Project.toml sets the preference to true precisely so MKL IS measured here:
+# whether MKL still loses to OpenBLAS and RF on EPYC is a question this
+# benchmark should answer, not assume. The probe is a safety net: if MKL
+# still cannot load, say so on the page rather than erroring the sweep.
+mkl_works = try
+    solve(LinearProblem(Matrix(8.0I, 8, 8), ones(8)), MKLLUFactorization())
+    true
+catch
+    false
+end
+mkl_works || println("MKLLUFactorization excluded: MKL failed to load in this ",
+    "environment even with LoadMKL_JLL = true (see SciML/LinearSolve.jl#518).")
+
 algs = [LUFactorization(), GenericLUFactorization(), RFLUFactorization(),
-    MKLLUFactorization(), FastLUFactorization(), SimpleLUFactorization()]
+    (mkl_works ? [MKLLUFactorization()] : [])...,
+    FastLUFactorization(), SimpleLUFactorization(),
+    ButterflyFactorization(Val(true))]
 res = [Float64[] for i in 1:length(algs)]
 
 ns = 4:8:500
@@ -39,7 +57,8 @@ for i in 1:length(ns)
 
     for j in 1:length(algs)
         bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(
-            copy(A), copy(b); u0 = copy(u0), alias_A = true, alias_b = true))
+            copy(A), copy(b); u0 = copy(u0),
+            alias = LinearAliasSpecifier(alias_A = true, alias_b = true)))
         push!(res[j], luflop(n) / bt / 1e9)
     end
 end

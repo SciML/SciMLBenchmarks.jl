@@ -1,153 +1,154 @@
 ---
-title: CUTEst Unconstrained Nonlinear Optimization Benchmarks
-author: Alonso M. Cisneros
+title: CUTEst Unconstrained Optimization.jl Benchmarks
+author: Prashant Andoriya
 ---
 
-# Introduction
+# CUTEst Unconstrained Optimization.jl Benchmarks
 
-CUTEst, the Constrained and Unconstrained Testing Environment, is a collection of around 1500 problems for general nonlinear optimization used to test optimization routines. The wrapper [CUTEst.jl](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) provides convenient access to the problem collection, which we can leverage to test the optimizers made available by Optimization.jl.
+This benchmark runs unconstrained problems from the
+[CUTEst](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) test set through the
+Optimization.jl interface using `OptimizationNLPModels`. The problem class is selected with
+`CUTEst.select_sif_problems(contype = "unc")`, i.e. problems with no constraints and no
+variable bounds.
 
+All four CUTEst pages in this folder (`CUTEst_unconstrained`, `CUTEst_bounded`,
+`CUTEst_unbounded`, `CUTEst_quadratic`) share the harness in `cutest_benchmark_utils.jl`,
+which defines the selection constants, the solver constructors, the run loop, and the
+summary and plotting helpers. The prose below describes the harness as it stands on this
+page; refinements to the solver sets, solution-quality metrics, performance profiles,
+problem selection, and timing methodology are tracked in
+[SciMLBenchmarks#1857](https://github.com/SciML/SciMLBenchmarks.jl/issues/1857).
 
-## Unconstrained problems
+This page supersedes the former `CUTEst_safe_solvers.jmd`, which was removed in
+[#1594](https://github.com/SciML/SciMLBenchmarks.jl/pull/1594). That page ran the same
+`contype = "unc"` problem set with a three-solver subset (`LBFGS`, `ConjugateGradient`,
+`NelderMead`) of the solvers used here and a copy of the run loop, so it duplicated this
+page with less coverage and was dropped when the pages were consolidated onto the shared
+harness.
 
-CUTEst contains 286 unconstrained problems. We will compare how the optimizers behave in
-terms of the time to solution with respect to the number of variables.
+## Setup
 
+Solvers are grouped by class. Local convergence-based methods (quasi-Newton `LBFGS`,
+`BFGS`, NLopt `LD_LBFGS`; `ConjugateGradient`; `Newton` and `NewtonTrustRegion` using the
+NLPModels Hessian; derivative-free `NelderMead` and NLopt `LN_BOBYQA`) report success
+through their return code. The global heuristics `SimulatedAnnealing` and `ParticleSwarm`
+run until `maxiters` and the Optimisers.jl rule `Adam` takes exactly `maxiters` gradient
+steps; neither signals convergence, so they are summarized separately with completion
+rate and time only and are excluded from the success-rate plot. Every solve on this page
+is capped at `unconstrained_timeout_seconds`, which is tighter than the shared default so
+that the larger solver set keeps a bounded worst-case runtime.
 
 ```julia
-using Optimization
-using OptimizationNLPModels
+ENV["GKSwstype"] = "100"
+
 using CUTEst
-using OptimizationOptimJL
-using OptimizationOptimisers
-using OptimizationOptimJL: LBFGS, ConjugateGradient, NelderMead, SimulatedAnnealing, ParticleSwarm
-using Ipopt
-using OptimizationMOI
-using OptimizationMOI: MOI as MOI
 using DataFrames
 using Plots
 using StatsPlots
 using StatsBase: countmap
+using Statistics
+using Printf
 
-
-optimizers = [
-    ("LBFGS", LBFGS()),
-    ("ConjugateGradient", ConjugateGradient()),
-    ("NelderMead", NelderMead()),
-    ("SimulatedAnnealing", SimulatedAnnealing()),
-    ("ParticleSwarm", ParticleSwarm()),
-]
-
-function get_stats(sol, optimizer_name)
-    if hasfield(typeof(sol), :stats) && hasfield(typeof(sol.stats), :time)
-        solve_time = sol.stats.time
-    else
-        solve_time = NaN
-    end
-    return (length(sol.u), solve_time, optimizer_name, Symbol(sol.retcode))
-end
-
-function run_benchmarks(problems, optimizers; chunk_size=1)
-    problem = String[]
-    n_vars = Int64[]
-    secs = Float64[]
-    solver = String[]
-    retcode = Symbol[]
-    optz = length(optimizers)
-    n = length(problems)
-    @info "Processing $(n) problems with $(optz) optimizers in chunks of $(chunk_size)"
-    broadcast(c -> sizehint!(c, optz * n), [problem, n_vars, secs, solver, retcode])
-    for chunk_start in 1:chunk_size:n
-        chunk_end = min(chunk_start + chunk_size - 1, n)
-        chunk_problems = problems[chunk_start:chunk_end]
-        @info "Processing chunk $(div(chunk_start-1, chunk_size)+1)/$(div(n-1, chunk_size)+1): problems $(chunk_start)-$(chunk_end)"
-        for (idx, prob_name) in enumerate(chunk_problems)
-            current_problem = chunk_start + idx - 1
-            @info "Problem $(current_problem)/$(n): $(prob_name)"
-            nlp_prob = nothing
-            try
-                nlp_prob = CUTEstModel(prob_name)
-                if nlp_prob.meta.nvar > 10000
-                    @info "  Skipping $(prob_name) (too large: $(nlp_prob.meta.nvar) variables)"
-                    finalize(nlp_prob)
-                    continue
-                end
-                prob = OptimizationNLPModels.OptimizationProblem(nlp_prob, Optimization.AutoFiniteDiff())
-                for (optimizer_name, optimizer) in optimizers
-                    try
-                        sol = solve(prob, optimizer; maxiters = 1000, maxtime = 30.0)
-                        @info "✓ Solved $(prob_name) with $(optimizer_name) - Status: $(sol.retcode)"
-                        vars, time, alg, code = get_stats(sol, optimizer_name)
-                        push!(problem, prob_name)
-                        push!(n_vars, vars)
-                        push!(secs, time)
-                        push!(solver, alg)
-                        push!(retcode, code)
-                    catch e
-                        push!(problem, prob_name)
-                        push!(n_vars, nlp_prob !== nothing ? nlp_prob.meta.nvar : -1)
-                        push!(secs, NaN)
-                        push!(solver, optimizer_name)
-                        push!(retcode, :FAILED)
-                    end
-                end
-            catch e
-                for (optimizer_name, optimizer) in optimizers
-                    push!(problem, prob_name)
-                    push!(n_vars, -1)
-                    push!(secs, NaN)
-                    push!(solver, optimizer_name)
-                    push!(retcode, :LOAD_FAILED)
-                end
-            finally
-                if nlp_prob !== nothing
-                    try
-                        finalize(nlp_prob)
-                    catch e
-                    end
-                end
-            end
-        end
-        GC.gc()
-        @info "Completed chunk, memory usage cleaned up"
-    end
-    return DataFrame(problem = problem, n_vars = n_vars, secs = secs, solver = solver, retcode = retcode)
-end
-
-unc_problems = collect(CUTEst.select_sif_problems(contype="unc"))
-println("Number of problems: ", length(unc_problems))
-println("First 5 problems: ", unc_problems[1:min(5, end)])
-unc_problems = unc_problems[1:min(50, length(unc_problems))]
-println("Limited to ", length(unc_problems), " problems for comprehensive testing")
-unc_results =  run_benchmarks(unc_problems, optimizers)
-@show unc_results
-successful_codes = [:Success, :MaxIters, :MaxTime, :FirstOrderOptimal]
-successful_results = filter(row -> row.retcode in successful_codes, unc_results)
-total_attempts = nrow(unc_results)
-successful_attempts = nrow(successful_results)
-success_rate = total_attempts > 0 ? round(successful_attempts / total_attempts * 100, digits=1) : 0
-println("SUCCESS RATE ANALYSIS:")
-println("Total attempts: ", total_attempts)
-println("Successful attempts: ", successful_attempts)
-println("Success rate: ", success_rate, "%")
-println("Return code distribution:")
-if total_attempts > 0
-    for (code, count) in sort(collect(pairs(countmap(unc_results.retcode))), by=x->x[2], rev=true)
-        println("  ", code, ": ", count, " occurrences")
-    end
-else
-    println("  No results to analyze")
-end
-@df unc_results scatter(:n_vars, :secs,
-        group = :solver,
-        xlabel = "n. variables",
-        ylabel = "secs.",
-        title = "Time to solution by optimizer and number of vars",
-    )
+include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
+    "cutest_benchmark_utils.jl"))
 ```
 
+## Problem selection
+
+`select_safe_problems` walks the candidates in the order returned by
+`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
+list, loads each remaining problem once to read its metadata, keeps it only if
+`nvar <= max_var` and `ncon <= max_con`, and stops after `max_problems` problems. The
+defaults are `MAX_PROBLEMS_PER_CATEGORY`, `MAX_NVAR`, and `MAX_NCON`; this page keeps the
+variable cap and sets `max_con = 0` because the problems are unconstrained. Problems whose
+metadata cannot be loaded are skipped. The values in effect for this run are printed below.
+
+```julia
+println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
+println("MAX_NVAR = ", MAX_NVAR)
+println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
+println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
+
+unconstrained_problems = select_safe_problems(
+    collect(CUTEst.select_sif_problems(contype = "unc"));
+    max_var = MAX_NVAR,
+    max_con = 0,
+)
+
+println("Selected unconstrained problems: ", length(unconstrained_problems))
+println(join(unconstrained_problems, ", "))
+```
+
+## Solvers
+
+`UNCONSTRAINED_SOLVERS` lists eleven algorithms spanning Optim.jl
+(`LBFGS`, `BFGS`, `ConjugateGradient`, `Newton`, `NewtonTrustRegion`, `NelderMead`,
+`SimulatedAnnealing`, `ParticleSwarm`), NLopt (`LD_LBFGS`, `LN_BOBYQA`), and Optimisers.jl
+(`Adam`). Each is constructed with its default options. Gradients (and Hessians for the
+Newton class) come from the NLPModels interface, so derivative-based methods use CUTEst's
+analytic derivatives rather than finite differences. `Adam` is the exception: the
+Optimisers path needs an `fg` closure, which `build_problem` supplies from
+`NLPModels.objgrad!` for that class only. Every solve is called with
+`maxiters = SOLVE_MAXITERS` and `maxtime = unconstrained_timeout_seconds` (both timing
+runs of a pair share that cap). Budget-limited solvers are summarized separately from
+local convergence-based ones; see the Setup section.
+
+## Run
+
+Each (problem, solver) pair is solved twice by `run_single_solve` after a per-solver
+warm-up: the first run measures wall-clock time including any remaining compilation
+(`first_solve_secs`, `compile_secs`), and the second run on a fresh
+`OptimizationProblem` is the primary `secs` metric. If the first run already hits
+`MaxTime` (or otherwise exceeds the page `maxtime`), the second run is skipped so a
+timed-out pair costs one cap, not two. A row also records `solver_class`, the return
+code as reported by Optimization.jl, and a `status` of `OK` when `solve` returned,
+`FAILED` when it threw, or `LOAD_FAILED` when the CUTEst problem could not be
+constructed. `solver_reported_secs` is `sol.stats.time` when the backend provides it.
+`run_benchmarks` errors if a category is degenerate (too few completed rows or a solver
+with zero completions), so a broken environment fails the build instead of producing an
+empty page.
+
+```julia
+# Worst case: 50 problems x 11 solvers x 30 s = 16,500 s, below the 22,500 s bound the
+# previous 5-solver / 90 s configuration had.
+unconstrained_timeout_seconds = 30.0
+
+unc_results = run_benchmarks(
+    "unconstrained",
+    unconstrained_problems,
+    UNCONSTRAINED_SOLVERS;
+    maxtime = unconstrained_timeout_seconds,
+)
+
+display(unc_results)
+```
+
+## Summary
+
+`summarize_results` groups rows by solver class and solver. `completion_rate` is the
+share of runs with `status == "OK"`, i.e. the solver returned at all. `success_rate` is
+the share of runs whose return code is in `SUCCESS_RETCODES` (`Success`, `Terminated`,
+`FirstOrderOptimal`) and is reported only for local convergence-based solvers. Runs that
+stopped at `MaxIters` or `MaxTime` count as completed but not successful. `median_secs`
+is the median of the clean-run wall-clock time over all rows for that solver, including
+unsuccessful ones; `median_compile_secs` / `total_compile_secs` summarize first-run
+compilation. No solution-quality metric (objective value, gradient norm) is recorded
+yet; see #1857.
+
+```julia
+unc_summary = summarize_results(unc_results)
+
+plot_solve_times(unc_results, "CUTEst unconstrained Optimization.jl solve time")
+plot_success_rates(unc_summary, "CUTEst unconstrained Optimization.jl success rate")
+plot_compile_times(unc_results, "CUTEst unconstrained Optimization.jl compile time")
+plot_performance_profile(unc_results,
+    "CUTEst unconstrained Optimization.jl performance profile")
+plot_work_precision(unc_results, "CUTEst unconstrained Optimization.jl work-precision";
+    metric = :grad_norm)
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
-SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

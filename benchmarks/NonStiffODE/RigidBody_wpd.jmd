@@ -46,11 +46,11 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>Vern6(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = true, numruns = 100, maxiters = 10000)
+    save_everystep = true, verbose = SciMLLogging.None(), numruns = 100, maxiters = 10000)
 plot(wp)
 ```
 
-The DifferentialEquations.jl algorithms once again pull ahead. This is the first benchmark we've ran where `ode45` doesn't fail. However, it still doesn't do as well as `Tsit5`. One reason why it does so well is that the maximum norm that ODE.jl uses (as opposed to the L2 norm of Sundials, DifferentialEquations, and ODEInterface) seems to do really well on this problem. `dopri5` does surprisingly bad in this test.
+The DifferentialEquations.jl algorithms once again pull ahead. `dopri5` does surprisingly badly in this test. ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
 
 ## Higher Order
 
@@ -69,7 +69,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100, maxiters = 1000)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 1000)
 plot(wp)
 ```
 
@@ -154,7 +154,7 @@ plot(wp)
 
 ### Conclusion
 
-Once again, the OrdinaryDiffEq.jl pull far ahead in terms of speed and accuracy.
+Once again, the OrdinaryDiffEq.jl methods pull far ahead in terms of speed at a given accuracy.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -14,7 +14,9 @@ charge distribution effects.* Preprint 1745, May 1995, Technische Hochschule Dar
 
 The system is:
 
-$$M \frac{dy}{dt} = f(t, y), \quad y(0) = y_0, \quad 0 \le t \le 1.2 \times 10^{-6}$$
+```math
+M \frac{dy}{dt} = f(t, y), \quad y(0) = y_0, \quad 0 \le t \le 1.2 \times 10^{-6}
+```
 
 where $y \in \mathbb{R}^9$ and the mass matrix $M$ is singular (rows 4–9 are zero).
 
@@ -30,17 +32,17 @@ Fortran solvers (RADAU, RADAU5, MEBDFDAE, MEBDFI) fail at all tolerances. Only B
 and PSIDE-1 succeed, and even those only at loose tolerances.
 
 **ModelingToolkit Index Reduction:** This is an index-2 DAE. ModelingToolkit's Pantelides
-algorithm successfully reduces it to index-1, collapsing 9 unknowns to 4 (node potentials
-$U_2$, $U_3$ and their dummy derivatives). However, the index-reduced system introduces
+algorithm successfully reduces it to index-1, collapsing 9 unknowns to 6 (the transistor
+charges $Y_{T2}$, $Y_{T3}$, the node potentials $U_2$, $U_3$ and their dummy derivatives). However, the index-reduced system introduces
 explicit derivatives of the piecewise charge functions $Q_G$, $Q_S$, $Q_D$, which have
 discontinuous first-order partial derivatives at the MOS operating-region boundaries.
-Standard implicit ODE solvers (Rodas5P, FBDF, etc.) fail on the reduced system because
-they cannot resolve the resulting non-smooth algebraic constraints. The MTK formulation is
+Rodas5P, the implicit ODE solver tested below, fails on the reduced system, which we
+attribute to the resulting non-smooth algebraic constraints. The MTK formulation is
 included below to demonstrate the structural analysis; the WPD benchmarks use the direct
 DAE residual form with IDA and DASKR.
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials,
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, RecursiveArrayTools,
       Plots, DASSL, DASKR
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
@@ -220,12 +222,11 @@ for (fn, dfn_prefix) in [(qgate, :dqgate), (qsrc, :dqsrc), (qdrain, :dqdrain)]
                 x -> $fn(ntuple(j -> j == $i ? x : [vgb, vgs, vgd][j], 3)...),
                 Float64([vgb, vgs, vgd][$i]))
             @register_symbolic $dfn_name(vgb, vgs, vgd)
-            Symbolics.derivative(::typeof($fn), args::NTuple{3, Any}, ::Val{$i}) =
-                $dfn_name(args...)
+            @register_derivative $fn(vgb, vgs, vgd) $i $(Expr(:call, dfn_name, :vgb, :vgs, :vgd))
         end
     end
 end
-Symbolics.derivative(::typeof(vin), args::NTuple{1, Any}, ::Val{1}) = dvin(args...)
+@register_derivative vin(t_val) 1 dvin(t_val)
 ```
 
 The MTK system is defined with all 9 original variables and 9 equations (3 differential,
@@ -259,21 +260,20 @@ eqs = [
 @mtkbuild sys = ODESystem(eqs, t)
 ```
 
-Pantelides reduces the 9-variable index-2 system to a 4-variable index-1 system with
-unknowns $(U_3, U_2, \dot{U}_2, \dot{U}_3)$. The remaining 5 variables become observed
-(algebraic) functions.
+Pantelides reduces the 9-variable index-2 system to a 6-variable index-1 system with
+unknowns $(Y_{T3}, Y_{T2}, U_2, U_3, \dot{U}_2, \dot{U}_3)$. The remaining original
+variables become observed (algebraic) functions.
 
 ```julia
 println("MTK index reduction: $(9) original → $(length(unknowns(sys))) unknowns")
 println("States: ", unknowns(sys))
 ```
 
-The index-reduced ODEProblem is an index-1 DAE in mass-matrix form (2 differential + 2
-algebraic equations). However, all tested ODE solvers fail on this reduced system
-because the RHS involves the partial derivatives `dqgate_i`, `dqsrc_i`, `dqdrain_i`,
-which are discontinuous at the MOS operating-region boundaries ($V_{gb} = V_{fb}$,
-$V_{gs} = V_{te}$). The solvers' step size collapses to zero at the transistor threshold
-crossing points (e.g., when $V_{in}(t)$ crosses $V_{T0} = 0.2\,$V).
+The index-reduced ODEProblem is an index-1 DAE in mass-matrix form. Its RHS involves the
+partial derivatives `dqgate_i`, `dqsrc_i`, `dqdrain_i`, which are discontinuous at the MOS
+operating-region boundaries ($V_{gb} = V_{fb}$, $V_{gs} = V_{te}$), and Rodas5P fails on it:
+in the latest run it returns `Unstable` after 8 steps at $t = 6 \times 10^{-8}$ (60 ns, the
+end of the first input ramp).
 
 ```julia
 mtkprob = ODEProblem(sys, [], tspan)
@@ -288,7 +288,8 @@ println("Rodas5P on MTK-reduced system: retcode = $(mtk_test.retcode), ",
 The mass matrix has the banded structure from the Fortran `meval` subroutine (stored in banded
 format with `mlmas=0, mumas=2`). In full $9 \times 9$ form:
 
-$$M = \begin{pmatrix}
+```math
+M = \begin{pmatrix}
 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 1 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 1 & 1 & 0 & 0 & 0 & 0 \\
@@ -298,7 +299,8 @@ $$M = \begin{pmatrix}
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0
-\end{pmatrix}$$
+\end{pmatrix}
+```
 
 **Note:** Standard mass-matrix ODE solvers (Rodas4, Rodas5P, FBDF, QNDF, RadauIIA5)
 return `Unstable` on this index-2 problem. The mass-matrix form is included for documentation
@@ -373,59 +375,129 @@ daeprob = DAEProblem(charge_pump_dae!, du0, y0, tspan,
 
 ## Reference Solution
 
-We use IDA (Sundials) as the canonical reference solver for both problem forms.
-IDA requires `tstops` at each derivative discontinuity and a small initial step `dt`
-to handle the dormant initial phase (nothing happens until $V_{in}$ starts rising at $t = 50\,\text{ns}$).
+Rows 2 and 3 of the system integrate to the charge-conservation laws
+$Y_S + Y_{T2} = \text{const}$ and $Y_D + Y_{T3} = \text{const}$, and both constants are zero at
+$t = 0$. With $U_1 = V_{in}(t)$ and $Q_S \equiv Q_D$ (the two charge functions of the test set are
+identical), this gives $C_S U_2 = C_D U_3$, so $U_3 = 4 U_2$, and $U_2$ is the unique root of the
+scalar, monotone equation
 
-The IVP Test Set provides a quadruple-precision GAMD reference at $t = 1.2 \times 10^{-6}$:
+```math
+C_S U_2 + Q_S\left(V_{in}(t),\; V_{in}(t) - U_2,\; V_{in}(t) - 4 U_2\right) = 0 .
+```
 
-$$y_1^{\mathrm{ref}} = 0.126280 \times 10^{-12},\quad y_2 \!=\! \cdots \!=\! y_8 = 0,\quad y_9^{\mathrm{ref}} = 0.152256 \times 10^{-3}$$
-
-**Note:** IDA fails at tolerances tighter than $5 \times 10^{-4}$ on this index-2 problem
-(see Omissions below). The reference uses the tightest stable tolerance.
+Every component is therefore a function of $t$ alone: the charges follow from the charge
+functions, and the index-2 current is $I = -\frac{d}{dt} Q_G(U_1, U_1 - U_2, U_1 - U_3)$,
+evaluated with the chain rule and the implicit-function derivative of $U_2$. The current jumps
+wherever $V'_{in}$ jumps. A solver that steps onto a breakpoint computes the left-hand limit, so
+`exact_u` evaluates $V'_{in}$ just to the left of $t$. This exact solution is the reference for
+the work-precision diagrams.
 
 ```julia
-ref_sol = solve(daeprob, IDA(), abstol = 5e-4, reltol = 5e-4,
-                dt = 1e-15, tstops = disc_times, maxiters = Int(1e7), dense = true)
-@assert ref_sol.retcode == ReturnCode.Success "Reference solve failed: $(ref_sol.retcode)"
+dvin_left(t) = t <= 0 ? 0.0 : dvin(prevfloat(t, 4096))
+g_src(U2, v) = CAPS * U2 + qsrc(v, v - U2, v - 4U2)
+
+function solve_U2(v)
+    v <= 0 && return 0.0
+    lo, hi = 0.0, v
+    while true
+        mid = (lo + hi) / 2
+        (mid == lo || mid == hi) && return mid
+        g_src(mid, v) > 0 ? (hi = mid) : (lo = mid)
+    end
+end
+
+function exact_u(t)
+    v = vin(t)
+    vd = dvin_left(t)
+    U2 = solve_U2(v)
+    U3 = 4U2
+    gU, gv = ForwardDiff.gradient(x -> g_src(x[1], x[2]), [U2, v])
+    U2d = gU == 0 ? 0.0 : -gv * vd / gU
+    U3d = 4U2d
+    dq = ForwardDiff.gradient(x -> qgate(x...), [v, v - U2, v - U3])
+    I = -(dq[1] * vd + dq[2] * (vd - U2d) + dq[3] * (vd - U3d))
+    [qgate(v, v - U2, v - U3), CAPS * U2, qsrc(v, v - U2, v - U3),
+     CAPD * U3, qdrain(v, v - U2, v - U3), v, U2, U3, I]
+end
+
+exact_interp(ts::AbstractVector) = DiffEqArray([exact_u(ti) for ti in ts], ts)
+exact_interp(ti::Number) = exact_u(ti)
+
+t_grid = sort(unique([collect(range(tspan..., length = 24001)); disc_times]))
+exact_ref = TestSolution(t_grid, [exact_u(ti) for ti in t_grid], exact_interp)
 
 probs = [daeprob]
-refs  = [ref_sol]
+refs  = [exact_ref]
+println("Exact reference sampled at $(length(t_grid)) points on [0, $(tspan[2])]")
 ```
 
 ## Reference Solution Verification
+
+The IVP Test Set provides a GAMD reference at $t = 1.2 \times 10^{-6}$:
+
+```math
+y_1^{\mathrm{ref}} = 0.126280 \times 10^{-12},\quad y_2 \!=\! \cdots \!=\! y_8 = 0,\quad y_9^{\mathrm{ref}} = 0.152256 \times 10^{-3}
+```
+
+At $t_{end}$ the transistor is in depletion with $U_2 = U_3 = 0$, so the exact current has the
+closed form $I = C_{ox}\gamma\,|V'_{in}| / \left(2\sqrt{\gamma^2/4 - V_{fb}}\right)$. The
+finite-difference check confirms that the current in `exact_u` is $-dY_{T1}/dt$. IDA at
+$5 \times 10^{-4}$, the tightest tolerance at which it completes the interval (see Omissions
+below), is compared against the exact solution along its whole trajectory.
 
 ```julia
 y_ref = zeros(9)
 y_ref[1] = 0.126280042987675933170893e-12
 y_ref[9] = 0.152255686815577679043511e-3
 
-println("=== Reference Solution Verification (IDA, tol = 5e-4) ===")
-for i in [1, 9]
-    computed = ref_sol.u[end][i]
-    ref_val  = y_ref[i]
-    rel_err  = abs(ref_val) > 0 ? abs(computed - ref_val) / abs(ref_val) : abs(computed)
-    println("  y[$i]: computed = $computed,  GAMD ref = $ref_val,  rel_error = $rel_err")
+u_end = exact_u(tspan[2])
+println("=== Exact solution vs IVP Test Set (GAMD) at t = 1.2e-6 ===")
+for i in 1:9
+    rel_err = abs(y_ref[i]) > 0 ? abs(u_end[i] - y_ref[i]) / abs(y_ref[i]) : abs(u_end[i])
+    println("  y[$i]: exact = $(u_end[i]),  GAMD = $(y_ref[i]),  ",
+            abs(y_ref[i]) > 0 ? "rel_error" : "abs_error", " = $rel_err")
 end
+
+println("=== Current vs finite difference of -Y_T1 (h = 1e-15) ===")
+for ti in [55e-9, 115e-9, 1.2e-6]
+    fd = -(exact_u(ti)[1] - exact_u(ti - 1e-15)[1]) / 1e-15
+    println("  t = $ti: I = $(exact_u(ti)[9]),  finite difference = $fd")
+end
+
+ida_sol = solve(daeprob, IDA(), abstol = 5e-4, reltol = 5e-4,
+                dt = 1e-15, tstops = disc_times, maxiters = Int(1e7))
+println("=== IDA (tol = 5e-4): retcode = $(ida_sol.retcode), steps = $(length(ida_sol.t)) ===")
+ida_err = [abs.(ida_sol.u[k] .- exact_u(ida_sol.t[k])) for k in eachindex(ida_sol.t)]
+for i in 1:9
+    println("  y[$i]: max abs error = $(maximum(e[i] for e in ida_err)),  error at t_end = $(ida_err[end][i])")
+end
+k9 = argmax([e[9] for e in ida_err])
+println("  largest y[9] error at t = $(ida_sol.t[k9]) (phase $(mod(ida_sol.t[k9], DELTAT_PULSE) * 1e9) ns)")
 ```
+
+The exact solution reproduces $y_1, \dots, y_8$ of the GAMD reference exactly and $y_9$ to a
+relative error of $6.1 \times 10^{-6}$. IDA at $5 \times 10^{-4}$ follows the charges and
+$U_1$ closely, but its current has a maximum error of $2.8 \times 10^{-3}$ A, as large as the
+current itself. The error peaks at 119.9 ns into a period, where the transistor switches off
+during the falling ramp and the current jumps.
 
 ## Solution Plots
 
 ```julia
-p1 = plot(ref_sol, idxs = [6], title = "U₁ (node 1 potential)",
+p1 = plot(t_grid, [u[6] for u in exact_ref.u], title = "U₁ (node 1 potential)",
           xlabel = "t [s]", ylabel = "V", legend = false)
-p2 = plot(ref_sol, idxs = [7], title = "U₂ (node 2 potential)",
+p2 = plot(t_grid, [u[7] for u in exact_ref.u], title = "U₂ (node 2 potential)",
           xlabel = "t [s]", ylabel = "V", legend = false)
-p3 = plot(ref_sol, idxs = [8], title = "U₃ (node 3 potential)",
+p3 = plot(t_grid, [u[8] for u in exact_ref.u], title = "U₃ (node 3 potential)",
           xlabel = "t [s]", ylabel = "V", legend = false)
-p4 = plot(ref_sol, idxs = [9], title = "I (current)",
+p4 = plot(t_grid, [u[9] for u in exact_ref.u], title = "I (current)",
           xlabel = "t [s]", ylabel = "A", legend = false)
 plot(p1, p2, p3, p4, layout = (2, 2), size = (800, 600),
-     plot_title = "Charge Pump — DAE Reference Solution")
+     plot_title = "Charge Pump — Exact Solution")
 ```
 
 ```julia
-plot(ref_sol, idxs = [1],
+plot(t_grid, [u[1] for u in exact_ref.u],
      title = "Y_T1 (gate charge)",
      xlabel = "t [s]", ylabel = "C", legend = false)
 ```
@@ -440,12 +512,39 @@ are **not** included in the WPD because they fail on this index-2 system:
 - **DFBDF**: returns `Unstable`
 - **IDA without `tstops`**: returns `MaxIters` (cannot pass the first discontinuity at $t = 50\,\text{ns}$)
 - **DASKR at tolerances below $10^{-3}$**: `ConvergenceFailure`
-- **IDA at tolerances below $10^{-4}$**: `ConvergenceFailure` or `Unstable`
+- **IDA at tolerances of $10^{-4}$ and below**: `Unstable` at $t \approx 1.2 \times 10^{-7}$
+  ($10^{-4}$) or `ConvergenceFailure` at $t \approx 5.01 \times 10^{-8}$ ($10^{-5}$ to
+  $10^{-8}$), both at points where the transistor switches operating region
 
 ## Work-Precision Benchmarks
 
-Only the DAE residual form is benchmarked. The usable tolerance range is approximately
-$10^{-1}$ to $10^{-3}$ for DASKR, and $2 \times 10^{-3}$ to $2 \times 10^{-4}$ for IDA.
+Only the DAE residual form is benchmarked, with IDA and DASKR both run at tolerances
+$10^{-1}$ to $10^{-3}$. Errors are measured against the exact solution. A run that does not
+reach $t_{end}$ has no error value and is left out of the diagrams, so the return codes at
+each tolerance are printed first.
+
+```julia
+for tol in 1.0 ./ 10.0 .^ (1:3),
+    (name, alg, save_everystep) in [("IDA", IDA(), false), ("DASKR", DASKR.daskr(), false),
+                                    ("DASKR, save_everystep = true", DASKR.daskr(), true)]
+    sol = solve(daeprob, alg; abstol = tol, reltol = tol, save_everystep,
+                maxiters = Int(1e5), dt = 1e-15, tstops = disc_times)
+    println(rpad(name, 29), " tol = $tol: retcode = $(sol.retcode), t_final = $(sol.t[end]), ",
+            "saved points = $(length(sol.t)), final error in y[9] = $(abs(sol.u[end][9] - u_end[9]))")
+end
+```
+
+IDA completes every tolerance. DASKR does not produce a single point in the final-value
+diagram:
+
+- At $10^{-1}$, DASKR stops with `ConvergenceFailure` at $t \approx 1.01 \times 10^{-6}$
+  (`ABS(H)=HMIN`). It fails there with `save_everystep = true` as well, so this is a genuine
+  solver failure at that tolerance.
+- At $10^{-2}$ and $10^{-3}$, DASKR returns `MaxIters` with only the initial point saved. With
+  `save_everystep = false`, each DDASKR call integrates to $t_{end}$, and DDASKR returns after 500
+  internal steps expecting to be called again. The DASKR.jl wrapper (v3.2.0) treats that return
+  as final. With `save_everystep = true`, the same solves reach $t_{end}$. The timeseries diagram
+  below saves every step, so it contains these two DASKR points.
 
 ### Loose Tolerances (Final-Value Error)
 
@@ -466,6 +565,9 @@ plot(wp, title = "Charge Pump DAE — Loose Tolerances (Final Value)")
 
 ### Loose Tolerances (L₂ Timeseries Error)
 
+The timeseries error is computed at every step the solver saves, so this diagram saves every
+step.
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (1:3)
 reltols = 1.0 ./ 10.0 .^ (1:3)
@@ -476,12 +578,19 @@ setups = [
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 1,
+    appxsol = refs, maxiters = Int(1e5), numruns = 1,
     names = ["IDA", "DASKR"], dt = 1e-15, tstops = disc_times)
 plot(wp, title = "Charge Pump DAE — Loose Tolerances (L₂ Timeseries)")
 ```
 
 ### Conclusion
+
+Against the exact solution, IDA's final-value error drops from about $2 \times 10^{-2}$ at
+tolerances $10^{-1}$ and $10^{-2}$ to below $10^{-6}$ at $10^{-3}$. DASKR fails at $10^{-1}$
+and, with `save_everystep = false`, stops at the first 500-step return at $10^{-2}$ and
+$10^{-3}$. In the timeseries diagram, where every step is saved, DASKR reaches $t_{end}$ at
+$10^{-2}$ and $10^{-3}$, with smaller errors than IDA at the same tolerances and longer run
+times.
 
 ```julia, echo = false
 using SciMLBenchmarks

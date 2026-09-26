@@ -1,14 +1,9 @@
-using SciMLBenchmarks, Test
+using SciMLTesting
 
-@testset "Explicit Imports" begin
-    include("explicit_imports.jl")
-end
-
-@testset "weave_file" begin
-    benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
-    SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
-
-    #@test isfile(joinpath(dirname(@__DIR__), "script", "Testing", "test.jl"))
-    #@test isfile(joinpath(dirname(@__DIR__), "html", "Testing", "test.html"))
-    @test isfile(joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md"))
-end
+run_tests(
+    core = joinpath(@__DIR__, "core.jl"),
+    qa = (
+        env = joinpath(@__DIR__, "qa"),
+        body = joinpath(@__DIR__, "qa", "qa.jl"),
+    ),
+)

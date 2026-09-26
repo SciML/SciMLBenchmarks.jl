@@ -3,18 +3,16 @@ title: Doyle-Fuller-Newman (DFN) Battery Model Initialization
 author: Marc D. Berliner & Avik Pal
 ---
 
-These benchmarks compares the runtime and error for a range of nonlinear solvers. The solvers are implemented in [NonlinearProblemLibrary.jl](https://github.com/SciML/DiffEqProblemLibrary.jl/blob/master/lib/NonlinearProblemLibrary/src/NonlinearProblemLibrary.jl), where you can find the problem function declarations. We test the following solvers:
+These benchmarks compare the runtime and error of a range of nonlinear solvers on the
+initialization problem of a Doyle-Fuller-Newman (DFN) battery model, which is defined in the
+setup below. We test the following solvers:
 
-  - NonlinearSolve.jl's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) method (`NewtonRaphson()`).
-  - NonlinearSolve.jl's [Newton trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) method (`TrustRegion()`).
-  - NonlinearSolve.jl's Levenberg-Marquardt method (`LevenbergMarquardt()`).
-  - NonlinearSolve.jl's Broyden method (`Broyden()`).
-  - MINPACK's [Modified Powell](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:hybr)`).
-  - MINPACK's [Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) method (`CMINPACK(method=:lm)`).
-  - NLsolveJL's [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:newton)`).
-  - NLsolveJL's [Newton trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL()`).
-  - NLsolveJL's [Anderson acceleration](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) (`NLsolveJL(method=:anderson)`).
-  - Sundials's [Newton-Krylov](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) method (`KINSOL()`).
+  - NonlinearSolve.jl's default polyalgorithm, [Newton Raphson](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.NewtonRaphson) (with and without line searches), Newton-Krylov with GMRES, `DFSane`, [trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nonlinearsolve/#NonlinearSolve.TrustRegion) (with several radius update schemes), and Levenberg-Marquardt (with and without geodesic acceleration, and with a Cholesky linear solver).
+  - Sundials's [KINSOL](https://docs.sciml.ai/NonlinearSolve/stable/api/sundials/#Solver-API) (`KINSOL()`): Newton Raphson, Newton-Krylov, and Newton Raphson with a line search.
+  - NLsolve.jl's [Newton Raphson and trust region](https://docs.sciml.ai/NonlinearSolve/stable/api/nlsolve/#Solver-API) methods (`NLsolveJL(method=:newton)` and `NLsolveJL()`).
+  - MINPACK's [Modified Powell and Levenberg-Marquardt](https://docs.sciml.ai/NonlinearSolve/stable/api/minpack/#NonlinearSolveMINPACK.CMINPACK) methods (`CMINPACK(method=:hybr)` and `CMINPACK(method=:lm)`).
+  - SpeedMapping.jl's speed mapping method (`SpeedMappingJL()`).
+  - PETSc's SNES solvers (`PETScSNES`): Newton Raphson (with and without a backtracking line search and a QR preconditioner), trust region, and Newton-Krylov with GMRES.
 
 # Setup
 
@@ -129,7 +127,7 @@ solvers_all = [
 ];
 ```
 
-Setup the problem
+Set up the problem.
 
 ```julia
 function f!(out, u, p = nothing)
@@ -255,14 +253,14 @@ dict = Dict("n" => n, "start" => x_start, "sol" => x_sol,
 testcase = (; prob = NonlinearProblem(f!, dict["start"]), true_sol = dict["sol"])
 ```
 
-Sets tolerances.
+Set the tolerances.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (3:0.5:6)
 reltols = 1.0 ./ 10.0 .^ (3:0.5:6);
 ```
 
-Prepares various helper functions for benchmarking a specific problem.
+Prepare various helper functions for benchmarking a specific problem.
 
 ```julia
 function log_msg(msg; kwargs...)
@@ -394,7 +392,7 @@ save("battery_problem_work_precision.svg", fig)
 
 ## Summary of successful solvers
 
-Finally, we print a summary of which solvers successfully solved which problems.
+Finally, we print a summary of which solvers successfully solved the problem.
 
 ```julia
 solver_successes = [(solver in successful_solvers) ? "✔" : "✖" for solver in solvers_all];
@@ -409,6 +407,19 @@ pretty_table(io, reshape(solver_successes, 1, :); backend = :html,
 println(io, "```")
 Docs.Text(String(take!(io)))
 ```
+
+None of the six PETSc SNES configurations solves this problem, for three different reasons.
+The runs without a line search (plain Newton Raphson, with QR, and Newton-Krylov with GMRES)
+stop after one iteration at a residual norm of about 9e8. PETSc's default divergence tolerance
+ends a solve once the residual exceeds 10⁴ times the initial residual, and the first undamped
+Newton step here raises it from about 292 to about 9e8. The native `NewtonRaphson`, which has no
+such check, recovers from that step and converges. If the divergence tolerance is lifted
+(`snes_divergence_tolerance = 1e30`), PETSc reports convergence by its relative criterion
+(`snes_rtol`) at a residual norm of about 0.02, but the `PETScSNES` wrapper judges success only
+by `abstol` and still returns `Failure`
+([NonlinearSolve.jl#1318](https://github.com/SciML/NonlinearSolve.jl/issues/1318)). The
+backtracking line-search and trust-region configurations exhaust PETSc's function-evaluation
+limit at residual norms of about 280 and 200, much like the native line-search variants.
 
 ```julia, echo = false
 using SciMLBenchmarks

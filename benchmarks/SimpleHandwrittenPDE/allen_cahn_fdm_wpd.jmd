@@ -5,7 +5,7 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 2,~T = 1$, with the following initial and Dirichlet boundary conditions:
+The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 2,~T = 1$, with the following initial and Dirichlet boundary conditions:
 ```math
 \begin{align}
    \partial_t u(t,x) & = p(u(t,x) - u(t,x)^3) + \epsilon \partial_x^2 u(t,x), \\
@@ -13,7 +13,7 @@ The Allen-Cahn partial differential equation is solved on the domain $[-L, L] \t
     u(t,-L) & = u(t,L) = 0.
 \end{align}
 ```
-The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $p = 3,~\epsilon = 10^{-3}$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $p = 3,~\epsilon = 10^{-3}$ are chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{align}
     \frac{du}{dt} & = p(u - u^3) + \epsilon D_x^2 u, \\
@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -139,6 +139,97 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
 
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same
+`SplitODEProblem`, advancing the first component (the diffusion term) with `m`
+explicit substeps per macro step while the reaction term is evaluated at the
+macro rate. They are built for a stiff fast first component and an expensive
+slow second component, and this problem has neither: with `eps = 1e-3` the
+diffusion operator has spectral radius about 4, the same order as the reaction
+Jacobian, and both terms cost `O(N)` per evaluation. There is no rate to
+separate, so this is a null case for the family, included to document that
+boundary. `m = 2` is the smallest useful setting and anything larger repeats
+work; the macro steps below go up to `1e-1`, far inside every stability bound
+at this spectral radius. Fixed macro steps are used as elsewhere in this file,
+with `CNAB2` and `ETDRK2` from the other sections as local references.
+
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
+on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
+for it elsewhere.
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+# The joined problem calls f1 and f2 through its own buffer: a direct call of the
+# SplitFunction uses an internal scratch cache that aliases prob.u0, so it would
+# silently overwrite the initial condition of every later solve in the sweep.
+joined_rhs! = let stiff_cache = zero(prob.u0)
+    (du, u, p, t) -> begin
+        prob.f.f1(stiff_cache, u, p, t)
+        prob.f.f2(du, u, p, t)
+        du .+= stiff_cache
+    end
+end
+prob_joined = ODEProblem(joined_rhs!, copy(prob.u0), prob.tspan, prob.p)
+setups = [
+    Dict(:alg => MREEF(m = 2, order = 4), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MIS(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 2), :adaptive => false, :dts => 1e-1 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Tsit5(), :prob_choice => 2),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => NordsieckBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+    "ETDRK4",
+    "KenCarp4",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF","NordsieckBDF",
+)
+@time wp = WorkPrecisionSet([prob, prob_joined], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The measured curves confirm the null case cleanly. In the latest run `Tsit5`
+is the fastest method at every error it reaches, from about `1e-4` in roughly
+50 microseconds down to about `5e-7` in roughly 0.1 milliseconds, two to three
+times cheaper than the
+best multirate member at overlapping errors, and within this sweep its
+stability limit never bites because the reaction stiffness is of the same
+mild order as everything else. `FBDF` and `Rodas5P` run clean curves in the
+low millisecond range and `KenCarp4` tracks the trajectory at all four pairs
+(from about `6e-4` down to `2e-5`). `MREEF` reaches about `1e-9` in about a
+millisecond, below the floor of the adaptive references' sweeps, with fixed
+step `ETDRK4` owning the accuracy end at about `2e-13`, though at over a second
+per solve. `MRAB` remains the weak member at first
+order. With no scale separation to exploit the micro substepping is overhead;
+on this problem the family is neither the fastest loose answer, which is
+`Tsit5`, nor the most accurate one, which is `ETDRK4`.
+
 #### Comparisons Between Families
 
 ```julia
@@ -233,41 +324,32 @@ Base.@kwdef struct WeightedDiagonalPreconBuilder
     w::Float64
 end
 
-(builder::WeightedDiagonalPreconBuilder)(A, du, u, p, t, newW, Plprev, Prprev, solverdata) = (builder.w * LA.Diagonal(convert(AbstractMatrix, A)), LA.I)
+(builder::WeightedDiagonalPreconBuilder)(A, p) = (builder.w * LA.Diagonal(convert(AbstractMatrix, A)), LA.I)
 
 # Incomplete LU factorization
 using IncompleteLU
-function incompletelu(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = ilu(convert(AbstractMatrix, W), τ = 50.0)
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function incompletelu(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = ilu(W; τ = 50.0)
+    return Pl, LA.I
 end
 
 # Algebraic multigrid
 using AlgebraicMultigrid
-function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = aspreconditioner(ruge_stuben(W))
+    return Pl, LA.I
 end
-function algebraicmultigrid2(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        A = convert(AbstractMatrix, W)
-        Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(A,
-            presmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
-                1))),
-            postsmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
-                1)))))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid2(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(W,
+        presmoother = AlgebraicMultigrid.Jacobi(rand(size(W, 1))),
+        postsmoother = AlgebraicMultigrid.Jacobi(rand(size(W, 1)))))
+    return Pl, LA.I
 end
 
 # Aliases

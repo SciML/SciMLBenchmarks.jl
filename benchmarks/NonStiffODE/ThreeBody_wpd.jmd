@@ -87,7 +87,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>dopri5())];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -116,11 +116,11 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>IRKGL16(simd = true))
           Dict(:alg=>Tsit5(), :prob_choice => 2)
           Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, numruns = 100)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
-In these tests we see that most of the algorithms are close,with `BS5` and `DP5` showing much better than `Tsit5`. `ode45` errors.
+In these tests the OrdinaryDiffEq.jl 5th order methods (`DP5`, `BS5` and `Tsit5`) are close to one another, and all of them are faster than `dopri5`. ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
 
 ### Higher Order Algorithms
 
@@ -140,7 +140,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -151,15 +151,15 @@ plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, numruns = 100)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
-In this test we see `Vern7` and `Vern8` shine.
+In this test the Verner methods are the fastest at stringent tolerances, while `dop853` is the slowest of the adaptive methods.
 
 ### Other Algorithms
 
-Once again we separate ODE.jl because it fails. We also separate Sundials' `CVODE_Adams` since it fails at high tolerances.
+ODE.jl is not included, and Sundials' `CVODE_Adams` is left out since it fails at high tolerances.
 
 ```julia
 #setups = [Dict(:alg=>ode78())
@@ -179,7 +179,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>odex())
           Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -252,7 +252,7 @@ plot(wp)
 
 ### Conclusion
 
-As in the other tests, the OrdinaryDiffEq.jl algorithms with the Verner Efficient methods are the most efficient solvers at stringent tolerances for most of the tests, while the order 5 methods do well at cruder tolerances. ODE.jl fails to run the test problems without erroring.
+As in the other tests, the OrdinaryDiffEq.jl algorithms with the Verner Efficient methods are the most efficient solvers at stringent tolerances for most of the tests, while the order 5 methods do well at cruder tolerances. ODE.jl is not included in this benchmark.
 
 ```julia, echo = false
 using SciMLBenchmarks

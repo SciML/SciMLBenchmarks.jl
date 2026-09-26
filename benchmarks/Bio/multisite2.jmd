@@ -1,5 +1,5 @@
 ---
-title: Multisite2 Work-Precision Diagrams
+title: Multisite Phosphorylation (multisite2) Work-Precision Diagrams
 author: Torkel Loman
 ---
 
@@ -17,7 +17,7 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
       LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
       LinearSolve, RecursiveFactorization
-using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK, OrdinaryDiffEqVerner
+using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK, OrdinaryDiffEqVerner, OrdinaryDiffEqLowOrderRK
 
 gr()
 const to = TimerOutput()
@@ -26,10 +26,10 @@ tf = 2.0
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/multisite2.net"))
 show(to)
-rn = complete(prnbng.rn)
+rn = complete(prnbng)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
+@timeit to "Create ODESys" osys = complete(Catalyst.ode_model(rn))
 show(to)
 
 tspan = (0.0, tf)
@@ -146,6 +146,7 @@ setups = [
     Dict(:alg=>TRBDF2()),
     Dict(:alg=>QNDF()),
     Dict(:alg=>FBDF()),
+    Dict(:alg=>NordsieckBDF()),
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>Rosenbrock23()),
     Dict(:alg=>Rodas4()),
@@ -161,11 +162,13 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e12), dtmin = 1e-18, numruns = 200)
 
-names = ["TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+names = ["TRBDF2" "QNDF" "FBDF" "NordsieckBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
 plot(wp; label = names)
 ```
 
-Implicit methods doing poorly suggests it's non-stiff.
+In the latest run the fastest implicit methods (`NordsieckBDF`, `QNDF`) are
+about as fast as, but not faster than, the best explicit methods below, which
+suggests that the problem is not stiff enough for implicit methods to pay off.
 
 ## Explicit Work-Precision Diagram
 
@@ -173,7 +176,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes lsoda and CVODE.
+We designate the solvers we wish to use; this also includes `lsoda` and `CVODE_Adams`.
 
 ```julia
 setups = [
@@ -200,16 +203,45 @@ names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Ve
 plot(wp; label = names)
 ```
 
-#### Additional explicit solvers
+## Loser methods (large cost in isolation)
 
-One additional explicit solver, `ROCK2`, performs noticeably worse as compared to the other ones.
+`ROCK2` is **not** folded into the multi-tolerance / multi-run work-precision
+suites; instead a single-tolerance timing against a competitive explicit method
+(`Vern6`) is meant to show the wall-time gap. In the latest run, however, both
+isolated solves took 2-3 s, several hundred times the few-millisecond per-solve
+time of `Vern6` in the explicit diagram above, so these single timings are
+dominated by one-off overhead (most likely first-call compilation) rather than
+by solver cost, and they do not show a gap between the methods.
 
 ```julia
-setups = [Dict(:alg=>ROCK2())];
-wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 200)
-names = ["ROCK2"]
-plot(wp; label = names)
+const _loser_tol = 1e-6
+const _loser_maxiters = Int(1e7)
+_solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
+    save_everystep = false)
+
+loser_labels = String[]
+loser_elapsed = Float64[]
+
+function _time_loser!(label, alg)
+    println("--- $label ---")
+    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    @show sol.retcode
+    println("elapsed = ", t, " s")
+    push!(loser_labels, label)
+    push!(loser_elapsed, t)
+    return sol
+end
+
+_time_loser!("Vern6 (reference)", Vern6())
+_time_loser!("ROCK2 (loser)", ROCK2())
+```
+
+```julia
+ref_t = loser_elapsed[1]
+bar(loser_labels, loser_elapsed ./ ref_t; legend = false,
+    ylabel = "wall time / Vern6 reference",
+    title = "multisite2 ROCK2 isolation (tol=$_loser_tol, one solve each)",
+    size = (600, 400))
 ```
 
 ## Summary of results
@@ -226,6 +258,7 @@ setups = [
     Dict(:alg=>CVODE_BDF(linear_solver = :GMRES)),
     Dict(:alg=>QNDF()),
     Dict(:alg=>FBDF()),
+    Dict(:alg=>NordsieckBDF()),
     Dict(:alg=>Rodas5P()),
     Dict(:alg=>BS5()),
     Dict(:alg=>VCABM()),
@@ -242,9 +275,9 @@ For these, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF" "FBDF" "Rodas5P" "BS5" "VCABM" "Vern6" "ROCK4"]
-colors = [:seagreen1 :darkgreen :deepskyblue1 :dodgerblue2 :blue :thistle2 :lightsteelblue2 :lightslateblue :purple4]
-markershapes = [:star4 :rect :hexagon :rtriangle :heptagon :star8 :heptagon :rtriangle :square]
+names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF" "FBDF" "NordsieckBDF" "Rodas5P" "BS5" "VCABM" "Vern6" "ROCK4"]
+colors = [:seagreen1 :darkgreen :deepskyblue1 :dodgerblue2 :mediumorchid :blue :thistle2 :lightsteelblue2 :lightslateblue :purple4]
+markershapes = [:star4 :rect :hexagon :rtriangle :diamond :heptagon :star8 :heptagon :rtriangle :square]
 plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     xticks = [1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3],
     yticks = [1e-3, 1e-2, 1e-1], color = colors, markershape = markershapes,

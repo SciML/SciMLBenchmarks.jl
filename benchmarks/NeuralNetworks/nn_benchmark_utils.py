@@ -16,6 +16,43 @@ import torch
 import torch.nn as tnn
 
 
+def require_jax_gpu():
+    devs = jax.devices("gpu")
+    if not devs:
+        raise RuntimeError("JAX did not see a GPU")
+    return devs[0]
+
+
+def to_jax_gpu(x):
+    return jax.device_put(jnp.asarray(x), require_jax_gpu())
+
+
+def to_jax_gpu_tree(tree):
+    return jax.tree.map(lambda x: to_jax_gpu(x) if hasattr(x, "shape") else x, tree)
+
+
+def require_torch_cuda():
+    if not torch.cuda.is_available():
+        raise RuntimeError("PyTorch did not see a CUDA GPU")
+    return torch.device("cuda")
+
+
+def to_torch_gpu(x):
+    dev = require_torch_cuda()
+    if isinstance(x, torch.Tensor):
+        return x.to(dev)
+    return torch.from_numpy(np.ascontiguousarray(x)).to(dev)
+
+
+def cuda_model(model):
+    return model.to(require_torch_cuda())
+
+
+def _torch_sync(x):
+    if torch.cuda.is_available() and (not isinstance(x, torch.Tensor) or x.is_cuda):
+        torch.cuda.synchronize()
+
+
 # ============================================================
 # Timing utilities
 # ============================================================
@@ -48,15 +85,18 @@ def time_jax_train_step(train_step_fn, params, x, y, n_runs=50):
 
 
 def time_torch_inference(model, x, n_runs=100):
-    """Time a PyTorch model in eval mode."""
+    """Time a PyTorch model in eval mode. Synchronizes CUDA so GPU time is real."""
     model.eval()
     with torch.no_grad():
         for _ in range(5):
             model(x)
+        _torch_sync(x)
         times = []
         for _ in range(n_runs):
+            _torch_sync(x)
             start = time.perf_counter()
             model(x)
+            _torch_sync(x)
             end_ = time.perf_counter()
             times.append(end_ - start)
     return float(np.median(times))
@@ -71,14 +111,17 @@ def time_torch_train_step(model, optimizer, loss_fn, x, y, n_runs=50):
         loss = loss_fn(out, y)
         loss.backward()
         optimizer.step()
+    _torch_sync(x)
     times = []
     for _ in range(n_runs):
+        _torch_sync(x)
         start = time.perf_counter()
         optimizer.zero_grad()
         out = model(x)
         loss = loss_fn(out, y)
         loss.backward()
         optimizer.step()
+        _torch_sync(x)
         end_ = time.perf_counter()
         times.append(end_ - start)
     return float(np.median(times))
@@ -286,3 +329,182 @@ class TorchSmallResNet(tnn.Module):
         x = self.down_bn2(self.down_conv2(x))
         x = self.pool(x).view(x.size(0), -1)
         return self.fc(x)
+
+
+def _random_array(*shape):
+    return np.random.standard_normal(shape).astype(np.float32)
+
+
+def _emit(framework, model, operation, batch_size, seconds):
+    print(
+        f"TIMING\t{framework}\t{model}\t{operation}\t{batch_size}\t{seconds}",
+        flush=True,
+    )
+
+
+def _time_torch_training(model_factory, x, y):
+    model = cuda_model(model_factory())
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    return time_torch_train_step(
+        model,
+        optimizer,
+        tnn.MSELoss(),
+        to_torch_gpu(x),
+        to_torch_gpu(y),
+    )
+
+
+def _run_mlp(activation, key_seed):
+    model_name = f"mlp_{activation}"
+    forward = jax_mlp_relu_forward if activation == "relu" else jax_mlp_gelu_forward
+    params = to_jax_gpu_tree(create_jax_mlp_params(random.PRNGKey(key_seed)))
+    torch_model = cuda_model(TorchMLP(activation))
+
+    for batch_size in (2, 8, 32, 128, 512, 2048):
+        x = _random_array(batch_size, 32)
+        _emit(
+            "JAX",
+            model_name,
+            "inference",
+            batch_size,
+            time_jax_inference(forward, params, to_jax_gpu(x)),
+        )
+        _emit(
+            "PyTorch",
+            model_name,
+            "inference",
+            batch_size,
+            time_torch_inference(torch_model, to_torch_gpu(x)),
+        )
+
+    train_step = make_jax_mlp_train_step(forward, params)
+    for batch_size in (32, 128, 512, 2048):
+        x = _random_array(batch_size, 32)
+        y = _random_array(batch_size, 10)
+        _emit(
+            "JAX",
+            model_name,
+            "training",
+            batch_size,
+            time_jax_train_step(
+                train_step, params, to_jax_gpu(x), to_jax_gpu(y)
+            ),
+        )
+        _emit(
+            "PyTorch",
+            model_name,
+            "training",
+            batch_size,
+            _time_torch_training(lambda: TorchMLP(activation), x, y),
+        )
+
+
+def _run_batchnorm():
+    model = cuda_model(TorchMLPBN())
+    for batch_size in (2, 8, 32, 128, 512, 2048):
+        x = _random_array(batch_size, 32)
+        _emit(
+            "PyTorch",
+            "mlp_batchnorm",
+            "inference",
+            batch_size,
+            time_torch_inference(model, to_torch_gpu(x)),
+        )
+
+    for batch_size in (32, 128, 512, 2048):
+        x = _random_array(batch_size, 32)
+        y = _random_array(batch_size, 10)
+        _emit(
+            "PyTorch",
+            "mlp_batchnorm",
+            "training",
+            batch_size,
+            _time_torch_training(TorchMLPBN, x, y),
+        )
+
+
+def _run_lenet():
+    params = to_jax_gpu_tree(create_jax_lenet_params(random.PRNGKey(2)))
+    torch_model = cuda_model(TorchLeNet())
+    for batch_size in (2, 8, 32, 128):
+        x = _random_array(batch_size, 1, 28, 28)
+        _emit(
+            "JAX",
+            "lenet",
+            "inference",
+            batch_size,
+            time_jax_inference(jax_lenet_forward, params, to_jax_gpu(x)),
+        )
+        _emit(
+            "PyTorch",
+            "lenet",
+            "inference",
+            batch_size,
+            time_torch_inference(torch_model, to_torch_gpu(x)),
+        )
+
+    train_step = make_jax_lenet_train_step(params)
+    for batch_size in (32, 128):
+        x = _random_array(batch_size, 1, 28, 28)
+        y = _random_array(batch_size, 10)
+        _emit(
+            "JAX",
+            "lenet",
+            "training",
+            batch_size,
+            time_jax_train_step(
+                train_step, params, to_jax_gpu(x), to_jax_gpu(y)
+            ),
+        )
+        _emit(
+            "PyTorch",
+            "lenet",
+            "training",
+            batch_size,
+            _time_torch_training(TorchLeNet, x, y),
+        )
+
+
+def _run_resnet():
+    model = cuda_model(TorchSmallResNet())
+    for batch_size in (2, 8, 32):
+        x = _random_array(batch_size, 3, 32, 32)
+        _emit(
+            "PyTorch",
+            "resnet",
+            "inference",
+            batch_size,
+            time_torch_inference(model, to_torch_gpu(x)),
+        )
+
+        y = _random_array(batch_size, 10)
+        _emit(
+            "PyTorch",
+            "resnet",
+            "training",
+            batch_size,
+            _time_torch_training(TorchSmallResNet, x, y),
+        )
+
+
+def _main():
+    np.random.seed(12345)
+    torch.manual_seed(12345)
+    jax_device = require_jax_gpu()
+    torch_device = require_torch_cuda()
+    print(f"METADATA\tJAX version\t{jax.__version__}", flush=True)
+    print(f"METADATA\tJAX device\t{jax_device}", flush=True)
+    print(f"METADATA\tPyTorch version\t{torch.__version__}", flush=True)
+    print(
+        f"METADATA\tPyTorch device\t{torch.cuda.get_device_name(torch_device)}",
+        flush=True,
+    )
+    _run_mlp("relu", 0)
+    _run_mlp("gelu", 1)
+    _run_batchnorm()
+    _run_lenet()
+    _run_resnet()
+
+
+if __name__ == "__main__":
+    _main()

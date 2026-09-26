@@ -21,17 +21,18 @@ water systems.
 1. **Regime switching:** Each pipe transitions between laminar (R ≤ 2300) and
    turbulent flow, with the turbulent Colebrook equation being implicit in λ.
 2. **Scale separation:** Flows ∼ 10⁻³, friction factors ∼ 10⁻², pressures ∼ 10⁵
-   — nine orders of magnitude difference.
+   — eight orders of magnitude difference.
 3. **Index-2 structure:** Variables 1–38 are index-1, while the 11 non-buffer
    node pressures (variables 39–49) are index-2 algebraic constraints.
 
 We benchmark three formulations:
 
 1. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)` with diagonal singular M,
-   solved with Rosenbrock-W methods and BDF.
-2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with IDA.
+   solved with Rosenbrock methods and BDF.
+2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with IDA,
+   DFBDF and DNordsieckBDF.
 3. **MTK Index-Reduced Form:** Defined symbolically with `structural_simplify`
-   reducing from 49 to 32 states via automatic index reduction.
+   reducing from 49 to 31 states via automatic index reduction.
 
 Reference: Fekete, I.: Water tube system, IVP Test Set for DAE Solvers,
 Release 2.4, University of Bari, 2006.
@@ -110,7 +111,10 @@ The right-hand side has three blocks:
 3. **Node balance** (37–49): Kirchhoff mass conservation at each node
 
 The Colebrook equation for turbulent flow is:
-$$\frac{1}{\sqrt{\lambda}} = 1.74 - 2\log_{10}\left(\frac{2k}{d} + \frac{18.7}{|R|\sqrt{\lambda}}\right)$$
+
+```math
+\frac{1}{\sqrt{\lambda}} = 1.74 - 2\log_{10}\left(\frac{2k}{d} + \frac{18.7}{|R|\sqrt{\lambda}}\right)
+```
 
 where $R = |u_{ij}| d / \nu$ is the Reynolds number. In the laminar regime
 ($R \le R_\text{crit}$), the Colebrook equation uses $R_\text{crit}$ in place
@@ -327,7 +331,7 @@ println("=== Solver Verification ===")
 
 # Mass-matrix form
 for (name, alg) in [("Rodas5P", Rodas5P()), ("Rodas4P", Rodas4P()),
-                     ("FBDF", FBDF()), ("QNDF", QNDF()),
+                     ("FBDF", FBDF()), ("QNDF", QNDF()), ("NordsieckBDF", NordsieckBDF()),
                      ("rodas (ODEInterface)", rodas()),
                      ("RadauIIA5", RadauIIA5())]
     try
@@ -339,7 +343,7 @@ for (name, alg) in [("Rodas5P", Rodas5P()), ("Rodas4P", Rodas4P()),
 end
 
 # DAE form
-for (name, alg) in [("IDA", IDA()), ("DFBDF", DFBDF())]
+for (name, alg) in [("IDA", IDA()), ("DFBDF", DFBDF()), ("DNordsieckBDF", DNordsieckBDF())]
     try
         sol = solve(prob_dae, alg, reltol=1e-6, abstol=1e-6, maxiters=1_000_000)
         println("  $name (DAE): retcode=$(sol.retcode), npts=$(length(sol.t))")
@@ -349,7 +353,7 @@ for (name, alg) in [("IDA", IDA()), ("DFBDF", DFBDF())]
 end
 
 # MTK form
-for (name, alg) in [("Rodas5P", Rodas5P()), ("FBDF", FBDF())]
+for (name, alg) in [("Rodas5P", Rodas5P()), ("FBDF", FBDF()), ("NordsieckBDF", NordsieckBDF())]
     try
         sol = solve(prob_mtk, alg, reltol=1e-6, abstol=1e-6, maxiters=1_000_000)
         println("  $name (MTK): retcode=$(sol.retcode), npts=$(length(sol.t))")
@@ -472,12 +476,14 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas4P()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 2, :alg => DNordsieckBDF()),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
-labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "DNordsieckBDF (DAE)" "Rodas5P (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
@@ -495,12 +501,14 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas4P()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 2, :alg => DNordsieckBDF()),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
-labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "DNordsieckBDF (DAE)" "Rodas5P (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,
@@ -518,12 +526,14 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas4P()),
     Dict(:prob_choice => 1, :alg => FBDF()),
     Dict(:prob_choice => 1, :alg => QNDF()),
+    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 2, :alg => DNordsieckBDF()),
     Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
-labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "Rodas5P (MTK)"]
+labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "DNordsieckBDF (DAE)" "Rodas5P (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
     names = labels, appxsol = refs, save_everystep = false,
@@ -541,11 +551,13 @@ setups = [
     Dict(:prob_choice => 1, :alg => Rodas5P()),
     Dict(:prob_choice => 1, :alg => Rodas4()),
     Dict(:prob_choice => 1, :alg => FBDF()),
+    Dict(:prob_choice => 1, :alg => NordsieckBDF()),
     Dict(:prob_choice => 1, :alg => rodas()),
     Dict(:prob_choice => 2, :alg => IDA()),
     Dict(:prob_choice => 2, :alg => DFBDF()),
+    Dict(:prob_choice => 2, :alg => DNordsieckBDF()),
 ]
-labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)"]
+labels = ["Rodas5 (MM)" "Rodas5P (MM)" "Rodas4 (MM)" "FBDF (MM)" "NordsieckBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "DNordsieckBDF (DAE)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,

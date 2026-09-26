@@ -17,14 +17,14 @@ eqs = [D(y1) ~ p1*(y2+y1*(1-p2*y1-y2))
        D(y2) ~ (y3-(1+y1)*y2)/p1
        D(y3) ~ p3*(y1-y3)]
 @mtkcompile sys = System(eqs, t)
-mtkprob = ODEProblem(sys, [], (0.0, 30.0))
+mtkprob = ODEProblem(sys, [], (0.0, 30.0); warn_initialize_determined = false)
 daeprob = DAEProblem(
     sys, [D(y1)=>77.26935286375,
         D(y2)=>-0.012941633234114146,
-        D(y3)=>-0.322], (0.0, 30.0))
-odaeprob = ODEProblem(sys, [], (0.0, 30.0))
+        D(y3)=>-0.322], (0.0, 30.0); warn_initialize_determined = false)
+odaeprob = ODEProblem(sys, [], (0.0, 30.0); warn_initialize_determined = false)
 
-ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14);
+ode_ref_sol = solve(odaeprob, CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
 
 probs = [mtkprob, daeprob, odaeprob]
 refs = [ode_ref_sol, ode_ref_sol, ode_ref_sol];
@@ -32,10 +32,11 @@ refs = [ode_ref_sol, ode_ref_sol, ode_ref_sol];
 
 ## IDA Reference Solve (DAE form)
 
-IDA on the DAE formulation goes unstable near the end of integration
-(t ≈ 29.4 out of [0, 30]).  With the Sundials 7 C library (Sundials.jl v5)
-the error-test failure is not recoverable at high precision, so we use the
-ODE reference from CVODE_BDF above instead.
+IDA on the DAE formulation has gone unstable near the end of the integration
+(t ≈ 29.4 out of [0, 30]) with the Sundials 7 C library (Sundials.jl v5), so the
+ODE reference from CVODE_BDF above is used for all formulations. The solve below
+checks whether IDA reaches the end of the time span; in the latest run it returns
+`Success` with `t_final = 30.0`.
 
 ```julia
 try
@@ -60,10 +61,12 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>rodas()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>DNordsieckBDF()),
     Dict(:prob_choice => 2, :alg=>IDA())
 ]
 
@@ -110,10 +113,12 @@ setups = [Dict(:prob_choice => 1, :alg=>Rosenbrock23()),
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>rodas()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>DNordsieckBDF()),
     Dict(:prob_choice => 2, :alg=>IDA())
 ]
 gr()
@@ -153,10 +158,12 @@ setups = [Dict(:prob_choice => 1, :alg=>Rodas5()),
     Dict(:prob_choice => 3, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>rodas()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>DNordsieckBDF()),
     Dict(:prob_choice => 2, :alg=>IDA())
 ]
 gr()

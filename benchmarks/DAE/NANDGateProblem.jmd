@@ -286,6 +286,7 @@ setups = [
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>IDA()),
@@ -299,6 +300,18 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp, title="NAND Gate DAE - Work-Precision (High Tolerances)")
 ```
 
+DASKR prints `DASKR-- AT CURRENT T (=R1) 500 STEPS … TAKEN ON THIS CALL
+BEFORE REACHING TOUT` during this sweep and the other sweeps below.
+DDASKR returns to its Julia wrapper every 500 internal steps
+(`IDID = -1`); the DASKR.jl version used here ends the solve at that point
+instead of continuing, so every DASKR solve that needs more than 500 steps
+returns `MaxIters` with only the initial point saved and contributes no
+point to the diagram. The `dae_ref_sol` reference above is unaffected: it
+is solved with `save_everystep = true`, where the wrapper resumes after
+every step.
+[SciML/DASKR.jl#122](https://github.com/SciML/DASKR.jl/pull/122) is a
+draft fix.
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
 reltols = 1.0 ./ 10.0 .^ (2:4)
@@ -308,6 +321,7 @@ setups = [
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>Rodas5P()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>DASKR.daskr())
 ]
@@ -330,6 +344,7 @@ setups = [
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>IDA())
@@ -351,6 +366,7 @@ setups = [
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>Rodas5P()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 2, :alg=>IDA()),
     Dict(:prob_choice => 2, :alg=>DASKR.daskr())
 ]
@@ -375,6 +391,7 @@ setups = [
     Dict(:prob_choice => 1, :alg=>Rodas4()),
     Dict(:prob_choice => 1, :alg=>FBDF()),
     Dict(:prob_choice => 1, :alg=>QNDF()),
+    Dict(:prob_choice => 1, :alg=>NordsieckBDF()),
     Dict(:prob_choice => 1, :alg=>radau()),
     Dict(:prob_choice => 1, :alg=>RadauIIA5()),
     Dict(:prob_choice => 2, :alg=>IDA()),
