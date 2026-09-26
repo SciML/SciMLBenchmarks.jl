@@ -240,24 +240,26 @@ plot(wp; label = names)
 
 `ROCK2` is **not** folded into the multi-tolerance / multi-run work-precision
 suites; instead a single-tolerance timing against a competitive explicit method
-(`Vern6`) is meant to show the wall-time gap. In the latest run, however, both
-isolated solves took 2-3 s, about 100x the per-solve time of `Vern6` in the
-explicit diagram above, so these single timings are
-dominated by one-off overhead (most likely first-call compilation) rather than
-by solver cost, and they do not show a gap between the methods.
+(`Vern6`) shows the wall-time gap. Each method is solved once untimed so that
+first-call compilation stays out of the measurement, then timed as the best of
+five solves. The printed timings below are regenerated on each build; in the
+run at the time of writing `ROCK2` took roughly 18x as long as `Vern6` at this
+tolerance.
 
 ```julia
 const _loser_tol = 1e-6
 const _loser_maxiters = Int(1e7)
 _solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
     save_everystep = false)
+const _loser_runs = 5
 
 loser_labels = String[]
 loser_elapsed = Float64[]
 
 function _time_loser!(label, alg)
     println("--- $label ---")
-    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    sol = solve(oprob, alg; _solve_kwargs...)
+    t = minimum(@elapsed(solve(oprob, alg; _solve_kwargs...)) for _ in 1:_loser_runs)
     @show sol.retcode
     println("elapsed = ", t, " s")
     push!(loser_labels, label)
@@ -273,7 +275,7 @@ _time_loser!("ROCK2 (loser)", ROCK2())
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; legend = false,
     ylabel = "wall time / Vern6 reference",
-    title = "egfr_net ROCK2 isolation (tol=$_loser_tol, one solve each)",
+    title = "egfr_net ROCK2 isolation (tol=$_loser_tol, best of $_loser_runs after warm-up)",
     size = (600, 400))
 ```
 

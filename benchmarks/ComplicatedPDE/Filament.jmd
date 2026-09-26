@@ -298,14 +298,22 @@ The model quickly falls into a highly oscillatory mode which then dominates thro
 
 # Work-Precision Diagrams
 
-Now let's build the problem and solve it once at high accuracy to get a reference solution:
+Now let's build the problem and solve it once at high accuracy to get a
+reference solution. The `ODEFunction` is given the approximate Jacobian
+`J = P*A`, the same one the `run` helper passes; the implicit solvers in the
+diagrams below pick it up from the problem. `J = P*A` is approximate because
+the projection `P` is recomputed from the state `r` on every RHS evaluation,
+so the true Jacobian contains additional `dP/dr` terms that `P*A` omits.
 
 ```julia
 N=20
 f = FilamentCache(N, Solver = SolverDiffEq)
 r0 = initialize!(:StraightX, f)
 stiffness_matrix!(f)
-prob = ODEProblem(f, r0, (0.0, 0.01))
+filament_jac! = let f = f
+    (J, u, p, t) -> (mul!(J, f.P.P, f.A); nothing)
+end
+prob = ODEProblem(ODEFunction(f, jac = filament_jac!), r0, (0.0, 0.01))
 
 sol = solve(prob, Vern9(), reltol = 1e-14, abstol = 1e-14)
 test_sol = TestSolution(sol);
@@ -472,14 +480,14 @@ setups = [
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
-    maxiters = Int(1e6), verbose = SciMLLogging.None())
+    maxiters = Int(1e6), verbose = SciMLLogging.None(), error_estimate = :l2)
 plot(wp)
 ```
 
-Note that this cell does not set `error_estimate = :l2`, so despite the heading
-it measures the final-point error again (the x-axis of the plot reads
-"Error (final)") and says nothing about timeseries errors. Timeseries errors are
-not computed in the benchmarks below.
+With `error_estimate = :l2` this cell measures the L2 error over the saved time
+series rather than the error at the final point. That is a different error
+metric than the endpoint diagrams above use, so the x-axes are not directly
+comparable; this diagram shows how the methods order under trajectory error.
 
 ### Dense Error
 
@@ -600,12 +608,11 @@ plot(wp)
 
 # No Jacobian Work-Precision Diagrams
 
-Here the problem is built with `jac = nothing`, so no analytical Jacobian is
-available to the solvers. Note that the problem in the previous sections,
-`ODEProblem(f, r0, (0.0, 0.01))`, was also built without one (only the `run`
-helper above passes an analytical Jacobian), so this section solves the same
-problem as before, and in the latest run its diagrams match the corresponding
-ones above.
+Here the problem is built with `jac = nothing`, so no Jacobian is supplied
+to the solvers and methods that need one compute it by finite differences.
+The problem in the previous sections passes the approximate Jacobian
+`J = P*A` (the same one the `run` helper uses), so this section repeats the
+diagrams without it for comparison.
 
 Note that the pre-caching means that the model is not compatible with automatic differentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use FiniteDiff.jl's numerical differentiation backend.
 
@@ -718,14 +725,35 @@ plot(wp)
 
 ## Conclusion
 
-In the latest run, Sundials' `CVODE_BDF` is the fastest implicit method in every
-diagram, and in the low-tolerance (high-accuracy) diagrams it is at least about
-2x faster than every other method tested. The ESDIRK methods (`TRBDF2`,
-`KenCarp3`, `KenCarp4`) take roughly twice as long as `CVODE_BDF` at matched
-error. At the high tolerances, the stabilized explicit methods `RKC` and `ROCK2`
-are faster than `CVODE_BDF` for errors of about `1e-4` and larger. As noted
-above, the "Work-Precision Diagrams" and "No Jacobian Work-Precision Diagrams"
-sections solve the same problem, and their results agree.
+In the run at the time of writing, Sundials' `CVODE_BDF` is the fastest
+implicit method in the high-tolerance endpoint diagram, the timeseries and
+dense-error diagrams, and the GMRES comparison. In the SDIRK-focused diagram
+it leads at the loosest tolerance, but `QNDF` and `NordsieckBDF` edge ahead
+of it for errors below `1e-4`. In the low-tolerance diagrams it leads — by
+several times at matched error — until the tightest tolerances, where `radau`
+and `RadauIIA5` become comparable. `radau` is the only implicit method that
+reaches errors below `1e-11`, though the explicit `Vern7`, `Vern9`, and
+`ROCK4` get smaller errors still at a much higher cost. The ESDIRK methods
+(`TRBDF2`, `KenCarp3`, `KenCarp4`) take several times as long as `CVODE_BDF`
+at matched error, and in the high-tolerance diagrams the lower-order ones
+(`TRBDF2`, `KenCarp3`) level off at errors of about `1e-5` to `1e-6`.
+
+The stabilized explicit methods `RKC`, `ROCK2`, and `TSRKC3` do not use the
+Jacobian and are slower than `CVODE_BDF` at every tolerance in the
+Jacobian-enabled diagrams. In the "No Jacobian Work-Precision Diagrams"
+section they are a good choice: there `CVODE_BDF` is still the fastest
+implicit method — by at least about 2x at low tolerance — but it is slowed
+enough at high tolerance that `RKC`, `ROCK2`, and `TSRKC3` beat it for
+errors of about `1e-5` and larger.
+
+Because the supplied `J = P*A` omits the `dP/dr` terms, it helps most but
+not all of the implicit methods. `CVODE_BDF` gains up to roughly an order of
+magnitude at loose tolerance with it, but the Rosenbrock method `rodas`
+needs an accurate Jacobian for its order: in the no-Jacobian diagrams, where
+it computes the full Jacobian by finite differences, `rodas` reaches the
+tightest high-tolerance point several times faster and with roughly 30x
+lower error than with `J = P*A`. `CVODE_BDF` remains the default choice for
+this problem.
 
 ```julia, echo = false
 using SciMLBenchmarks
