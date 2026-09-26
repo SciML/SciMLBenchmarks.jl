@@ -40,11 +40,14 @@ gr()
 
 ## Reference Solution
 
-We compute a reference solution using `Rodas5P` at very tight tolerances.
+We compute a reference solution using `Rodas5P` at very tight tolerances. The solution
+components range from about $10^{-11}$ to $10^{-5}$, so absolute tolerances are scaled with the
+solution as in the RADAR5 driver (`ATOL = RTOL * 1e-9`). After an initial decay of $u_2$, the
+solution settles into periodic relaxation spikes.
 
 ```julia
 sol = solve(prob_dde_RADAR5_oregonator, MethodOfSteps(Rodas5P());
-    reltol = 1e-14, abstol = 1e-14)
+    reltol = 1e-14, abstol = 1e-21)
 test_sol = TestSolution(sol)
 plot(sol; title = "RADAR5 Oregonator Solution")
 ```
@@ -54,7 +57,7 @@ plot(sol; title = "RADAR5 Oregonator Solution")
 ### Rosenbrock methods
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (4:7)
+abstols = 1.0 ./ 10.0 .^ (10:13)
 reltols = 1.0 ./ 10.0 .^ (1:4)
 
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -80,6 +83,13 @@ plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
 ```
 
 ### SDIRK methods
+
+At the loosest high-tolerance pair (`abstol = 1e-10`, `reltol = 1e-1`), `TRBDF2` returns
+`Unstable` before $t = 100.5$, so that point is omitted from the diagrams. Final errors for the
+SDIRK methods stay between about $2\times 10^{-9}$ and $2\times 10^{-7}$ across the
+high-tolerance range and are not monotone in the tolerance; on this relaxation oscillator the
+final-error estimate is phase-sensitive, so tightening the tolerance does not always improve
+it.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
@@ -107,7 +117,13 @@ plot(wp; title = "Oregonator: SDIRK Methods (L∞ error)")
 
 ### Stiff vs Non-Stiff Comparison
 
-In the latest run, the explicit methods (`Tsit5`, `BS3`, and `DP5`) produced no data points in this diagram.
+In the latest run, `Tsit5` and `DP5` are more expensive than `Rosenbrock23` and `Rodas5P` at
+every error they reach. `BS3` costs about as much as `Rosenbrock23` at the smallest errors. At
+the loosest high-tolerance pair, `Tsit5` and `BS3` return `Unstable` (near $t \approx 48$ and
+$t \approx 28$), and `TRBDF2` fails the same way as in the SDIRK diagram; those points are
+omitted. `DP5` finishes but with a final error on the order of $10^{-5}$, more than an order of
+magnitude larger than $u_2$ at $t_{\mathrm{end}}$ ($\approx 4\times 10^{-7}$), so that point is
+not meaningful.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -125,8 +141,12 @@ plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
 
 ## Low Tolerances
 
+At these tolerances `Rosenbrock23` needs on the order of $10^6$ accepted steps per solve
+(about $2.4\times 10^6$ at the tightest pair), so this block raises `maxiters` to
+`Int(1e7)`. The Rodas and SDIRK methods below complete within $10^5$ iterations.
+
 ```julia
-abstols = 1.0 ./ 10.0 .^ (8:11)
+abstols = 1.0 ./ 10.0 .^ (14:17)
 reltols = 1.0 ./ 10.0 .^ (5:8)
 
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -137,13 +157,13 @@ setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
     Dict(:alg => MethodOfSteps(KenCarp4()))]
 names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
-    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+    names = names, appxsol = test_sol, maxiters = Int(1e7), error_estimate = :final)
 plot(wp; title = "Oregonator: Low Tolerances (final error)")
 ```
 
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
-    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+    names = names, appxsol = test_sol, maxiters = Int(1e7), error_estimate = :L2)
 plot(wp; title = "Oregonator: Low Tolerances (L2 error)")
 ```
 
