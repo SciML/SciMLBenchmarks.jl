@@ -55,29 +55,41 @@ include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
 
 ## Problem selection
 
-`select_safe_problems` walks the candidates in the order returned by
-`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
-list, loads each remaining problem once to read its metadata, keeps it only if
-`nvar <= max_var` and `ncon <= max_con`, and stops after `max_problems` problems. The
-defaults are `MAX_PROBLEMS_PER_CATEGORY`, `MAX_NVAR`, and `MAX_NCON`; this page keeps the
-variable cap and sets `max_con = 0` because the problems are unconstrained. Problems whose
-metadata cannot be loaded are skipped. The values in effect for this run are printed below.
+`select_safe_problems` sorts candidate names, filters the measured skip map and size limits,
+then selects up to `max_problems` across the 1–10, 11–100, and 101–`max_var` variable
+buckets. It samples each name-sorted bucket evenly, redistributing quotas when a bucket has
+fewer candidates. Sizes come from CUTEst's classification database, with problem metadata
+decoding as a fallback. The selected and eligible counts are printed per bucket. This page
+sets `max_con = 0` because its problems are unconstrained.
 
 ```julia
 println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
 println("MAX_NVAR = ", MAX_NVAR)
 println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
 println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
-println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(keys(KNOWN_BAD_PROBLEMS))), ", "))
 
+unconstrained_candidates = collect(
+    CUTEst.select_sif_problems(contype = "unc", max_var = MAX_NVAR, max_con = 0),
+)
 unconstrained_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(contype = "unc"));
+    unconstrained_candidates;
     max_var = MAX_NVAR,
     max_con = 0,
 )
 
 println("Selected unconstrained problems: ", length(unconstrained_problems))
 println(join(unconstrained_problems, ", "))
+
+selection_sizes = classification_sizes()
+selected_size_buckets = zeros(Int, length(NVAR_BUCKET_EDGES) + 1)
+for name in unconstrained_problems
+    size = problem_size(name, selection_sizes)
+    selected_size_buckets[nvar_bucket(size.nvar, NVAR_BUCKET_EDGES)] += 1
+end
+@assert all(>(0), selected_size_buckets) "unconstrained selection must cover every variable-size bucket"
+@assert select_safe_problems(reverse(unconstrained_candidates); max_var = MAX_NVAR, max_con = 0) ==
+    unconstrained_problems "selection must not depend on CUTEst candidate order"
 ```
 
 ## Solvers
