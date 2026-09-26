@@ -1,3 +1,8 @@
+---
+title: Integro-Differential Equation PINN Solver Benchmark
+author: Arpan Chakraborty, Chris Rackauckas
+---
+
 # Integro-Differential Equation PINN Solver Benchmark
 
 ## Problem Definition
@@ -18,7 +23,9 @@ u(t) = \frac{1}{2} e^{-t} \sin(2t)
 
 ```julia
 using NeuralPDE, Lux, ModelingToolkit, Optimization, OptimizationOptimJL, DomainSets
-using OrdinaryDiffEq, Plots, Dates
+using OrdinaryDiffEq, Plots, Dates, BenchmarkTools
+using Random
+Random.seed!(42)
 
 @parameters t
 @variables i(..)
@@ -49,9 +56,9 @@ for (name, chain) in chains
     @named pde_system = PDESystem(eq, bcs, domains, [t], [i(t)])
     prob = NeuralPDE.discretize(pde_system, discretization)
 
-    t_start = time()
-    res = Optimization.solve(prob, BFGS(); maxiters = 50)
-    t_elapsed = time() - t_start
+    # Warmup (compile) then time
+    Optimization.solve(prob, BFGS(); maxiters = 5)
+    t_elapsed = @elapsed res = Optimization.solve(prob, BFGS(); maxiters = 50)
 
     u_pinn = [first(discretization.phi([t], res.u)) for t in ts]
     l2 = sqrt(sum((u_real .- u_pinn).^2) / length(ts))
@@ -77,14 +84,9 @@ sol_rodas = solve(prob_ode, Rodas5(), saveat=0.01)
 l2_tsit5 = sqrt(sum((u_real .- sol_tsit5[1,:]).^2) / length(ts))
 l2_rodas = sqrt(sum((u_real .- sol_rodas[1,:]).^2) / length(ts))
 
-# Benchmark ODE solve times
-t_start = time()
-solve(prob_ode, Tsit5(), saveat=0.01)
-t_ode_tsit5 = time() - t_start
-
-t_start = time()
-solve(prob_ode, Rodas5(), saveat=0.01)
-t_ode_rodas = time() - t_start
+# Benchmark ODE solve times with @belapsed (averaged over multiple runs)
+t_ode_tsit5 = @belapsed solve($prob_ode, Tsit5(), saveat=0.01)
+t_ode_rodas = @belapsed solve($prob_ode, Rodas5(), saveat=0.01)
 
 println("ODE Tsit5: Time=$(t_ode_tsit5)s, L2=$l2_tsit5")
 println("ODE Rodas5: Time=$(t_ode_rodas)s, L2=$l2_rodas")
@@ -142,4 +144,15 @@ println("| ODE Rodas5 | $(round(t_ode_rodas, sigdigits=2)) | $(round(l2_rodas, s
 
 ## Conclusion
 
-For this 1D Volterra IDE with known analytical structure, traditional ODE solvers are 5-7 million times faster than PINNs while achieving 10-100× better accuracy. This demonstrates that for low-dimensional IDEs where the integral can be eliminated via differentiation, converting to an ODE system is strongly preferred over neural network approaches.
+The benchmark above compares NeuralPDE PINNs against solving the differentiated
+ODE for a 1D Volterra IDE. The timing and accuracy ratios in the summary table
+are computed from the actual measurements - not hardcoded.
+
+For this low-dimensional IDE with a known analytical structure, converting the
+integral equation to an ODE via differentiation is strongly preferred over
+neural network approaches. The exact ratios depend on the specific run and
+hardware; see the summary table above for the measured values.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
