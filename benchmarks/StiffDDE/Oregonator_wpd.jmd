@@ -87,9 +87,9 @@ plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
 At the loosest high-tolerance pair (`abstol = 1e-10`, `reltol = 1e-1`), `TRBDF2` returns
 `Unstable` before $t = 100.5$, so that point is omitted from the diagrams. Final errors for the
 SDIRK methods stay between about $2\times 10^{-9}$ and $2\times 10^{-7}$ across the
-high-tolerance range and are not monotone in the tolerance; on this relaxation oscillator,
-`error_estimate = :final` is phase-sensitive and does not resolve the spikes the way the
-Rosenbrock final-error diagrams do at the same tolerances.
+high-tolerance range and are not monotone in the tolerance; on this relaxation oscillator the
+final-error estimate is phase-sensitive, so tightening the tolerance does not always improve
+it.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
@@ -141,28 +141,29 @@ plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
 
 ## Low Tolerances
 
-`Rosenbrock23` is omitted here: with `maxiters = Int(1e5)` it returns `MaxIters` on the three
-tighter pairs, reaching only $t \approx 46$, $12$ and $3$ of $100.5$. The Rodas and SDIRK
-methods below complete at `maxiters = Int(1e5)`.
+At these tolerances `Rosenbrock23` needs on the order of $10^6$ accepted steps per solve
+(about $2.4\times 10^6$ at the tightest pair), so this block raises `maxiters` to
+`Int(1e7)`. The Rodas and SDIRK methods below complete within $10^5$ iterations.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (14:17)
 reltols = 1.0 ./ 10.0 .^ (5:8)
 
-setups = [Dict(:alg => MethodOfSteps(Rodas4())),
+setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
+    Dict(:alg => MethodOfSteps(Rodas4())),
     Dict(:alg => MethodOfSteps(Rodas5())),
     Dict(:alg => MethodOfSteps(Rodas5P())),
     Dict(:alg => MethodOfSteps(TRBDF2())),
     Dict(:alg => MethodOfSteps(KenCarp4()))]
-names = ["Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
+names = ["Rosenbrock23", "Rodas4", "Rodas5", "Rodas5P", "TRBDF2", "KenCarp4"]
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
-    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :final)
+    names = names, appxsol = test_sol, maxiters = Int(1e7), error_estimate = :final)
 plot(wp; title = "Oregonator: Low Tolerances (final error)")
 ```
 
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
-    names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
+    names = names, appxsol = test_sol, maxiters = Int(1e7), error_estimate = :L2)
 plot(wp; title = "Oregonator: Low Tolerances (L2 error)")
 ```
 
