@@ -7,7 +7,7 @@ author: Chris Rackauckas
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using SciMLLogging
-using LinearAlgebra, RecursiveFactorization, Polyester, PreallocationTools, OrdinaryDiffEqCore
+using LinearAlgebra, RecursiveFactorization, Polyester, StaticArrays, OrdinaryDiffEqCore
 gr()
 
 # Beam problem from the IVP Test Set
@@ -22,26 +22,20 @@ const NSQ_beam = N_beam * N_beam
 const NQUATR_beam = NSQ_beam * NSQ_beam
 const DELTAS_beam = 1.0 / N_beam
 
-# Pre-allocate work buffers using DiffCache for ForwardDiff compatibility
-const _beam_sth   = DiffCache(zeros(N_beam))
-const _beam_cth   = DiffCache(zeros(N_beam))
-const _beam_v     = DiffCache(zeros(N_beam))
-const _beam_w     = DiffCache(zeros(N_beam))
-const _beam_alpha = DiffCache(zeros(N_beam))
-const _beam_beta  = DiffCache(zeros(N_beam))
-const _beam_u     = DiffCache(zeros(N_beam))
-
 function beam!(df, th, p, t)
     N = N_beam
     NN = NN_beam
 
-    sth   = get_tmp(_beam_sth, df)
-    cth   = get_tmp(_beam_cth, df)
-    v     = get_tmp(_beam_v, df)
-    w     = get_tmp(_beam_w, df)
-    alpha = get_tmp(_beam_alpha, df)
-    beta  = get_tmp(_beam_beta, df)
-    u     = get_tmp(_beam_u, df)
+    # Per-call stack buffers: the threaded extrapolation methods evaluate beam! concurrently,
+    # so shared global work arrays would be a data race.
+    T = eltype(df)
+    sth   = MVector{N_beam, T}(undef)
+    cth   = MVector{N_beam, T}(undef)
+    v     = MVector{N_beam, T}(undef)
+    w     = MVector{N_beam, T}(undef)
+    alpha = MVector{N_beam, T}(undef)
+    beta  = MVector{N_beam, T}(undef)
+    u     = MVector{N_beam, T}(undef)
 
     # Precompute sin and cos of differences (indices 2:N only)
     for i in 2:N
@@ -303,7 +297,7 @@ plot(wp, title = "Implicit Methods: Beam",legend=:outertopleft,size = (1000,500)
 
 ### Conclusion
 
-The Beam problem is an 80-dimensional stiff ODE from structural mechanics. It involves solving a tridiagonal system at each RHS evaluation, which adds computational cost per function evaluation. In the latest run, `RadauIIA5` and the Julia BDF methods (`FBDF`, `QNDF`, `NordsieckBDF`) do well at high tolerances, and `Rodas5P` followed by `Rodas4` are the fastest at low tolerances, while `CVODE_BDF` and `lsoda` are among the slowest methods at both. The multithreading comparison does not show a benefit from threading the implicit extrapolation methods: the threaded variants do not appear in the plot.
+The Beam problem is an 80-dimensional stiff ODE from structural mechanics. It involves solving a tridiagonal system at each RHS evaluation, which adds computational cost per function evaluation. In the latest run, `RadauIIA5` and the Julia BDF methods (`FBDF`, `QNDF`, `NordsieckBDF`) do well at high tolerances, and `Rodas5P` followed by `Rodas4` are the fastest at low tolerances, while `CVODE_BDF` and `lsoda` are among the slowest methods at both. In the multithreading comparison, each threaded implicit extrapolation variant reaches the same errors as its non-threaded counterpart.
 
 ```julia, echo = false
 using SciMLBenchmarks

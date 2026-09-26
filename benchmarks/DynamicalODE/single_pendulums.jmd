@@ -42,14 +42,20 @@ Define $y(t)$ by
 ```math
 y(t) = \sin(q(t)/2) = k\,\mathrm{sn}(t,k), \quad y_{\max} = k.
 ```
+
+For each run, the "Energy" panel reports the standard deviation of $H$ along the trajectory,
+and the "Comparison" panel overlays the numerical $y(t)$ on the exact $k\,\mathrm{sn}(t - t_0, k)$,
+where $t_0$ is the start of the integration, and reports the maximum absolute difference.
 ```julia
 # Single pendulums shall be solved numerically.
 #
 using OrdinaryDiffEq, Elliptic, Printf, DiffEqPhysics, Statistics
 using OrdinaryDiffEqSymplecticRK
 
-sol2q(sol) = [sol.u[i][j] for i in 1:length(sol.u), j in 1:(length(sol.u[1]) ÷ 2)]
-function sol2p(sol)
+# `HamiltonianProblem(H, p0, q0, tspan)` stores the state as `ArrayPartition(p, q)`:
+# the first half of `u` is the momentum and the second half is the position.
+sol2p(sol) = [sol.u[i][j] for i in 1:length(sol.u), j in 1:(length(sol.u[1]) ÷ 2)]
+function sol2q(sol)
     [sol.u[i][j] for i in 1:length(sol.u), j in (length(sol.u[1]) ÷ 2 + 1):length(sol.u[1])]
 end
 sol2tqp(sol) = (sol.t, sol2q(sol), sol2p(sol))
@@ -102,7 +108,7 @@ end
 function plotenergy(H, sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
-    local energy = [H(q[i, :], p[i, :], nothing) for i in 1:size(q)[1]]
+    local energy = [H(p[i, :], q[i, :], nothing) for i in 1:size(q)[1]]
     p3 = plot(t, energy, label = "energy", color = "red", linewidth = 1,
         xlabel = "t", title = "Energy", grid = :on)
     stdenergy_str = @sprintf("%.3e", std(energy))
@@ -115,26 +121,26 @@ function plotcomparison(k, sol::ODESolution)
     local t, q, p
     t, q, p = sol2tqp(sol)
     local y = sin.(q / 2)
-    local y_exact = k * sn.(t, k) # the exact solution
+    local y_exact = k * sn.(t .- t[1], k) # exact solution with q(t[1]) = 0, p(t[1]) = 2k
 
     p4 = plot(t, y, label = "numerical", linewidth = 1, grid = :on,
         xlabel = "t", ylabel = "y = sin(q(t)/2)", title = "Comparison")
     plot!(p4, t, y_exact, label = "exact", linewidth = 1, linestyle = :dash)
     error_str = @sprintf("%.3e", maximum(abs.(y - y_exact)))
-    title!("maximum(abs(numerical - exact)) = $error_str", fontsize = 10)
+    title!("max|y - y_exact| = $error_str", fontsize = 10)
     return p4
 end
 
 # Plot solution and energy
 function plotsolenergy(H, integrator, Δt, sol::ODESolution)
-    integrator_str = replace("$integrator", r"^[^.]*\\." => "")
+    integrator_str = replace("$integrator", r"^[^.]*\." => "")
 
     p1 = plotsol(sol)
     p2 = plotsol2(sol)
     p3 = plotenergy(H, sol)
 
     suptitle = "===== $integrator_str, Δt = $Δt ====="
-    plot(p1, p2, p3, layout = (3, 1), title = suptitle)
+    plot(p1, p2, p3, layout = (3, 1), plot_title = suptitle, size = (900, 700))
 end
 
 # Solve a single pendulum
@@ -144,12 +150,17 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
     p0 = [2k]
     prob = HamiltonianProblem(H, p0, q0, (t0, t1))
 
-    integrator_str = replace("$integrator", r"^[^.]*\\." => "")
+    integrator_str = replace("$integrator", r"^[^.]*\." => "")
     @printf("%-25s", "$integrator_str:")
     sol = solve(prob, integrator, dt = Δt)
     @time sol = solve(prob, integrator, dt = Δt)
 
     sleep(0.1)
+
+    t, q, p = sol2tqp(sol)
+    energy = [H(p[i, :], q[i, :], nothing) for i in 1:length(t)]
+    y_error = maximum(abs.(sin.(q[:, 1] / 2) .- k * sn.(t .- t[1], k)))
+    @printf("%-25s std(energy) = %.3e, max|y - y_exact| = %.3e\n", "", std(energy), y_error)
 
     p1 = plotsol(sol)
     p2 = plotsol2(sol)
@@ -157,7 +168,7 @@ function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
     p4 = plotcomparison(k, sol)
 
     suptitle = "===== $integrator_str, Δt = $Δt ====="
-    plot(p1, p2, p3, p4, layout = (2, 2), title = suptitle)
+    plot(p1, p2, p3, p4, layout = (2, 2), plot_title = suptitle, size = (900, 700))
 end
 ```
 
@@ -165,34 +176,6 @@ end
 
 ```julia
 # Single pendulum
-using Plots
-using OrdinaryDiffEq
-
-function singlependulum(k, integrator, Δt; t0 = 0.0, t1 = 100.0)
-    local H(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1  # Hamiltonian for single pendulum
-    local q0 = [0.0]  # Initial position
-    local p0 = [2k]   # Initial momentum
-    local prob = HamiltonianProblem(H, p0, q0, (t0, t1))
-
-    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
-    @printf("%-25s", "$integrator_str:")
-    sol = solve(prob, integrator, dt = Δt)
-    @time local sol = solve(prob, integrator, dt = Δt)
-
-    sleep(0.1)
-
-    # Create plots using Plots.jl
-    p1 = plot(sol.t, map(x -> x[1], sol.u), label = "Position", title = "Position vs Time")
-    p2 = plot(sol.t, map(x -> x[2], sol.u), label = "Momentum", title = "Momentum vs Time")
-    p3 = plot(sol.t, map(p -> H(p[1], p[2], nothing), sol.u), label = "Energy", title = "Energy vs Time")
-    p4 = plot(sol.t, map(x -> x[1] - k, sol.u), label = "Comparison", title = "Comparison Plot")
-
-    # Combine all plots in a layout
-    layout = @layout [a b; c d]
-    plot(p1, p2, p3, p4, layout = layout, size = (1000, 800),
-        title = "===== $integrator_str, Δt = $Δt =====")
-end
-
 k = rand()
 integrator = VelocityVerlet()
 Δt = 0.1
@@ -201,29 +184,11 @@ singlependulum(k, integrator, Δt, t0 = -20.0, t1 = 20.0)
 
 ```julia
 # Two single pendulums
-
-using Plots
-using OrdinaryDiffEq
-
-function plotsolenergy(H, integrator, Δt, sol::ODESolution)
-    local integrator_str = replace("$integrator", r"^[^.]*\." => "")
-
-    # Create plots using Plots.jl
-    p1 = plot(sol, label = "Position", title = "Position vs Time")
-    p2 = plot(sol, label = "Momentum", title = "Momentum vs Time")
-    p3 = plot(sol.t, map(p -> H(p[2], p[3], nothing), sol.u), label = "Energy", title = "Energy vs Time")
-
-    # Combine all plots in a layout
-    layout = @layout [a b; c]
-    plot(p1, p2, p3, layout = layout, size = (1000, 800),
-        title = "===== $integrator_str, Δt = $Δt =====")
-end
-
-H(q, p, param) = sum(p .^ 2 / 2 .- cos.(q) .+ 1)
+H(p, q, param) = sum(p .^ 2 / 2 .- cos.(q) .+ 1)
 q0 = pi * rand(2)
 p0 = zeros(2)
 t0, t1 = -20.0, 20.0
-prob = HamiltonianProblem(H, q0, p0, (t0, t1))
+prob = HamiltonianProblem(H, p0, q0, (t0, t1))
 
 integrator = McAte4()
 Δt = 0.1
@@ -260,7 +225,7 @@ SymplecticIntegrators = [
 k = 0.999
 Δt = 0.1
 for integrator in SymplecticIntegrators
-    singlependulum(k, integrator, Δt)
+    display(singlependulum(k, integrator, Δt))
 end
 ```
 
@@ -268,7 +233,7 @@ end
 k = 0.999
 Δt = 0.01
 for integrator in SymplecticIntegrators[1:4]
-    singlependulum(k, integrator, Δt)
+    display(singlependulum(k, integrator, Δt))
 end
 ```
 
@@ -283,6 +248,56 @@ k = 0.999
 Δt = 0.0001
 singlependulum(k, SymplecticEuler(), Δt)
 ```
+
+```julia
+# Observed convergence orders: halve Δt and compare the endpoint (p, q) of each
+# run with the exact solution. This measures the order of each component
+# separately, since the momentum and position need not converge at the same rate.
+k = 0.999
+Δts = (0.04, 0.02, 0.01, 0.005)
+H_conv(p, q, params) = p[1]^2 / 2 - cos(q[1]) + 1
+prob_conv = HamiltonianProblem(H_conv, [2k], [0.0], (0.0, 1.0))
+for integrator in (SymplecticEuler(), VelocityVerlet(), McAte4(), McAte42())
+    p_errs = Float64[]
+    q_errs = Float64[]
+    for Δt in Δts
+        sol_conv = solve(prob_conv, integrator, dt = Δt)
+        p_end, q_end = sol_conv.u[end]
+        push!(p_errs, abs(p_end - 2k * Jacobi.cn(1.0, k^2)))
+        push!(q_errs, abs(q_end - 2asin(k * sn(1.0, k))))
+    end
+    p_orders = log2.(p_errs[1:end-1] ./ p_errs[2:end])
+    q_orders = log2.(q_errs[1:end-1] ./ q_errs[2:end])
+    integrator_str = replace("$integrator", r"^[^.]*\." => "")
+    @printf("%-16s observed orders:  p = %s   q = %s\n", integrator_str,
+        join([@sprintf("%.2f", o) for o in p_orders], ", "),
+        join([@sprintf("%.2f", o) for o in q_orders], ", "))
+end
+```
+
+## Results
+
+With $k = 0.999$ the pendulum starts close to the separatrix. The last run above measures
+endpoint convergence orders directly: `SymplecticEuler` is first order in the momentum while
+its position converges at second order, `VelocityVerlet` is second order in both components,
+and `McAte4` shows about third order. `McAte42`, nominally fourth order, is first order in
+the momentum and second order in the position — a known bug
+([OrdinaryDiffEq.jl#85](https://github.com/SciML/OrdinaryDiffEq.jl/issues/85)).
+
+Over $t \in [0, 100]$ with $\Delta t = 0.1$ the lowest-order methods (`SymplecticEuler`,
+`VelocityVerlet`, `VerletLeapfrog`, `PseudoVerletLeapfrog`, `McAte2`) accumulate enough phase
+error that the maximum difference to the exact $y(t)$ is of order 1, even though their energy
+error stays bounded (standard deviation between about 1e-4 and 3e-2). The methods of nominal
+order three to five (`Ruth3`, `McAte3`, `CandyRoz4`, `McAte4`, `CalvoSanz4`, `McAte5`) reach
+phase errors between about 1e-4 and 4e-2, the sixth-order `Yoshida6` and `KahanLi6` reach
+1e-5 to 1e-6, and the eighth- and tenth-order `McAte8`, `KahanLi8` and `SofSpa10` reach
+1e-9 to 1e-11 with energy fluctuations near machine precision. `McAte42`'s first-order
+momentum error puts it with the low-order methods here: its energy standard deviation of
+about 6e-3 and phase error of order 1 match theirs. Because the comparison measures the
+position-like observable $y = \sin(q/2)$, its errors follow the position component: with
+$\Delta t = 0.01$ the low-order methods reach phase errors of about 5e-2 to 9e-2, and
+`SymplecticEuler` reaches about 9e-4 at $\Delta t = 0.001$ and 9e-6 at $\Delta t = 0.0001$ —
+the second-order scaling of its position error even though its momentum error is first order.
 
 ```julia, echo = false
 using SciMLBenchmarks
