@@ -1,3 +1,5 @@
+using Distributed
+using LinearAlgebra
 using Printf
 using Logging
 using DataFrames
@@ -26,6 +28,11 @@ const MAX_NVAR = 1_000
 const MAX_NCON = 1_000
 const SOLVE_MAXITERS = 1_000
 const SOLVE_TIMEOUT_SECONDS = 90.0
+# Extra wall-clock budget beyond the per-pass `maxtime` caps. The hard deadline
+# is `2 * maxtime + HARD_TIMEOUT_GRACE_SECONDS` so a legitimate two-pass solve
+# (first + clean) that stays within each cooperative `maxtime` is not killed,
+# while SIF decode / wrap-up / cleanup still have a fixed allowance.
+const HARD_TIMEOUT_GRACE_SECONDS = 60.0
 
 # A category is considered degenerate (and the page fails) when fewer than this
 # fraction of its rows complete at the harness level (`status == "OK"`), regardless
@@ -196,7 +203,7 @@ function solver_skip_reason(solver_name, meta)
     return nothing
 end
 
-function problem_metadata(name)
+function problem_metadata_inprocess(name)
     nlp = nothing
     try
         nlp = CUTEstModel(name)
@@ -219,18 +226,55 @@ function problem_metadata(name)
     end
 end
 
+# Decode CUTEst metadata. On the page master with `hard_timeout = true` (default),
+# the decode runs on the long-lived benchmark worker so a hung SIF decode cannot
+# stall selection. Workers always decode in-process to avoid recursive workers.
+function problem_metadata(
+        name; hard_timeout = true, maxtime = SOLVE_TIMEOUT_SECONDS
+    )
+    if myid() != 1 || !hard_timeout
+        return problem_metadata_inprocess(name)
+    end
+
+    worker = ensure_benchmark_worker()
+    # Metadata is a single decode (no two-pass solve); one `maxtime` + grace.
+    deadline = maxtime + HARD_TIMEOUT_GRACE_SECONDS
+    waiter = @async remotecall_fetch(
+        Core.eval, worker, Main, :(problem_metadata_inprocess($name))
+    )
+
+    if timedwait(() -> istaskdone(waiter), deadline; pollint = 0.5) === :timed_out
+        println(
+            " HARD TIMEOUT: metadata decode for $name exceeded $(deadline)s, " *
+                "killing worker $worker"
+        )
+        kill_benchmark_worker(worker)
+        return (; ok = false, nvar = -1, ncon = -1)
+    end
+
+    try
+        return fetch(waiter)
+    catch err
+        bt = catch_backtrace()
+        print_exception("Benchmark worker $worker failed loading metadata for $name", err, bt)
+        kill_benchmark_worker(worker)
+        return (; ok = false, nvar = -1, ncon = -1)
+    end
+end
+
 function select_safe_problems(
         candidates;
         max_problems = MAX_PROBLEMS_PER_CATEGORY,
         max_var = MAX_NVAR,
         max_con = MAX_NCON,
+        hard_timeout = true,
     )
     selected = String[]
 
     for name in candidates
         lowercase(name) in KNOWN_BAD_PROBLEMS && continue
 
-        meta = problem_metadata(name)
+        meta = problem_metadata(name; hard_timeout)
 
         meta.ok || continue
         meta.nvar <= max_var || continue
@@ -515,33 +559,311 @@ warmup_problem_for(solver_name) =
 # change of problem shape. `problem` may be a problem name applied to every solver, or
 # `nothing` to pick a tiny unconstrained/constrained problem per solver via
 # `warmup_problem_for`.
-function warmup_solvers(solvers; problem = nothing, maxtime = SOLVE_TIMEOUT_SECONDS)
+#
+# With `hard_timeout = true`, warm-up uses the guarded worker path so hangs cannot stall
+# the page and JIT lands in the process that will be measured.
+function warmup_solvers(
+        solvers; problem = nothing, maxtime = SOLVE_TIMEOUT_SECONDS, hard_timeout = false
+    )
     rows = NamedTuple[]
 
     println()
     println("Warming up solvers (JIT), results are not benchmarked:")
     for solver_name in solvers
+        sync_warmup_worker!()
+        if hard_timeout && solver_name in WARMUP_FAILED_SOLVERS
+            @printf("  %-18s %-24s skipped (prior warm-up timeout)\n", solver_name, "-")
+            continue
+        end
+        if hard_timeout && solver_warmed_here(solver_name)
+            @printf(
+                "  %-18s %-24s already warm on worker %d\n", solver_name, "-",
+                BENCHMARK_WORKER[],
+            )
+            continue
+        end
+
         problem_name = problem === nothing ? warmup_problem_for(solver_name) : problem
         @printf("  %-18s %-24s", solver_name, problem_name)
         started = time_ns()
-        row = run_single_solve(problem_name, solver_name; maxtime)
+        row = if hard_timeout
+            run_single_solve_guarded(problem_name, solver_name; maxtime)
+        else
+            run_single_solve(problem_name, solver_name; maxtime)
+        end
         push!(rows, row)
         @printf(
             " %s %s first %.3fs compile %.3fs clean %.3fs (total %.3fs)\n", row.status,
             row.retcode, row.first_solve_secs, row.compile_secs, row.secs,
             elapsed_seconds(started)
         )
+
+        if hard_timeout
+            sync_warmup_worker!()
+            if row.status == "TIMEOUT" || row.retcode in ("HARD_TIMEOUT", "WORKER_FAILED")
+                push!(WARMUP_FAILED_SOLVERS, solver_name)
+            elseif BENCHMARK_WORKER[] in workers()
+                mark_solver_warmed!(solver_name)
+            end
+        else
+            WARMED_ON_WORKER[] = -1
+            push!(WARMED_SOLVERS, solver_name)
+        end
     end
     return DataFrame(rows)
 end
 
+# ---------------------------------------------------------------------------
+# Hard wall-clock guard
+#
+# Cooperative `maxtime` cannot interrupt a stalled callback or hung SIF decode.
+# With `hard_timeout = true`, solves run on one long-lived Distributed worker per
+# page; a row that exceeds `hard_timeout_seconds(maxtime)` kills that worker's
+# process group, records TIMEOUT/HARD_TIMEOUT, and continues on a fresh worker.
+# ---------------------------------------------------------------------------
+
+const HARNESS_FILE = abspath(@__FILE__)
+const BENCHMARK_WORKER = Ref{Int}(0)
+# Worker PID after setpgid(0,0); used for process-group cleanup (public getpid).
+const BENCHMARK_WORKER_PGID = Ref{Int}(0)
+# Solvers successfully warmed on WARMED_ON_WORKER; cleared when the worker is replaced.
+const WARMED_ON_WORKER = Ref{Int}(0)
+const WARMED_SOLVERS = Set{String}()
+# Solvers whose warm-up hung once; do not retry warm-up (avoids restart loops).
+const WARMUP_FAILED_SOLVERS = Set{String}()
+
+hard_timeout_seconds(maxtime = SOLVE_TIMEOUT_SECONDS) =
+    2 * Float64(maxtime) + HARD_TIMEOUT_GRACE_SECONDS
+
+function reset_warmup_state!()
+    empty!(WARMED_SOLVERS)
+    empty!(WARMUP_FAILED_SOLVERS)
+    WARMED_ON_WORKER[] = 0
+    return nothing
+end
+
+function sync_warmup_worker!()
+    worker = BENCHMARK_WORKER[]
+    if worker == 0 || !(worker in workers())
+        # Drop marks from a dead worker; keep in-process marks (WARMED_ON_WORKER == -1).
+        if WARMED_ON_WORKER[] > 0
+            empty!(WARMED_SOLVERS)
+            WARMED_ON_WORKER[] = 0
+        end
+        return nothing
+    end
+    if WARMED_ON_WORKER[] != worker
+        empty!(WARMED_SOLVERS)
+        WARMED_ON_WORKER[] = worker
+    end
+    return nothing
+end
+
+solver_warmed_here(solver_name) =
+    solver_name in WARMED_SOLVERS && (
+    WARMED_ON_WORKER[] == -1 || WARMED_ON_WORKER[] == BENCHMARK_WORKER[]
+)
+
+function mark_solver_warmed!(solver_name)
+    sync_warmup_worker!()
+    BENCHMARK_WORKER[] in workers() || return nothing
+    WARMED_ON_WORKER[] = BENCHMARK_WORKER[]
+    push!(WARMED_SOLVERS, solver_name)
+    return nothing
+end
+
+function ensure_solver_warmed!(
+        solver_name; problem = nothing, maxtime = SOLVE_TIMEOUT_SECONDS, hard_timeout = true
+    )
+    sync_warmup_worker!()
+    solver_warmed_here(solver_name) && return nothing
+    solver_name in WARMUP_FAILED_SOLVERS && return nothing
+    warmup_solvers([solver_name]; problem, maxtime, hard_timeout)
+    return nothing
+end
+
+function proc_pgrp(pid::Integer)
+    stat_path = "/proc/$pid/stat"
+    isfile(stat_path) || return -1
+    s = read(stat_path, String)
+    rparen = findlast(')', s)
+    rparen === nothing && return -1
+    fields = split(SubString(s, nextind(s, rparen)))
+    length(fields) >= 3 || return -1
+    return parse(Int, fields[3])
+end
+
+function process_group_alive(pgid::Integer)
+    pgid <= 1 && return false
+    isdir("/proc") || return false
+    for name in readdir("/proc")
+        all(isdigit, name) || continue
+        try
+            proc_pgrp(parse(Int, name)) == pgid && return true
+        catch
+        end
+    end
+    return false
+end
+
+function wait_process_group_exit(pgid::Integer; waitfor = 10.0)
+    deadline = time() + waitfor
+    while time() < deadline
+        process_group_alive(pgid) || return true
+        sleep(0.05)
+    end
+    return !process_group_alive(pgid)
+end
+
+function kill_process_group(pgid::Integer)
+    pgid <= 1 && return false
+    return ccall(:kill, Cint, (Cint, Cint), -Int32(pgid), Int32(9)) == 0
+end
+
+function configure_worker_process_group(worker)
+    pgid = remotecall_fetch(worker) do
+        ccall(:setpgid, Cint, (Cint, Cint), 0, 0)
+        return Int(getpid())
+    end
+    BENCHMARK_WORKER_PGID[] = pgid
+    return pgid
+end
+
+function start_benchmark_worker()
+    started = time()
+    blas_threads = BLAS.get_num_threads()
+    worker = only(
+        addprocs(
+            1;
+            exeflags = "--project=$(Base.active_project())",
+            enable_threaded_blas = blas_threads > 1,
+        )
+    )
+    remotecall_fetch(
+        Core.eval, worker, Main, quote
+            using CUTEst
+            using LinearAlgebra
+            BLAS.set_num_threads($blas_threads)
+            include($HARNESS_FILE)
+        end
+    )
+    BENCHMARK_WORKER[] = worker
+    empty!(WARMED_SOLVERS)
+    WARMED_ON_WORKER[] = worker
+    configure_worker_process_group(worker)
+    @printf("Benchmark worker %d ready (startup %.1fs)\n", worker, time() - started)
+    return worker
+end
+
+function ensure_benchmark_worker()
+    worker = BENCHMARK_WORKER[]
+    worker in workers() && return worker
+    return start_benchmark_worker()
+end
+
+function kill_benchmark_worker(worker)
+    pgid = BENCHMARK_WORKER_PGID[]
+
+    try
+        rmprocs(worker; waitfor = 10)
+    catch
+    end
+
+    if pgid > 1
+        kill_process_group(pgid)
+        wait_process_group_exit(pgid; waitfor = 10) || kill_process_group(pgid)
+        wait_process_group_exit(pgid; waitfor = 5)
+    end
+
+    try
+        worker in workers() && rmprocs(worker; waitfor = 5)
+    catch err
+        print_exception("Unable to remove benchmark worker $worker", err, catch_backtrace())
+    end
+
+    BENCHMARK_WORKER[] = 0
+    BENCHMARK_WORKER_PGID[] = 0
+    empty!(WARMED_SOLVERS)
+    WARMED_ON_WORKER[] = 0
+    return nothing
+end
+
+function synthetic_solve_row(
+        problem_name, solver_name; secs, retcode, status, first_retcode = retcode
+    )
+    return (;
+        problem = problem_name,
+        solver = solver_name,
+        solver_class = solver_class(solver_name),
+        n_vars = -1,
+        secs = secs,
+        first_solve_secs = NaN,
+        compile_secs = NaN,
+        decode_secs = NaN,
+        solver_reported_secs = NaN,
+        retcode = retcode,
+        first_retcode = first_retcode,
+        status = status,
+        NO_QUALITY...,
+    )
+end
+
+function run_single_solve_guarded(
+        problem_name, solver_name; maxtime = SOLVE_TIMEOUT_SECONDS
+    )
+    worker = ensure_benchmark_worker()
+    deadline = hard_timeout_seconds(maxtime)
+    started = time()
+
+    waiter = @async remotecall_fetch(
+        Core.eval, worker, Main,
+        :(run_single_solve($problem_name, $solver_name; maxtime = $maxtime))
+    )
+
+    if timedwait(() -> istaskdone(waiter), deadline; pollint = 0.5) === :timed_out
+        println(
+            " HARD TIMEOUT: no result after $(deadline)s, killing worker $worker " *
+                "(a fresh worker is started for the next solve)"
+        )
+        kill_benchmark_worker(worker)
+
+        return synthetic_solve_row(
+            problem_name, solver_name;
+            secs = deadline, retcode = "HARD_TIMEOUT", status = "TIMEOUT",
+        )
+    end
+
+    try
+        return fetch(waiter)
+    catch err
+        bt = catch_backtrace()
+        print_exception(
+            "Benchmark worker $worker failed on $problem_name with $solver_name", err, bt
+        )
+        if !(worker in workers()) || BENCHMARK_WORKER[] == worker
+            kill_benchmark_worker(worker)
+        end
+
+        return synthetic_solve_row(
+            problem_name, solver_name;
+            secs = time() - started, retcode = "WORKER_FAILED", status = "FAILED",
+        )
+    end
+end
+
 function run_benchmarks(
         category, problems, solvers;
-        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS,
+        warmup = true, maxtime = SOLVE_TIMEOUT_SECONDS, hard_timeout = true,
     )
     rows = NamedTuple[]
+    reset_warmup_state!()
 
-    warmup && warmup_solvers(solvers; maxtime)
+    if hard_timeout
+        println("Hard timeout: ", hard_timeout_seconds(maxtime), "s per solve (worker process)")
+        ensure_benchmark_worker()
+    end
+
+    warmup && warmup_solvers(solvers; maxtime, hard_timeout)
 
     println()
     println("Running $category benchmarks")
@@ -551,8 +873,19 @@ function run_benchmarks(
 
     for problem_name in problems
         for solver_name in solvers
+            if hard_timeout
+                ensure_benchmark_worker()
+                sync_warmup_worker!()
+            end
+            if warmup
+                ensure_solver_warmed!(solver_name; maxtime, hard_timeout)
+            end
             @printf("  %-18s %-24s", solver_name, problem_name)
-            row = run_single_solve(problem_name, solver_name; maxtime)
+            row = if hard_timeout
+                run_single_solve_guarded(problem_name, solver_name; maxtime)
+            else
+                run_single_solve(problem_name, solver_name; maxtime)
+            end
             push!(rows, merge((category = category,), row))
             @printf(
                 " %s %s %.3fs (first %.3fs, compile %.3fs, decode %.3fs)\n", row.status,
