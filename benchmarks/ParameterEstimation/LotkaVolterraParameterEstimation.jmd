@@ -50,9 +50,12 @@ u0 = [1.0, 1.0]                          #initial values
 tspan = (0.0, 10.0)
 p = [1.5, 1.0, 3.0, 1.0]                   #parameters used, these need to be estimated from the data
 tspan = (0.0, 30.0)                     # sample of 3000 observations over the (0,30) timespan
-prob = ODEProblem(f, u0, tspan, p)
-tspan2 = (0.0, 3.0)                     # sample of 3000 observations over the (0,30) timespan
-prob_short = ODEProblem(f, u0, tspan2, p)
+# unknowns(f) is ordered [y, x] rather than in declaration order, so the
+# initial condition and parameters are keyed by name instead of positionally.
+varmap = merge(Dict([f.x, f.y] .=> u0), Dict([f.a, f.b, f.c, f.d] .=> p))
+prob = ODEProblem(f, varmap, tspan)
+tspan2 = (0.0, 3.0)                     # sample of 300 observations over the (0,3) timespan
+prob_short = ODEProblem(f, varmap, tspan2)
 ```
 
 ```julia
@@ -175,8 +178,11 @@ opt = Opt(:LN_COBYLA, 4)
 ```
 
 ```julia
+# LN_NEWUOA_BOUND is pathologically slow on this objective with NLopt_jll 2.11
+# (https://github.com/jump-dev/NLopt.jl/issues/280); it is given a 300 s
+# wall-time budget so the page terminates.
 opt = Opt(:LN_NEWUOA_BOUND, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
 ```
 
 ```julia
@@ -236,32 +242,35 @@ opt = Opt(:GN_ESCH, 4)
 
 ## Local problem
 
+Each local solve on the long problem is given a 300 s wall-time budget so the
+page terminates even when an optimizer does not converge.
+
 ```julia
-obj = build_loss_objective(prob, Vern9(), L2Loss(t, data), Optimization.AutoForwardDiff(),
-    tstops = t, reltol = 1e-9, abstol = 1e-9)
-optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
+obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data), Optimization.AutoForwardDiff(),
+    tstops = time_points, reltol = 1e-9, abstol = 1e-9)
+optprob = OptimizationProblem(obj, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
 ```
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
 ```
 
-Parameter estimation on the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, BlackBoxOptim also performs quite well, while others seem to struggle with accuracy a lot.
+In the latest run on the longer sample, `GN_CRS2_LM` recovers the parameters to within `1e-9` and BlackBoxOptim gets close, while `GN_ORIG_DIRECT_L`, `GN_ISRES` and `GN_ESCH` do not recover them. Of the local optimizers on the long objective, `LN_BOBYQA` and `LN_NELDERMEAD` recover the parameters and `LD_SLSQP` stops on its iteration limit at a corner of the bounds.
 
 # Conclusion
 
-In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLopt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison.
+Tighter ODE solver tolerances make each objective evaluation more expensive; the three BBO runs on the short problem all land within about `1e-3` of the true parameters. Fitting the longer problem is much more expensive than the short one. On the short problem, `GN_CRS2_LM` and all of the local optimizers return within `1e-5` of the true parameters, `LN_NEWUOA_BOUND` only at its 300 s wall-time budget because NLopt_jll 2.11's newuoa is pathologically slow on this objective (see the note above). On the longer problem, `GN_CRS2_LM` recovers the parameters among the global optimizers and `LN_BOBYQA` and `LN_NELDERMEAD` recover them among the local optimizers, while BlackBoxOptim only gets close and `GN_ORIG_DIRECT_L`, `GN_ISRES`, `GN_ESCH` and `LD_SLSQP` do not recover them.
 
 ```julia, echo = false
 using SciMLBenchmarks
