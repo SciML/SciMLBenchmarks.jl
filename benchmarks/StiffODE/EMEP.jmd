@@ -354,7 +354,7 @@ tspan = (4.0*3600.0, 20.0*3600.0 + 4.0*24.0*3600.0)
 disc_times = [72000.0, 100800.0, 158400.0, 187200.0, 244800.0, 273600.0, 331200.0, 360000.0]
 
 # The day/night switch is evaluated from t, so a step that ends exactly on a dawn/dusk
-# tstop sees the next regime at its endpoint and is rejected until dt < eps(t). The
+# tstop sees the next regime at its endpoint, which forces repeated rejections. The
 # test set restarts the integration at each T(i) instead. `prob` does the same: the
 # regime is a parameter that `daylight_cb` flips at each tstop, which also restarts the
 # integrator there (multistep history, FSAL).
@@ -367,7 +367,9 @@ prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan,
 
 # lsoda does not accept callbacks, and the ODEInterfaceDiffEq version in this
 # environment (4.x) errors on any callback, so rodas, radau, seulex and lsoda use
-# `:prob_choice => 2`: the same ODE with the switch evaluated from t, and only tstops.
+# `:prob_choice => 2`: the same ODE with the switch evaluated from t. ODEInterfaceDiffEq
+# ignores `tstops` (it warns on each solve), so rodas, radau and seulex also run
+# unguarded at the discontinuities; lsoda honors them.
 prob_tstops = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan, nothing)
 probs = [prob, prob_tstops]
 
@@ -384,12 +386,13 @@ reltols = 1.0 ./ 10.0 .^ (1:8);
 The EMEP MSC-W Ozone Model Chemistry describes atmospheric chemistry with 66 species,
 266 reaction rate coefficients, and 16 photolysis reactions. The rate coefficients
 depend on time through the solar zenith angle and day/night cycling, creating
-discontinuities at dawn (4:00) and dusk (20:00) transitions. All solvers get
-`tstops` at the 8 discontinuity times. The solvers that accept callbacks (OrdinaryDiffEq
-and Sundials) also switch the day/night regime and restart at those times through
-`daylight_cb`, like the test set driver. `rodas`, `radau`, `seulex` and `lsoda` cannot
-take the callback in this environment, so they integrate the right-hand side that
-switches on `t`.
+discontinuities at dawn (4:00) and dusk (20:00) transitions. The OrdinaryDiffEq and
+Sundials solvers get `tstops` at the 8 discontinuity times and also switch the day/night
+regime and restart at those times through `daylight_cb`, like the test set driver.
+`rodas`, `radau`, `seulex` and `lsoda` cannot take the callback in this environment, so
+they integrate the right-hand side that switches on `t`. `lsoda` still honors the
+`tstops`, but ODEInterfaceDiffEq ignores them, so `rodas`, `radau` and `seulex` step
+through the discontinuities unguarded.
 
 O(¹D) (y(38)) has a lifetime of about 1e-9 s. Resolving its initial transient at
 t = 14400 needs steps near `eps(14400) ≈ 1.8e-12` at the tightest tolerances. This is
@@ -562,7 +565,7 @@ plot(wp, title = "Implicit Methods: EMEP",legend=:outertopleft,size = (1000,500)
 
 ### Conclusion
 
-The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients and day/night discontinuities. At high tolerances, `NordsieckBDF` is the fastest, followed by `TRBDF2`, `QNDF` and `FBDF`, and `CVODE_BDF` is slower than these. At low tolerances, `Rodas5P` and `Rodas4` complete every tolerance, `CVODE_BDF` and `NordsieckBDF` complete most of them, and `Rodas5P` reaches the smallest errors. `FBDF` and `QNDF` complete only the loosest low tolerance. Tighter than that, they abort at t = 14400 because their first step falls below `eps(t)` ([OrdinaryDiffEq.jl#4606](https://github.com/SciML/OrdinaryDiffEq.jl/issues/4606)). `rodas`, `radau` and `lsoda` integrate without the restart callback. At low tolerances they give two points, one point or none. Most of their failed runs stop at a dawn or dusk `tstop` (mostly t = 100800), and `lsoda` also hits `maxiters`. In the multithreading comparison, each threaded extrapolation method reaches the same errors as its non-threaded version. Threading is not faster at these tolerances. `Rodas5P` and `Rodas4` reach the smallest errors there.
+The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients and day/night discontinuities. At high tolerances, `NordsieckBDF` is the fastest, followed by `TRBDF2`, `QNDF` and `FBDF`, and `CVODE_BDF` is slower than these. At low tolerances, `Rodas5P` and `Rodas4` complete every tolerance, `CVODE_BDF` and `NordsieckBDF` complete most of them, and `Rodas5P` and `Rodas4` reach the smallest errors, down to the error-measure floor described below. `FBDF` and `QNDF` complete only the loosest low tolerance. Tighter than that, they abort at t = 14400 because their first step falls below `eps(t)` ([OrdinaryDiffEq.jl#4606](https://github.com/SciML/OrdinaryDiffEq.jl/issues/4606)). `rodas`, `radau`, `seulex` and `lsoda` integrate without the restart callback, and the ODEInterface solvers also run without `tstops` because ODEInterfaceDiffEq ignores them. At low tolerances `rodas`, `radau` and `lsoda` give two points, one point or none: `rodas` and `radau` exit with `step size too small` at an unguarded discontinuity (mostly t = 100800), while `lsoda` fails its error test at and after the discontinuities, and also hits `maxiters`. The error measure itself has a floor on this problem: the mean-absolute metric sees components up to about 3.5e13, so displayed errors at or below about 5e-2 are within double-precision roundoff of the reference and cannot separate methods. In the multithreading comparison, each threaded extrapolation method reaches the same errors as its non-threaded version.
 
 ```julia, echo = false
 using SciMLBenchmarks
