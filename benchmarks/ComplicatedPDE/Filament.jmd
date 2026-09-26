@@ -299,9 +299,11 @@ The model quickly falls into a highly oscillatory mode which then dominates thro
 # Work-Precision Diagrams
 
 Now let's build the problem and solve it once at high accuracy to get a
-reference solution. The `ODEFunction` is given the analytical Jacobian
+reference solution. The `ODEFunction` is given the approximate Jacobian
 `J = P*A`, the same one the `run` helper passes; the implicit solvers in the
-diagrams below pick it up from the problem.
+diagrams below pick it up from the problem. `J = P*A` is approximate because
+the projection `P` is recomputed from the state `r` on every RHS evaluation,
+so the true Jacobian contains additional `dP/dr` terms that `P*A` omits.
 
 ```julia
 N=20
@@ -606,10 +608,11 @@ plot(wp)
 
 # No Jacobian Work-Precision Diagrams
 
-Here the problem is built with `jac = nothing`, so no analytical Jacobian is
-available to the solvers. The problem in the previous sections passes the
-analytical Jacobian `J = P*A` (the same one the `run` helper uses), so this
-section repeats the diagrams without it for comparison.
+Here the problem is built with `jac = nothing`, so no Jacobian is supplied
+to the solvers and methods that need one compute it by finite differences.
+The problem in the previous sections passes the approximate Jacobian
+`J = P*A` (the same one the `run` helper uses), so this section repeats the
+diagrams without it for comparison.
 
 Note that the pre-caching means that the model is not compatible with automatic differentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use FiniteDiff.jl's numerical differentiation backend.
 
@@ -728,22 +731,29 @@ dense-error diagrams, and the GMRES comparison. In the SDIRK-focused diagram
 it leads at the loosest tolerance, but `QNDF` and `NordsieckBDF` edge ahead
 of it for errors below `1e-4`. In the low-tolerance diagrams it leads — by
 several times at matched error — until the tightest tolerances, where `radau`
-and `RadauIIA5` become comparable and `radau` is the only method that reaches
-errors below `1e-11`. The ESDIRK methods (`TRBDF2`, `KenCarp3`, `KenCarp4`)
-take several times as long as `CVODE_BDF` at matched error, and the
-lower-order ones (`TRBDF2`, `KenCarp3`) level off at errors of about `1e-5`
-to `1e-6`.
+and `RadauIIA5` become comparable. `radau` is the only implicit method that
+reaches errors below `1e-11`, though the explicit `Vern7`, `Vern9`, and
+`ROCK4` get smaller errors still at a much higher cost. The ESDIRK methods
+(`TRBDF2`, `KenCarp3`, `KenCarp4`) take several times as long as `CVODE_BDF`
+at matched error, and in the high-tolerance diagrams the lower-order ones
+(`TRBDF2`, `KenCarp3`) level off at errors of about `1e-5` to `1e-6`.
 
 The stabilized explicit methods `RKC`, `ROCK2`, and `TSRKC3` do not use the
 Jacobian and are slower than `CVODE_BDF` at every tolerance in the
 Jacobian-enabled diagrams. In the "No Jacobian Work-Precision Diagrams"
 section they are a good choice: there `CVODE_BDF` is still the fastest
 implicit method — by at least about 2x at low tolerance — but it is slowed
-enough at high tolerance that `RKC` and `ROCK2` beat it for errors of about
-`1e-4` and larger. Supplying the analytical Jacobian makes the implicit
-methods faster overall — `CVODE_BDF` gains up to roughly an order of
-magnitude at loose tolerance — so `CVODE_BDF` is the default choice for this
-problem.
+enough at high tolerance that `RKC`, `ROCK2`, and `TSRKC3` beat it for
+errors of about `1e-5` and larger.
+
+Because the supplied `J = P*A` omits the `dP/dr` terms, it helps most but
+not all of the implicit methods. `CVODE_BDF` gains up to roughly an order of
+magnitude at loose tolerance with it, but the Rosenbrock method `rodas`
+needs an accurate Jacobian for its order: in the no-Jacobian diagrams, where
+it computes the full Jacobian by finite differences, `rodas` reaches the
+tightest high-tolerance point several times faster and with roughly 30x
+lower error than with `J = P*A`. `CVODE_BDF` remains the default choice for
+this problem.
 
 ```julia, echo = false
 using SciMLBenchmarks
