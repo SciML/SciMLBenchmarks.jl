@@ -58,9 +58,9 @@ include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
 `select_safe_problems` sorts candidate names, filters the measured skip map and size limits,
 then selects up to `max_problems` across the 1–10, 11–100, and 101–`max_var` variable
 buckets. It samples each name-sorted bucket evenly, redistributing quotas when a bucket has
-fewer candidates. Sizes come from CUTEst's classification database, with problem metadata
-decoding as a fallback. The selected and eligible counts are printed per bucket. This page
-sets `max_con = 0` because its problems are unconstrained.
+fewer candidates. Size strata come from CUTEst's public selection filters. The selected
+and eligible counts are printed per bucket. This page sets `max_con = 0` because its
+problems are unconstrained.
 
 ```julia
 println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
@@ -81,11 +81,14 @@ unconstrained_problems = select_safe_problems(
 println("Selected unconstrained problems: ", length(unconstrained_problems))
 println(join(unconstrained_problems, ", "))
 
-selection_sizes = classification_sizes()
+_, unconstrained_size_buckets = classification_buckets(
+    MAX_NVAR, 0, NVAR_BUCKET_EDGES,
+)
 selected_size_buckets = zeros(Int, length(NVAR_BUCKET_EDGES) + 1)
 for name in unconstrained_problems
-    size = problem_size(name, selection_sizes)
-    selected_size_buckets[nvar_bucket(size.nvar, NVAR_BUCKET_EDGES)] += 1
+    bucket = get(unconstrained_size_buckets, uppercase(name), 0)
+    @assert bucket > 0 "selected problem $name is absent from CUTEst variable-count filters"
+    selected_size_buckets[bucket] += 1
 end
 @assert all(>(0), selected_size_buckets) "unconstrained selection must cover every variable-size bucket"
 @assert select_safe_problems(reverse(unconstrained_candidates); max_var = MAX_NVAR, max_con = 0) ==
