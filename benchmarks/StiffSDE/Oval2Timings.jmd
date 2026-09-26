@@ -15,8 +15,14 @@ dts = 1.0 ./ 2.0 .^ (js)
 trajectories = 1000
 fails = fill(-1, length(dts), 3)
 times = fill(NaN, length(dts), 3)
-best_adaptive_time = Inf
-best_adaptive_run = ""
+adaptive_runs = NamedTuple{(:label, :time, :numfails),Tuple{String,Float64,Int}}[]
+function time_adaptive!(label, alg; abstol, reltol)
+  solve(prob,alg,EnsembleThreads(),abstol=abstol,reltol=reltol,maxiters=Int(1e11),controller=PIController(alg; qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
+  adaptive_time = @elapsed sol = solve(prob,alg,EnsembleThreads(),abstol=abstol,reltol=reltol,maxiters=Int(1e11),controller=PIController(alg; qmax=1.125),save_everystep=false,trajectories=trajectories)
+  numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
+  push!(adaptive_runs, (; label, time = adaptive_time, numfails))
+  println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+end
 ```
 
 This page times 1000 trajectories of the Oval2 model on $t \in [0, 1]$. A trajectory counts
@@ -31,135 +37,51 @@ failed trajectories.
 ## Timing Runs
 
 ```julia
-sol = solve(prob,SRIW1(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SRIW1(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SRIW1(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SRIW1(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SRIW1 (abstol = 2^-13, reltol = 2^-7)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SRIW1 (abstol = 2^-13, reltol = 2^-7)", SRIW1(); abstol=2.0^(-13), reltol=2.0^(-7))
 ```
 
 ```julia
-sol = solve(prob,SRI(error_terms=2),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SRI(error_terms=2); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SRI(error_terms=2),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SRI(error_terms=2); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SRI(error_terms = 2) (abstol = 2^-13, reltol = 2^-7)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SRI(error_terms = 2) (abstol = 2^-13, reltol = 2^-7)", SRI(error_terms=2); abstol=2.0^(-13), reltol=2.0^(-7))
 ```
 
 ```julia
-sol = solve(prob,SRI(),EnsembleThreads(),abstol=2.0^(-14),reltol=2.0^(-18),maxiters=Int(1e11), controller=PIController(SRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SRI(),EnsembleThreads(),abstol=2.0^(-14),reltol=2.0^(-18),maxiters=Int(1e11), controller=PIController(SRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SRI (abstol = 2^-14, reltol = 2^-18)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SRI (abstol = 2^-14, reltol = 2^-18)", SRI(); abstol=2.0^(-14), reltol=2.0^(-18))
 ```
 
 ```julia
-sol = solve(prob,SRI(tableau=StochasticDiffEq.constructSRIOpt1()),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-4),maxiters=Int(1e11), controller=PIController(SRI(tableau=StochasticDiffEq.constructSRIOpt1()); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SRI(tableau=StochasticDiffEq.constructSRIOpt1()),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-4),maxiters=Int(1e11), controller=PIController(SRI(tableau=StochasticDiffEq.constructSRIOpt1()); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SRI(tableau = constructSRIOpt1()) (abstol = 2^-7, reltol = 2^-4)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SRI(tableau = constructSRIOpt1()) (abstol = 2^-7, reltol = 2^-4)", SRI(tableau=StochasticDiffEq.constructSRIOpt1()); abstol=2.0^(-7), reltol=2.0^(-4))
 ```
 
 ```julia
-sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-4),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-4),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI (abstol = 2^-7, reltol = 2^-4)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI (abstol = 2^-7, reltol = 2^-4)", SOSRI(); abstol=2.0^(-7), reltol=2.0^(-4))
 ```
 
 ```julia
-sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-6),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-7),reltol=2.0^(-6),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI (abstol = 2^-7, reltol = 2^-6)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI (abstol = 2^-7, reltol = 2^-6)", SOSRI(); abstol=2.0^(-7), reltol=2.0^(-6))
 ```
 
 ```julia
-sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI (abstol = 2^-12, reltol = 2^-15)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI (abstol = 2^-12, reltol = 2^-15)", SOSRI(); abstol=2.0^(-12), reltol=2.0^(-15))
 ```
 
 ```julia
-sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-7),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI (abstol = 2^-13, reltol = 2^-7)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI (abstol = 2^-13, reltol = 2^-7)", SOSRI(); abstol=2.0^(-13), reltol=2.0^(-7))
 ```
 
 ```julia
-sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI (abstol = 2^-12, reltol = 2^-15)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI (abstol = 2^-12, reltol = 2^-15)", SOSRI(); abstol=2.0^(-12), reltol=2.0^(-15))
 ```
 
 ```julia
-sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-12),reltol=2.0^(-15),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI2 (abstol = 2^-12, reltol = 2^-15)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI2 (abstol = 2^-12, reltol = 2^-15)", SOSRI2(); abstol=2.0^(-12), reltol=2.0^(-15))
 ```
 
 ```julia
-sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-11),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-11),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI2 (abstol = 2^-13, reltol = 2^-11)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI2 (abstol = 2^-13, reltol = 2^-11)", SOSRI2(); abstol=2.0^(-13), reltol=2.0^(-11))
 ```
 
 ```julia
-sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-11),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=Threads.nthreads())
-adaptive_time = @elapsed sol = solve(prob,SOSRI2(),EnsembleThreads(),abstol=2.0^(-13),reltol=2.0^(-11),maxiters=Int(1e11), controller=PIController(SOSRI2(); qmax=1.125),save_everystep=false,trajectories=trajectories)
-numfails = sum([Int(any(isnan,sol.u[i]) || sol.u[i].t[end] != 1) for i in 1:trajectories])
-if numfails == 0 && adaptive_time < best_adaptive_time
-  best_adaptive_time = adaptive_time
-  best_adaptive_run = "SOSRI2 (abstol = 2^-13, reltol = 2^-11)"
-end
-println("The number of Adaptive Fails is $numfails. Elapsed time was $adaptive_time")
+time_adaptive!("SOSRI2 (abstol = 2^-13, reltol = 2^-11)", SOSRI2(); abstol=2.0^(-13), reltol=2.0^(-11))
 ```
 
 ```julia
@@ -228,9 +150,11 @@ end
 
 ```julia
 using Plots, LaTeXStrings
+best_adaptive_time, best_adaptive_idx = findmin(r -> r.numfails == 0 ? r.time : Inf, adaptive_runs)
+best_adaptive_run = isfinite(best_adaptive_time) ? adaptive_runs[best_adaptive_idx].label : "no failure-free adaptive run"
 lw = 3
 p2 = plot(dts,times,xscale=:log2,yscale=:log2,guidefont=font(16),tickfont=font(14),yguide="Elapsed Time (s)",xguide=L"Chosen $\Delta t$",linewidth=lw,lab=["Euler-Maruyama" "RK-Mil" "RosslerSRI"],legendfont=font(14))
-plot!(dts,fill(best_adaptive_time, length(dts)),linewidth=lw,line=:dash,lab="ESRK+RSwM3")
+plot!(dts,fill(best_adaptive_time, length(dts)),linewidth=lw,line=:dash,lab=best_adaptive_run)
 stable = [findfirst(==(0), fails[:,i]) for i in 1:3]
 stable_idxs = [(j,i) for (i,j) in enumerate(stable) if j !== nothing]
 scatter!([dts[j] for (j,i) in stable_idxs],[times[j,i] for (j,i) in stable_idxs],markersize=20,c=:red,lab="")
@@ -250,26 +174,38 @@ for i in 1:3
     else
         nfailed = count(j -> fails[j, i] > 0, 1:(jstable - 1))
         ntested = count(j -> fails[j, i] != -1, 1:(jstable - 1))
-        println("  $(method_names[i]): failures on $nfailed of $ntested coarser tested Δt; first failure-free at Δt = 2^-$(js[jstable]) ($(round(times[jstable, i]; sigdigits = 3)) s)")
+        jlastfail = findlast(j -> fails[j, i] > 0, eachindex(dts))
+        largest_failing = jlastfail === nothing ? "none" : "2^-$(js[jlastfail])"
+        println("  $(method_names[i]): failures on $nfailed of $ntested tested Δt coarser than the first failure-free step (largest failing Δt = $largest_failing); first failure-free at Δt = 2^-$(js[jstable]) ($(round(times[jstable, i]; sigdigits = 3)) s)")
     end
 end
 for i in 1:2
     println("  $(imp_names[i]): $(sum(fails_imp[:, i])) failed trajectories over all $(length(dts_imp)) tested Δt; fastest run $(round(minimum(times_imp[:, i]); sigdigits = 3)) s")
 end
-println("  Fastest adaptive run without failures: $best_adaptive_run ($(round(best_adaptive_time; sigdigits = 3)) s)")
-println("  Ratio to the cheapest failure-free fixed-step run: $(round(cheapest_stable / best_adaptive_time; sigdigits = 3))")
+println("  Cheapest failure-free fixed-step run: $(round(cheapest_stable; sigdigits = 3)) s")
+if isfinite(best_adaptive_time)
+    println("  Fastest adaptive run without failures: $best_adaptive_run ($(round(best_adaptive_time; sigdigits = 3)) s)")
+    ratio = cheapest_stable / best_adaptive_time
+    magnitude_note = ratio > 10 ? " (more than an order of magnitude faster)" : ""
+    println("  Ratio of cheapest failure-free fixed-step to fastest adaptive: $(round(ratio; sigdigits = 3))$magnitude_note")
+else
+    println("  No adaptive run completed without failures")
+end
 ```
 
 ## Conclusion
 
 The summary above recomputes each of the following statements from the stored failure
-counts and timings. In the latest run, Euler-Maruyama, `RKMil`, and `SRIW1` all have
-failed trajectories for $\Delta t \geq 2^{-18}$ and first complete all 1000 trajectories
-at $\Delta t = 2^{-19}$. The implicit methods have no failures at any tested $\Delta t$,
-but are substantially slower than those cheapest stable fixed-step runs. Absolute
-wall-clock times vary with machine load; the qualitative ranking does not. The fastest
-adaptive run — named in the summary above — completes all trajectories more than an
-order of magnitude faster than the cheapest fixed-step run without failures.
+counts and timings, so it always agrees with the data behind this page. For each
+explicit fixed-step method it reports the largest tested $\Delta t$ that still produces
+failed trajectories and the first $\Delta t$ that completes all 1000 trajectories. In
+the latest run every explicit method fails at each tested $\Delta t$ coarser than its
+first failure-free step. The implicit methods report zero failed trajectories at every
+tested $\Delta t$, but their printed run times are slower than the cheapest
+failure-free explicit run reported just below them. The final line states the speedup
+of the fastest adaptive run over that cheapest fixed-step run — in the latest run it is
+more than an order of magnitude, as the printed ratio notes. Absolute wall-clock times
+vary with machine load; the ordering the summary reports does not.
 
 ```julia, echo = false
 using SciMLBenchmarks
