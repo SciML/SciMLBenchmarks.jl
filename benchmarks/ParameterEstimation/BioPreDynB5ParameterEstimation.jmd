@@ -14,10 +14,16 @@ of signal transduction downstream of EGF and TNFα stimulation: 26 states, each 
 normalized (0-1) protein activity level, connected by 26 Hill-function-gated edges (some
 combined pairwise with AND/OR logic), with 86 unknown parameters (Hill coefficients `n`,
 half-activation constants `k`, and activation/deactivation time constants `τ`). Like
-[B4](BioPreDynB4ParameterEstimation.html) and unlike [B2](BioPreDynB2ParameterEstimation.html),
-B5 fits noised pseudo-data simulated from its own nominal parameters, across 10 *in silico*
-experiments combining different stimuli (EGF, TNFα) and inhibitors (of PI3K, Raf1), with 6
-observed states per experiment at 16 time points each.
+[B4](BioPreDynB4ParameterEstimation.html) and unlike
+[B2](https://github.com/SciML/SciMLBenchmarks.jl/blob/master/benchmarks/ParameterEstimation/BioPreDynB2ParameterEstimation.jmd),
+B5 fits simulated pseudo-data rather than real measurements: 10 *in silico* experiments
+combining different stimuli (EGF, TNFα) and inhibitors (of PI3K, Raf1), with 6 observed
+states per experiment at 16 time points each, and noise of constant standard deviation
+`0.05` added by the benchmark's authors. The benchmark also ships a "nominal" parameter
+vector, which the reference files describe only as a set of nominal or best-known
+parameters; as shown below, it does *not* reproduce this data to within the stated noise
+level under this model and initial-condition convention, so it is a useful point of
+comparison rather than the exact parameters that generated the data.
 
 The model equations, nominal parameters, parameter bounds, and simulated data below are
 transcribed directly from the benchmark's official AMIGO2/C implementation, available as
@@ -195,10 +201,9 @@ p_bound(kind) = kind == :n ? (1.0, 5.0) : kind == :k ? (0.09, 0.95) : (0.1, 10.0
 p_lower = [p_bound(k)[1] for k in p_kind]
 p_upper = [p_bound(k)[2] for k in p_kind]
 
-# a fixed starting guess distinct from the nominal parameters, taken directly from the
-# benchmark's own `b5_bounds.mat` (its reference implementation instead draws a fresh
-# random point on every run; recovering `p_nom` from a very different guess is the point
-# of the exercise, and it explicitly warns against starting from `p_nom` itself).
+# a fixed starting guess distinct from the reference nominal parameters, taken directly
+# from the benchmark's own `b5_bounds.mat` (its reference implementation instead draws a
+# fresh random point on every run, and explicitly warns against starting from `p_nom`).
 p_start = [
     1.184759262504215, 0.21459526213964114, 0.10809675459912715, 1.6087933663141603,
     0.22442269369853485, 1.019018881887606, 0.24562113186152565, 1.6386831960653867,
@@ -228,8 +233,9 @@ p_start = [
 
 10 *in silico* experiments combine EGF/TNFα stimulation with PI3K/Raf1 inhibition; 6 of
 the 26 states (`raf1`, `erk`, `ap1`, `gsk3`, `p38`, `nfkb`) are observed at 16 equidistant
-time points, with Gaussian noise (fixed standard deviation `0.05`, since all states are
-normalized to `[0, 1]`) added on top of the underlying simulation. Each experiment's
+time points, with noise of constant standard deviation `0.05` (the reference files specify
+only this homoscedastic value, `noise_type = 'homo_var'`, since all states are normalized
+to `[0, 1]`) added on top of the underlying simulation. Each experiment's
 initial condition sets its 6 observed states to their own (noised) value at `t = 0` and
 leaves the other 20 states at `0`, matching the reference implementation.
 
@@ -448,9 +454,17 @@ end
 
 The original study reports reaching a cost of `Jf ≈ 3072.5` using the enhanced scatter
 search (eSS) global optimizer after ~8.8·10⁴ function evaluations (about 16 hours of CPU
-time), starting from a random point inside the bounds -- as with B4, recovering the exact
-nominal parameters (not just a low cost) is the actual goal, since the pseudo-data was
-generated from them.
+time), starting from a random point inside the bounds; that is the reference cost to reach
+here.
+
+Note that the reference nominal parameters do *not* achieve this cost: their cost is well
+above `3072.5`, and optimizers below reach lower costs than `p_nom` itself. With
+a noise standard deviation of `0.05` and roughly 900 non-initial data points, data
+generated exactly from `p_nom` under this model would give a cost of about 900, so the
+data do not correspond exactly to `p_nom` here (the residuals at `p_nom` are systematic
+rather than noise-like). The reference files themselves call these "nominal or best known"
+parameters, so `p_nom` is best treated as a reasonable reference point, not as the
+parameters to be recovered.
 
 ## Visualizing the fit at nominal and starting parameters
 
@@ -501,7 +515,8 @@ res_nlopt.objective
 
 ```julia
 n_particles = 40
-@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = 12000 ÷ n_particles)
+pso_iters = 12000 ÷ n_particles
+@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = pso_iters)
 res_pso.objective
 ```
 
@@ -530,11 +545,12 @@ res_nlopt_polish, losses_nlopt_polish, times_nlopt_polish = polish(
     res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
 res_pso_polish, losses_pso_polish, times_pso_polish = polish(
     res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
+nothing
 ```
 
 ```julia
 df = DataFrame(
-    method = ["Nominal (true params)", "Starting guess (no fit)",
+    method = ["Reference nominal parameters", "Starting guess (no fit)",
         "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM", "ParallelPSOArray",
         "LN_BOBYQA polish (from BBO)", "LN_BOBYQA polish (from GN_CRS2_LM)",
         "LN_BOBYQA polish (from ParallelPSOArray)"],
@@ -552,9 +568,13 @@ bestcost_bbo_polish = accumulate(min, losses_bbo_polish)
 bestcost_nlopt_polish = accumulate(min, losses_nlopt_polish)
 bestcost_pso_polish = accumulate(min, losses_pso_polish)
 
+# each polish curve starts where its own global run ended; `ParallelPSOArray` records no
+# per-iteration history, so its (approximate) evaluation count, particles x iterations,
+# is used as the offset instead
+pso_evals = n_particles * pso_iters
 bbo_polish_iters = length(losses_bbo) .+ (1:length(losses_bbo_polish))
-nlopt_polish_iters = length(losses_bbo) .+ (1:length(losses_nlopt_polish))
-pso_polish_iters = length(losses_bbo) .+ (1:length(losses_pso_polish))
+nlopt_polish_iters = length(losses_nlopt) .+ (1:length(losses_nlopt_polish))
+pso_polish_iters = pso_evals .+ (1:length(losses_pso_polish))
 
 plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
     xlabel = "iteration", ylabel = "best cost so far (log scale)",
@@ -585,21 +605,25 @@ hline!([3072.5], label = "paper reference (eSS, ~8.8x10^4 evals)", linestyle = :
 
 `ParallelPSOArray`'s own result isn't shown as a curve (no per-iteration history is
 available, as noted above), but its polish curve starts from wherever `res_pso.objective`
-landed, plotted alongside the other two polish curves for direct comparison.
+landed, plotted alongside the other two polish curves for direct comparison. In the
+iteration plot each polish curve is offset by the evaluation count of the global run it
+starts from (for `ParallelPSOArray`, approximately particles x iterations).
 
 # Conclusion
 
 This benchmark demonstrates SciML's parameter estimation stack (`OrdinaryDiffEq` +
 `Optimization.jl`) on BioPreDyn-bench B5, an 86-parameter logic-based ODE model of EGF/TNFα
 signal transduction spanning 10 simultaneous *in silico* experiments -- a different flavor
-of parameter estimation problem from [B2](BioPreDynB2ParameterEstimation.html) and
-[B4](BioPreDynB4ParameterEstimation.html) in this folder: smaller and non-stiff, but with
-multiple experimental conditions (differing stimuli, inhibitors, and initial conditions)
-that must all be fit simultaneously by a single shared parameter vector. As with B4,
-recovering the *exact* nominal parameters (not just a low cost) is the benchmark's actual
-goal, since the pseudo-data was generated from them; the runs here are best read as
-relative comparisons between optimizers given a fixed, modest evaluation budget rather than
-as fully converged fits to the literature reference of `Jf ≈ 3072.5`.
+of parameter estimation problem from
+[B2](https://github.com/SciML/SciMLBenchmarks.jl/blob/master/benchmarks/ParameterEstimation/BioPreDynB2ParameterEstimation.jmd)
+and [B4](BioPreDynB4ParameterEstimation.html) in this folder: smaller and non-stiff, but
+with multiple experimental conditions (differing stimuli, inhibitors, and initial
+conditions) that must all be fit simultaneously by a single shared parameter vector. The
+target is a low cost against the shared pseudo-data, with the literature reference of
+`Jf ≈ 3072.5` as the cost to reach; the reference nominal parameters are a point of
+comparison but not the exact parameters that generated the data (see above). The runs here
+are best read as relative comparisons between optimizers given a fixed, modest evaluation
+budget rather than as fully converged fits.
 
 ```julia, echo = false
 using SciMLBenchmarks
