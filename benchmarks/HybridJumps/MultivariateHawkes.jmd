@@ -30,7 +30,7 @@ The conditional intensity of this process has a recursive formulation which can 
   \phi_i^\ast (t)
     &= \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{N_i} + t_{N_i} - t_{n_j}) \right] \\
     &= \exp \left[ -\beta (t - t_{N_i}) \right] \sum_{j \in E_i} \sum_{t_{n_j} \leq t_{N_i}} \alpha \exp \left[-\beta (t_{N_i} - t_{n_j}) \right] \\
-    &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi^\ast (t_{N_i}) \right)
+    &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi_i^\ast (t_{N_i}) \right)
 \end{split}
 ```
 
@@ -153,7 +153,7 @@ function hawkes_problem(
 end
 ```
 
-Lets solve the problems defined so far. We sample a random graph sampled from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at ``0.2``. For illustration purposes, we fix ``V = 10``.
+Let's solve the problems defined so far. We sample a random graph from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at ``0.2``. For illustration purposes, we fix ``V = 10``.
 
 ```julia
 V = 10
@@ -603,7 +603,7 @@ function apply_Λ(hs::V, Λ) where {V <: Vector{<:Vector{<:Vector{<:Number}}}}
 end
 ```
 
-We can construct QQ-plots with a Plot recipe as following.
+We can construct QQ-plots with a Plot recipe as follows.
 
 ```julia
 @userplot QQPlot
@@ -702,9 +702,7 @@ end
 
 In this Section we benchmark all the algorithms introduced in the first Section.
 
-We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process ``25`` units of time.
-
-and simulate models in the range from ``1`` to ``95`` nodes for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration.
+We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration. Only configurations that complete all ``50`` trajectories within that limit are plotted.
 
 ```julia
 tspan = (0.0, 25.0)
@@ -832,7 +830,7 @@ end
 
 # Benchmarking Variable Rate Aggregators
 
-We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from `1` to `95` nodes, `tspan=(0.0, 25.0)`, `\lambda=0.5`, `\alpha=0.1`, `\beta=5.0`, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations. `VR_FRM` is shown through 40 nodes because constructing its per-jump callbacks becomes compilation-bound beyond that point; `VR_Direct` and `VR_DirectFW` cover the full range.
+We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from ``1`` to ``95`` nodes, `tspan = (0.0, 25.0)`, ``\lambda = 0.5``, ``\alpha = 0.1``, ``\beta = 5.0``, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations. `VR_FRM` is only run up to 40 nodes because constructing its per-jump callbacks becomes compilation-bound beyond that point; `VR_Direct` and `VR_DirectFW` are run over the full range. As above, only configurations that complete all 50 trajectories within the limit are plotted.
 
 ```julia
 vr_aggs = [

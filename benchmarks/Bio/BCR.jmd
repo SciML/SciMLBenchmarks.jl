@@ -150,7 +150,9 @@ reltols = 1.0 ./ 10.0 .^ (5:8);
 
 ## Failures
 
-CVODE with KLU diverges on this problem and is omitted from all suites:
+CVODE with KLU has diverged on this problem in past builds and is omitted from
+all suites. The solve below is kept to track it; in the latest run it returned
+`Success`.
 
 ```julia
 try
@@ -220,13 +222,21 @@ plot(wp; label = names)
 
 ## Loser methods (large cost in isolation)
 
-On this ~1122-ODE sparse chemistry system the following are not competitive:
-`lsoda`, dense direct CVODE (default and Lapack), default dense Julia
-Newton/linear solves, GMRES without a preconditioner, and `TRBDF2`/`KenCarp4`
-even with the good linear solvers. We do **not** fold them into the main
-work-precision suites. Instead each is timed **once**, in isolation, at a fixed
-tolerance, next to a competitive sparse reference so the wall-time gap is
-obvious.
+On this ~1122-ODE sparse chemistry system the following are not competitive
+with the sparse/preconditioned setups above: `lsoda`, dense direct CVODE
+(default and Lapack), default dense Julia Newton/linear solves, GMRES without a
+preconditioner, and `TRBDF2`/`KenCarp4` even with the good linear solvers. We do
+**not** fold them into the main work-precision suites. Instead each is timed
+**once**, in isolation, at a fixed tolerance, next to a competitive sparse
+reference so the wall-time gap is visible.
+
+The size of that gap varies a lot between methods. In the latest run, relative
+to the `FBDF` + KLU reference: `lsoda` took roughly 10x as long; dense
+`CVODE_BDF`, default dense `TRBDF2` and every unpreconditioned-GMRES entry hit
+the wall-clock cap; `KenCarp4` (default dense), `TRBDF2`/`KenCarp4` with
+GMRES + iLU and `TRBDF2` with KLU took roughly 2-4x as long; while `CVODE_BDF`
+with `LapackDense` and `QNDF`/`FBDF` with their default dense linear solver were
+within about 1.4x of the reference at this single tolerance.
 
 Each isolated solve is capped by wall clock. In the 2026-07-27 CI build the
 uncapped versions of the four unpreconditioned-GMRES entries alone measured

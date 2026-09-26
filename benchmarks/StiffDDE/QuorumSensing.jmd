@@ -148,7 +148,7 @@ scatter!(p, sol.t, sol.u)
 p
 ```
 
-## Qualitative comparisons
+## Quantitative comparisons
 
 Now we compare these methods quantitatively.
 
@@ -211,6 +211,8 @@ plot(wp)
 ```
 
 Since the correct solution is in the range of 1e-7, we see that most solutions, even at the lower end of tested tolerances, always lead to relative maximal interpolation errors of at least 1e-1 (and usually worse). `RK4` performs slightly better with relative maximal errors of at least 1e-2. This matches our qualitative analysis above.
+
+The `Tsit5` point at an error of about $10^{10}$, present in all three work-precision diagrams above, is a genuine divergence rather than a plotting artifact. At the loosest tolerance pair an accepted step perturbs the third component slightly below zero near $t \approx 35.5$; the model guards only against negative $u_1$ and $u_4$, and once $u_4$ exceeds the receptor level $R$ the coupling between the third and fourth components amplifies the perturbation until the trajectory blows up. The solve still reports success because the relative error test scales with the exploding components. `MethodOfSteps(Tsit5(); constrained = true)` does not diverge at the same tolerance.
 
 #### Rosenbrock methods
 
@@ -303,13 +305,13 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-All in all, at high tolerances `Rodas5` and `Rosenbrock23` are the best methods for solving this stiff DDE.
+All in all, at high tolerances `Rodas4` and `Rosenbrock23` are the best of the tested methods for solving this stiff DDE; in the latest run `Rosenbrock23` is cheaper than all Verner methods while reaching smaller errors.
 
 ### Low tolerances
 
 #### Rosenbrock methods
 
-We repeat our tests of Rosenbrock methods `Rosenbrock23` and `Rodas5` at low tolerances:
+We repeat our tests of the Rosenbrock methods `Rosenbrock23`, `Rodas4`, and `Rodas5` at low tolerances:
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (8:11)
@@ -347,7 +349,7 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-Thus at low tolerances `Rodas5` outperforms `Rosenbrock23`.
+Thus at low tolerances `Rodas5` is the most efficient method, followed by `Rodas4`, and in the latest run both outperform `Rosenbrock23` by roughly an order of magnitude or more.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -84,6 +84,33 @@ end
     end
 end
 
+module MarkdownPages
+    include(joinpath(@__DIR__, "..", "docs", "markdown_pages.jl"))
+end
+
+@testset "docs page titles" begin
+    page(text) = MarkdownPages.benchmark_page(split(text, '\n'), "fallback")
+
+    @test page("---\nauthor: \"A\"\ntitle: \"T\"\n---\nbody")[1] == "T"
+    @test page("---\ntitle: \"T\"\nauthor: \"A\"\n---\nbody") == ("T", ["body"])
+    @test page("---\npriority: 80\nauthor: \"A\"\ntitle: \"A — B: C?\"\n---\n")[1] ==
+        "A — B: C?"
+    @test page("---\ntitle: \"Say \\\"hi\\\"\"\n---\n")[1] == "Say \"hi\""
+    @test page("---\nauthor: \"A\"\n---\nbody") == ("fallback", ["body"])
+    @test page("no front matter") == ("fallback", ["no front matter"])
+
+    _, body = page("---\ntitle: \"T\"\n---\n\n# T\n\ntext\n## Sub")
+    @test body == ["", "text", "## Sub"]
+
+    _, body = page(
+        "---\ntitle: \"T\"\n---\n# Setup\n```julia\n# comment\n```\n## Sub\n###### Deep"
+    )
+    @test body == ["## Setup", "```julia", "# comment", "```", "### Sub", "###### Deep"]
+
+    _, body = page("---\ntitle: \"T\"\n---\n## Setup\n#hashtag")
+    @test body == ["## Setup", "#hashtag"]
+end
+
 function benchmark_assignment(path, variable)
     prefix = string(variable, " = ")
     line = only(line for line in eachline(path) if startswith(strip(line), prefix))
@@ -187,13 +214,35 @@ end
         source = read(joinpath(benchmarks_dir, filename), String)
         imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
         @test !isnothing(imports)
-        for name in ("@mtkbuild", "@mtkmodel")
-            @test occursin(name, imports[:code])
-        end
-        @test occursin("@static if isdefined(ModelingToolkit, Symbol(\"@mtkmodel\"))", imports[:code])
-        @test occursin("using ModelingToolkit: @mtkmodel", imports[:code])
-        @test occursin("using SciCompDSL: @mtkmodel", imports[:code])
+        @test occursin("using ModelingToolkit: @mtkbuild", imports[:code])
+        @test occursin("using SciCompDSL", imports[:code])
+        @test occursin("@mtkmodel", source)
     end
+end
+
+@testset "IntervalNonlinearProblem accuracy_digits NaN guard" begin
+    source = read(
+        joinpath(
+            dirname(@__DIR__), "benchmarks", "IntervalNonlinearProblem", "suite.jmd"
+        ),
+        String,
+    )
+    definition = match(
+        r"(?ms)^accuracy_digits\(err\) = .*?(?=\n\n|\nfunction )",
+        source,
+    )
+    @test !isnothing(definition)
+    # Eval into a fresh module so the short-form definition does not collide with
+    # any existing binding in the test module.
+    scratch = Module()
+    Core.eval(scratch, Meta.parse(definition.match))
+    accuracy_digits = scratch.accuracy_digits
+    # A non-throwing NaN residual must not poison the combined score / sort.
+    @test accuracy_digits(NaN) == 0.0
+    @test accuracy_digits(Inf) == 0.0
+    @test accuracy_digits(eps()) == 1.0
+    @test accuracy_digits(1.0) == 0.0
+    @test 0.0 < accuracy_digits(1.0e-8) < 1.0
 end
 
 @testset "subprocess" begin

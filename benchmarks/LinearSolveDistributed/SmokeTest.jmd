@@ -29,7 +29,7 @@ const PROJECT = Base.active_project()
 const MPIEXEC_ARGS = `-launcher fork`
 
 # Run run_solve.jl under `mpiexec -n P` and return the single CSV line rank 0 prints:
-#   ranks,N,nnz,solver,pc,time_s,residual,retcode
+#   ranks,N,nnz,solver,pc,time_s,residual,iters,retcode
 function run_ranks(P; N = 10_000, solver = "gmres", pc = "none")
     cmd = `$(mpiexec()) $(MPIEXEC_ARGS) -n $P $(Base.julia_cmd()) --project=$(PROJECT) $(WORKER) $N $solver $pc`
     out = read(cmd, String)
@@ -56,12 +56,14 @@ rows
 
 ```julia
 using Printf
-println("ranks |     N   |   nnz   | solver | pc     |  time (s)  |  residual  | retcode")
-println("------+---------+---------+--------+--------+------------+------------+---------")
+println("ranks |     N   |   nnz   | solver | pc     |  time (s)  |  residual  | iters | retcode")
+println("------+---------+---------+--------+--------+------------+------------+-------+---------")
 for r in rows
-    ranks, N, nnz, solver, pc, t, res, rc = split(r, ',')
-    @printf("%5s | %7s | %7s | %-6s | %-6s | %10.4g | %10.2e | %s\n",
-            ranks, N, nnz, solver, pc, parse(Float64, t), parse(Float64, res), rc)
+    ranks, N, nnz, solver, pc, t, res, iters, rc = split(r, ',')
+    @printf(
+        "%5s | %7s | %7s | %-6s | %-6s | %10.4g | %10.2e | %5s | %s\n",
+        ranks, N, nnz, solver, pc, parse(Float64, t), parse(Float64, res), iters, rc
+    )
 end
 ```
 

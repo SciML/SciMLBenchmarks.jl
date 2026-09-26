@@ -1,10 +1,10 @@
 ---
-title: Liquid argon benchmarks
+title: Liquid Argon Benchmarks
 author: Sebastian Micluța-Câmpeanu, Mikhail Vaganov
 ---
 
 The purpose of these benchmarks is to compare several integrators for use in
-molecular dynamics simulation. We will use a simulation of liquid argon form the
+molecular dynamics simulation. We will use a simulation of liquid argon from the
 examples of NBodySimulator as test case.
 
 ```julia
@@ -101,7 +101,7 @@ function run_benchmark!(results, t, integrators, tol...; c = ones(length(integra
 end
 ```
 
-We will consider symplectic integrators first
+We will consider symplectic integrators first.
 
 ```julia
 symplectic_integrators = [
@@ -178,9 +178,10 @@ The energy error as a function of runtime is given by
     xscale = :log10, yscale = :log10, xlabel = "Energy error", ylabel = "Runtime (s)")
 ```
 
-Looking at the runtime as a function of timesteps, we can observe that we have
-a linear dependency for each method, and the slope is the previously computed
-cost per step.
+Looking at the runtime as a function of the number of timesteps, the runtime of
+each method is proportional to the number of steps (in the table above, a 10x
+larger `τ` gives a roughly 10x shorter runtime), with the constant of
+proportionality set by the cost per step estimated above.
 
 ```julia
 @df results plot(:timesteps, :runtime, group = :integrator,
@@ -219,7 +220,7 @@ end
 plt
 ```
 
-Now, let us compare some adaptive methods
+Now, let us compare some adaptive methods.
 
 ```julia
 adaptive_integrators=[
@@ -243,7 +244,8 @@ discontinuous every time a pair of particles crosses the cutoff radius. An
 adaptive error controller cannot integrate through those jumps: below roughly
 `reltol = 1e-7` the majority of the proposed steps are rejected at cutoff
 crossings, the accepted step size collapses, and the cost diverges. Measured
-here (N=128, t=10, one solve of `Tsit5`, extrapolated from a step-capped run):
+separately when this grid was chosen (not by this page; N=128, t=10, one solve
+of `Tsit5`, extrapolated from a step-capped run):
 
 | `reltol` | runtime for `t = 10` |
 |---|---|

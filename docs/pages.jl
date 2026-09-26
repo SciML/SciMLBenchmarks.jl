@@ -1,5 +1,7 @@
 # This file assumes `dir` is the directory for the package! dir = @__DIR__() * "/.."
 
+include("markdown_pages.jl")
+
 dir = @__DIR__() * "/.."
 
 cp(joinpath(dir, "markdown"), joinpath(dir, "docs", "src"), force = true)
@@ -21,12 +23,11 @@ for folder in readdir(benchmarksdir)
             )
             try
                 filecontents = readlines(joinpath(benchmarksdir, folder, file))
-                title = filecontents[3][9:(end - 1)]
+                title, body = benchmark_page(filecontents, splitext(file)[1])
 
-                # Cut out the first 5 lines from the file to remove the Weave header stuff
                 open(joinpath(benchmarksdir, folder, file), "w") do output
                     println(output, "# $title")
-                    for line in Iterators.drop(filecontents, 4)
+                    for line in body
                         println(output, line)
                     end
                 end
@@ -68,7 +69,7 @@ section_titles = [
     "NonStiffSDE" => "Non-Stiff Stochastic Differential Equations (SDEs)",
     "StiffSDE" => "Stiff Stochastic Differential Equations (SDEs)",
     "NonStiffDDE" => "Non-Stiff Delay Differential Equations (DDEs)",
-    "StiffDDE" => "Stiff Delay Differential equations (DDEs)",
+    "StiffDDE" => "Stiff Delay Differential Equations (DDEs)",
     "Jumps" => "Jump Process Equations (Gillespie Benchmarks)",
     "HybridJumps" => "Hybrid (Time-Dependent) Jump Processes",
     "Optimization" => "Nonlinear Optimization Solver Benchmarks",

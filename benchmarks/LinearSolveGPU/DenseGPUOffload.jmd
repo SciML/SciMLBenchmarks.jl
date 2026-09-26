@@ -31,7 +31,9 @@ using BenchmarkTools, Random, Printf
 using LinearAlgebra, LinearSolve, RecursiveFactorization, MKL_jll
 using CUDA
 
-BenchmarkTools.DEFAULT_PARAMETERS.seconds = 0.5
+# `samples`, not `seconds`, must be the binding limit, so every reported time is a
+# minimum over the full sample count rather than a single slow sample.
+BenchmarkTools.DEFAULT_PARAMETERS.seconds = 60
 BenchmarkTools.DEFAULT_PARAMETERS.samples = 5
 
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
@@ -77,7 +79,8 @@ ns = [256, 512, 1024, 2048, 4096, 8192]
 ## Methodology
 
 Per size: a correctness gate against a reference solve, then the end-to-end
-solve time (`evals=1`, fresh problem per sample — the full cost a user pays),
+solve time (`evals=1`, fresh problem per sample — the full cost a user pays;
+minimum over five samples),
 and separately the pure **round-trip transfer time** for the same data
 (`CuArray(A)` up, `Array(x)` down). Transfer is measured with `CUDA.@sync` so
 asynchronous copies can't hide.
@@ -149,14 +152,22 @@ best_gpu = [minimum(filter(!isnan, res_time[i, gpu_idx]); init = Inf) for i in 1
 println()
 for (i, n) in enumerate(ns)
     j = cpu_idx[argmin(replace(res_time[i, cpu_idx], NaN => Inf))]
-    @printf("%6d | best CPU: %-18s %.4g s | best GPU: %.4g s | GPU/CPU: %.2fx\n",
-        n, algs[j][1], best_cpu[i], best_gpu[i], best_cpu[i] / best_gpu[i])
+    @printf(
+        "%6d | best CPU: %-18s %.4g s | best GPU: %.4g s | CPU/GPU: %.2fx\n",
+        n, algs[j][1], best_cpu[i], best_gpu[i], best_cpu[i] / best_gpu[i]
+    )
 end
 cross = findfirst(i -> best_gpu[i] < best_cpu[i], 1:length(ns))
 println()
-println(cross === nothing ?
-    "No crossover in the measured range — the best CPU option wins throughout." :
-    "Crossover: GPU offload first beats the best CPU option at N = $(ns[cross]).")
+println(
+    if cross === nothing
+        "No crossover in the measured range — the best CPU option wins throughout."
+    elseif cross == 1
+        "No crossover in the measured range — GPU offload already beats the best CPU option at the smallest size, N = $(ns[1]), so the crossover lies below it."
+    else
+        "Crossover: GPU offload first beats the best CPU option at N = $(ns[cross]) (the best CPU option still wins at N = $(ns[cross - 1]))."
+    end
+)
 ```
 
 ## Reading the result
@@ -167,8 +178,14 @@ speedup is irrelevant at that size. The stated crossover `N` is the actionable
 number — below it, stay on the CPU; above it, offload pays. It is computed
 against the *best* CPU option at each size, and the best-CPU column shows which
 algorithm sets that bar — on the runner's EPYC, where LinearSolve deliberately
-does not load MKL, that is RFLU across this sweep; a GPU "win" over plain
-OpenBLAS alone would say more about BLAS libraries than about the GPU. The spread among the CPU rows is itself a result — the gap between the
+does not load MKL, that is RFLU at every size of the latest run; a GPU "win"
+over plain OpenBLAS alone would say more about BLAS libraries than about the
+GPU. In the latest run the GPU loses at the smallest size (N = 256) and wins
+from N = 512 upward, by about 1.2× to 2.1× over the best CPU option; every GPU
+variant stays at least about 6× above the transfer line, so none of them is
+transfer-bound at these sizes.
+
+The spread among the CPU rows is itself a result — the gap between the
 slowest CPU row and the default choice is what hand-picking the wrong
 algorithm costs, and how close the default sits to the best row is the
 value of LinearSolve's automatic selection. The 32-mixed variant's gap to
