@@ -77,7 +77,7 @@ wp = WorkPrecisionSet(
 plot(wp)
 ```
 
-Here we see the power of algorithm-specific interpolations: the OrdinaryDiffEq.jl methods reach $L^2$ errors below $10^{-10}$ throughout the solution, while `IRKGL16` stays at errors many orders of magnitude larger at every tolerance. `IRKGL16` does not provide a dense output: `sol(t)` is a linear interpolation between its accepted steps, and since a 16th-order method resolves this problem in a few dozen steps, the dense error sits at about $10^{-1}$ however small the endpoint error gets.
+Here we see the power of algorithm-specific interpolations: the OrdinaryDiffEq.jl methods reach $L^2$ errors below $10^{-10}$ throughout the solution, while `IRKGL16` stays at errors many orders of magnitude larger at every tolerance. The pinned IRKGaussLegendre v1.0.4 builds its solution without an interpolant, so `sol(t)` falls back to a linear interpolation between its accepted steps, and since a 16th-order method resolves this problem in a few dozen steps, the dense error sits at about $10^{-1}$ however small the endpoint error gets. Dense output for `IRKGL16` is being added upstream in [IRKGaussLegendre.jl#150](https://github.com/SciML/IRKGaussLegendre.jl/pull/150).
 
 ## Higher Order
 
@@ -141,7 +141,7 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, dense
 plot(wp)
 ```
 
-Again, `IRKGL16` suffers when measuring the interpolations because its dense output is only a linear interpolation between steps, while the Verner methods, which have algorithm-specific interpolations of matching order, keep their accuracy between the timesteps.
+Again, `IRKGL16` suffers when measuring the interpolations because its `sol(t)` is only a linear interpolation between steps, while the Verner methods, which have algorithm-specific interpolations of matching order, keep their accuracy between the timesteps.
 
 ## Comparison with Non-RK methods
 
