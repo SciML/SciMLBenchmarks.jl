@@ -86,10 +86,10 @@ plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
 
 At the loosest high-tolerance pair (`abstol = 1e-10`, `reltol = 1e-1`), `TRBDF2` returns
 `Unstable` before $t = 100.5$, so that point is omitted from the diagrams. Final errors for the
-SDIRK methods stay between about $5\times 10^{-9}$ and $6\times 10^{-8}$ across the high-tolerance
-range and are not monotone in the tolerance; on this relaxation oscillator, `error_estimate =
-:final` is phase-sensitive and does not resolve the spikes the way the Rosenbrock final-error
-diagrams do at the same tolerances.
+SDIRK methods stay between about $2\times 10^{-9}$ and $2\times 10^{-7}$ across the
+high-tolerance range and are not monotone in the tolerance; on this relaxation oscillator,
+`error_estimate = :final` is phase-sensitive and does not resolve the spikes the way the
+Rosenbrock final-error diagrams do at the same tolerances.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(TRBDF2())),
@@ -120,8 +120,10 @@ plot(wp; title = "Oregonator: SDIRK Methods (L∞ error)")
 In the latest run, `Tsit5` and `DP5` are more expensive than `Rosenbrock23` and `Rodas5P` at
 every error they reach. `BS3` costs about as much as `Rosenbrock23` at the smallest errors. At
 the loosest high-tolerance pair, `Tsit5` and `BS3` return `Unstable` (near $t \approx 48$ and
-$t \approx 28$) and those points are omitted; `DP5` finishes but with a final error about
-$30\times$ larger than the solution scale at $t_{\mathrm{end}}$, so that point is not meaningful.
+$t \approx 28$), and `TRBDF2` fails the same way as in the SDIRK diagram; those points are
+omitted. `DP5` finishes but with a final error on the order of $10^{-5}$, more than an order of
+magnitude larger than $u_2$ at $t_{\mathrm{end}}$ ($\approx 4\times 10^{-7}$), so that point is
+not meaningful.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -139,10 +141,9 @@ plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
 
 ## Low Tolerances
 
-`Rosenbrock23` is omitted here: at these tolerances it hits `MaxIters` with
-`maxiters = Int(1e5)` on three of four pairs, and the tightest pair still needs on the order of
-$10^7$ accepted steps to finish. The Rodas and SDIRK methods below complete at
-`maxiters = Int(1e5)`.
+`Rosenbrock23` is omitted here: with `maxiters = Int(1e5)` it returns `MaxIters` on the three
+tighter pairs, reaching only $t \approx 46$, $12$ and $3$ of $100.5$. The Rodas and SDIRK
+methods below complete at `maxiters = Int(1e5)`.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (14:17)
