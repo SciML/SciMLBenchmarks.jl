@@ -20,6 +20,7 @@ using LinearAlgebra, SparseArrays, LinearSolve, Sparspak
 import PureUMFPACK
 import Pardiso
 import ParU_jll
+import SciMLBase
 using Plots
 using MatrixDepot
 
@@ -53,6 +54,7 @@ nmatrices = length(allmatrices)
 @info "Total number of matrices: $nmatrices"
 
 times = fill(NaN, nmatrices, length(algs))
+timed = falses(nmatrices)
 percentage_sparsity = fill(NaN, nmatrices)
 spaced_out_sparsity = fill(NaN, nmatrices)
 matrix_size = fill(NaN, nmatrices)
@@ -129,12 +131,37 @@ for z in 1:nmatrices
         b = rand(rng, n)
         u0 = rand(rng, n)
 
+        # Untimed correctness gate: a timing only counts when the solve returns a
+        # non-failure retcode (`Default` is what Pardiso/Sparspak report on success)
+        # and a solution whose relative residual beats both an absolute bound and
+        # ten times the dense solve's residual — the dense result is the achievable
+        # floor, so ill-conditioned matrices don't falsely fail every backend.
+        refres = try
+            norm(A * (Matrix(A) \ b) - b) / norm(b)
+        catch
+            0.0
+        end
+
         for j in 1:length(algs)
-            bt = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
-                copy($b);
-                u0 = copy($u0),
-                alias = LinearAliasSpecifier(alias_A = true, alias_b = true)))
-            times[z, j] = bt
+            try
+                sol = solve(LinearProblem(copy(A), copy(b); u0 = copy(u0),
+                    alias = LinearAliasSpecifier(alias_A = true, alias_b = true)),
+                    algs[j])
+                relres = norm(A * sol.u - b) / norm(b)
+                if !(SciMLBase.successful_retcode(sol) ||
+                     sol.retcode === SciMLBase.ReturnCode.Default) ||
+                   !isfinite(relres) || (relres > 1e-6 && relres > 10 * refres)
+                    println("$(currMTX): $(algnames[j]) solve rejected (retcode $(sol.retcode), relative residual $relres vs dense $refres) — excluded.")
+                    continue
+                end
+                times[z, j] = @belapsed solve(prob, $(algs[j])).u setup=(prob = LinearProblem(copy($A),
+                    copy($b);
+                    u0 = copy($u0),
+                    alias = LinearAliasSpecifier(alias_A = true, alias_b = true)))
+            catch e
+                println("$(currMTX): $(algnames[j]) threw $(typeof(e)) — excluded.")
+                continue
+            end
         end
 
         bandedness_five[z] = compute_bandedness(A, 5)
@@ -143,6 +170,7 @@ for z in 1:nmatrices
         percentage_sparsity[z] = length(nonzeros(A)) / n^2
         spaced_out_sparsity[z] = length(nonzeros(mtx_copy)) * percentage_sparsity[z]
         matrix_size[z] = n
+        timed[z] = true
 
         #=
         p = bar(algnames, times[z, :];
@@ -154,34 +182,46 @@ for z in 1:nmatrices
         display(p)
         =#
 
-        println("successfully factorized $(currMTX)")
+        println("successfully factorized $(currMTX) ($(count(!isnan, times[z, :]))/$(length(algs)) backends)")
     catch e
         println("$(currMTX) failed to factorize.")
         println(e)
     end
 end
 
-percentage_sparsity = percentage_sparsity[.!isnan.(percentage_sparsity)]
-spaced_out_sparsity = spaced_out_sparsity[.!isnan.(spaced_out_sparsity)]
+kept = vec(timed)
+times = times[kept, :]
+percentage_sparsity = percentage_sparsity[kept]
+spaced_out_sparsity = spaced_out_sparsity[kept]
 spaced_out_sparsity = replace(spaced_out_sparsity, 0 => 1e-10)
-bandedness_five = bandedness_five[.!isnan.(bandedness_five)]
+bandedness_five = bandedness_five[kept]
 bandedness_five = replace(bandedness_five, 0 => 1e-10)
-bandedness_ten = bandedness_ten[.!isnan.(bandedness_ten)]
+bandedness_ten = bandedness_ten[kept]
 bandedness_ten = replace(bandedness_ten, 0 => 1e-10)
-bandedness_twenty = bandedness_twenty[.!isnan.(bandedness_twenty)]
+bandedness_twenty = bandedness_twenty[kept]
 bandedness_twenty = replace(bandedness_twenty, 0 => 1e-10)
-matrix_size = matrix_size[.!isnan.(matrix_size)]
-nanrows = any(isnan, times; dims = 2)
-times = times[.!vec(nanrows), :]
+matrix_size = matrix_size[kept]
+
+println("$(count(kept)) of $nmatrices matrices are nonsingular and timed.")
+println("Solves rejected by the correctness gate (per backend):")
+for j in 1:length(algs)
+    println("  $(rpad(algnames[j], 14)) $(count(isnan, times[:, j]))")
+end
 ```
 
-In the latest run, 52 of the 88 square matrices are nonsingular, and every backend
-completes all 52 solves without error. Mean solve times at these sizes are small
-enough that the backend ordering is machine-dependent, so the figure below —
-not a fixed ranking — is the result.
+In the latest run, 52 of the 88 square matrices are nonsingular and timed. A
+solve only contributes a timing when the backend reports a non-failure retcode
+and the returned solution's relative residual is under 1e-6 or within an order
+of magnitude of the dense solve's residual (the achievable floor on an
+ill-conditioned matrix). The counts printed above show which matrix–backend
+pairs failed that gate: in the latest run `Sparspak` is rejected on 23 matrices
+(the returned `u` is `NaN`), `Pardiso` on 9, and `SupernodalLU` on `HB/steam3`
+(retcode `Infeasible`, residual 0.12 against a dense 5e-15), while the other
+five backends solve every timed matrix. Rejected solves keep `NaN` timings and
+drop out of the figure and every aggregate below.
 
 ```julia
-meantimes = vec(mean(times, dims = 1))
+meantimes = [mean(filter(!isnan, times[:, j])) for j in 1:length(algs)]
 p = bar(algnames, meantimes;
     ylabel = "Time/s",
     yscale = :log10,
