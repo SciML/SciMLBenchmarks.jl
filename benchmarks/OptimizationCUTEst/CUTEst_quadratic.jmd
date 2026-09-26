@@ -38,12 +38,11 @@ include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
 
 ## Problem selection
 
-`select_safe_problems` walks the candidates in the order returned by
-`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
-list, loads each remaining problem once to read its metadata, keeps it only if
-`nvar <= MAX_NVAR` and `ncon <= MAX_NCON`, and stops after `MAX_PROBLEMS_PER_CATEGORY`
-problems. Problems whose metadata cannot be loaded are skipped. The values in effect for
-this run are printed below.
+`select_safe_problems` sorts candidate names, filters the measured skip map and size limits,
+then selects up to `MAX_PROBLEMS_PER_CATEGORY` across the 1–10, 11–100, and 101–`MAX_NVAR`
+variable buckets. It samples each name-sorted bucket evenly, redistributing quotas when a
+bucket has fewer candidates. Sizes come from CUTEst's classification database, with problem
+metadata decoding as a fallback. The selected and eligible counts are printed per bucket.
 
 ```julia
 println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
@@ -51,7 +50,7 @@ println("MAX_NVAR = ", MAX_NVAR)
 println("MAX_NCON = ", MAX_NCON)
 println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
 println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
-println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(keys(KNOWN_BAD_PROBLEMS))), ", "))
 
 quadratic_linear_problems = select_safe_problems(
     collect(CUTEst.select_sif_problems(objtype = "quadratic", contype = "linear",
