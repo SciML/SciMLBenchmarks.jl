@@ -1009,9 +1009,9 @@ function plot_performance_profile(results, title)
     categories = unique(results.category)
     subplots = [
         performance_profile_subplot(
-            filter(:category => ==(category), results),
-            length(categories) == 1 ? title : "$title: $category",
-        )
+                filter(:category => ==(category), results),
+                length(categories) == 1 ? title : "$title: $category",
+            )
             for category in categories
     ]
 
