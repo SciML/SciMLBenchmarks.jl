@@ -4,20 +4,34 @@ on:
   schedule:
     - cron: 0 6 * * 6
   workflow_dispatch:
+    inputs:
+      directory:
+        description: >-
+          Benchmark directory to refresh. Leave blank to use the weekly rotation.
+        required: false
+        default: ''
 
 jobs:
   update_weekly:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: update step
         uses: julia-actions/setup-julia@v3
         with:
-          version: '1.10'
+          version: '1.12'
       - name: Check for updates and create a PR
         run: |
               git config --local user.email "$(git log --format='%ae' HEAD^!)"
               git config --local user.name "$(git log --format='%an' HEAD^!)"
 
+              julia .github/workflows/update_tests.jl
               julia -e 'include(".github/workflows/update.jl")' ${{ secrets.GITHUB_TOKEN }}
+        env:
+          BENCHMARK_DIRECTORY: ${{ inputs.directory }}

@@ -4,23 +4,24 @@ author: Utkarsh
 ---
 
 The following benchmark is of 109 ODEs and 188 parameters that describe a stiff
-SBML model, modelling the EGFR signalling between normal and NSCLC cells [Bidkhori et
-al.](https://doi.org/10.1371/journal.pone.0048004). It is referenced from [Biomodels Database](https://www.ebi.ac.uk/biomodels/curation/index),
-and the model was parsed to Julia are finally to ODEs using [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl).
+SBML model of EGFR signalling in normal and NSCLC cells [Bidkhori et
+al.](https://doi.org/10.1371/journal.pone.0048004). The model is taken from the [BioModels Database](https://www.ebi.ac.uk/biomodels/curation/index),
+parsed to Julia, and finally converted to ODEs using [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl).
 
 ```julia
-using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
+using DiffEqBase, OrdinaryDiffEq, OrdinaryDiffEqCore, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
       LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools, JLD2,
       RecursiveFactorization
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using ADTypes: AutoFiniteDiff
 
 gr()
 
 par = load(joinpath(@__DIR__, "params_Bidkhori2012.jld2"))
 ```
 
-# Defining the reaction system
+## Defining the reaction system
 
 ```julia
 function sbml_model!(du, u, p, t)
@@ -1331,9 +1332,8 @@ sol = solve(oprob, CVODE_BDF())
 plot(sol, legend = false, fmt = :png)
 ```
 
-For these benchmarks we will be using the time-series error with these saving
-points since the final time point is not well-indicative of the solution
-behavior (capturing the oscillation is the key!).
+The work-precision diagrams below are run with `save_everystep = false` and the
+default error estimate, so they measure the error at the final time point only.
 
 ## Generate Test Solution
 
@@ -1354,21 +1354,22 @@ setups = [
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>Rodas4()),
     Dict(:alg=>QNDF()),
+    Dict(:alg=>NordsieckBDF()),
     Dict(:alg=>lsoda()),
     Dict(:alg=>radau()),
     Dict(:alg=>seulex()),
     Dict(:alg=>ImplicitEulerExtrapolation(
-        min_order = 8, init_order = 9, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 8, init_order = 9, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerExtrapolation(min_order = 8, init_order = 9, threading = false)),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
-        min_order = 7, init_order = 8, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 7, init_order = 8, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 7, init_order = 8, threading = false)),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(
-        init_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+        init_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5, threading = false))
 ]
 
-solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF", "lsoda", "radau", "seulex",
+solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF", "NordsieckBDF", "lsoda", "radau", "seulex",
     "ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
     "ImplEulerBaryExtpl (threaded)", "ImplEulerBaryExtpl (non-threaded)",
     "ImplHWExtpl (threaded)", "ImplHWExtpl (non-threaded)"]
@@ -1377,7 +1378,9 @@ solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF", "lsoda", "radau", "seulex
 
 ## Automatic Jacobian Solves
 
-First we test using auto-generated Jacobians (finite difference)
+First we test without a user-supplied Jacobian, so each solver builds its own
+(automatic differentiation for the OrdinaryDiffEq methods, internal finite
+differences for the Sundials, LSODA and ODEInterface solvers).
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups;
@@ -1401,21 +1404,22 @@ setups = [
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>Rodas4()),
     Dict(:alg=>QNDF()),
+    Dict(:alg=>NordsieckBDF()),
     #Dict(:alg=>lsoda()),
     #Dict(:alg=>radau()),
     #Dict(:alg=>seulex()),
     Dict(:alg=>ImplicitEulerExtrapolation(
-        min_order = 8, init_order = 9, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 8, init_order = 9, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerExtrapolation(min_order = 8, init_order = 9, threading = false)),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(
-        min_order = 7, init_order = 8, threading = OrdinaryDiffEq.PolyesterThreads())),
+        min_order = 7, init_order = 8, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitEulerBarycentricExtrapolation(min_order = 7, init_order = 8, threading = false)),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(
-        init_order = 5, threading = OrdinaryDiffEq.PolyesterThreads())),
+        init_order = 5, threading = OrdinaryDiffEqCore.PolyesterThreads())),
     Dict(:alg=>ImplicitHairerWannerExtrapolation(init_order = 5, threading = false))
 ]
 
-solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF",
+solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF","NordsieckBDF",
     "ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
     "ImplEulerBaryExtpl (threaded)", "ImplEulerBaryExtpl (non-threaded)",
     "ImplHWExtpl (threaded)", "ImplHWExtpl (non-threaded)"]
@@ -1432,7 +1436,7 @@ plot(
 
 ## Sparse Jacobian
 
-Finally we test using the generated sparse analytic Jacobian function.
+We test using the generated sparse analytic Jacobian function.
 
 Note that the extrapolation methods currently do not support sparse Jacobians.
 
@@ -1441,25 +1445,49 @@ setups = [
     #Dict(:alg=>CVODE_BDF()), #Fails!
     Dict(:alg=>KenCarp4(autodiff = AutoFiniteDiff())),
     Dict(:alg=>Rodas4(autodiff = AutoFiniteDiff())),
-    Dict(:alg=>QNDF(autodiff = AutoFiniteDiff()))    #Dict(:alg=>lsoda()),
+    Dict(:alg=>QNDF(autodiff = AutoFiniteDiff())),
+    Dict(:alg=>NordsieckBDF(autodiff = AutoFiniteDiff())),
+    #Dict(:alg=>lsoda()),
     #Dict(:alg=>radau()),
     #Dict(:alg=>seulex()),
-    #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerExtrapolation(autodiff = AutoFiniteDiff(),min_order = 8, init_order = 9,threading = false)),
-    #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitEulerBarycentricExtrapolation(autodiff = AutoFiniteDiff(),min_order = 7, init_order = 8,threading = false)),
-    #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5,threading = OrdinaryDiffEq.PolyesterThreads())),
+    #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5,threading = OrdinaryDiffEqCore.PolyesterThreads())),
     #Dict(:alg=>ImplicitHairerWannerExtrapolation(autodiff = AutoFiniteDiff(),init_order = 5, threading = false)),
 ]
 
-solnames = ["KenCarp4", "Rodas4", "QNDF"#"ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",    #"ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"
-]
+solnames = ["KenCarp4", "Rodas4", "QNDF", "NordsieckBDF"]
 
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups;
     names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
 
 plot(
     wp, title = "Implicit Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
+    xticks = 10.0 .^ (-15:1:1),
+    yticks = 10.0 .^ (-6:0.3:5),
+    bottom_margin = 5Plots.mm)
+```
+
+## Explicit stabilized methods (no Jacobian)
+
+```julia
+setups = [
+    Dict(:alg=>RKC()),
+    Dict(:alg=>ROCK2()),
+    Dict(:alg=>ROCK4()),
+    Dict(:alg=>TSRKC3()),
+]
+
+solnames = ["RKC", "ROCK2", "ROCK4", "TSRKC3"
+]
+
+wp = WorkPrecisionSet(oprob, abstols, reltols, setups;
+    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+
+plot(
+    wp, title = "Explicit Stabilized Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
     xticks = 10.0 .^ (-15:1:1),
     yticks = 10.0 .^ (-6:0.3:5),
     bottom_margin = 5Plots.mm)

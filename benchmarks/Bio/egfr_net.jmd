@@ -1,5 +1,5 @@
 ---
-title: Egfr_net Work-Precision Diagrams
+title: EGFR Network (egfr_net) Work-Precision Diagrams
 author: Torkel Loman
 ---
 
@@ -18,7 +18,7 @@ using DiffEqBase, OrdinaryDiffEq, Catalyst, ReactionNetworkImporters,
       Sundials, Plots, DiffEqDevTools, ODEInterface, ODEInterfaceDiffEq,
       LSODA, TimerOutputs, LinearAlgebra, ModelingToolkit, BenchmarkTools,
       LinearSolve, RecursiveFactorization
-using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK, OrdinaryDiffEqVerner
+using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK, OrdinaryDiffEqVerner, OrdinaryDiffEqLowOrderRK
 
 gr()
 const to = TimerOutput()
@@ -27,10 +27,10 @@ tf = 10.0
 # generate ModelingToolkit ODEs
 @timeit to "Parse Network" prnbng = loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Models/egfr_net.net"))
 show(to)
-rn = complete(prnbng.rn)
+rn = complete(prnbng)
 obs = [eq.lhs for eq in observed(rn)]
 
-@timeit to "Create ODESys" osys = complete(convert(ODESystem, rn))
+@timeit to "Create ODESys" osys = complete(Catalyst.ode_model(rn))
 show(to)
 
 tspan = (0.0, tf)
@@ -122,6 +122,7 @@ setups = [
     Dict(:alg=>TRBDF2()),
     Dict(:alg=>QNDF()),
     Dict(:alg=>FBDF()),
+    Dict(:alg=>NordsieckBDF()),
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>Rosenbrock23()),
     Dict(:alg=>Rodas4()),
@@ -137,7 +138,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
+names = ["lsoda" "CVODE_BDF" "CVODE_BDF (Lapack Dense)" "CVODE_Adams" "TRBDF2" "QNDF" "FBDF" "NordsieckBDF" "KenCarp4" "Rosenbrock23" "Rodas4" "Rodas5P"]
 plot(wp; label = names)
 ```
 
@@ -152,6 +153,7 @@ setups = [
     Dict(:alg=>TRBDF2(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>FBDF(linsolve = KrylovJL_GMRES())),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>KenCarp4(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>Rosenbrock23(linsolve = KrylovJL_GMRES())),
     Dict(:alg=>Rodas4(linsolve = KrylovJL_GMRES())),
@@ -167,11 +169,11 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
+names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRES)" "NordsieckBDF (GMRES)" "KenCarp4 (GMRES)" "Rosenbrock23 (GMRES)" "Rodas4 (GMRES)" "Rodas5P (GMRES)"]
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using sparse jacobian)
+#### Declare solvers (using sparse Jacobian)
 
 We designate the solvers we wish to use.
 
@@ -181,6 +183,7 @@ setups = [
     Dict(:alg=>TRBDF2(linsolve = KLUFactorization())),
     Dict(:alg=>QNDF(linsolve = KLUFactorization())),
     Dict(:alg=>FBDF(linsolve = KLUFactorization())),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization())),
     Dict(:alg=>KenCarp4(linsolve = KLUFactorization())),
     Dict(:alg=>Rosenbrock23(linsolve = KLUFactorization())),
     Dict(:alg=>Rodas4(linsolve = KLUFactorization())),
@@ -188,7 +191,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using sparse jacobian)
+#### Plot Work-Precision Diagram (using sparse Jacobian)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 
@@ -196,7 +199,7 @@ Finally, we generate a work-precision diagram for the selection of solvers.
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 100)
 
-names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
+names = ["CVODE_BDF (KLU, sparse jac)" "TRBDF2 (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, sparse jac)" "NordsieckBDF (KLU, sparse jac)" "KenCarp4 (KLU, sparse jac)" "Rosenbrock23 (KLU, sparse jac)" "Rodas4 (KLU, sparse jac)" "Rodas5P (KLU, sparse jac)"]
 plot(wp; label = names)
 ```
 
@@ -206,7 +209,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes lsoda and CVODE.
+We designate the solvers we wish to use; this also includes `lsoda` and `CVODE_Adams`.
 
 ```julia
 setups = [
@@ -233,16 +236,45 @@ names = ["lsoda" "CVODE_Adams" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Ve
 plot(wp; label = names)
 ```
 
-#### Additional explicit solvers
+## Loser methods (large cost in isolation)
 
-One additional explicit solver, `ROCK2`, performs noticeably worse as compared to the other ones.
+`ROCK2` is **not** folded into the multi-tolerance / multi-run work-precision
+suites; instead a single-tolerance timing against a competitive explicit method
+(`Vern6`) is meant to show the wall-time gap. In the latest run, however, both
+isolated solves took 2-3 s, about 100x the per-solve time of `Vern6` in the
+explicit diagram above, so these single timings are
+dominated by one-off overhead (most likely first-call compilation) rather than
+by solver cost, and they do not show a gap between the methods.
 
 ```julia
-setups = [Dict(:alg=>ROCK2())];
-wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
-    saveat = tf/10000.0, appxsol = test_sol, maxiters = Int(1e9), numruns = 200)
-names = ["ROCK2"]
-plot(wp; label = names)
+const _loser_tol = 1e-6
+const _loser_maxiters = Int(1e7)
+_solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
+    save_everystep = false)
+
+loser_labels = String[]
+loser_elapsed = Float64[]
+
+function _time_loser!(label, alg)
+    println("--- $label ---")
+    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    @show sol.retcode
+    println("elapsed = ", t, " s")
+    push!(loser_labels, label)
+    push!(loser_elapsed, t)
+    return sol
+end
+
+_time_loser!("Vern6 (reference)", Vern6())
+_time_loser!("ROCK2 (loser)", ROCK2())
+```
+
+```julia
+ref_t = loser_elapsed[1]
+bar(loser_labels, loser_elapsed ./ ref_t; legend = false,
+    ylabel = "wall time / Vern6 reference",
+    title = "egfr_net ROCK2 isolation (tol=$_loser_tol, one solve each)",
+    size = (600, 400))
 ```
 
 ## Summary of results
@@ -258,7 +290,9 @@ setups = [
     Dict(:alg=>lsoda(), :prob_choice => 1),
     Dict(:alg=>CVODE_BDF(linear_solver = :GMRES), :prob_choice => 1),
     Dict(:alg=>QNDF(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
     Dict(:alg=>QNDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization()), :prob_choice => 2),
     Dict(:alg=>BS5(), :prob_choice => 1),
     Dict(:alg=>Vern6(), :prob_choice => 1),
     Dict(:alg=>ROCK4(), :prob_choice => 1)
@@ -274,9 +308,9 @@ wp = WorkPrecisionSet(
     [oprob, sparsejacprob], abstols, reltols, setups; error_estimate = :l2,
     saveat = tf/10000.0, appxsol = [test_sol, test_sol], maxiters = Int(1e9), numruns = 200)
 
-names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "QNDF (KLU)" "BS5" "Vern6" "ROCK4"]
-colors = [:seagreen1 :darkgreen :deepskyblue1 :deepskyblue4 :thistle2 :lightslateblue :purple4]
-markershapes = [:star4 :rect :hexagon :octagon :star8 :rtriangle :square]
+names = ["lsoda" "CVODE_BDF (GMRES)" "QNDF (GMRES)" "NordsieckBDF (GMRES)" "QNDF (KLU)" "NordsieckBDF (KLU)" "BS5" "Vern6" "ROCK4"]
+colors = [:seagreen1 :darkgreen :deepskyblue1 :mediumorchid :deepskyblue4 :orchid :thistle2 :lightslateblue :purple4]
+markershapes = [:star4 :rect :hexagon :diamond :octagon :dtriangle :star8 :rtriangle :square]
 plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     xticks = [1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2], yticks = [1e-2, 1e-1],
     color = colors, markershape = markershapes, legendfontsize = 15,

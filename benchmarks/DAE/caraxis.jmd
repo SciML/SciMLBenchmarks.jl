@@ -10,44 +10,49 @@ The **Car Axis Problem** is a stiff Differential-Algebraic Equation (DAE) of ind
 ## Mathematical Description
 
 The problem is of the form:
-$$
+
+```math
 \begin{aligned}
 p' &= q \\
 K q' &= f(t, p, \lambda) \\
 0 &= \phi(t, p)
 \end{aligned}
-$$
+```
 where $p, q \in \mathbb{R}^4$, $\lambda \in \mathbb{R}^2$, and $0 \le t \le 3$.
 The matrix $K = \frac{\epsilon^2 M}{2} I_4$.
 
 The function $f(t, p, \lambda)$ is given by:
-$$
+
+```math
 f(t, p, \lambda) = \begin{pmatrix}
 \frac{L_0 - L_l}{L_l} x_l + \lambda_1 x_b + 2\lambda_2(x_l - x_r) \\
 \frac{L_0 - L_l}{L_l} y_l + \lambda_1 y_b + 2\lambda_2(y_l - y_r) - \frac{\epsilon^2 M}{2} g \\
 \frac{L_0 - L_r}{L_r} (x_r - x_b) - 2\lambda_2(x_l - x_r) \\
 \frac{L_0 - L_r}{L_r} (y_r - y_b) - 2\lambda_2(y_l - y_r) - \frac{\epsilon^2 M}{2} g
 \end{pmatrix}
-$$
+```
 where $p = (x_l, y_l, x_r, y_r)^T$.
 
 The lengths $L_l$ and $L_r$ are:
-$$
+
+```math
 L_l = \sqrt{x_l^2 + y_l^2}, \quad L_r = \sqrt{(x_r - x_b)^2 + (y_r - y_b)^2}
-$$
+```
 
 The road profile is defined by:
-$$
+
+```math
 x_b(t) = \sqrt{L^2 - y_b^2(t)}, \quad y_b(t) = r \sin(\omega t)
-$$
+```
 
 The constraint function $\phi(t, p)$ is:
-$$
+
+```math
 \phi(t, p) = \begin{pmatrix}
 x_l x_b + y_l y_b \\
 (x_l - x_r)^2 + (y_l - y_r)^2 - L^2
 \end{pmatrix}
-$$
+```
 
 ### Parameters
 * $L = 1$
@@ -61,9 +66,10 @@ $$
 
 ### Initial Conditions
 Consistent initial values at $t=0$:
-$$
+
+```math
 p_0 = (0, 0.5, 1, 0.5)^T, \quad q_0 = (-0.5, 0, -0.5, 0)^T, \quad \lambda_0 = (0, 0)^T
-$$
+```
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
@@ -90,16 +96,23 @@ u0_mm  = [0.0, 0.5, 1.0, 0.5, -0.5, 0.0, -0.5, 0.0, 0.0, 0.0]
 
 ## 1 · ModelingToolkit Symbolic Form
 
-`@mtkbuild` calls `structural_simplify` (Pantelides) to reduce index 3 → 0/1.
-The algorithm introduces a dummy second-derivative variable (`ylˍtt`) and reduces
-the system from 10 unknowns to **8**.  The initialization system is overdetermined
-(6 equations, 0 unknowns); `ylˍtt(0)` is left as `NaN` and must be patched
-analytically via `fix_nanics` (at $t=0$: $D(dyl)(0)=-g$ from the force equation).
+`@mtkbuild` calls `structural_simplify` (Pantelides) to reduce index 3 → 0/1,
+reducing the system from 10 unknowns to **8**. After index reduction the two
+position constraints and their time derivatives fix $x_l$, $\dot{x}_l$, $x_r$ and
+$\dot{x}_r$ in terms of the remaining states, and $\lambda_1$, $\lambda_2$ are algebraic.
+Only $y_l$, $y_r$, $\dot{y}_l$ and $\dot{y}_r$ are therefore given initial
+conditions; the other variables get guesses and are solved for by initialization.
+Fixing all ten would make the initialization system overdetermined.
+
+The first constraint is written as $x_l + (y_b/x_b)\,y_l = 0$ rather than
+$x_b x_l + y_b y_l = 0$. Both are equivalent since $x_b > 0$, but with the second
+form index reduction solves it for $y_l$, dividing by $y_b = r\sin(\omega t)$,
+which is zero at $t = 0$, so the reduced system is singular at the initial time.
 
 ```julia
-@variables xl(t)=0.0    yl(t)=0.5   xr(t)=1.0    yr(t)=0.5
-@variables dxl(t)=-0.5  dyl(t)=0.0  dxr(t)=-0.5  dyr(t)=0.0
-@variables lam1(t)=0.0  lam2(t)=0.0
+@variables xl(t) [guess = 0.0]   yl(t)    xr(t) [guess = 1.0]    yr(t)
+@variables dxl(t) [guess = -0.5] dyl(t)   dxr(t) [guess = -0.5]  dyr(t)
+@variables lam1(t) [guess = 0.0] lam2(t) [guess = 0.0]
 
 yb_s = r_ca * sin(omega_ca * t)
 xb_s = sqrt(L_ca^2 - yb_s^2)
@@ -115,20 +128,14 @@ eqs = [
     k_ca * D(dyl) ~ (L0_ca - Ll_s)*yl/Ll_s + lam1*yb_s + 2.0*lam2*(yl - yr) - k_ca*g_ca,
     k_ca * D(dxr) ~ (L0_ca - Lr_s)*(xr - xb_s)/Lr_s    - 2.0*lam2*(xl - xr),
     k_ca * D(dyr) ~ (L0_ca - Lr_s)*(yr - yb_s)/Lr_s    - 2.0*lam2*(yl - yr) - k_ca*g_ca,
-    0 ~ xb_s*xl + yb_s*yl,
+    0 ~ xl + (yb_s / xb_s)*yl,
     0 ~ (xl - xr)^2 + (yl - yr)^2 - L_ca^2,
 ]
 
 @mtkbuild sys = ODESystem(eqs, t)
 tspan = (0.0, 3.0)
 
-mtkprob  = ODEProblem(sys, [], tspan)                             # prob_choice = 1
-
-function fix_nanics(prob)
-    u0f = [isnan(v) ? -g_ca : v for v in prob.u0]
-    remake(prob; u0 = u0f)
-end
-mtkprob  = fix_nanics(mtkprob)
+mtkprob  = ODEProblem(sys, [yl => 0.5, yr => 0.5, dyl => 0.0, dyr => 0.0], tspan) # prob_choice = 1
 ```
 
 ---
@@ -233,8 +240,9 @@ rscprob  = ODEProblem(f_rsc, u0_mm, tspan)                        # prob_choice 
 
 ## Reference Solution
 
-High-accuracy reference computed using RADAU5 with tight tolerances and
-Hessenberg index hints `(4,4,2)`.
+High-accuracy reference computed using RADAU5 at `abstol = reltol = 1e-12` with
+Hessenberg index hints `(4,4,2)`. The work-precision sweeps stop at `1e-11` so that
+no run is compared against a reference computed with the same solver and tolerance.
 
 ```julia
 const radau5_alg = radau5(DIMOFIND1VAR=4, DIMOFIND2VAR=4, DIMOFIND3VAR=2)
@@ -244,11 +252,26 @@ println("Reference retcode: ", ref_sol.retcode)
 println("NaN in reference? ", any(isnan, ref_sol.u[end]))
 ```
 
+The MTK-reduced system has a different state vector, so it gets its own reference.
+Both are checked against the positions at $t = 3$ from the IVP Test Set.
+
+```julia
+mtk_ref = solve(mtkprob, Rodas5P(); abstol=1e-12, reltol=1e-12)
+println("MTK reference retcode: ", mtk_ref.retcode)
+
+testset_pos = [0.493455784275402809e-1, 0.496989460230171153,
+               0.104174252488542151e1, 0.373911027265361256]
+relerr(u) = maximum(abs.(u .- testset_pos) ./ abs.(testset_pos))
+println("RADAU5 reference, max rel. error in positions at t = 3: ", relerr(ref_sol.u[end][1:4]))
+println("MTK reference,    max rel. error in positions at t = 3: ",
+        relerr(mtk_ref[[xl, yl, xr, yr]][end]))
+```
+
 ## Problem Collection
 
 ```julia
 probs = [mtkprob, daeprob, mmprob, rscprob]
-refs  = [ref_sol, ref_sol, ref_sol, ref_sol];
+refs  = [mtk_ref, ref_sol, ref_sol, ref_sol];
 ```
 
 ## Solution Trajectories
@@ -274,23 +297,31 @@ plot(ref_sol; idxs=[9,10],
 abstols = 1.0 ./ 10.0 .^ (4:8)
 reltols = 1.0 ./ 10.0 .^ (4:8)
 
-setups = [Dict(:prob_choice => 4, :alg => radau5_alg)]
+setups = [Dict(:prob_choice => 4, :alg => radau5_alg),
+          Dict(:prob_choice => 1, :alg => Rodas5P()),
+          Dict(:prob_choice => 1, :alg => RadauIIA5()),
+          Dict(:prob_choice => 1, :alg => FBDF()),
+          Dict(:prob_choice => 1, :alg => QNDF())]
+labels = ["RADAU5 (index-3 form)" "MTK + Rodas5P" "MTK + RadauIIA5" "MTK + FBDF" "MTK + QNDF"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3)
+    names = vec(labels), save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3)
 plot(wp; title = "Car Axis WPD — High Tolerances")
 ```
 
 ### Low Tolerances
 
 ```julia
-abstols = 1.0 ./ 10.0 .^ (7:12)
-reltols = 1.0 ./ 10.0 .^ (7:12)
+abstols = 1.0 ./ 10.0 .^ (7:11)
+reltols = 1.0 ./ 10.0 .^ (7:11)
 
-setups = [Dict(:prob_choice => 4, :alg => radau5_alg)]
+setups = [Dict(:prob_choice => 4, :alg => radau5_alg),
+          Dict(:prob_choice => 1, :alg => Rodas5P()),
+          Dict(:prob_choice => 1, :alg => RadauIIA5())]
+labels = ["RADAU5 (index-3 form)" "MTK + Rodas5P" "MTK + RadauIIA5"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3)
+    names = vec(labels), save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3)
 plot(wp; title = "Car Axis WPD — Low Tolerances")
 ```
 
@@ -298,28 +329,18 @@ plot(wp; title = "Car Axis WPD — Low Tolerances")
 
 ## Index-3 Solver Limitations
 
-This section documents why most solver–formulation combinations fail on this
-problem.  The Car Axis index-3 structure ($\partial\phi/\partial\lambda \equiv 0$)
-is the root cause.
+Without index reduction, the index-3 structure ($\partial\phi/\partial\lambda \equiv 0$)
+defeats the standard solvers: RADAU5 handles it with the Hessenberg index hints,
+but the solvers below fail on the unreduced forms. The MTK-reduced system above
+is the index-reduced alternative that the standard solvers can integrate.
 
 ### Standard Julia solvers on the raw mass-matrix form
 
 ```julia
 println("Standard Julia solvers on the raw mass-matrix form:")
 for (name, alg) in [("Rodas4", Rodas4()), ("Rodas5P", Rodas5P()),
-                     ("RadauIIA5", RadauIIA5()), ("FBDF", FBDF()), ("QNDF", QNDF())]
+                     ("RadauIIA5", RadauIIA5()), ("FBDF", FBDF()), ("QNDF", QNDF()), ("NordsieckBDF", NordsieckBDF())]
     sol = solve(mmprob, alg; reltol=1e-5, abstol=1e-5, maxiters=Int(1e3))
-    println("  ", rpad(name, 12), " → ", sol.retcode)
-end
-```
-
-### Standard solvers on the Pantelides-reduced system (MTK)
-
-```julia
-println("Standard Julia solvers on the MTK Pantelides-reduced system:")
-for (name, alg) in [("Rodas5P", Rodas5P()), ("RadauIIA5", RadauIIA5()),
-                     ("FBDF", FBDF()), ("QNDF", QNDF())]
-    sol = solve(mtkprob, alg; reltol=1e-8, abstol=1e-8, maxiters=Int(1e3))
     println("  ", rpad(name, 12), " → ", sol.retcode)
 end
 ```

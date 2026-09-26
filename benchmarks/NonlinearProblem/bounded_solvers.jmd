@@ -1,0 +1,861 @@
+---
+title: Bounded Nonlinear Solver Benchmarks
+author: Chris Rackauckas
+---
+
+This benchmark measures local solvers for box-constrained nonlinear roots and
+nonlinear least squares: `NonlinearProblem` and `NonlinearLeastSquaresProblem`
+with `lb`/`ub` set, which NonlinearSolve.jl handles natively through
+`FastShortcutBoundedPolyalg` and the individual bounded algorithms
+(`BoundedTrustRegion`, `BoundedGaussNewton`, `BoundedLevenbergMarquardt`,
+`TrustRegionReflective`, `Dogbox`). It covers 79 problem/start/representation
+combinations across 12 families. The boxes and starts are adaptations for this
+comparison, not a claim to reproduce a canonical bounded benchmark suite.
+
+The development cases cover Rosenbrock, Powell singular, Beale, Brown badly
+scaled, exponential curve fitting, rank-deficient and underdetermined linear
+systems, fixed variables, and nonlinear diffusion. The remaining cases cover
+Freudenstein–Roth, Wood, Bard, Kowalik–Osborne, and automatic-Jacobian versions
+of selected development cases. Diffusion sizes are 64, 256, and 1,024, with
+sparse and matrix-free representations, interior roots and manufactured
+active-bound stationary points, and two starts.
+
+The classical residual definitions and data can be checked against the
+[MINPACK least-squares test functions](https://www.netlib.org/minpack/ex/file17).
+The two nonzero fitting reference costs were independently computed with
+[SciPy least_squares](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html);
+the remaining reference costs follow from exact roots, orthogonal projection
+for fixed variables, or the manufactured diffusion stationarity equations.
+
+# Setup
+
+```julia
+using NonlinearSolve, SciMLBase, LinearAlgebra, SparseArrays
+using BenchmarkTools, LinearSolve, ADTypes, Statistics
+using PrettyTables, CairoMakie, ForwardDiff, Test
+
+BLAS.set_num_threads(1)
+```
+
+# Problems
+
+Each case wraps a `NonlinearFunction` with its analytic Jacobian, optional
+sparse `jac_prototype`, and JVP/VJP callbacks for matrix-free solves, in either
+a `NonlinearProblem` (exact root) or a `NonlinearLeastSquaresProblem` (nonzero
+residual), together with the independently computed reference cost used by the
+acceptance check.
+
+```julia
+struct BoundedBenchmarkCase{P, J}
+    name::String
+    family::String
+    representation::Symbol
+    prob::P
+    reference_cost::Float64
+    jacobian::J
+end
+
+function bounded_case(
+        name, family, f!, jac!, u0, p, lb, ub;
+        root = false, representation = :dense, prototype = nothing,
+        jvp = nothing, vjp = nothing, reference_cost = 0.0, analytic = true
+    )
+    resid_prototype = prototype === nothing ? nothing : zeros(size(prototype, 1))
+    nf = NonlinearFunction{true}(
+        f!; jac = analytic ? jac! : nothing,
+        jac_prototype = prototype, resid_prototype, jvp, vjp
+    )
+    constructor = root ? NonlinearProblem : NonlinearLeastSquaresProblem
+    prob = constructor(nf, copy(u0), p; lb, ub)
+    return BoundedBenchmarkCase(name, family, representation, prob, reference_cost, jac!)
+end
+```
+
+```julia
+function bounded_rosenbrock!(r, u, p)
+    for i in 1:2:length(u)
+        r[i] = 10 * (u[i + 1] - u[i]^2)
+        r[i + 1] = 1 - u[i]
+    end
+    return nothing
+end
+
+function bounded_rosenbrock_jac!(J, u, p)
+    fill!(J, 0)
+    for i in 1:2:length(u)
+        J[i, i] = -20 * u[i]
+        J[i, i + 1] = 10
+        J[i + 1, i] = -1
+    end
+    return nothing
+end
+
+function bounded_powell!(r, u, p)
+    r[1] = u[1] + 10 * u[2]
+    r[2] = sqrt(5) * (u[3] - u[4])
+    r[3] = (u[2] - 2 * u[3])^2
+    r[4] = sqrt(10) * (u[1] - u[4])^2
+    return nothing
+end
+
+function bounded_powell_jac!(J, u, p)
+    fill!(J, 0)
+    J[1, 1], J[1, 2] = 1, 10
+    J[2, 3], J[2, 4] = sqrt(5), -sqrt(5)
+    J[3, 2], J[3, 3] = 2 * (u[2] - 2 * u[3]), -4 * (u[2] - 2 * u[3])
+    J[4, 1], J[4, 4] = 2 * sqrt(10) * (u[1] - u[4]), -2 * sqrt(10) * (u[1] - u[4])
+    return nothing
+end
+
+function bounded_beale!(r, u, p)
+    for (i, a) in enumerate((1.5, 2.25, 2.625))
+        r[i] = a - u[1] * (1 - u[2]^i)
+    end
+    return nothing
+end
+
+function bounded_beale_jac!(J, u, p)
+    for i in 1:3
+        J[i, 1] = u[2]^i - 1
+        J[i, 2] = i * u[1] * u[2]^(i - 1)
+    end
+    return nothing
+end
+
+function bounded_brown!(r, u, p)
+    r[1] = u[1] - 1.0e6
+    r[2] = u[2] - 2.0e-6
+    r[3] = u[1] * u[2] - 2
+    return nothing
+end
+
+function bounded_brown_jac!(J, u, p)
+    fill!(J, 0)
+    J[1, 1], J[2, 2], J[3, 1], J[3, 2] = 1, 1, u[2], u[1]
+    return nothing
+end
+
+function bounded_exponential!(r, u, p)
+    @. r = u[1] * exp(u[2] * p.t) + u[3] - p.y
+    return nothing
+end
+
+function bounded_exponential_jac!(J, u, p)
+    for i in eachindex(p.t)
+        e = exp(u[2] * p.t[i])
+        J[i, 1], J[i, 2], J[i, 3] = e, u[1] * p.t[i] * e, 1
+    end
+    return nothing
+end
+
+function bounded_linear!(r, u, p)
+    mul!(r, p.A, u)
+    r .-= p.b
+    return nothing
+end
+
+bounded_linear_jac!(J, u, p) = copyto!(J, p.A)
+
+function bounded_diffusion!(r, u, p)
+    mul!(r, p.A, u)
+    @. r += p.gamma * u^3 - p.b
+    return nothing
+end
+
+function bounded_diffusion_jac!(J, u, p)
+    copyto!(J, p.A)
+    for i in eachindex(u)
+        J[i, i] += 3 * p.gamma * u[i]^2
+    end
+    return nothing
+end
+
+function bounded_diffusion_jvp!(out, v, u, p)
+    mul!(out, p.A, v)
+    @. out += 3 * p.gamma * u^2 * v
+    return nothing
+end
+
+function bounded_freudenstein_roth!(r, u, p)
+    x, y = u
+    r[1] = -13 + x + ((5 - y) * y - 2) * y
+    r[2] = -29 + x + ((y + 1) * y - 14) * y
+    return nothing
+end
+
+function bounded_freudenstein_roth_jac!(J, u, p)
+    J[:, 1] .= 1
+    J[1, 2] = -3 * u[2]^2 + 10 * u[2] - 2
+    J[2, 2] = 3 * u[2]^2 + 2 * u[2] - 14
+    return nothing
+end
+
+function bounded_wood!(r, u, p)
+    r[1] = 10 * (u[2] - u[1]^2)
+    r[2] = 1 - u[1]
+    r[3] = sqrt(90) * (u[4] - u[3]^2)
+    r[4] = 1 - u[3]
+    r[5] = sqrt(10) * (u[2] + u[4] - 2)
+    r[6] = (u[2] - u[4]) / sqrt(10)
+    return nothing
+end
+
+function bounded_wood_jac!(J, u, p)
+    fill!(J, 0)
+    J[1, 1], J[1, 2], J[2, 1] = -20 * u[1], 10, -1
+    J[3, 3], J[3, 4], J[4, 3] = -2 * sqrt(90) * u[3], sqrt(90), -1
+    J[5, 2], J[5, 4] = sqrt(10), sqrt(10)
+    J[6, 2], J[6, 4] = 1 / sqrt(10), -1 / sqrt(10)
+    return nothing
+end
+
+function bounded_bard!(r, u, p)
+    for i in eachindex(p)
+        r[i] = p[i] - u[1] - i / (u[2] * (16 - i) + u[3] * min(i, 16 - i))
+    end
+    return nothing
+end
+
+function bounded_bard_jac!(J, u, p)
+    for i in eachindex(p)
+        v, w = 16 - i, min(i, 16 - i)
+        d = u[2] * v + u[3] * w
+        J[i, 1], J[i, 2], J[i, 3] = -1, i * v / d^2, i * w / d^2
+    end
+    return nothing
+end
+
+function bounded_kowalik!(r, u, p)
+    @. r = p.y - u[1] * (p.x^2 + u[2] * p.x) / (p.x^2 + u[3] * p.x + u[4])
+    return nothing
+end
+
+function bounded_kowalik_jac!(J, u, p)
+    for (i, x) in enumerate(p.x)
+        a, b = x^2 + u[2] * x, x^2 + u[3] * x + u[4]
+        J[i, 1], J[i, 2] = -a / b, -u[1] * x / b
+        J[i, 3], J[i, 4] = u[1] * a * x / b^2, u[1] * a / b^2
+    end
+    return nothing
+end
+```
+
+The case list combines these residuals with box bounds, starts, and
+representations:
+
+```julia
+function bounded_benchmark_cases()
+    cases = BoundedBenchmarkCase[]
+    for n in (2, 20, 100), active in (false, true), start in (1, 2)
+        lb, ub = fill(-2.0, n), fill(3.0, n)
+        active && (ub[1:2:end] .= 0.5)
+        u0 = repeat(start == 1 ? [-1.2, 1.0] : [0.0, 0.0], n ÷ 2)
+        push!(
+            cases, bounded_case(
+                "rosenbrock_$(n)_$(active)_$(start)", "rosenbrock",
+                bounded_rosenbrock!, bounded_rosenbrock_jac!, u0, nothing, lb, ub;
+                root = !active, reference_cost = active ? n / 16 : 0.0
+            )
+        )
+    end
+    for (i, u0) in enumerate(([0.9, -0.8, 0.5, 0.8], [0.1, 0.1, 0.1, 0.1], [-1.0, 1.0, -1.0, 1.0]))
+        push!(
+            cases, bounded_case(
+                "powell_$(i)", "singular", bounded_powell!,
+                bounded_powell_jac!, u0, nothing, fill(-1.0, 4), ones(4); root = true
+            )
+        )
+    end
+    for (i, u0) in enumerate(([1.0, 0.1], [4.0, 1.0], [0.1, 0.9]))
+        push!(
+            cases, bounded_case(
+                "beale_$(i)", "small_dense", bounded_beale!,
+                bounded_beale_jac!, u0, nothing, zeros(2), [4.0, 1.0]; prototype = zeros(3, 2)
+            )
+        )
+    end
+    for (i, u0) in enumerate(([1.0, 1.0], [1.0e5, 0.1], [1.5e6, 1.0e-5]))
+        push!(
+            cases, bounded_case(
+                "brown_$(i)", "badly_scaled", bounded_brown!,
+                bounded_brown_jac!, u0, nothing, zeros(2), [2.0e6, 2.0]; prototype = zeros(3, 2)
+            )
+        )
+    end
+    for span in (0.2, 3.0), (i, u0) in enumerate(([1.0, -1.0, 0.5], [5.0, 0.0, 0.0], [0.1, -1.9, 0.9]))
+        t = collect(range(0, span; length = 40))
+        p = (; t, y = @. 2 * exp(-0.5 * t) + 0.1)
+        push!(
+            cases, bounded_case(
+                "exponential_$(span)_$(i)", "curve_fit",
+                bounded_exponential!, bounded_exponential_jac!, u0, p,
+                [0.0, -2.0, 0.0], [5.0, 0.0, 1.0]; prototype = zeros(40, 3)
+            )
+        )
+    end
+    for (m, n, rank) in ((12, 8, 4), (4, 8, 4)), start in (0.1, 0.9)
+        L = [sin(i * j) for i in 1:m, j in 1:rank]
+        R = [cos(i * j) for i in 1:rank, j in 1:n]
+        A = L * R
+        p = (; A, b = A * collect(range(0.2, 0.8; length = n)))
+        push!(
+            cases, bounded_case(
+                "linear_$(m)_$(n)_$(start)", "rank_deficient",
+                bounded_linear!, bounded_linear_jac!, fill(start, n), p, zeros(n), ones(n);
+                prototype = zeros(m, n)
+            )
+        )
+    end
+    for start in (0.1, 0.9)
+        n = 20
+        A = Matrix{Float64}(I, n, n)
+        lb, ub = zeros(n), ones(n)
+        lb[1:3:end] .= 0.4
+        ub[1:3:end] .= 0.4
+        target = clamp.(collect(range(-0.5, 1.5; length = n)), lb, ub)
+        p = (; A, b = collect(range(-0.5, 1.5; length = n)))
+        push!(
+            cases, bounded_case(
+                "fixed_$(start)", "fixed_variables",
+                bounded_linear!, bounded_linear_jac!, clamp.(fill(start, n), lb, ub), p, lb, ub;
+                reference_cost = sum(abs2, target - p.b) / 2
+            )
+        )
+    end
+    for n in (64, 256, 1024), active in (false, true), representation in (:sparse, :operator)
+        A = spdiagm(-1 => fill(-1.0, n - 1), 0 => fill(3.0, n), 1 => fill(-1.0, n - 1))
+        gamma = 0.1
+        target = [0.5 + 0.25 * sin(i / n * pi) for i in 1:n]
+        q = zeros(n)
+        if active
+            target[1:5:end] .= 1
+            q[1:5:end] .= 0.1
+            target[3:7:end] .= 0
+            q[3:7:end] .= -0.1
+        end
+        J = A + spdiagm(0 => @. 3 * gamma * target^2)
+        residual = -(J' \ q)
+        p = (; A, gamma, b = A * target + gamma * target .^ 3 - residual)
+        for start in (0.1, 0.9)
+            push!(
+                cases, bounded_case(
+                    "diffusion_$(n)_$(active)_$(representation)_$(start)",
+                    "diffusion", bounded_diffusion!, bounded_diffusion_jac!, fill(start, n), p,
+                    zeros(n), ones(n); root = !active, representation, prototype = copy(A),
+                    jvp = bounded_diffusion_jvp!, vjp = bounded_diffusion_jvp!,
+                    reference_cost = sum(abs2, residual) / 2
+                )
+            )
+        end
+    end
+    return cases
+end
+
+function bounded_validation_cases()
+    cases = BoundedBenchmarkCase[]
+    for (i, u0) in enumerate(([0.5, -2.0], [10.0, -1.0], [1.0, 1.0], [4.0, 3.0]))
+        push!(
+            cases, bounded_case(
+                "freudenstein_roth_$(i)", "nonconvex_root",
+                bounded_freudenstein_roth!, bounded_freudenstein_roth_jac!, u0, nothing,
+                [-5.0, -5.0], [20.0, 5.0]; root = true
+            )
+        )
+    end
+    for (i, u0) in enumerate(([-3.0, -1.0, -3.0, -1.0], [-1.2, 1.0, -1.2, 1.0], [2.0, 3.0, 2.0, 3.0], [0.0, 0.5, 0.0, 0.5]))
+        push!(
+            cases, bounded_case(
+                "wood_$(i)", "wood", bounded_wood!, bounded_wood_jac!,
+                u0, nothing, [-3.0, -1.0, -3.0, -1.0], [3.0, 4.0, 3.0, 4.0]; prototype = zeros(6, 4)
+            )
+        )
+    end
+    y_bard = [0.14, 0.18, 0.22, 0.25, 0.29, 0.32, 0.35, 0.39, 0.37, 0.58, 0.73, 0.96, 1.34, 2.1, 4.39]
+    for (i, u0) in enumerate(([1.0, 1.0, 1.0], [0.1, 5.0, 5.0], [0.0, 0.1, 0.1], [4.0, 9.0, 0.1]))
+        push!(
+            cases, bounded_case(
+                "bard_$(i)", "nonzero_residual_fit", bounded_bard!,
+                bounded_bard_jac!, u0, y_bard, [0.0, 0.01, 0.01], [5.0, 10.0, 10.0];
+                prototype = zeros(15, 3), reference_cost = 0.00410743865328949
+            )
+        )
+    end
+    p = (;
+        x = [4.0, 2.0, 1.0, 0.5, 0.25, 0.167, 0.125, 0.1, 0.0833, 0.0714, 0.0625],
+        y = [0.1957, 0.1947, 0.1735, 0.16, 0.0844, 0.0627, 0.0456, 0.0342, 0.0323, 0.0235, 0.0246],
+    )
+    for (i, u0) in enumerate(([0.25, 0.39, 0.415, 0.39], [1.0, 1.0, 1.0, 1.0], [0.01, 4.0, 4.0, 0.01], [0.5, 0.01, 0.01, 4.0]))
+        push!(
+            cases, bounded_case(
+                "kowalik_$(i)", "nonzero_residual_fit", bounded_kowalik!,
+                bounded_kowalik_jac!, u0, p, fill(0.001, 4), fill(5.0, 4);
+                prototype = zeros(11, 4), reference_cost = 0.00015375280192461965
+            )
+        )
+    end
+    ad_cases = (
+        "rosenbrock_2_false_1", "rosenbrock_20_false_1", "rosenbrock_100_false_1",
+        "rosenbrock_2_true_2", "exponential_3.0_1", "exponential_0.2_3",
+    )
+    for case in bounded_benchmark_cases()
+        case.name in ad_cases || continue
+        prob = case.prob
+        push!(
+            cases, bounded_case(
+                "ad_$(case.name)", "automatic_jacobian", prob.f.f,
+                case.jacobian, prob.u0, prob.p, prob.lb, prob.ub; root = prob isa NonlinearProblem,
+                prototype = prob.f.jac_prototype, reference_cost = case.reference_cost, analytic = false
+            )
+        )
+    end
+    return cases
+end
+```
+
+# Acceptance criteria
+
+A successful return code alone is insufficient. Acceptance additionally
+requires every coordinate to be feasible, plus:
+
+- Root problems: maximum absolute residual at most `1e-6`.
+- Least squares: infinity norm of `u - clamp(u - J'r, lb, ub)` at most `1e-5`,
+  and `sum(abs2, r)/2` no more than `reference_cost + 1e-8 * max(1, reference_cost)`.
+
+Residuals and analytic Jacobians are recomputed outside the timed solve:
+
+```julia
+function bounded_benchmark_metrics(case, sol)
+    prob = case.prob
+    u = sol.u
+    r = similar(sol.resid)
+    prob.f(r, u, prob.p)
+    J = prob.f.jac_prototype === nothing ? zeros(length(r), length(u)) : copy(prob.f.jac_prototype)
+    case.jacobian(J, u, prob.p)
+    gradient = J' * r
+    projected = u .- clamp.(u .- gradient, prob.lb, prob.ub)
+    cost = sum(abs2, r) / 2
+    feasible = all(prob.lb .<= u .<= prob.ub)
+    root = prob isa NonlinearProblem
+    accurate = root ? maximum(abs, r) <= 1.0e-6 :
+        maximum(abs, projected) <= 1.0e-5 && cost <= case.reference_cost + 1.0e-8 * max(1, case.reference_cost)
+    return (;
+        passed = SciMLBase.successful_retcode(sol) && feasible && accurate,
+        feasible, cost, residual = maximum(abs, r), stationarity = maximum(abs, projected),
+    )
+end
+```
+
+# Solver configurations
+
+Each case is solved by the bounded default `FastShortcutBoundedPolyalg`, the
+seven individual native bounded configurations, two transformed baselines
+(`LevenbergMarquardt` and `TrustRegion` through the automatic variable
+transformation), and the previous unbounded default polyalgorithm. Matrix-free
+cases use `KrylovJL_LSMR()` with analytic JVP/VJP callbacks; other cases use
+the default linear solver, with a sparse Jacobian prototype where supplied.
+All solves use `maxiters = 1000` and `abstol = reltol = 1e-9`; for
+polyalgorithms the iteration budget applies to each attempted stage.
+
+Each configuration is solved once before timing. BenchmarkTools then records
+the median of up to five single-evaluation samples with a 60-second sampling
+budget. Compilation is excluded, and Julia and BLAS each use one thread.
+
+```julia
+function bounded_benchmark_algorithms(case)
+    linsolve = case.representation == :operator ? KrylovJL_LSMR() : nothing
+    kwargs = (; linsolve, autodiff = AutoForwardDiff())
+    legacy = case.prob isa NonlinearProblem ?
+        FastShortcutNonlinearPolyalg(; kwargs..., must_use_jacobian = Val(SciMLBase.has_jac(case.prob.f)), u0_len = length(case.prob.u0)) :
+        FastShortcutNLLSPolyalg(; kwargs...)
+    return [
+        "bounded_default" => FastShortcutBoundedPolyalg(; kwargs...),
+        "bounded_trust_region" => BoundedTrustRegion(; kwargs...),
+        "reflective" => TrustRegionReflective(; kwargs...),
+        "bounded_lm" => BoundedLevenbergMarquardt(; kwargs...),
+        "dogbox" => Dogbox(; kwargs...),
+        "gn_linesearch" => BoundedGaussNewton(; kwargs...),
+        "gn_trustregion" => BoundedGaussNewton(; kwargs..., globalization = :trustregion),
+        "gn_hybrid" => BoundedGaussNewton(; kwargs..., globalization = :trustregion_linesearch),
+        "transformed_lm" => LevenbergMarquardt(; kwargs...),
+        "transformed_trust_region" => TrustRegion(; kwargs...),
+        "legacy_default" => legacy,
+    ]
+end
+
+const SOLVE_KWARGS = (abstol = 1.0e-9, reltol = 1.0e-9, maxiters = 1000)
+
+function result_prefix(case, name)
+    prob = case.prob
+    return (;
+        case = case.name, family = case.family, representation = case.representation,
+        kind = prob isa NonlinearProblem ? :root : :least_squares,
+        n = length(prob.u0),
+        m = prob.f.resid_prototype === nothing ? length(prob.u0) : length(prob.f.resid_prototype),
+        algorithm = name,
+    )
+end
+
+function result_row(case, name, sol, metrics, trial)
+    estimate = median(trial)
+    return (;
+        result_prefix(case, name)..., passed = metrics.passed, retcode = Symbol(string(sol.retcode)),
+        time_ns = estimate.time, memory = estimate.memory, allocs = estimate.allocs,
+        cost = metrics.cost, residual = metrics.residual, stationarity = metrics.stationarity,
+        feasible = metrics.feasible, error = "", samples = length(trial.times),
+    )
+end
+
+function error_row(case, name, err)
+    return (;
+        result_prefix(case, name)..., passed = false, retcode = :Exception,
+        time_ns = Inf, memory = 0, allocs = 0, cost = Inf, residual = Inf,
+        stationarity = Inf, feasible = false, error = sprint(showerror, err), samples = 0,
+    )
+end
+
+function benchmark_row(case, name, alg; samples)
+    prob = case.prob
+    try
+        sol = solve(prob, alg; SOLVE_KWARGS...)
+        metrics = bounded_benchmark_metrics(case, sol)
+        trial = @benchmark solve($prob, $alg; abstol = 1.0e-9, reltol = 1.0e-9, maxiters = 1000) samples = samples evals = 1 seconds = 60
+        return result_row(case, name, sol, metrics, trial)
+    catch err
+        return error_row(case, name, err)
+    end
+end
+
+function benchmark_cases(cases; samples, algorithm_pattern = "")
+    rows = mapreduce(vcat, cases) do case
+        selected = filter(bounded_benchmark_algorithms(case)) do (name, _)
+            if algorithm_pattern == "native"
+                name in (
+                    "bounded_trust_region", "reflective", "bounded_lm", "dogbox",
+                    "gn_linesearch", "gn_trustregion", "gn_hybrid",
+                )
+            elseif algorithm_pattern == "baseline"
+                name in ("transformed_lm", "transformed_trust_region", "legacy_default")
+            else
+                occursin(algorithm_pattern, name)
+            end
+        end
+        map(selected) do (name, alg)
+            row = benchmark_row(case, name, alg; samples)
+            println(case.name, " / ", name, ": ", row.passed ? "pass" : "FAIL", " (", row.retcode, ")")
+            row
+        end
+    end
+    return rows
+end
+```
+
+# Benchmark
+
+```julia
+cases = vcat(bounded_benchmark_cases(), bounded_validation_cases())
+println(length(cases), " cases")
+```
+
+Every analytic benchmark Jacobian is checked against ForwardDiff:
+
+```julia
+@testset "Benchmark analytic Jacobians" begin
+    for case in cases
+        prob = case.prob
+        f = function (u)
+            r = prob.f.resid_prototype === nothing ? similar(u) : similar(u, length(prob.f.resid_prototype))
+            prob.f(r, u, prob.p)
+            return r
+        end
+        expected = ForwardDiff.jacobian(f, prob.u0)
+        actual = zero(expected)
+        case.jacobian(actual, prob.u0, prob.p)
+        @test all(isapprox.(actual, expected; atol = 1.0e-10, rtol = 1.0e-10))
+    end
+end
+```
+
+```julia
+rows = benchmark_cases(cases; samples = 5)
+```
+
+Exceptions remain explicit failed rows. Three Freudenstein–Roth starts lead all
+tested native methods to a non-root local minimum; they remain failures in the
+reported counts.
+
+# Coverage and timing
+
+The summary scores every ordered two-, three-, and four-stage combination of
+the seven native configurations. Fallback follows solver return codes,
+including escalation of `StalledSuccess`, rather than an accuracy oracle. A
+stage that reports success but fails independent validation stops the sequence
+and counts as a failed solve. Exceptions abort the sequence. If all stages stop
+without acceptance, the lowest residual infinity norm (roots) or 2-norm (least
+squares) determines the returned stage. Each family has equal aggregate weight,
+so the diffusion size and representation sweep does not dominate selection.
+Timing ratios use the fastest verified native method for each case; coverage is
+reported separately from speed among successes.
+
+```julia
+const NATIVE = (
+    "bounded_trust_region", "reflective", "bounded_lm", "dogbox",
+    "gn_linesearch", "gn_trustregion", "gn_hybrid",
+)
+
+const SUCCESS_RETCODES = (
+    :Success, :Terminated, :ExactSolutionLeft, :ExactSolutionRight, :FloatingPointLimit,
+)
+
+function permutations(pool, k)
+    items = collect(pool)
+    k == 0 && return [eltype(items)[]]
+    return [vcat(x, p) for (i, x) in enumerate(items) for p in permutations(items[1:end .!= i], k - 1)]
+end
+
+function evaluate_order(rows, case, order)
+    elapsed = 0.0
+    attempted = eltype(rows)[]
+    for name in order
+        row = only(filter(r -> r.case == case && r.algorithm == name, rows))
+        elapsed += row.time_ns
+        push!(attempted, row)
+        row.retcode == :Exception && return false, elapsed
+        row.retcode in SUCCESS_RETCODES && return row.passed, elapsed
+    end
+    key = first(attempted).kind == :root ? :residual : :cost
+    best = argmin(r -> getfield(r, key), attempted)
+    return best.passed, elapsed
+end
+
+function bounded_summary(rows)
+    cases = sort!(unique(r.case for r in rows if all(n -> any(s -> s.case == r.case && s.algorithm == n, rows), NATIVE)))
+    family_of = Dict(case => first(r.family for r in rows if r.case == case) for case in cases)
+    families = Dict{String, Int}()
+    for case in cases
+        families[family_of[case]] = get(families, family_of[case], 0) + 1
+    end
+    weight = Dict(case => 1 / (length(families) * families[family_of[case]]) for case in cases)
+    fastest = Dict(
+        case => minimum((r.time_ns for r in rows if r.case == case && r.algorithm in NATIVE && r.passed); init = Inf)
+            for case in cases
+    )
+    function score(order)
+        outcomes = Dict(case => evaluate_order(rows, case, order) for case in cases)
+        successes = filter(case -> first(outcomes[case]), cases)
+        coverage = sum(weight[case] for case in successes; init = 0.0)
+        logs = sum(
+            weight[case] * log(outcomes[case][2] / fastest[case])
+                for case in successes if isfinite(fastest[case]); init = 0.0
+        )
+        speed = coverage > 0 ? exp(logs / coverage) : Inf
+        profile = Dict(
+            tau => sum(weight[case] for case in successes if outcomes[case][2] <= tau * fastest[case]; init = 0.0)
+                for tau in (1, 2, 5, 10, 100)
+        )
+        return (;
+            order = Tuple(order), passed = length(successes), cases = length(cases),
+            family_weighted_coverage = coverage, geometric_time_ratio = speed, profile,
+        )
+    end
+    individual = [score((name,)) for name in NATIVE]
+    for name in sort!(unique(r.algorithm for r in rows))
+        name in NATIVE && continue
+        all(case -> any(r -> r.case == case && r.algorithm == name, rows), cases) || continue
+        push!(individual, score((name,)))
+    end
+    candidates = mapreduce(vcat, 2:4) do k
+        ranked = [score(order) for order in permutations(NATIVE, k)]
+        sort!(ranked; by = r -> (-round(r.family_weighted_coverage; digits = 12), r.geometric_time_ratio))
+        ranked[1:min(10, end)]
+    end
+    return (; cases = length(cases), families, individual, candidates)
+end
+
+summary = bounded_summary(rows)
+```
+
+```julia
+display(summary.families)
+config_labels = Dict(
+    "bounded_default" => "Bounded default",
+    "bounded_trust_region" => "Bounded trust region",
+    "gn_linesearch" => "Projected Gauss–Newton",
+    "gn_trustregion" => "Gauss–Newton (trust region)",
+    "gn_hybrid" => "Gauss–Newton (hybrid)",
+    "reflective" => "Reflective trust region",
+    "bounded_lm" => "Bounded Levenberg–Marquardt",
+    "dogbox" => "Dogbox",
+    "transformed_lm" => "Transformed Levenberg–Marquardt",
+    "transformed_trust_region" => "Transformed trust region",
+    "legacy_default" => "Previous default (transformed)",
+)
+table = map(summary.individual) do row
+    (;
+        Configuration = get(config_labels, only(row.order), only(row.order)),
+        Accepted = "$(row.passed)/$(row.cases)",
+        Coverage = round(row.family_weighted_coverage; digits = 3),
+        TimeRatio = round(row.geometric_time_ratio; digits = 2),
+    )
+end
+pretty_table(table)
+```
+
+The read on this table: the time ratio averages each configuration's
+successful subset, so the columns do not establish speedups between methods
+with different coverage. The ten best orders at each sequence length:
+
+```julia
+orders = map(summary.candidates) do row
+    (;
+        Order = join(get.(Ref(config_labels), row.order, row.order), " → "),
+        Accepted = "$(row.passed)/$(row.cases)",
+        Coverage = round(row.family_weighted_coverage; digits = 3),
+        TimeRatio = round(row.geometric_time_ratio; digits = 2),
+    )
+end
+pretty_table(unique(orders))
+```
+
+# Performance profile
+
+The performance profile plots, for each configuration, the family-weighted
+fraction of cases solved within a factor τ of the fastest verified native
+method on that case:
+
+```julia
+profile_configs = [
+    "bounded_default" => "Bounded default",
+    "bounded_trust_region" => "Bounded trust region",
+    "gn_linesearch" => "Projected Gauss–Newton",
+    "reflective" => "Reflective trust region",
+    "legacy_default" => "Previous default (transformed)",
+]
+by = Dict((r.case, r.algorithm) => r for r in rows)
+pcases = sort!(unique(
+    r.case for r in rows if all(n -> haskey(by, (r.case, n)), first.(profile_configs))
+))
+families = Dict{String, Int}()
+for case in pcases
+    family = by[case, first(first(profile_configs))].family
+    families[family] = get(families, family, 0) + 1
+end
+weights = Dict(
+    case => 1 / (length(families) * families[by[case, first(first(profile_configs))].family])
+    for case in pcases
+)
+fastest = Dict(
+    case => minimum(
+        (r.time_ns for r in rows if r.case == case && r.algorithm in NATIVE && r.passed);
+        init = Inf,
+    ) for case in pcases
+)
+
+fig = Figure(; size = (800, 450))
+ax = Axis(
+    fig[1, 1]; xscale = log10, limits = ((1, 1000), (0, 1)),
+    xlabel = "Time / fastest verified native method",
+    ylabel = "Fraction of cases (equal family weights)",
+    title = "Bounded solves: $(length(pcases)) cases, $(length(families)) families",
+)
+thresholds = exp10.(range(0, 3; length = 500))
+for (name, label) in profile_configs
+    fractions = [
+        sum(
+            weights[case] for case in pcases if by[case, name].passed &&
+            by[case, name].time_ns <= tau * fastest[case]; init = 0.0,
+        ) for tau in thresholds
+    ]
+    lines!(ax, thresholds, fractions; label, linewidth = name == "bounded_default" ? 2.5 : 1.6)
+end
+axislegend(ax; position = :rb, framealpha = 0.95, fontsize = 9)
+fig
+```
+
+# Paired trust region versus Gauss–Newton
+
+The two leading native configurations are re-measured under a paired protocol:
+both are warmed before either is timed, their measurement order alternates
+between cases, and each requests 15 samples. This checks whether the ordering
+observed in the single-shot sweep is stable.
+
+```julia
+paired_rows = mapreduce(vcat, enumerate(cases)) do (index, case)
+    prob = case.prob
+    pair = filter(
+        p -> first(p) in ("bounded_trust_region", "gn_linesearch"),
+        bounded_benchmark_algorithms(case),
+    )
+    results = map(pair) do (_, alg)
+        sol = solve(prob, alg; SOLVE_KWARGS...)
+        (sol, bounded_benchmark_metrics(case, sol))
+    end
+    collect(
+        map(isodd(index) ? (1, 2) : (2, 1)) do k
+            name, alg = pair[k]
+            sol, metrics = results[k]
+            trial = @benchmark solve($prob, $alg; abstol = 1.0e-9, reltol = 1.0e-9, maxiters = 1000) samples = 15 evals = 1 seconds = 60
+            println(case.name, " / ", name)
+            result_row(case, name, sol, metrics, trial)
+        end
+    )
+end
+```
+
+On the cases both methods solve, the table reports how often trust region was
+faster, the family-weighted geometric mean of the Gauss–Newton/trust-region
+time ratio, and the unweighted ratio on the operator cases:
+
+```julia
+pby = Dict((r.case, r.algorithm) => r for r in paired_rows)
+common = sort!(unique(
+    r.case for r in paired_rows if pby[r.case, "bounded_trust_region"].passed &&
+    pby[r.case, "gn_linesearch"].passed
+))
+pfamilies = Dict{String, Int}()
+for case in common
+    pfamilies[pby[case, "bounded_trust_region"].family] =
+        get(pfamilies, pby[case, "bounded_trust_region"].family, 0) + 1
+end
+pweights = Dict(
+    case => 1 / (length(pfamilies) * pfamilies[pby[case, "bounded_trust_region"].family])
+    for case in common
+)
+ratios = Dict(
+    case => pby[case, "gn_linesearch"].time_ns / pby[case, "bounded_trust_region"].time_ns
+    for case in common
+)
+tr_faster = count(
+    case -> pby[case, "bounded_trust_region"].time_ns < pby[case, "gn_linesearch"].time_ns,
+    common,
+)
+weighted_ratio = exp(
+    sum(pweights[case] * log(ratios[case]) for case in common) /
+    sum(pweights[case] for case in common),
+)
+operator = filter(
+    case -> pby[case, "bounded_trust_region"].representation == :operator, common,
+)
+operator_ratio = exp(mean(log(ratios[case]) for case in operator))
+
+pretty_table([
+    (; Metric = "Cases solved by both", Value = length(common)),
+    (; Metric = "Cases where trust region was faster", Value = "$(tr_faster)/$(length(common))"),
+    (; Metric = "Family-weighted GN/TR time ratio", Value = round(weighted_ratio; digits = 3)),
+    (; Metric = "Operator cases", Value = length(operator)),
+    (; Metric = "Operator GN/TR time ratio", Value = round(operator_ratio; digits = 3)),
+])
+```
+
+# Limits
+
+These are local optimization results, not guarantees of global convergence.
+The suite does not cover GPU execution, distributed problems, noisy residuals,
+arbitrary precision, or every AD backend and preconditioner. Dense small
+problems and one sparse PDE family cannot establish a universal ordering. The
+transformed baselines must use the corrected analytic derivative chain rule;
+results obtained before that fix are unsuitable for solver recommendations.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

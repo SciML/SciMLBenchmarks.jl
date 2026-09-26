@@ -5,19 +5,19 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times R,~L = 1,~T = 1$, with the following initial and boundary conditions:
+The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 1,~T = 1$, with the following initial and boundary conditions:
 ```math
 \begin{aligned}
     \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
-    u(0,x) & = \exp\left[\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
-    u(-L,x) & = u(L,x) = 0.
+    u(0,x) & = \exp\left[-\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
-The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations on an equispaced grid of points $x_s \in [-L, L]$. The diffusion coefficient $\nu = 10^{-2}$ is chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{aligned}
     \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
-    u(0,x_s) & = \exp\left[\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(0,x_s) & = \exp\left[-\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
     u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
@@ -26,7 +26,7 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -122,7 +122,11 @@ setups = [
     Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
     Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-3 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-3 * multipliers)
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(krylov=true, m=20), :dts => 1e-3 * multipliers),
+    Dict(:alg => Friedli(), :dts => 1e-3 * multipliers),
+    Dict(:alg => Friedli(krylov=true, m=20), :dts => 1e-3 * multipliers)
 ]
 labels = hcat(
     "NorsettEuler (caching)", 
@@ -130,7 +134,11 @@ labels = hcat(
     "NorsettEuler (m=20)",
     "ETDRK2 (caching)", 
     "ETDRK2 (m=5)", 
-    "ETDRK2 (m=20)"
+    "ETDRK2 (m=20)",
+    "HochOst4 (caching)",
+    "HochOst4 (m=20)",
+    "Friedli (caching)",
+    "Friedli (m=20)"
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
@@ -139,6 +147,113 @@ labels = hcat(
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
 ```
 
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same `SplitODEProblem`:
+the first component (the stiff linear diffusion) is advanced with `m` explicit
+substeps inside every macro step, while the second component (the nonlinear
+convection) is evaluated only at the macro rate. Multirate integration pays off
+when the slow component is expensive relative to the fast one. That is not the
+case here, since both terms cost a sparse matrix-vector product, so the
+substeps buy stability for the diffusion term without saving any slow work,
+and the comparison against `CNAB2` and `ETDRK2` from the sections above
+measures the price of buying stability this way rather than implicitly or
+exactly.
+
+The linear operator has spectral radius about 161 and the macro steps below go
+up to `2e-2`, so `m = 4` puts the largest micro step at `2e-2 * 161 / 4`, about
+0.8, half of the explicit micro stability bound. In a scan from `m = 2` to
+`m = 8` the errors changed by under two percent at every step size, so the
+macro error dominates and larger `m` only adds micro work. The multirate
+methods are adaptive by default but are run at fixed macro steps here, matching
+how the other fixed step methods in this file are measured. The implicit
+members of the family (`MRIGARKIRK21a`, `MRIGARKESDIRK34a`,
+`MRIGARKESDIRK46a`) treat the slow component implicitly and target a stiff
+slow part; the diffusion here is only mildly stiff, so they are benchmarked on
+the Kuramoto-Sivashinsky problem instead, where the linear operator is stiff
+enough for the implicit treatment to matter.
+
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
+on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
+for it elsewhere. `CNAB2` and `ETDRK2` from the sections above stay in as
+local references.
+
+```julia
+abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (1:4)
+multipliers = 0.5 .^ (0:3)
+# The joined problem calls f1 and f2 through its own buffer: a direct call of the
+# SplitFunction uses an internal scratch cache that aliases prob.u0, so it would
+# silently overwrite the initial condition of every later solve in the sweep.
+joined_rhs! = let stiff_cache = zero(prob.u0)
+    (du, u, p, t) -> begin
+        prob.f.f1(stiff_cache, u, p, t)
+        prob.f.f2(du, u, p, t)
+        du .+= stiff_cache
+    end
+end
+prob_joined = ODEProblem(joined_rhs!, copy(prob.u0), prob.tspan, prob.p)
+setups = [
+    Dict(:alg => MREEF(m = 4, order = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MIS(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 4), :adaptive => false, :dts => 2e-2 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Tsit5(), :prob_choice => 2),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => NordsieckBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+    "ETDRK4",
+    "KenCarp4",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF","NordsieckBDF",
+)
+@time wp = WorkPrecisionSet([prob, prob_joined], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e5));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The cross family view narrows the earlier reading of this figure. In the
+latest run, adaptive `Tsit5` on the joined problem stays at roughly one to two
+milliseconds per solve while its error falls from about `1e-2` to `1e-7`,
+because the mild diffusion caps its step at the stability limit and tightening
+the tolerance costs it little until error control takes over; in the middle of
+the range this puts it level with the cheapest multirate members rather than
+ahead of them. `FBDF` runs a clean curve to about `2e-6` at about 3
+milliseconds and `Rodas5P` to about `1e-7` at roughly 10 to 15 milliseconds.
+The multirate members' real estate is the tight end: `MREEF` reaches about
+`2e-10` in about 10 milliseconds and `MRIGARKERK45a` matches it at two to three
+times the cost, errors that no adaptive reference here touches, with fixed step
+`ETDRK4` the only method going deeper (about `1e-11`, but at over a second per
+solve, roughly a hundred times the cost of `MREEF` at `2e-10`). That tight end margin is still a statement about
+step economics rather than multirate structure: the macro steps are 200 times
+larger than the fixed steps the older references run at, and four cheap
+substeps keep the diffusion stable, so any stabilized explicit treatment of
+this split would do as well. `KenCarp4` only reaches about `1e-4` at these
+pairs and is slower than every multirate member at matched error. `MRAB`
+remains the weak member: freezing the slow rate over the macro step caps it at
+first order and holds its error above about `7e-4` across the sweep.
 
 #### Comparisons Between Families
 
@@ -232,44 +347,35 @@ Base.@kwdef struct WeightedDiagonalPreconBuilder
     w::Float64
 end
 
-(builder::WeightedDiagonalPreconBuilder)(A, du, u, p, t, newW, Plprev, Prprev, solverdata) = (builder.w * LA.Diagonal(convert(AbstractMatrix, A)), LA.I)
+(builder::WeightedDiagonalPreconBuilder)(A, p) = (builder.w * LA.Diagonal(convert(AbstractMatrix, A)), LA.I)
 
 # Incomplete LU factorization
 using IncompleteLU
 Base.@kwdef struct IncompleteLUPreconBuilder
     τ::Float64
 end
-function (builder::IncompleteLUPreconBuilder)(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = ilu(convert(AbstractMatrix, W), τ = builder.τ)
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function (builder::IncompleteLUPreconBuilder)(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = ilu(W; τ = builder.τ)
+    return Pl, LA.I
 end
 
 # Algebraic multigrid
 using AlgebraicMultigrid
-function algebraicmultigrid(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        Pl = aspreconditioner(ruge_stuben(convert(AbstractMatrix, W)))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = aspreconditioner(ruge_stuben(W))
+    return Pl, LA.I
 end
-function algebraicmultigrid2(W, du, u, p, t, newW, Plprev, Prprev, solverdata)
-    if newW === nothing || newW
-        A = convert(AbstractMatrix, W)
-        Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(A,
-            presmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
-                1))),
-            postsmoother = AlgebraicMultigrid.Jacobi(rand(size(A,
-                1)))))
-    else
-        Pl = Plprev
-    end
-    Pl, nothing
+function algebraicmultigrid2(A, p)
+    W = convert(AbstractMatrix, A)
+    W = W isa SparseMatrixCSC ? W : sparse(W)
+    Pl = AlgebraicMultigrid.aspreconditioner(AlgebraicMultigrid.ruge_stuben(W,
+        presmoother = AlgebraicMultigrid.Jacobi(rand(size(W, 1))),
+        postsmoother = AlgebraicMultigrid.Jacobi(rand(size(W, 1)))))
+    return Pl, LA.I
 end
 
 # Aliases

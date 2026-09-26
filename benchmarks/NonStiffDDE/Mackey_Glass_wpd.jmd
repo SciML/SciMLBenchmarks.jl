@@ -15,6 +15,8 @@ We study algorithms for solving constant delay differential equations with a tes
 
 ```julia
 using DelayDiffEq, DiffEqDevTools, Plots
+using OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqTsit5, OrdinaryDiffEqVerner
+using OrdinaryDiffEqNonlinearSolve: NLFunctional
 using DDEProblemLibrary: prob_dde_DDETST_A1 as prob
 gr()
 
@@ -28,7 +30,7 @@ plot(sol)
 
 ### High tolerances
 
-First we test final error estimates of continuous RK methods of low order at high tolerances. `OwrenZen4`, `OwrenZen5`, and `RK4` yield the best error estimates.
+First we test final errors of continuous RK methods of low order at high tolerances. In the latest run, `OwrenZen4` reaches the smallest final errors, while `DP5` is the cheapest method at the errors it reaches.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
@@ -64,7 +66,7 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp)
 ```
 
-As before, `OwrenZen4` and `OwrenZen5` perform well over the whole range of investigated tolerances.
+`OwrenZen4` again reaches the smallest errors, but in the latest run `DP5` and `Tsit5` are cheaper than the Owren-Zennaro methods at every error level they reach.
 
 ### Low tolerances
 
@@ -142,7 +144,7 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp)
 ```
 
-`Vern6`, `Vern7`, and `Vern9` are outperformed by `OwrenZen4`.
+In the latest run, `OwrenZen4` reaches the smallest interpolation errors and is cheaper than `Vern6`, `Vern8`, and `Vern9` over most of the range; `Vern7` is competitive with it at intermediate errors, and `Vern8` is the most expensive method.
 
 ### Low tolerances
 
@@ -176,7 +178,7 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp)
 ```
 
-`Vern6`, `Vern7`, and `Vern9` show similar results at low tolerances, and perform even better than `OwrenZen4`.
+At low tolerances `Vern6`, `Vern7`, and `Vern9` perform similarly, with `Vern7` the cheapest, and all three outperform `OwrenZen4`; `Vern8` is again the most expensive.
 
 ```julia, echo = false
 using SciMLBenchmarks

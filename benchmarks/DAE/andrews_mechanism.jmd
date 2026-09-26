@@ -14,7 +14,9 @@ $y = (q, \dot{q}, \ddot{q}, \lambda) \in \mathbb{R}^{27}$ consists of
 
 The underlying constrained mechanical system is:
 
-$$M(q)\ddot{q} = f(q, \dot{q}) - G^T(q)\lambda, \quad 0 = g(q)$$
+```math
+M(q)\ddot{q} = f(q, \dot{q}) - G^T(q)\lambda, \quad 0 = g(q)
+```
 
 We benchmark three formulations of this problem:
 
@@ -44,6 +46,7 @@ http://www.dm.uniba.it/~testset/
 
 ```julia
 using OrdinaryDiffEq, Sundials, DiffEqDevTools, ModelingToolkit, Plots
+using OrdinaryDiffEqBDF
 using OrdinaryDiffEqRosenbrock
 using ODEInterfaceDiffEq, LinearAlgebra
 using ModelingToolkit: t_nounits as t, D_nounits as D
@@ -281,28 +284,36 @@ velocities), 7 dynamics equations (with configuration-dependent mass matrix),
 and 6 position-level holonomic constraints — for a total of 20 equations with
 20 unknowns (7 positions, 7 velocities, 6 multipliers).
 
+The mechanism has one degree of freedom, so after index reduction only one
+angle and its velocity remain differential states. Only those two get initial
+conditions (β and β̇, the driven crank angle); the other angles, velocities and
+the multipliers are guesses, solved by initialization from the constraints and
+their derivatives. Fixing them as well would make the initialization system
+overdetermined. The `state_priority` metadata on β and β̇ selects them as the
+differential states, for the reason shown below.
+
 ```julia
 @variables begin
-    p1(t) = y0[1]     # β
-    p2(t) = y0[2]     # Θ
-    p3(t) = y0[3]     # γ
-    p4(t) = y0[4]     # Φ
-    p5(t) = y0[5]     # δ
-    p6(t) = y0[6]     # Ω
-    p7(t) = y0[7]     # ε
-    w1(t) = 0.0       # dβ/dt
-    w2(t) = 0.0       # dΘ/dt
-    w3(t) = 0.0       # dγ/dt
-    w4(t) = 0.0       # dΦ/dt
-    w5(t) = 0.0       # dδ/dt
-    w6(t) = 0.0       # dΩ/dt
-    w7(t) = 0.0       # dε/dt
-    lm1(t) = y0[22]
-    lm2(t) = y0[23]
-    lm3(t) = 0.0
-    lm4(t) = 0.0
-    lm5(t) = 0.0
-    lm6(t) = 0.0
+    p1(t), [guess = y0[1], state_priority = 10]  # β
+    p2(t), [guess = y0[2]]  # Θ
+    p3(t), [guess = y0[3]]  # γ
+    p4(t), [guess = y0[4]]  # Φ
+    p5(t), [guess = y0[5]]  # δ
+    p6(t), [guess = y0[6]]  # Ω
+    p7(t), [guess = y0[7]]  # ε
+    w1(t), [guess = 0.0, state_priority = 10]  # dβ/dt
+    w2(t), [guess = 0.0]  # dΘ/dt
+    w3(t), [guess = 0.0]  # dγ/dt
+    w4(t), [guess = 0.0]  # dΦ/dt
+    w5(t), [guess = 0.0]  # dδ/dt
+    w6(t), [guess = 0.0]  # dΩ/dt
+    w7(t), [guess = 0.0]  # dε/dt
+    lm1(t), [guess = y0[22]]
+    lm2(t), [guess = y0[23]]
+    lm3(t), [guess = 0.0]
+    lm4(t), [guess = 0.0]
+    lm5(t), [guess = 0.0]
+    lm6(t), [guess = 0.0]
 end
 
 # Symbolic compound angles
@@ -397,10 +408,38 @@ eqs = vcat(
 )
 
 @mtkbuild sys = ODESystem(eqs, t)
-prob_mtk = ODEProblem(sys, [], tspan; warn_initialize_determined = false)
+prob_mtk = ODEProblem(sys, [p1 => y0[1], w1 => 0.0], tspan)
 println("MTK index-reduced: $(length(ModelingToolkit.unknowns(sys))) states ",
         "(from 20 original)")
+println("Unknowns: ", ModelingToolkit.unknowns(sys))
+println("Differential states: ",
+        [eq.lhs for eq in equations(sys) if ModelingToolkit.isdiffeq(eq)])
 ```
+
+With a single degree of freedom, the constraints are solved for six of the
+angles given the seventh. The Jacobian of those six with respect to the
+constraints must be nonsingular. At $t = 0$, where $\Theta = 0$, the β and Θ
+columns of $\partial g / \partial q$ are parallel, so every choice that keeps both
+β and Θ among the solved angles is singular at the initial time:
+
+```julia
+G_sym = Symbolics.jacobian(g_cons, pvec)
+G_fun = Symbolics.build_function(G_sym, pvec; expression = Val(false))[1]
+G0 = G_fun(y0[1:7])
+for j in 1:7
+    println("q$j as the free angle: cond(∂g/∂q of the other six) at t = 0 = ",
+            cond(G0[:, setdiff(1:7, j)]))
+end
+```
+
+Left to itself, index reduction picks ε and ε̇ as the differential states, for
+which this matrix is singular at $t = 0$, and every solver fails at the first
+step. With β (or Θ) as the free angle the matrix is well-conditioned. The 25
+unknowns of the reduced system are β and β̇ (differential) and 23 algebraic
+variables: the other six angles, six first and five second derivatives of the
+angles (dummy derivatives introduced by the index reduction), and the six
+multipliers. The remaining velocities and accelerations are observed variables.
+
 
 ## Reference Solution
 
@@ -418,9 +457,17 @@ println("Reference retcode: ", ref_sol.retcode)
 println("NaN in reference? ", any(isnan, ref_sol.u[end]))
 ```
 
+The MTK index-reduced system has a different set of unknowns, so it gets its
+own reference, solved with Rodas5P at `1e-11`:
+
+```julia
+mtk_ref = solve(prob_mtk, Rodas5P(); abstol = 1e-11, reltol = 1e-11)
+println("MTK reference retcode: ", mtk_ref.retcode, ", t_final = ", mtk_ref.t[end])
+```
+
 ```julia
 probs = [prob_mm, prob_dae, prob_mtk]
-refs  = [ref_sol, ref_sol, ref_sol];
+refs  = [ref_sol, ref_sol, mtk_ref];
 ```
 
 ## Solution Plots
@@ -517,13 +564,14 @@ each formulation with standard solvers to demonstrate this challenge.
 
 The singular mass matrix $K = \text{diag}(I_{14}, 0_{13})$ creates difficulties
 for standard implicit methods. Without DIMOFIND index hints, solvers cannot
-exploit the Hessenberg structure. Rosenbrock-W methods fail due to singular
-Jacobian.
+exploit the Hessenberg structure. In the latest run, Rodas5P, FBDF and
+NordsieckBDF all stop with `MaxIters`, and the Fortran RADAU/RADAU5 codes stop
+at $t = 0$ with a repeatedly singular iteration matrix.
 
 ```julia
 println("=== Mass-Matrix ODE Form ===")
 for (name, alg) in [("Rodas5P(autodiff=AutoFiniteDiff())", Rodas5P(autodiff = AutoFiniteDiff())),
-                     ("FBDF(autodiff=AutoFiniteDiff())",    FBDF(autodiff = AutoFiniteDiff())),
+                     ("FBDF(autodiff=AutoFiniteDiff())",    FBDF(autodiff = AutoFiniteDiff())), ("NordsieckBDF(autodiff=AutoFiniteDiff())",    NordsieckBDF(autodiff = AutoFiniteDiff())),
                      ("radau()",                 radau()),
                      ("radau5()",                radau5())]
     print("  $name: ")
@@ -563,18 +611,34 @@ end
 
 ### MTK Index-Reduced Form
 
-After `structural_simplify`, the system has fewer states but the numerical
-conditioning of the reduced system may still be challenging:
+With β as the free angle, the matrix the constraints are solved with stays
+well-conditioned along the whole reference trajectory:
+
+```julia
+conds = [cond(G_fun(u[1:7])[:, 2:7]) for u in ref_sol.u]
+println("cond(∂g/∂(q₂..q₇)) along the reference: min = $(minimum(conds)), max = $(maximum(conds))")
+```
+
+Each solver is run on the reduced system and its final positions and
+multipliers are compared with the PSIDE reference values:
 
 ```julia
 println("\n=== MTK Index-Reduced Form ===")
+qvars = [p1, p2, p3, p4, p5, p6, p7]
+lvars = [lm1, lm2, lm3, lm4, lm5, lm6]
 for (name, alg) in [("Rodas5P", Rodas5P()),
-                     ("FBDF",    FBDF()),
+                     ("FBDF",    FBDF()), ("NordsieckBDF",    NordsieckBDF()),
                      ("Rodas4P", Rodas4P())]
     print("  $name: ")
     try
         sol_mtk = solve(prob_mtk, alg, reltol = 1e-6, abstol = 1e-6, maxiters = 100000)
-        println("retcode = $(sol_mtk.retcode), t_final = $(sol_mtk.t[end])")
+        print("retcode = $(sol_mtk.retcode), t_final = $(sol_mtk.t[end])")
+        if sol_mtk.retcode == ReturnCode.Success
+            q_err = maximum(abs.((sol_mtk[qvars][end] .- y_ref[1:7]) ./ y_ref[1:7]))
+            λ_err = maximum(abs.((sol_mtk[lvars][end] .- y_ref[22:27]) ./ y_ref[22:27]))
+            print(", max rel. error: positions $(round(q_err, sigdigits = 3)), multipliers $(round(λ_err, sigdigits = 3))")
+        end
+        println()
     catch e
         println("failed ($(typeof(e)))")
     end
@@ -584,7 +648,9 @@ end
 ## Work-Precision Diagrams
 
 We use `WorkPrecisionSet` from DiffEqDevTools to benchmark RADAU5 with
-Hessenberg index hints on the mass-matrix ODE formulation.
+Hessenberg index hints on the mass-matrix ODE formulation, and Rosenbrock and
+BDF methods on the MTK index-reduced system. Each formulation's errors are
+measured against its own reference.
 
 The `dt=1e-6` initial step-size hint is required — without it, the Fortran
 RADAU5 code fails at certain tolerance levels on this stiff index-3 system.
@@ -593,28 +659,49 @@ RADAU5 code fails at certain tolerance levels on this stiff index-3 system.
 abstols = [3e-5, 1e-5, 3e-6, 3e-7, 1e-7]
 reltols = [3e-5, 1e-5, 3e-6, 3e-7, 1e-7]
 
-setups = [Dict(:prob_choice => 1, :alg => radau5_alg)]
+setups = [Dict(:prob_choice => 1, :alg => radau5_alg),
+          Dict(:prob_choice => 3, :alg => Rodas5P()),
+          Dict(:prob_choice => 3, :alg => Rodas4P()),
+          Dict(:prob_choice => 3, :alg => FBDF()),
+          Dict(:prob_choice => 3, :alg => NordsieckBDF())]
+labels = ["RADAU5 (mass matrix)", "Rodas5P (MTK)", "Rodas4P (MTK)",
+          "FBDF (MTK)", "NordsieckBDF (MTK)"]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 3,
-    dt = 1e-6)
+    names = labels, save_everystep = false, appxsol = refs,
+    maxiters = Int(1e5), numruns = 3, dt = 1e-6)
 plot(wp; title = "Andrews' Mechanism WPD")
 ```
+
+In the latest run the MTK solvers take roughly 5–85 ms per solve and RADAU5 on
+the mass-matrix form 55–210 ms. Rodas5P and Rodas4P reduce their error steadily
+with tolerance, down to about `1e-4`; FBDF and NordsieckBDF do not at the
+loosest tolerances. RADAU5's final-point errors stay between about 1 and 300,
+because they include the accelerations and multipliers (of order `1e5`) and are
+measured against a reference solved at only `3e-8`. The two sets of errors
+cover different variables and use different references, so only the timings
+compare directly.
 
 ## Conclusion
 
 Andrews' squeezing mechanism is one of the most challenging standard DAE
 benchmarks. This index-3 problem reveals fundamental solver limitations:
 
-- **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock-W, BDF) fail due
-  to singular Jacobian from the zero mass-matrix block.
+- **Mass-matrix ODE:** Standard implicit solvers (Rosenbrock, BDF) do not reach
+  the final time (`MaxIters`), and RADAU/RADAU5 without index hints fail at
+  $t = 0$ with a repeatedly singular iteration matrix.
 - **DAE residual:** IDA (Sundials) cannot handle index-3 DAEs (designed for
   index-1 only).
-- **MTK index-reduced:** `structural_simplify` produces a numerically challenging
-  system that standard solvers struggle with.
-- **RADAU5 with DIMOFIND:** The only reliable approach. The Hessenberg index
-  dimensions `(14, 7, 6)` are essential for correct error estimation and step
-  size control on this index-3 system.
+- **MTK index-reduced:** with initial conditions only on β and β̇ and those two
+  selected as the differential states, Rodas5P, Rodas4P, FBDF and NordsieckBDF
+  all reach $t = 0.03$ at `1e-6`, matching the PSIDE positions to relative
+  errors between about `2e-8` (Rodas) and `7e-6` (NordsieckBDF). The state
+  selection matters: with ε as the free angle, which index reduction picks
+  without `state_priority`, the reduced system is singular at $t = 0$.
+- **RADAU5 with DIMOFIND:** the only approach tested here that succeeds on the
+  unreduced index-3 form; it matches the PSIDE reference positions to relative
+  errors below `2e-8`. The Hessenberg index dimensions `(14, 7, 6)` are essential
+  for correct error estimation and step size control on this index-3 system.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -4,7 +4,7 @@ set -eo pipefail
 # Detect changed benchmark files and produce a JSON matrix for GHA.
 # Replicates the project-coalescing logic:
 #   - A changed .jmd file triggers a rebuild of just that file
-#   - A changed .toml file (Project.toml/Manifest.toml) triggers a rebuild of its entire benchmark directory
+#   - Any other changed file triggers a rebuild of its entire benchmark directory
 #   - If a directory is already being rebuilt, individual .jmd files in it are suppressed
 #
 # Reads runner configuration from:
@@ -20,34 +20,27 @@ source "${SCRIPT_DIR}/read-benchmark-config.sh"
 if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
-    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/')
-else
-    # Push event: compare against the last commit that was successfully published
-    # to SciMLBenchmarksOutput. This makes change detection cumulative — if a
-    # previous master push run was cancelled (because rapid merges queue and
-    # GHA cancels queued runs), this run still picks up its changes.
-    #
-    # The output repo's build commits have format "build based on <SHA>" or
-    # "Published by build of: SciML/SciMLBenchmarks.jl@<SHA>". We fetch the
-    # most recent one and diff against that SHA.
-    LAST_BUILT_SHA=""
-    if command -v curl >/dev/null 2>&1; then
-        LAST_BUILT_SHA=$(curl -s -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/SciML/SciMLBenchmarksOutput/commits?per_page=20" 2>/dev/null \
-            | grep -oE '"message":[^"]*"[^"]*"' \
-            | grep -oE 'SciMLBenchmarks\.jl@[a-f0-9]{40}' \
-            | head -1 \
-            | sed 's/SciMLBenchmarks\.jl@//')
+    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/' 2>/dev/null || true)
+    if [[ -z "${CHANGED_FILES}" ]]; then
+        # The three-dot range needs a merge base, which a shallow (--depth=1)
+        # fetch of the base lacks once master advances past the PR's branch
+        # point — git then aborts with "no merge base". PR builds check out
+        # refs/pull/N/merge, so HEAD~1 is the base tip; diffing against it
+        # yields exactly the PR's changes without requiring a merge base.
+        CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'benchmarks/' 2>/dev/null || true)
     fi
-
-    if [[ -n "${LAST_BUILT_SHA}" ]] && git cat-file -e "${LAST_BUILT_SHA}^{commit}" 2>/dev/null; then
-        echo "Diffing against last published SHA: ${LAST_BUILT_SHA}" >&2
-        CHANGED_FILES=$(git diff --name-only "${LAST_BUILT_SHA}" HEAD -- 'benchmarks/' 2>/dev/null || true)
+elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+    if [[ -n "${PUSH_BASE_SHA:-}" ]] \
+        && [[ ! "${PUSH_BASE_SHA}" =~ ^0+$ ]] \
+        && git cat-file -e "${PUSH_BASE_SHA}^{commit}" 2>/dev/null; then
+        echo "Diffing against push event base SHA: ${PUSH_BASE_SHA}" >&2
+        CHANGED_FILES=$(git diff --name-only "${PUSH_BASE_SHA}" HEAD -- 'benchmarks/' 2>/dev/null || true)
     else
-        # Fallback: compare with parent commit (original behavior)
-        echo "Last published SHA not available; falling back to HEAD~1 diff" >&2
+        echo "Push event base SHA not available; falling back to HEAD~1 diff" >&2
         CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
     fi
+else
+    CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
 fi
 
 declare -A FILES     # .jmd file -> its project directory
@@ -67,8 +60,7 @@ find_project() {
 
 while IFS= read -r f; do
     [[ -z "${f}" ]] && continue
-    # Skip benchmark_config.toml changes — they don't trigger rebuilds
-    [[ "${f}" == */benchmark_config.toml ]] && continue
+    [[ "${f}" == *.jmd && ! -f "${f}" ]] && continue
     proj=$(find_project "$(dirname "${f}")")
     if [[ -z "${proj}" ]]; then
         echo "::warning::Unable to find project for ${f}"
@@ -77,7 +69,7 @@ while IFS= read -r f; do
 
     if [[ "${f}" == *.jmd ]]; then
         FILES["${f}"]="${proj}"
-    elif [[ "${f}" == *.toml ]]; then
+    else
         PROJECTS["${proj}"]=1
     fi
 done <<< "${CHANGED_FILES}"

@@ -5,7 +5,7 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
+The Kuramoto-Sivashinsky partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 16,~T = 30$, with the following initial and periodic boundary conditions:
 ```math
 \begin{align}
     \partial_t u & =  -\kappa u(t,x)\partial_x u(t,x) - \beta \partial_x^2 u(t,x) - \gamma \partial_x^4 u(t,x), \\
@@ -13,7 +13,7 @@ The Kuramoto-Sivashinsky partial differential equation is solved on the domain $
     u(t,-L) & = u(t,L) = 1.
 \end{align}
 ```
-The spatial derivative operators are represented via finite difference approximations, incorporating the periodic boundary conditions on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $\kappa = 1,~\beta = 1/2,~\gamma = 1/8$ are chosen to produce `interesting' behavior as seen in the reference solution below.
+The spatial derivative operators are represented via finite difference approximations, incorporating the periodic boundary conditions on an equispaced grid of points $x_s \in [-L, L]$. The coefficients $\kappa = 1,~\beta = 1/2,~\gamma = 1/8$ are chosen to produce "interesting" behavior as seen in the reference solution below.
 ```math
 \begin{align}
     \frac{du}{dt} & =  -\kappa u D_x u - \beta D_x^2 u - \gamma D_x^4 u, \\
@@ -26,7 +26,8 @@ The spatial derivative operators are represented via finite difference approxima
 
 ```julia
 using OrdinaryDiffEq
-using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqSDIRK
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqFIRK, OrdinaryDiffEqIMEXMultistep, OrdinaryDiffEqMultirate, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using ADTypes: AutoFiniteDiff
 using DiffEqDevTools
 using SciMLOperators
 using LinearSolve
@@ -89,14 +90,14 @@ plt = heatmap(xs, tslices, ys', xlabel="x", ylabel="t")
 #### Implicit-Explicit Methods
 
 ```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
+abstols = 0.1 .^ (3:6) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (3:6)
+multipliers = 0.3 .^ (0:3)
 setups = [
     Dict(:alg => IMEXEuler(), :dts => 1e-4 * multipliers),
-    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => CNLF2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => SBDF2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => CNLF2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => SBDF2(), :dts => 1e-3 * multipliers),
 ]
 labels = hcat(
     "IMEXEuler",
@@ -106,24 +107,28 @@ labels = hcat(
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
 
-plot(wp, label=labels, markershape=:auto, title="Work-Precision Diagram, High Tolerance")
+plot(wp, label=labels, markershape=:auto, title="IMEX Methods, High Tolerance")
 ```
 
 #### Exponential Integrators
 
 ```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
+abstols = 0.1 .^ (3:6) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (3:6)
+multipliers = 0.3 .^ (0:3)
 setups = [
     Dict(:alg => NorsettEuler(), :dts => 1e-4 * multipliers),
-    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers), # Maxiters
-    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers), # Maxiters
-    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-4 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
+    Dict(:alg => NorsettEuler(krylov=true, m=5), :dts => 1e-4 * multipliers),
+    Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(krylov=true, m=20), :dts => 1e-3 * multipliers),
+    Dict(:alg => Friedli(), :dts => 1e-3 * multipliers),
+    Dict(:alg => Friedli(krylov=true, m=20), :dts => 1e-3 * multipliers)
 ]
 labels = hcat(
     "NorsettEuler (caching)", 
@@ -131,31 +136,247 @@ labels = hcat(
     "NorsettEuler (m=20)",
     "ETDRK2 (caching)", 
     "ETDRK2 (m=5)", 
-    "ETDRK2 (m=20)"
+    "ETDRK2 (m=20)",
+    "HochOst4 (caching)",
+    "HochOst4 (m=20)",
+    "Friedli (caching)",
+    "Friedli (m=20)"
+)
+@time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
+
+plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
+```
+
+#### Stabilized Integrators
+
+```julia
+abstols = 0.1 .^ (3:6)
+reltols = 0.1 .^ (3:6)
+
+setups = [
+    Dict(:alg => ROCK4()),
+    Dict(:alg => TSRKC3()),
+    Dict(:alg => RKC()),
+    Dict(:alg => ROCK2()),
+]
+labels = hcat(
+    "ROCK4",
+    "TSRKC3",
+    "RKC",
+    "ROCK2",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
     save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
 
-plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, High Tolerance")
+plot(wp, label=labels, markershape=:auto, title="Stabilized Methods, High Tolerance")
 ```
 
+#### Multirate Methods
+
+The methods from OrdinaryDiffEqMultirate.jl consume the same
+`SplitODEProblem`: the first component (the linear term containing the fourth
+derivative operator) is advanced with `m` explicit substeps inside every macro
+step, while the nonlinear convection is evaluated only at the macro rate.
+Multirate integration is built for problems whose slow component is expensive
+per evaluation. Here the slow component costs two sparse matrix-vector
+products, no more than the fast one, so the substeps buy stability on a
+genuinely stiff operator without saving any slow work, and the comparison
+against `CNAB2` and `ETDRK2` measures what that costs relative to treating the
+stiff term implicitly or exactly.
+
+The linear operator has spectral radius about `1.4e4`. With macro steps up to
+`2e-3`, the choice `m = 32` puts the largest micro step at `2e-3 * 1.4e4 / 32`,
+about 0.9, inside the explicit micro stability bound of 2 with a factor of two
+margin. A scan from `m = 32` to `m = 128` left every error essentially
+unchanged, so the macro error dominates and larger `m` is pure cost. The
+methods are run at fixed macro steps, matching the other fixed step methods in
+this file.
+
+For cross family context the same six reference methods appear in every
+multirate figure of this folder: adaptive `Tsit5`, `Rodas5P`, `FBDF`, and
+`NordsieckBDF` on the joined right hand side (`FBDF` cannot consume the split
+form), `KenCarp4`
+on the split problem, and fixed step `ETDRK4` at the step sizes this file uses
+for it elsewhere. On this problem `KenCarp4` gets the Krylov linear solver:
+its dense default spends minutes per solve even at loose tolerances here, the
+same cost problem the implicit block below documents. The adaptive sweep runs
+at `1e-4` to `1e-7` rather than this file's usual `1e-3` start because the
+Krylov `KenCarp4` solve stalls into a singular factorization at `1e-3` on
+this problem; the fixed step methods are unaffected by the tolerance values.
+
+```julia
+abstols = 0.1 .^ (4:7) # all fixed dt methods so these don't matter much
+reltols = 0.1 .^ (4:7)
+multipliers = 0.5 .^ (0:3)
+# The joined problem calls f1 and f2 through its own buffer: a direct call of the
+# SplitFunction uses an internal scratch cache that aliases prob.u0, so it would
+# silently overwrite the initial condition of every later solve in the sweep.
+joined_rhs! = let stiff_cache = zero(prob.u0)
+    (du, u, p, t) -> begin
+        prob.f.f1(stiff_cache, u, p, t)
+        prob.f.f2(du, u, p, t)
+        du .+= stiff_cache
+    end
+end
+prob_joined = ODEProblem(joined_rhs!, copy(prob.u0), prob.tspan, prob.p)
+setups = [
+    Dict(:alg => MREEF(m = 32, order = 4), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRAB(k = 2, m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MIS(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK22a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK33a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => MRIGARKERK45a(m = 32), :adaptive => false, :dts => 2e-3 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES())),
+    Dict(:alg => Tsit5(), :prob_choice => 2),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+    Dict(:alg => NordsieckBDF(autodiff = AutoFiniteDiff()), :prob_choice => 2),
+]
+labels = hcat(
+    "MREEF",
+    "MRAB",
+    "MIS",
+    "MRIGARKERK22a",
+    "MRIGARKERK33a",
+    "MRIGARKERK45a",
+    "CNAB2",
+    "ETDRK2",
+    "ETDRK4",
+    "KenCarp4 (Krylov)",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF","NordsieckBDF",
+)
+@time wp = WorkPrecisionSet([prob, prob_joined], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol], maxiters=Int(1e6));
+
+plot(wp, label=labels, markershape=:auto, title="Multirate Methods, High Tolerance")
+```
+
+The measured curves make this a much harder problem for the explicit
+multirate members than Burgers, and the cross family references decide it.
+In the latest run the two adaptive BDF methods dominate the figure: `FBDF`
+takes roughly 7 to 13 milliseconds per solve across the whole sweep with
+errors from about `7e-4` down to `1e-7`, and `NordsieckBDF` is cheaper still
+(roughly 4 to 8 milliseconds) over the part of that range it reaches (down to
+about `1e-6`); both are several times to more than an order of magnitude
+cheaper than any other method at matched error. `Tsit5` on the joined problem
+runs at a stability capped, nearly constant 0.13 seconds or so while its error
+falls from about `7e-6` to `1e-8` for free, and `Rodas5P` reaches about `1e-7`
+in roughly a quarter of a second. Against that, the explicit multirate members
+are not competitive: `MREEF` needs about 1.3 seconds for `1e-8`, roughly ten
+times `Tsit5`'s cost at the same error, and every decade carries the `m = 32`
+micro stepping tax. Within the fixed step family the old reading still holds
+(`MRIGARKERK33a` and `CNAB2` tie near `1e-4`, the multirate members extend
+below the references' `2.4e-5` floor), `MRAB` is unusable here since the
+convection it freezes is not slow, and `MRIGARKERK45a` loses order at the
+loose end. With both components equally cheap there is nothing for the
+multirate structure to amortize; what these curves document is that the
+explicit members hold stability and order on a strongly stiff fast operator,
+and that adaptive single rate stiff solvers own this problem.
+
+The implicit multirate members treat the slow component implicitly, so for
+them the split is used in the reverse orientation: the stiff linear term
+becomes the implicitly handled slow part and the nonlinear convection is micro
+stepped explicitly. In this orientation the methods act as IMEX integrators
+whose explicit part is subdivided `m` times per stage; the convection is not
+fast, the substeps resolve nothing, and `m = 2` is kept at the smallest useful
+value. `KenCarp3` and `KenCarp4` on the original problem make the same
+implicit and explicit assignment of the two terms, which makes them the
+natural single rate references; they are given the Krylov linear solver here
+because their dense default costs minutes per solve on this problem at the
+tighter tolerances, as the low tolerance section below also shows. The cross
+family references from the figure above run here as well over this tolerance
+range. These methods are adaptive apart from `ETDRK4`, which keeps its fixed
+step convention.
+
+```julia
+Astiff = convert(AbstractMatrix, prob.f.f1.f)
+p_stiff = (; D1 = prob.p.D1, alpha = prob.p.alpha, A = Astiff)
+stiff_linear!(du, u, p, t) = mul!(du, p.A, u)
+prob_swapped = SplitODEProblem(nonlinear_convection!, stiff_linear!,
+                               prob.u0, prob.tspan, p_stiff)
+
+abstols = 0.1 .^ (4:8)
+reltols = 0.1 .^ (4:8)
+setups = [
+    Dict(:alg => MRIGARKIRK21a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => MRIGARKESDIRK34a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => MRIGARKESDIRK46a(m = 2, autodiff = AutoFiniteDiff())),
+    Dict(:alg => KenCarp3(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg => KenCarp4(linsolve = KrylovJL_GMRES()), :prob_choice => 2),
+    Dict(:alg => ETDRK4(), :prob_choice => 2, :dts => 1e-3 * 0.5 .^ (0:4)),
+    Dict(:alg => Tsit5(), :prob_choice => 3),
+    Dict(:alg => Rodas5P(autodiff = AutoFiniteDiff()), :prob_choice => 3),
+    Dict(:alg => FBDF(autodiff = AutoFiniteDiff()), :prob_choice => 3),
+    Dict(:alg => NordsieckBDF(autodiff = AutoFiniteDiff()), :prob_choice => 3),
+]
+labels = hcat(
+    "MRIGARKIRK21a",
+    "MRIGARKESDIRK34a",
+    "MRIGARKESDIRK46a",
+    "KenCarp3 (Krylov)",
+    "KenCarp4 (Krylov)",
+    "ETDRK4",
+    "Tsit5",
+    "Rodas5P",
+    "FBDF","NordsieckBDF",
+)
+@time wp = WorkPrecisionSet([prob_swapped, prob, prob_joined], abstols, reltols, setups;
+    print_names=true, names=labels, numruns=5, error_estimate=:l2,
+    save_everystep=false, appxsol=[test_sol, test_sol, test_sol], maxiters=Int(1e6));
+
+plot(wp, label=labels, markershape=:auto, title="Implicit Multirate Methods")
+```
+
+Within the split constrained comparison the reversed orientation works:
+`MRIGARKIRK21a` and `MRIGARKESDIRK34a` run clean order lines (in the latest
+run, the second order member from about `4e-4` in roughly 30 milliseconds to
+about `3e-8` in roughly 4 seconds, the third order member to about `6e-10` in
+roughly 15 seconds). The Krylov `KenCarp` references making the same term
+assignment stop at about `1e-4` (`KenCarp3`) and `4e-5` (`KenCarp4`) at
+roughly 0.15 seconds, and where their errors overlap with the multirate members
+the costs are comparable (for example `MRIGARKESDIRK34a` also needs about 0.15
+seconds for about `4e-5`); the multirate members' advantage is that they
+continue to much tighter errors. `MRIGARKESDIRK46a` is the cheapest member at
+mid accuracies but its error stops responding at the tightest pairs, so its
+tolerance is not a trustworthy control knob at that end. The cross family
+references cap the claim, though: `FBDF` on the joined problem reaches about
+`1e-7` in about 15 milliseconds and `Tsit5` reaches about `1e-9` in about 0.2
+seconds, so at matched error the free choice single rate methods beat the best
+multirate member by one to two orders of magnitude. The reading these curves
+support is narrow: among methods constrained to treat this split implicitly and
+explicitly by term, the solve decoupled members reach errors the Krylov IMEX
+references do not, at similar cost where both apply; once that constraint is
+dropped, an adaptive BDF or a stability capped explicit method solves the
+problem faster than any of them.
 
 #### Comparisons Between Families
 
 ```julia
-abstols = 0.1 .^ (5:8) # all fixed dt methods so these don't matter much
-reltols = 0.1 .^ (1:4)
-multipliers = 0.5 .^ (0:3)
+abstols = 0.1 .^ (3:6)
+reltols = 0.1 .^ (3:6)
+multipliers = 0.3 .^ (0:3)
 setups = [
-    Dict(:alg => CNAB2(), :dts => 1e-4 * multipliers),
-    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-4 * multipliers),
-    Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
+    Dict(:alg => CNAB2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => CNAB2(linsolve=KrylovJL_GMRES()), :dts => 1e-3 * multipliers),
+    Dict(:alg => ETDRK2(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => TSRKC3()),
 ]
 labels = hcat(
     "CNAB2 (dense)",
     "CNAB2 (Krylov)", 
     "ETDRK2 (caching)",
+    "ROCK4",
+    "TSRKC3",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
@@ -168,10 +389,10 @@ plot(wp, label=labels, markershape=:auto, title="Between Families, High Toleranc
 
 #### Implicit-Explicit Methods
 
-Dense and Krylov linear solvers.
+Default and explicit Krylov linear solvers.
 ```julia
-abstols = 0.1 .^ (8:12)
-reltols = 0.1 .^ (5:9)
+abstols = 0.1 .^ (7:11)
+reltols = 0.1 .^ (7:11)
 setups = [
     Dict(:alg => KenCarp3()),
     Dict(:alg => KenCarp4()),
@@ -184,9 +405,9 @@ setups = [
     Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
 ]
 labels = hcat(
-    "KenCarp3 (dense)",
-    "KenCarp4 (dense)",
-    "KenCarp5 (dense)",
+    "KenCarp3 (default)",
+    "KenCarp4 (default)",
+    "KenCarp5 (default)",
     "KenCarp3 (Krylov)",
     "KenCarp4 (Krylov)",
     "KenCarp5 (Krylov)",
@@ -208,9 +429,9 @@ abstols = 0.1 .^ (7:11) # all fixed dt methods so these don't matter much
 reltols = 0.1 .^ (4:8)
 multipliers = 0.5 .^ (0:4)
 setups = [
-    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
-    Dict(:alg => HochOst4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK3(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => HochOst4(), :dts => 1e-3 * multipliers),
 ]
 labels = hcat(
     "ETDRK3 (caching)",
@@ -219,7 +440,7 @@ labels = hcat(
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
 
 plot(wp, label=labels, markershape=:auto, title="ExpRK Methods, Low Tolerances")
 ```
@@ -232,17 +453,21 @@ reltols = 0.1 .^ (4:8)
 multipliers = 0.5 .^ (0:4)
 setups = [
     Dict(:alg => ARKODE(Sundials.Implicit(), order=5, linear_solver=:GMRES)),
-    Dict(:alg => ETDRK3(), :dts => 1e-2 * multipliers),
-    Dict(:alg => ETDRK4(), :dts => 1e-2 * multipliers),
+    Dict(:alg => ETDRK3(), :dts => 1e-4 * multipliers),
+    Dict(:alg => ETDRK4(), :dts => 1e-3 * multipliers),
+    Dict(:alg => ROCK4()),
+    Dict(:alg => TSRKC3()),
 ]
 labels = hcat(
     "ARKODE5 (Krylov)",
     "ETDRK3 (caching)",
-    "ETDRK4 (caching)"
+    "ETDRK4 (caching)",
+    "ROCK4",
+    "TSRKC3",
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,
-    save_everystep=false, appxsol=test_sol, maxiters=Int(1e5));
+    save_everystep=false, appxsol=test_sol, maxiters=Int(1e6));
 
 plot(wp, label=labels, markershape=:auto, title="Between Families, Low Tolerances")
 ```

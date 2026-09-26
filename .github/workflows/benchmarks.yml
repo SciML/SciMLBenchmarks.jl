@@ -5,9 +5,15 @@ on:
     branches: [master]
     paths:
       - 'benchmarks/**'
+      - '.github/benchmark_defaults.toml'
+      - '.github/scripts/build_benchmark.sh'
+      - '.github/scripts/detect-changed-benchmarks.sh'
+      - '.github/scripts/read-benchmark-config.sh'
+      - '.github/scripts/test-build-benchmark.sh'
+      - '.github/scripts/test-detect-changed-benchmarks.sh'
+      - '.github/workflows/benchmarks.yml'
   pull_request:
-    paths:
-      - 'benchmarks/**'
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
     inputs:
       benchmark_target:
@@ -15,27 +21,44 @@ on:
         required: false
         type: string
 
-# Cancel in-progress PR runs (but not master — benchmarks are long-running)
+# PR runs: one group per PR number, so pushes and closure cancel older work.
+#
+# master runs (push and workflow_dispatch): one group PER RUN, so they never
+# queue behind or evict each other. GitHub allows only one running + one
+# pending run per group; a newly queued run CANCELS the pending one. With a
+# single shared master group, a multi-day folder (e.g. SimpleHandwrittenPDE)
+# held the group for days while every later master push was first parked as
+# pending and then silently cancelled by the next push — its benchmark jobs
+# never ran and nothing reached SciMLBenchmarksOutput, even though other
+# self-hosted runners sat idle. Per-run groups let the matrix jobs spread over
+# all available runners; the only thing that must be serialized is the push
+# to SciMLBenchmarksOutput, which publish_benchmark_output.sh handles itself.
 concurrency:
-  group: benchmarks-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  group: benchmarks-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/master' && github.run_id || github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/master' }}
 
 jobs:
   detect-changes:
     name: Detect Changed Benchmarks
     runs-on: ubuntu-latest
     # Skip change detection if a manual target is provided
-    if: ${{ github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null }}
+    if: ${{ github.event.action != 'closed' && (github.event.inputs.benchmark_target == '' || github.event.inputs.benchmark_target == null) }}
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Test changed benchmark detection
+        run: bash .github/scripts/test-detect-changed-benchmarks.sh
+      - name: Test benchmark build setup
+        run: bash .github/scripts/test-build-benchmark.sh
       - name: Detect changed benchmarks
         id: detect
         run: .github/scripts/detect-changed-benchmarks.sh
+        env:
+          PUSH_BASE_SHA: ${{ github.event.before }}
 
   # When manually triggered with a specific target
   manual-matrix:
@@ -46,7 +69,7 @@ jobs:
       matrix: ${{ steps.manual.outputs.matrix }}
       has_changes: ${{ steps.manual.outputs.has_changes }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set manual target
         id: manual
         run: |
@@ -68,6 +91,9 @@ jobs:
         (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.has_changes == 'true') ||
         (needs.manual-matrix.result == 'success' && needs.manual-matrix.outputs.has_changes == 'true')
       )
+    concurrency:
+      group: benchmark-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ matrix.target }}
+      cancel-in-progress: true
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -77,7 +103,7 @@ jobs:
     env:
       JULIA_NUM_THREADS: auto
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: julia-actions/setup-julia@v3
         with:
@@ -109,30 +135,8 @@ jobs:
             script/
           retention-days: 30
 
-  publish:
-    name: Publish Results
-    needs: benchmark
-    # Publish whenever the benchmark stage actually ran (success OR failure),
-    # so one folder's failure doesn't block other folders' artifacts from
-    # reaching SciMLBenchmarksOutput. download-artifact pulls only artifacts
-    # that were actually uploaded (only successful builds upload), and
-    # publish_benchmark_output.sh is a no-op when there's nothing new.
-    if: always() && github.ref == 'refs/heads/master' && (needs.benchmark.result == 'success' || needs.benchmark.result == 'failure')
-    runs-on: [self-hosted, benchmark]
-    concurrency:
-      group: scimlbenchmarks-deploy
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Download all benchmark artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: benchmark-*
-          merge-multiple: true
-        continue-on-error: true
-
       - name: Publish to SciMLBenchmarksOutput
+        if: success() && github.ref == 'refs/heads/master'
         run: .github/scripts/publish_benchmark_output.sh
         env:
           DEPLOY_KEY: ${{ secrets.SCIML_BENCHMARKS_DEPLOY_KEY }}

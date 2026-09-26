@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ## Data Load and Setup Code
 
-This is generic setup code usable for all solver setups. Basically removing some unnecessary untyped dictionaries
+This is generic setup code usable for all solver setups. It mostly removes some unnecessary untyped dictionaries
 before getting to the benchmarks.
 
 ```julia
@@ -27,6 +27,10 @@ import PowerModels
 import ConcreteStructs
 using BenchmarkTools
 using DataFrames
+
+# PowerModels logs through a Memento handler bound to the real stdout; Weave
+# captures chunk output on a pipe, so drop the level before any parse_file call.
+PowerModels.logger_config!("error")
 
 ConcreteStructs.@concrete struct DataRepresentation
     data::Any
@@ -272,7 +276,7 @@ dataset = load_and_setup_data(file_name);
 
 ## Test Setup
 
-Ensure that all objectives and constraints evaluate to the same value on a feasible point in the same dataset
+Ensure that all objectives and constraints evaluate to the same value on a feasible point in the same dataset.
 
 ```julia
 test_u0 = [0.062436387733897314, 1.0711076238965598, 0.0, 1.066509799068872,
@@ -305,14 +309,14 @@ test_cons = [
 
 ## Setup and Validations
 
-Now is the setup code for each optimization framework, along with the validation runs on the test case. Any test which fails the validation
-case, i.e. has `x_test_res[1] !≈ test_obj` or `x_test_res[2] !≈ test_cons` should be considered invalidated as this means that the model
-in that modeling platform does not evaluate to give the same results
+Below is the setup code for each optimization framework, along with the validation runs on the test case. Any test which fails the validation
+case, i.e. has `x_test_res[1] !≈ test_obj` or `x_test_res[2] !≈ test_cons`, should be considered invalidated, as this means that the model
+in that modeling platform does not evaluate to the same results.
 
 ### Optimization.jl
 
 Constraint optimization implementation reference: https://github.com/SciML/Optimization.jl/blob/master/lib/OptimizationMOI/test/runtests.jl
-Other AD libraries can be considered: https://docs.sciml.ai/dev/modules/Optimization/API/optimization_function/
+Other AD libraries can be considered: https://docs.sciml.ai/Optimization/stable/API/optimization_function/
 
 ```julia
 import Optimization
@@ -622,7 +626,7 @@ optimization_test_res = test_optimization_prob(dataset, test_u0)
 ## ModelingToolkit.jl
 
 Showcases symbolic interface to Optimization.jl, through ModelingToolkit.jl. The simplification process in ModelingToolkit.jl transforms
-the system to solve for a smaller subset of variables. As a result, while the optimization problem being solved is equivalent constraint
+the system to solve for a smaller subset of variables. As a result, while the optimization problem being solved is equivalent, the constraint
 function values don't match. The test for this system is thus modified. The `test_u0` vector will be appropriately subsetted to match the
 reduced set of variables, and the resultant point is ensured to be feasible as per the modified constraints. The subsetted point
 will be used to re-generate the full point using the observed equations in the reduced system, and this point will be validated to
@@ -1484,9 +1488,10 @@ nlpmodels_test_res = test_nlpmodels_prob(dataset, test_u0)
 
 ## Nonconvex
 
-Implementation reference: https://julianonconvex.github.io/Nonconvex.jl/stable/problem/
-Currently does not converge due to an upstream issue with the AD backend Zygote: https://github.com/JuliaNonconvex/Nonconvex.jl/issues/130
-Note: Nonconvex.jl is incompatible with Symbolics v7 and has been removed from this benchmark.
+Implementation reference: https://julianonconvex.github.io/Nonconvex.jl/stable/problem/dict_model/
+
+Nonconvex.jl is incompatible with Symbolics v7, so the code below is disabled and Nonconvex.jl is not part of this benchmark.
+When it was last enabled, it did not converge due to an upstream issue with the AD backend Zygote: https://github.com/JuliaNonconvex/Nonconvex.jl/issues/130
 
 ```julia
 #=
@@ -1782,8 +1787,7 @@ println(sort(abs.(test_cons)))
 ## Optim.jl
 
 Implementation reference: https://julianlsolvers.github.io/Optim.jl/stable/#examples/generated/ipnewton_basics/
-Currently does not converge to a feasible point, root cause in unclear
-`debug/optim-debug.jl` can be used to confirm it will converge if given a suitable starting point
+In the latest run it does not converge to a feasible point (`"feasible" => false` in the test runs below); the root cause is unclear.
 
 ```julia
 import Optim
@@ -2138,7 +2142,7 @@ optim_test_res = test_optim_prob(dataset, test_u0)
 
 Implementation reference: https://github.com/lanl-ansi/PowerModelsAnnex.jl/blob/master/src/model/ac-opf.jl
 
-CASADI Segfaults so removed for now.
+CASADI segfaults, so it is removed for now; the code below is not executed.
 
 ```
 import PowerModels
@@ -2423,17 +2427,17 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         @show file
         dataset = load_and_setup_data(file)
 
-        prob = build_opf_optimization_prob(dataset)
-        @info "Number of Variables: $(length(prob.u0))"
-        @info "Number of Constraints: $(length(prob.lcons))"
+        model_variables = length(dataset.var_init)
+        @info "Number of Variables: $(model_variables)"
 
-        if length(prob.u0) > sizelimit
+        if model_variables > sizelimit
             @info "Variable size over global limit. Skipping for now"
             continue
         end
 
         @info "Running Optimization.jl"
         model, res = solve_opf_optimization(dataset)
+        @info "Number of Constraints: $(res["constraints"])"
         push!(cases, split(file, "/")[end])
         push!(vars, res["variables"])
         push!(cons, res["constraints"])
@@ -2472,9 +2476,8 @@ function multidata_multisolver_benchmark(dataset_files; sizelimit = SIZE_LIMIT)
         push!(nonconvex_cost, res["cost"])
         =#
 
-        if length(prob.u0) > 400
-            @info "Running Optim.jl"
-            model, res = solve_opf_optim(dataset)
+        if model_variables > 400
+            @info "Variable size over Optim.jl limit. Skipping for now"
             push!(optim_time, NaN)
             push!(optim_time_modelbuild, NaN)
             push!(optim_time_compilation, NaN)

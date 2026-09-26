@@ -4,7 +4,7 @@ author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Paglia
 ---
 
 Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
-Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+Uses the [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) library from the
 [SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
 for the implementation of physics-informed neural networks (PINNs) and other
 science-guided AI techniques.
@@ -19,7 +19,13 @@ using Lux, Plots
 using OptimizationOptimisers
 using DelimitedFiles
 using QuasiMonteCarlo
-import ModelingToolkit: Interval, infimum, supremum
+import DomainSets: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
+const cpud = cpu_device()
 ```
 
 ```julia
@@ -50,6 +56,8 @@ function diffusion(strategy, minimizer, maxIters)
     depvars = [u(x, t)]
 
     chain = Lux.Chain(Lux.Dense(2, 10, tanh), Lux.Dense(10, 10, tanh), Lux.Dense(10, 1))
+    # NeuralPDE trains on the device of init_params
+    ps = Lux.setup(Random.default_rng(), chain)[1] |> ComponentArray |> gpud .|> Float64
 
     losses = []
     error = []
@@ -59,7 +67,7 @@ function diffusion(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    discretization_ = PhysicsInformedNN(chain, error_strategy; init_params = ps)
     @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
     prob_ = discretize(pde_system_, discretization_)
 
@@ -75,14 +83,14 @@ function diffusion(strategy, minimizer, maxIters)
         append!(times, ctime/10^9) #Conversion nanosec to seconds
         append!(losses, l)
         loss_ = loss_function_(p, nothing)
-        append!(error, loss_)
+        push!(error, only(cpud(loss_)))
 
         timeCounter = timeCounter + time_ns() - deltaT_s #timeCounter sums all delays due to the callback functions of the previous iterations
 
         return false
     end
 
-    discretization = PhysicsInformedNN(chain, strategy)
+    discretization = PhysicsInformedNN(chain, strategy; init_params = ps)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
     prob = discretize(pde_system, discretization)
@@ -98,7 +106,7 @@ function diffusion(strategy, minimizer, maxIters)
     # Model prediction
     domain = [x, t]
 
-    u_predict = reshape([first(phi([x, t], res.minimizer)) for x in xs for t in ts], (
+    u_predict = reshape([first(Array(phi([x, t], res.minimizer))) for x in xs for t in ts], (
         length(xs), length(ts)))
 
     return [error, params, domain, times, u_predict, losses]

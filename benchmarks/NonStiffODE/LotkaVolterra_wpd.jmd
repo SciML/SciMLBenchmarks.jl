@@ -52,7 +52,7 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>MER6v2(), :prob_choice => 2)
           Dict(:alg=>RK6v4(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, maxiters = 10000, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), maxiters = 10000, numruns = 100)
 plot(wp)
 ```
 
@@ -73,11 +73,11 @@ setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern6(), :prob_choice => 2)]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, maxiters = 10000,
-    error_estimate = :L2, dense_errors = true, numruns = 100)
+    error_estimate = :L2, dense_errors = true, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
-Here we see the power of algorithm specific interpolations. The ODE.jl algorithm is only able to reach $10^{-7}$ error even at a tolerance of $10^{-13}$, while the DifferentialEquations.jl algorithms are below $10^{-10}$
+Here we see the power of algorithm-specific interpolations: the OrdinaryDiffEq.jl methods reach $L^2$ errors below $10^{-10}$ throughout the solution, while `IRKGL16`, which does not have an interpolation of matching order, stays at errors many orders of magnitude larger at every tolerance.
 
 ## Higher Order
 
@@ -96,7 +96,7 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, maxiters = 1000, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
 plot(wp)
 ```
 
@@ -117,7 +117,7 @@ setups = [Dict(:alg=>odex())
           Dict(:alg=>lsoda())
           Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, maxiters = 1000, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
 plot(wp)
 ```
 
@@ -137,11 +137,11 @@ setups = [Dict(:alg=>DP8())
           Dict(:alg=>Vern8(), :prob_choice => 2)
           Dict(:alg=>Vern9(), :prob_choice => 2)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, dense = true,
-    maxiters = 1000, error_estimate = :L2, numruns = 100)
+    maxiters = 1000, error_estimate = :L2, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
-Again, the ODE.jl algorithms suffer when measuring the interpolations due to relying on an order 3 Hermite polynomial instead of an algorithm-specific order matching interpolation which uses the timesteps.
+Again, `IRKGL16` suffers when measuring the interpolations, while the Verner methods, which have algorithm-specific interpolations of matching order, keep their accuracy between the timesteps.
 
 ## Comparison with Non-RK methods
 
@@ -212,7 +212,7 @@ plot(wp)
 
 ## Conclusion
 
-The OrdinaryDiffEq.jl are quicker and still solve to a much higher accuracy, especially when the interpolations are involved. ODE.jl errors a lot.
+The OrdinaryDiffEq.jl explicit Runge-Kutta methods are quicker than `dopri5`, `dop853` and `IRKGL16` at every tolerance, and the gap in accuracy is largest when the interpolations are involved. ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
 
 ```julia, echo = false
 using SciMLBenchmarks

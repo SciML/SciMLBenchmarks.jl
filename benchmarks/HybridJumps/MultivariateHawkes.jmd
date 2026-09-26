@@ -30,7 +30,7 @@ The conditional intensity of this process has a recursive formulation which can 
   \phi_i^\ast (t)
     &= \sum_{j \in E_i} \sum_{t_{n_j} < t} \alpha \exp \left[-\beta (t - t_{N_i} + t_{N_i} - t_{n_j}) \right] \\
     &= \exp \left[ -\beta (t - t_{N_i}) \right] \sum_{j \in E_i} \sum_{t_{n_j} \leq t_{N_i}} \alpha \exp \left[-\beta (t_{N_i} - t_{n_j}) \right] \\
-    &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi^\ast (t_{N_i}) \right)
+    &= \exp \left[ -\beta (t - t_{N_i}) \right] \left( \alpha + \phi_i^\ast (t_{N_i}) \right)
 \end{split}
 ```
 
@@ -120,7 +120,7 @@ end
 function hawkes_problem(
     p,
     agg;
-    vr_agg = VR_FRM(),
+    vr_agg = VR_DirectFW(),
     u = [0.0],
     tspan = (0.0, 50.0),
     save_positions = (false, true),
@@ -128,8 +128,8 @@ function hawkes_problem(
     use_recursion = false,
 )
     oprob = ODEProblem(f!, u, tspan, p)
-    jumps = hawkes_jump(u, g; use_recursion)
-    jprob = JumpProblem(oprob, agg, jumps...; vr_aggregator = vr_agg, save_positions = save_positions)
+    jumps = JumpSet(; variable_jumps = hawkes_jump(u, g; use_recursion))
+    jprob = JumpProblem(oprob, agg, jumps; vr_aggregator = vr_agg, save_positions = save_positions)
     return jprob
 end
 ```
@@ -147,14 +147,13 @@ function hawkes_problem(
         use_recursion = false
 )
     dprob = DiscreteProblem(u, tspan, p)
-    jumps = hawkes_jump(u, g; use_recursion)
-    jprob = JumpProblem(
-        dprob, agg, jumps...; dep_graph = g, save_positions = save_positions)
+    jumps = JumpSet(; variable_jumps = hawkes_jump(u, g; use_recursion))
+    jprob = JumpProblem(dprob, agg, jumps; dep_graph = g, save_positions = save_positions)
     return jprob
 end
 ```
 
-Lets solve the problems defined so far. We sample a random graph sampled from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at ``0.2``. For illustration purposes, we fix ``V = 10``.
+Let's solve the problems defined so far. We sample a random graph from the Erdős-Rényi model. This model assumes that the probability of an edge between two nodes is independent of other edges, which we fix at ``0.2``. For illustration purposes, we fix ``V = 10``.
 
 ```julia
 V = 10
@@ -366,31 +365,14 @@ end
 push!(algorithms, (PDMPCHVFull(), CHV(Tsit5()), true, "PDMPCHVFull"));
 ```
 
-The Python `Tick` library can be accessed with the `PyCall.jl`. We install the required Python dependencies with `Conda.jl` and define a factory for the Multivariate Hawkes `PyTick` problem.
+The Python `Tick` library is installed by the folder setup hook and accessed with `PyCall.jl`. We define a factory for the Multivariate Hawkes `PyTick` problem.
 
 ```julia
 const BENCHMARK_PYTHON::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_PYTHON", "true"))
-const REBUILD_PYCALL::Bool = tryparse(Bool, get(ENV, "SCIMLBENCHMARK_REBUILD_PYCALL", "true"))
 
 struct PyTick end
 
 if BENCHMARK_PYTHON
-    if REBUILD_PYCALL
-        using Pkg, Conda
-
-        # PyCall only works with Conda.ROOTENV
-        # tick requires python=3.8
-        Conda.add("python=3.8", Conda.ROOTENV)
-        Conda.add("numpy", Conda.ROOTENV)
-        Conda.pip_interop(true, Conda.ROOTENV)
-        Conda.pip("install", "tick", Conda.ROOTENV)
-
-        # rebuild PyCall to ensure it links to the python provided by Conda.jl
-        ENV["PYTHON"] = ""
-        Pkg.build("PyCall")
-    end
-
-    ENV["PYTHON"] = ""
     using PyCall
     @info "PyCall" PyCall.libpython PyCall.pyversion PyCall.conda
 
@@ -621,7 +603,7 @@ function apply_Λ(hs::V, Λ) where {V <: Vector{<:Vector{<:Vector{<:Number}}}}
 end
 ```
 
-We can construct QQ-plots with a Plot recipe as following.
+We can construct QQ-plots with a Plot recipe as follows.
 
 ```julia
 @userplot QQPlot
@@ -720,9 +702,7 @@ end
 
 In this Section we benchmark all the algorithms introduced in the first Section.
 
-We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process ``25`` units of time.
-
-and simulate models in the range from ``1`` to ``95`` nodes for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration.
+We generate networks in the range from ``1`` to ``95`` nodes and simulate the Multivariate Hawkes process for ``25`` units of time. We fix the Hawkes parameters at ``\lambda = 0.5 , \alpha = 0.1 , \beta = 5.0`` which ensures the process does not explode. We simulate ``50`` trajectories with a limit of ten seconds to complete execution for each configuration. Only configurations that complete all ``50`` trajectories within that limit are plotted.
 
 ```julia
 tspan = (0.0, 25.0)
@@ -768,27 +748,27 @@ for (algo, stepper, use_recursion, label) in algorithms
         global jump_prob = hawkes_problem(_p, algo; u, tspan, g, use_recursion)
         trial = try
             if algo isa PyTick
-                @benchmark(jump_prob.simulate(),
-                    setup=(jump_prob.reset()),
+                @benchmark($(jump_prob).simulate(),
+                    setup=($(jump_prob).reset()),
                     samples=50,
                     evals=1,
                     seconds=10,)
             else
                 if algo isa PDMPCHVFull
-                    @benchmark(solve(jump_prob, _stepper),
+                    @benchmark(solve($jump_prob, $_stepper),
                         setup=(),
                         samples=50,
                         evals=1,
                         seconds=10,)
                 elseif algo isa PDMPCHVSimple
                     if use_recursion
-                        @benchmark(solve(jump_prob, _stepper),
+                        @benchmark(solve($jump_prob, $_stepper),
                             setup=(h .= 0; ϕ .= 0),
                             samples=50,
                             evals=1,
                             seconds=10,)
                     else
-                        @benchmark(solve(jump_prob, _stepper),
+                        @benchmark(solve($jump_prob, $_stepper),
                             setup=([empty!(_h) for _h in h]),
                             samples=50,
                             evals=1,
@@ -796,13 +776,13 @@ for (algo, stepper, use_recursion, label) in algorithms
                     end
                 else
                     if use_recursion
-                        @benchmark(solve(jump_prob, _stepper),
+                        @benchmark(solve($jump_prob, $_stepper),
                             setup=(h .= 0; urate .= 0; ϕ .= 0),
                             samples=50,
                             evals=1,
                             seconds=10,)
                     else
-                        @benchmark(solve(jump_prob, _stepper),
+                        @benchmark(solve($jump_prob, $_stepper),
                             setup=([empty!(_h) for _h in h]; urate .= 0),
                             samples=50,
                             evals=1,
@@ -831,7 +811,8 @@ let fig = plot(
         yscale = :log10,
         xlabel = "V",
         ylabel = "Time (ns)",
-        legend_position = :outertopright
+        legend_position = :outertopright,
+        size = (800, 400),
     )
     for (i, (algo, stepper, use_recursion, label)) in enumerate(algorithms)
         _bs, _Vs = [], []
@@ -849,7 +830,7 @@ end
 
 # Benchmarking Variable Rate Aggregators
 
-We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from `1` to `50` nodes, `tspan=(0.0, 25.0)`, `\lambda=0.5`, `\alpha=0.1`, `\beta=5.0`, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations.
+We benchmark the variable rate aggregators (`VR_Direct`, `VR_DirectFW`, `VR_FRM`) for the Multivariate Hawkes process, using the same setup as above: networks from ``1`` to ``95`` nodes, `tspan = (0.0, 25.0)`, ``\lambda = 0.5``, ``\alpha = 0.1``, ``\beta = 5.0``, and 50 trajectories with a 10-second limit per configuration. We test both recursive and brute-force formulations. `VR_FRM` is only run up to 40 nodes because constructing its per-jump callbacks becomes compilation-bound beyond that point; `VR_Direct` and `VR_DirectFW` are run over the full range. As above, only configurations that complete all 50 trajectories within the limit are plotted.
 
 ```julia
 vr_aggs = [
@@ -873,7 +854,8 @@ for (vr_agg, stepper, use_recursion, label) in vr_aggs
     global _stepper = stepper
     push!(vr_bs, Vector{BenchmarkTools.Trial}())
     _vr_bs = vr_bs[end]
-    for (i, G) in enumerate(Gs)
+    local benchmark_graphs = vr_agg isa VR_FRM ? Gs[Vs .<= 40] : Gs
+    for (i, G) in enumerate(benchmark_graphs)
         local g = [neighbors(G, i) for i in 1:nv(G)]
         local u = [0.0 for i in 1:nv(G)]
         if use_recursion
@@ -890,7 +872,7 @@ for (vr_agg, stepper, use_recursion, label) in vr_aggs
         trial = try
             if use_recursion
                 @benchmark(
-                    solve(jump_prob, _stepper),
+                    solve($jump_prob, $_stepper),
                     setup = (h .= 0; urate .= 0; ϕ .= 0),
                     samples = 50,
                     evals = 1,
@@ -898,7 +880,7 @@ for (vr_agg, stepper, use_recursion, label) in vr_aggs
                 )
             else
                 @benchmark(
-                    solve(jump_prob, _stepper),
+                    solve($jump_prob, $_stepper),
                     setup = ([empty!(_h) for _h in h]; urate .= 0),
                     samples = 50,
                     evals = 1,
@@ -926,6 +908,7 @@ let fig = plot(
     xlabel = "V",
     ylabel = "Time (ns)",
     legend_position = :outertopright,
+    size = (800, 400),
 )
     for (i, (vr_agg, _, use_recursion, label)) in enumerate(vr_aggs)
         _bs, _Vs = [], []
@@ -946,3 +929,8 @@ end
 [1] D. J. Daley and D. Vere-Jones. An Introduction to the Theory of Point Processes: Volume I: Elementary Theory and Methods. Probability and Its Applications, An Introduction to the Theory of Point Processes. Springer-Verlag, 2 edition. doi:10.1007/b97277.
 
 [2] Patrick J. Laub, Young Lee, and Thomas Taimre. The Elements of Hawkes Processes. Springer International Publishing. doi:10.1007/978-3-030-84639-8.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

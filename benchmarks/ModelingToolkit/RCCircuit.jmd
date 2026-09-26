@@ -97,18 +97,32 @@ end
 
 ```julia
 # OMJ
-const omod = OMJulia.OMCSession();
+omod = OMJulia.OMCSession();
 OMJulia.sendExpression(omod, "getVersion()")
 OMJulia.sendExpression(omod, "installPackage(Modelica)")
 const modelicafile = joinpath(@__DIR__, "RC_Circuit.mo")
 
 function time_open_modelica(n::Int)
-    totaltime = @elapsed res = begin
-        @sync ModelicaSystem(omod, modelicafile, "RC_Circuit.Test.RC_Circuit_MTK_test_$n")
-        sendExpression(omod, "simulate(RC_Circuit.Test.RC_Circuit_MTK_test_$n)")
+    try
+        local res
+        totaltime = @elapsed res = begin
+            @sync ModelicaSystem(omod, modelicafile, "RC_Circuit.Test.RC_Circuit_MTK_test_$n")
+            sendExpression(omod, "simulate(RC_Circuit.Test.RC_Circuit_MTK_test_$n)")
+        end
+        msgs = string(get(res, "messages", ""))
+        startswith(msgs, "LOG_SUCCESS") || error("omc messages: $msgs")
+        return totaltime
+    catch e
+        @warn "OpenModelica timing failed" n exception = (e,)
+        try
+            OMJulia.quit(omod)
+        catch
+        end
+        global omod = OMJulia.OMCSession()
+        OMJulia.sendExpression(omod, "getVersion()")
+        OMJulia.sendExpression(omod, "installPackage(Modelica)")
+        return NaN
     end
-    @assert res["messages"][1:11] == "LOG_SUCCESS"
-    return totaltime
 end
 
 function run_and_time_om!(total_times, max_sizes, i, n)
