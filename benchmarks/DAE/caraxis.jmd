@@ -73,7 +73,7 @@ p_0 = (0, 0.5, 1, 0.5)^T, \quad q_0 = (-0.5, 0, -0.5, 0)^T, \quad \lambda_0 = (0
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
-      Plots, DASSL, DASKR, SciMLBase
+      Plots, DASSL, DASKR
 using OrdinaryDiffEqBDF, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock
 using LinearAlgebra
 using ModelingToolkit: t_nounits as t, D_nounits as D
@@ -97,12 +97,14 @@ u0_mm  = [0.0, 0.5, 1.0, 0.5, -0.5, 0.0, -0.5, 0.0, 0.0, 0.0]
 ## 1 · ModelingToolkit Symbolic Form
 
 `@mtkbuild` calls `structural_simplify` (Pantelides) to reduce index 3 → 0/1,
-reducing the system from 10 unknowns to **8**. After index reduction the two
-position constraints and their time derivatives fix $x_l$, $\dot{x}_l$, $x_r$ and
-$\dot{x}_r$ in terms of the remaining states, and $\lambda_1$, $\lambda_2$ are algebraic.
-Only $y_l$, $y_r$, $\dot{y}_l$ and $\dot{y}_r$ are therefore given initial
-conditions; the other variables get guesses and are solved for by initialization.
-Fixing all ten would make the initialization system overdetermined.
+reducing the system from 10 unknowns to **8**. The two position constraints and
+their time derivatives eliminate $x_l$ and $\dot{x}_l$, and $\dot{x}_r$ enters
+the reduced system only through the dummy derivative `xrˍt`: the torn unknowns
+are $y_l$, $y_r$, $x_r$, $\dot{y}_l$, $\dot{y}_r$, `xrˍt`, and the algebraic
+$\lambda_1$, $\lambda_2$. Only $y_l$, $y_r$, $\dot{y}_l$ and $\dot{y}_r$ are
+therefore given initial conditions; the other variables get guesses and are
+solved for by initialization. Fixing all ten would make the initialization
+system overdetermined.
 
 In the first constraint $x_b x_l + y_b y_l = 0$, the coefficient
 $y_b = r\sin(\omega t)$ vanishes at $t = 0$. Passing it through the
@@ -136,7 +138,8 @@ eqs = [
 tspan = (0.0, 3.0)
 
 mtkprob  = ODEProblem(sys, [yl => 0.5, yr => 0.5, dyl => 0.0, dyr => 0.0], tspan) # prob_choice = 1
-println("MTK initialization status: ", SciMLBase.initialization_status(mtkprob))
+println("MTK u0 all finite: ", all(isfinite, mtkprob.u0))
+println("MTK RHS at t = 0 all finite: ", all(isfinite, mtkprob.f(mtkprob.u0, mtkprob.p, tspan[1])))
 ```
 
 ---
