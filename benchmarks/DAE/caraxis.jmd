@@ -73,7 +73,7 @@ p_0 = (0, 0.5, 1, 0.5)^T, \quad q_0 = (-0.5, 0, -0.5, 0)^T, \quad \lambda_0 = (0
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
-      Plots, DASSL, DASKR
+      Plots, DASSL, DASKR, SciMLBase
 using OrdinaryDiffEqBDF, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock
 using LinearAlgebra
 using ModelingToolkit: t_nounits as t, D_nounits as D
@@ -104,10 +104,10 @@ Only $y_l$, $y_r$, $\dot{y}_l$ and $\dot{y}_r$ are therefore given initial
 conditions; the other variables get guesses and are solved for by initialization.
 Fixing all ten would make the initialization system overdetermined.
 
-The first constraint is written as $x_l + (y_b/x_b)\,y_l = 0$ rather than
-$x_b x_l + y_b y_l = 0$. Both are equivalent since $x_b > 0$, but with the second
-form index reduction solves it for $y_l$, dividing by $y_b = r\sin(\omega t)$,
-which is zero at $t = 0$, so the reduced system is singular at the initial time.
+In the first constraint $x_b x_l + y_b y_l = 0$, the coefficient
+$y_b = r\sin(\omega t)$ vanishes at $t = 0$. Passing it through the
+`maybe_zeros` keyword tells index reduction not to use it as a denominator,
+so the constraint is handled in a form that stays regular at the initial time.
 
 ```julia
 @variables xl(t) [guess = 0.0]   yl(t)    xr(t) [guess = 1.0]    yr(t)
@@ -128,14 +128,15 @@ eqs = [
     k_ca * D(dyl) ~ (L0_ca - Ll_s)*yl/Ll_s + lam1*yb_s + 2.0*lam2*(yl - yr) - k_ca*g_ca,
     k_ca * D(dxr) ~ (L0_ca - Lr_s)*(xr - xb_s)/Lr_s    - 2.0*lam2*(xl - xr),
     k_ca * D(dyr) ~ (L0_ca - Lr_s)*(yr - yb_s)/Lr_s    - 2.0*lam2*(yl - yr) - k_ca*g_ca,
-    0 ~ xl + (yb_s / xb_s)*yl,
+    0 ~ xb_s*xl + yb_s*yl,
     0 ~ (xl - xr)^2 + (yl - yr)^2 - L_ca^2,
 ]
 
-@mtkbuild sys = ODESystem(eqs, t)
+@mtkbuild sys = ODESystem(eqs, t; maybe_zeros = [yb_s])
 tspan = (0.0, 3.0)
 
 mtkprob  = ODEProblem(sys, [yl => 0.5, yr => 0.5, dyl => 0.0, dyr => 0.0], tspan) # prob_choice = 1
+println("MTK initialization status: ", SciMLBase.initialization_status(mtkprob))
 ```
 
 ---
