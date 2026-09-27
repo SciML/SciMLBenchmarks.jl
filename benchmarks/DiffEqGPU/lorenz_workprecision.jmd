@@ -62,6 +62,9 @@ gr()
     )
 end
 
+# Concatenating SVectors with hcat builds an SMatrix, which is catastrophic to compile at ensemble sizes.
+endpoint_matrix(u::AbstractVector{<:SVector{3}}) = [u[i][j] for i in eachindex(u), j in 1:3]
+
 function julia_runner(rhos::Vector{T}, method, tol) where {T}
     prob = ODEProblem{false}(lorenz_wp, SVector{3, T}(1, 0, 0), (zero(T), one(T)), SVector(rhos[1]))
     ens = EnsembleProblem(
@@ -75,7 +78,7 @@ function julia_runner(rhos::Vector{T}, method, tol) where {T}
             adaptive = true, dt = T(0.01), reltol = T(tol), abstol = T(tol / 1000),
             save_everystep = false, save_start = false, dense = false
         )
-        states = permutedims(reduce(hcat, (s.u[end] for s in sol.u)))
+        states = endpoint_matrix([s.u[end] for s in sol.u])
         @assert size(states) == (length(rhos), 3)
         @assert all(isfinite, states)
         return states
@@ -106,7 +109,7 @@ function julia_kernel_runner(rhos::Vector{T}, method, tol) where {T}
     )
     function host()
         _, us = call()
-        states = permutedims(reduce(hcat, Array(us)[end, :]))
+        states = endpoint_matrix(Array(us)[end, :])
         @assert size(states) == (length(rhos), 3)
         @assert eltype(states) === T
         @assert all(isfinite, states)
