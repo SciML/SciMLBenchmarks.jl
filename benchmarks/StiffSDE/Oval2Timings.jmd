@@ -155,7 +155,10 @@ best_adaptive_run = isfinite(best_adaptive_time) ? adaptive_runs[best_adaptive_i
 lw = 3
 p2 = plot(dts,times,xscale=:log2,yscale=:log2,guidefont=font(16),tickfont=font(14),yguide="Elapsed Time (s)",xguide=L"Chosen $\Delta t$",linewidth=lw,lab=["Euler-Maruyama" "RK-Mil" "RosslerSRI"],legendfont=font(14))
 plot!(dts,fill(best_adaptive_time, length(dts)),linewidth=lw,line=:dash,lab=best_adaptive_run)
-stable = [findfirst(==(0), fails[:,i]) for i in 1:3]
+stable = map(1:3) do i
+    ok = findall(==(0), fails[:, i])
+    isempty(ok) ? nothing : ok[argmax(dts[ok])]
+end
 stable_idxs = [(j,i) for (i,j) in enumerate(stable) if j !== nothing]
 scatter!([dts[j] for (j,i) in stable_idxs],[times[j,i] for (j,i) in stable_idxs],markersize=20,c=:red,lab="")
 plot(p2,size=(800,800))
@@ -164,30 +167,47 @@ plot(p2,size=(800,800))
 ```julia
 method_names = ["Euler-Maruyama", "RKMil", "SRIW1"]
 imp_names = ["ImplicitEM", "ImplicitRKMil"]
-jstables = [findfirst(==(0), fails[:, i]) for i in 1:3]
-cheapest_stable = minimum((times[j, i] for (i, j) in enumerate(jstables) if j !== nothing); init = Inf)
+fmt_dt(dt) = "2^-$(round(Int, -log2(dt)))"
 println("Verdict computed from the stored failure and timing data:")
 for i in 1:3
-    jstable = jstables[i]
-    if jstable === nothing
+    tested = [j for j in eachindex(dts) if fails[j, i] != -1]
+    passing = [j for j in tested if fails[j, i] == 0]
+    if isempty(passing)
         println("  $(method_names[i]): failed trajectories at every tested Δt")
     else
-        nfailed = count(j -> fails[j, i] > 0, 1:(jstable - 1))
-        ntested = count(j -> fails[j, i] != -1, 1:(jstable - 1))
-        jlastfail = findlast(j -> fails[j, i] > 0, eachindex(dts))
-        largest_failing = jlastfail === nothing ? "none" : "2^-$(js[jlastfail])"
-        println("  $(method_names[i]): failures on $nfailed of $ntested tested Δt coarser than the first failure-free step (largest failing Δt = $largest_failing); first failure-free at Δt = 2^-$(js[jstable]) ($(round(times[jstable, i]; sigdigits = 3)) s)")
+        jcoarse = passing[argmax(dts[passing])]
+        coarser = [j for j in tested if dts[j] > dts[jcoarse]]
+        nfailed = count(j -> fails[j, i] > 0, coarser)
+        failing = [j for j in tested if fails[j, i] > 0]
+        largest_failing = isempty(failing) ? "none" : fmt_dt(maximum(dts[failing]))
+        println("  $(method_names[i]): failures on $nfailed of $(length(coarser)) tested Δt coarser than the coarsest failure-free step (largest failing Δt = $largest_failing); coarsest failure-free Δt = $(fmt_dt(dts[jcoarse])) ($(round(times[jcoarse, i]; sigdigits = 3)) s)")
     end
 end
 for i in 1:2
     println("  $(imp_names[i]): $(sum(fails_imp[:, i])) failed trajectories over all $(length(dts_imp)) tested Δt; fastest run $(round(minimum(times_imp[:, i]); sigdigits = 3)) s")
 end
-println("  Cheapest failure-free fixed-step run: $(round(cheapest_stable; sigdigits = 3)) s")
+fixed_successes = NamedTuple{(:label, :dt, :time),Tuple{String,Float64,Float64}}[]
+for i in 1:3, j in eachindex(dts)
+    fails[j, i] == 0 && push!(fixed_successes, (; label = method_names[i], dt = dts[j], time = times[j, i]))
+end
+for i in 1:2, j in eachindex(dts_imp)
+    fails_imp[j, i] == 0 && push!(fixed_successes, (; label = imp_names[i], dt = dts_imp[j], time = times_imp[j, i]))
+end
+cheapest = isempty(fixed_successes) ? nothing : argmin(r -> r.time, fixed_successes)
+if cheapest === nothing
+    println("  No failure-free fixed-step run exists among the tested methods and step sizes")
+else
+    println("  Cheapest failure-free fixed-step run: $(cheapest.label) at Δt = $(fmt_dt(cheapest.dt)) ($(round(cheapest.time; sigdigits = 3)) s)")
+end
 if isfinite(best_adaptive_time)
     println("  Fastest adaptive run without failures: $best_adaptive_run ($(round(best_adaptive_time; sigdigits = 3)) s)")
-    ratio = cheapest_stable / best_adaptive_time
-    magnitude_note = ratio > 10 ? " (more than an order of magnitude faster)" : ""
-    println("  Ratio of cheapest failure-free fixed-step to fastest adaptive: $(round(ratio; sigdigits = 3))$magnitude_note")
+    if cheapest === nothing
+        println("  No failure-free fixed-step baseline exists, so no fixed-step/adaptive ratio is reported")
+    else
+        ratio = cheapest.time / best_adaptive_time
+        magnitude_note = ratio > 10 ? " (more than an order of magnitude faster)" : ""
+        println("  Ratio of cheapest failure-free fixed-step to fastest adaptive: $(round(ratio; sigdigits = 3))$magnitude_note")
+    end
 else
     println("  No adaptive run completed without failures")
 end
@@ -195,17 +215,17 @@ end
 
 ## Conclusion
 
-The summary above recomputes each of the following statements from the stored failure
-counts and timings, so it always agrees with the data behind this page. For each
-explicit fixed-step method it reports the largest tested $\Delta t$ that still produces
-failed trajectories and the first $\Delta t$ that completes all 1000 trajectories. In
-the latest run every explicit method fails at each tested $\Delta t$ coarser than its
-first failure-free step. The implicit methods report zero failed trajectories at every
-tested $\Delta t$, but their printed run times are slower than the cheapest
-failure-free explicit run reported just below them. The final line states the speedup
-of the fastest adaptive run over that cheapest fixed-step run — in the latest run it is
-more than an order of magnitude, as the printed ratio notes. Absolute wall-clock times
-vary with machine load; the ordering the summary reports does not.
+The summary above recomputes every printed quantity from the stored failure counts and
+timings rather than restating fixed numbers. For each explicit fixed-step method it
+reports how many of the tested $\Delta t$ coarser than the coarsest failure-free step
+still produce failed trajectories, the largest tested $\Delta t$ with failures, and the
+coarsest failure-free $\Delta t$ together with its elapsed time. For each implicit
+method it reports the failed-trajectory total over all tested $\Delta t$ and the
+fastest run. It then reports the cheapest failure-free run across all measured
+fixed-step methods and step sizes and the ratio of that run's time to the fastest
+failure-free adaptive run; when either side of that comparison has no failure-free run
+the summary says so instead of printing a ratio. Read the printed lines for what holds
+in the latest weave; absolute wall-clock times vary with machine load.
 
 ```julia, echo = false
 using SciMLBenchmarks
