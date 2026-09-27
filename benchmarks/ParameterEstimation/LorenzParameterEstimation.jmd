@@ -250,25 +250,25 @@ global_solutions["BBO_adaptive_de_rand_1_bin"] = res1
 
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 3)
-res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
 global_solutions["GN_ORIG_DIRECT_L"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 3)
-res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12) # Hit and miss. converge approximately accurate values for local opt.91 seconds
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300) # Hit and miss. converge approximately accurate values for local opt.91 seconds
 global_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 3)
-res1 = @btime solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12) # Approximately accurate within local bounds
+res1 = @btime solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12, maxtime = 300) # Approximately accurate within local bounds
 global_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 3)
-res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12) # Approximately accurate
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300) # Approximately accurate
 global_solutions["GN_ESCH"] = res1
 ```
 
@@ -284,7 +284,7 @@ for (name, sol) in sort!(collect(global_solutions); by = first)
 end
 ```
 
-In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample; the estimates, retcodes, and losses reported above show where each run stopped. The bounds check above shows whether each estimate lies inside `LooserBounds`, the bounds these runs search, and whether it would also satisfy the narrower `Xiang2015Bounds`, which apply only to the local runs below. All of the global runs take considerably longer than on the short sample. The loss at the true parameters is `obj([10.0, 28.0, 2.66]) ≈ 3.1e-3`: small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The endpoints reported above sit at losses orders of magnitude larger, so the true parameters are still a deep minimum that none of the optimizers reach.
+In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample; the estimates, retcodes, and losses reported above show where each run stopped. The bounds check above shows whether each estimate lies inside `LooserBounds`, the bounds these runs search, and whether it would also satisfy the narrower `Xiang2015Bounds`, which apply only to the local runs below. Each NLopt global run keeps its iteration budget and is additionally capped at 300 seconds of wall time via `maxtime`, so a run that does not converge first reports `MaxTime` or `MaxIters`. All of the global runs take considerably longer than on the short sample. The loss at the true parameters is `obj([10.0, 28.0, 2.66]) ≈ 3.1e-3`: small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The endpoints reported above sit at losses orders of magnitude larger, so the true parameters are still a deep minimum that none of the optimizers reach.
 
 ```julia
 opt = Opt(:LN_BOBYQA, 3)
