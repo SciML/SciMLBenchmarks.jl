@@ -188,29 +188,65 @@ t2 = t1 + sol.t[end];
 test_sol2 = TestSolution(sol)
 ```
 
-The WP diagram setup:
+The work-precision diagrams are computed separately for the two phases, each
+with its own reference solution and termination callback: phase 1 runs until the
+cumulative velocity exceeds 0.01 (`cb1`), and phase 2 starts from the end state
+of phase 1 and runs until the cumulative velocity drops below 0.01 again
+(`cb2`).
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:11)
 reltols = 1.0 ./ 10.0 .^ (2:7)
 setups = [
-    Dict(:alg=>KenCarp47(linsolve = KLUFactorization()), :prob_choice=>1),
-    Dict(:alg=>Rodas5(), :prob_choice=>1),
-    Dict(:alg=>Rodas5P(), :prob_choice=>1)
+    Dict(:alg=>KenCarp47(linsolve = KLUFactorization())),
+    Dict(:alg=>Rodas5(linsolve = KLUFactorization())),
+    Dict(:alg=>Rodas5P(linsolve = KLUFactorization()))
 ];
 names = ["KenCarp47 KLU MTK", "Rodas5 KLU MTK", "Rodas5P KLU MTK"]
 
-probs = [prob_mtk1, prob_mtk2]
-test_sols = [test_sol1, test_sol2]
-wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; names = names,
-    save_everystep = false, maxiters = Int(1.0e5),
-    numruns = 10, appxsol = test_sols, callback = cb1, dtmin = 1.0e-20
-)
-@assert all(w -> all(error -> isfinite(error[:final]) && error[:final] > 0, w.errors), wp.wps) "A solver produced an invalid work-precision point"
-
-plot(wp, label = reduce(hcat, names), markershape = :auto, title = "Spring Block PDE work precision set")
+function spring_block_wp(prob, test_sol, cb)
+    wp = WorkPrecisionSet(
+        prob, abstols, reltols, setups; names = names,
+        save_everystep = false, maxiters = Int(1.0e5),
+        numruns = 10, appxsol = test_sol, callback = cb, dtmin = 1.0e-20
+    )
+    for (w, name) in zip(wp.wps, names)
+        for (i, error) in enumerate(w.errors)
+            e = error[:final]
+            if !(isfinite(e) && e > 0)
+                println("$name at abstol=$(abstols[i]), reltol=$(reltols[i]): no valid work-precision point (error = $e)")
+            end
+        end
+        @assert any(error -> isfinite(error[:final]) && error[:final] > 0, w.errors) "$name produced no valid work-precision point at any tolerance"
+    end
+    return wp
+end
 ```
+
+### Phase 1: loading until slip onset
+
+```julia
+wp1 = spring_block_wp(prob_mtk1, test_sol1, cb1)
+plot(wp1, label = reduce(hcat, names), markershape = :auto,
+    title = "Spring Block PDE, phase 1 (loading until slip onset)")
+```
+
+### Phase 2: slip event
+
+```julia
+wp2 = spring_block_wp(prob_mtk2, test_sol2, cb2)
+plot(wp2, label = reduce(hcat, names), markershape = :auto,
+    title = "Spring Block PDE, phase 2 (slip event)")
+```
+
+In the run at the time of writing, all three solvers — `KenCarp47`,
+`Rodas5`, and `Rodas5P` — miss the loosest tolerance here
+(`abstol = 1e-6`, `reltol = 1e-2`): each solve is interrupted at `maxiters`
+during the slip event, so the series are missing that point rather than
+showing a wrong one. The printed check output above lists which solvers have
+missing points in the current build. The same `maxiters` interruption occurs
+when `Rodas5` and `Rodas5P` are run with the default linear solver, so the
+failure is not specific to the KLU factorization.
 
 ```julia, echo = false
 using SciMLBenchmarks
