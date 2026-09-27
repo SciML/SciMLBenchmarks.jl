@@ -178,6 +178,29 @@ single shooting's (`3000 * K` vs. `3000`), matching the standard practice of all
 global stochastic optimizer's budget roughly in proportion to the dimensionality of the
 search space it has to cover.
 
+```julia
+fit_single = simulate_single(res_single.u[1:4], res_single.u[5:6])
+p_multi_fit, u0s_fit = unpack_theta(res_multi.u)
+fit_multi = similar(data)
+for k in 1:K
+    idxs = seg_idx[k]
+    sol_k = solve(remake(prob, u0 = u0s_fit[k], p = p_multi_fit,
+            tspan = (seg_bounds[k], seg_bounds[k + 1])), Vern9(), saveat = tgrid[idxs],
+        reltol = 1e-8, abstol = 1e-8)
+    fit_multi[:, idxs] = Array(sol_k)
+end
+
+plot(tgrid, data[1, :], label = "data (x)", color = :black, linewidth = 2,
+    xlabel = "time", title = "Fitted trajectories vs. data", legend = :outertopright,
+    size = (900, 450))
+plot!(tgrid, data[2, :], label = "data (y)", color = :gray, linewidth = 2)
+plot!(tgrid, fit_single[1, :], label = "single shooting (x)", linestyle = :dash)
+plot!(tgrid, fit_single[2, :], label = "single shooting (y)", linestyle = :dash)
+plot!(tgrid, fit_multi[1, :], label = "multiple shooting (x)", linestyle = :dot)
+plot!(tgrid, fit_multi[2, :], label = "multiple shooting (y)", linestyle = :dot)
+vline!(collect(seg_bounds), label = "segment boundaries", color = :lightgray, alpha = 0.5)
+```
+
 ## Repeating over several random seeds
 
 A single race can be won or lost by chance; repeat both fits over a handful of seeds
@@ -212,6 +235,13 @@ df_seeds
 ```julia
 println("mean single-shooting param error: ", mean(errs_single))
 println("mean multiple-shooting param error: ", mean(errs_multi))
+```
+
+```julia
+bar(["single shooting", "multiple shooting"], [mean(errs_single), mean(errs_multi)],
+    yerror = [std(errs_single), std(errs_multi)], legend = false,
+    ylabel = "parameter error (mean +/- std over seeds)",
+    title = "Reliability across $(length(seeds)) random seeds", size = (500, 400))
 ```
 
 # Conclusion
