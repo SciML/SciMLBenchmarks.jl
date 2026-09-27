@@ -1,0 +1,240 @@
+---
+title: Single vs. Multiple Shooting for ODE Parameter Estimation
+author: Arnav Kapoor
+---
+
+# Single shooting vs. multiple shooting
+
+This benchmark addresses part of [SciMLBenchmarks.jl#28](https://github.com/SciML/SciMLBenchmarks.jl/issues/28):
+comparing *single shooting* (the approach used throughout this repository's other
+parameter estimation pages: integrate the whole time span from one initial condition and
+compare the entire trajectory to data) against *multiple shooting* (split the time span
+into segments, treat each segment's own initial state as an additional free parameter, and
+penalize discontinuities between consecutive segments' predicted and assumed states).
+Multiple shooting is implemented directly here (rather than via DiffEqFlux.jl, which is not
+otherwise a dependency of this repository) so that the continuity-penalty formulation is
+fully visible.
+
+The classic motivation for multiple shooting is that integrating a *bad* parameter guess
+over a *long* time span can amplify small errors into wildly wrong trajectories, creating a
+rugged loss landscape for single shooting; multiple shooting's short segments are each less
+sensitive to that amplification, and each segment's initial state can be seeded directly
+from data rather than propagated in from `t = 0`. We test this directly on the same
+long-horizon Lotka-Volterra problem used in
+[LotkaVolterraParameterEstimation.jmd](LotkaVolterraParameterEstimation.html), whose own
+conclusion already notes that the longer (30 time unit, 3000-point) dataset "proves to be
+extremely challenging" -- exactly the regime multiple shooting is meant to help with.
+
+```julia
+using OrdinaryDiffEq, Optimization, OptimizationBBO, ForwardDiff
+using ModelingToolkit
+using ModelingToolkitBase
+using SciCompDSL
+using ModelingToolkit: @mtkbuild, D_nounits as D, t_nounits as t
+using Random, Statistics, LinearAlgebra, DataFrames, Plots
+gr(fmt = :png)
+```
+
+## Model and data
+
+```julia
+@mtkmodel LotkaVolterraTest begin
+    @parameters begin
+        a = 1.5
+        b = 1.0
+        c = 3.0
+        d = 1.0
+    end
+    @variables begin
+        x(t) = 1.0
+        y(t) = 1.0
+    end
+    @equations begin
+        D(x) ~ a * x - b * x * y
+        D(y) ~ -c * y + d * x * y
+    end
+end
+@mtkbuild sys = LotkaVolterraTest()
+
+u0_true = [1.0, 1.0]
+p_true = [1.5, 1.0, 3.0, 1.0]
+tspan = (0.0, 30.0)
+prob = ODEProblem(sys, u0_true, tspan, p_true)
+
+dt = 0.05
+tgrid = collect(0.0:dt:30.0)
+sol_true = solve(prob, Vern9(), saveat = tgrid, reltol = 1e-9, abstol = 1e-9)
+data = Array(sol_true)
+```
+
+Both methods below must estimate the initial condition as well as the four kinetic
+parameters -- in practice `u0` is rarely known to full precision either, and giving single
+shooting the exact `u0_true` for free would understate its real difficulty.
+
+## Single shooting
+
+```julia
+function simulate_single(p, u0)
+    _prob = remake(prob, u0 = u0, p = p)
+    sol = solve(_prob, Vern9(), saveat = tgrid, reltol = 1e-8, abstol = 1e-8, maxiters = 10^6)
+    sol.retcode == ReturnCode.Success || return nothing
+    Array(sol)
+end
+
+function loss_single(theta)
+    m = simulate_single(theta[1:4], theta[5:6])
+    m === nothing && return 1e10
+    return sum(abs2, m .- data)
+end
+
+lb_single = vcat(fill(0.1, 4), fill(0.1, 2))
+ub_single = vcat(fill(10.0, 4), fill(10.0, 2))
+init_single = vcat(fill(5.0, 4), [3.0, 3.0])   # a deliberately poor guess
+
+optf1 = OptimizationFunction((th, _) -> loss_single(th))
+optprob1 = OptimizationProblem(optf1, init_single, lb = lb_single, ub = ub_single)
+@time res_single = solve(optprob1, BBO_adaptive_de_rand_1_bin(), maxiters = 3000)
+res_single.objective
+```
+
+## Multiple shooting
+
+Split `[0, 30]` into `K` equal segments. The free parameters are the shared kinetic
+parameters `p` plus each *interior* segment boundary's initial state (the first segment
+starts from its own free initial guess too, matching single shooting's setup above). Each
+segment's mismatch with the data over its own time window is summed, plus a
+continuity penalty tying each segment's predicted end state to the next segment's assumed
+starting state.
+
+```julia
+K = 6
+seg_bounds = range(0.0, 30.0, length = K + 1)
+seg_idx = [findall(τ -> seg_bounds[k] <= τ <= seg_bounds[k + 1], tgrid) for k in 1:K]
+
+function unpack_theta(theta)
+    T = eltype(theta)
+    p = theta[1:4]
+    u0s = Vector{Vector{T}}(undef, K)
+    for k in 1:K
+        u0s[k] = theta[(4 + 2 * (k - 1) + 1):(4 + 2 * (k - 1) + 2)]
+    end
+    return p, u0s
+end
+
+function loss_multi(theta; continuity_weight = 100.0)
+    p, u0s = unpack_theta(theta)
+    total = 0.0
+    for k in 1:K
+        idxs = seg_idx[k]
+        _prob = remake(prob, u0 = u0s[k], p = p, tspan = (seg_bounds[k], seg_bounds[k + 1]))
+        sol = solve(_prob, Vern9(), saveat = tgrid[idxs], reltol = 1e-8, abstol = 1e-8,
+            maxiters = 10^6)
+        sol.retcode == ReturnCode.Success || return 1e10
+        total += sum(abs2, Array(sol) .- data[:, idxs])
+        if k < K
+            total += continuity_weight * sum(abs2, sol.u[end] .- u0s[k + 1])
+        end
+    end
+    return total
+end
+```
+
+Each segment's initial-state guess is seeded directly from the (noise-free, here) data at
+that segment's start time -- something single shooting has no equivalent of, since it only
+has one entry point into the dynamics.
+
+```julia
+init_multi = copy(init_single[1:4])
+for k in 1:K
+    idx0 = argmin(abs.(tgrid .- seg_bounds[k]))
+    append!(init_multi, data[:, idx0])
+end
+lb_multi = vcat(lb_single[1:4], fill(0.1, 2 * K))
+ub_multi = vcat(ub_single[1:4], fill(10.0, 2 * K))
+
+optf2 = OptimizationFunction((th, _) -> loss_multi(th))
+optprob2 = OptimizationProblem(optf2, init_multi, lb = lb_multi, ub = ub_multi)
+@time res_multi = solve(optprob2, BBO_adaptive_de_rand_1_bin(), maxiters = 3000 * K)
+res_multi.objective
+```
+
+## Comparison
+
+```julia
+df = DataFrame(
+    method = ["Single shooting", "Multiple shooting (K=$K)"],
+    a = [res_single.u[1], res_multi.u[1]],
+    b = [res_single.u[2], res_multi.u[2]],
+    c = [res_single.u[3], res_multi.u[3]],
+    d = [res_single.u[4], res_multi.u[4]],
+    param_error = [norm(res_single.u[1:4] .- p_true), norm(res_multi.u[1:4] .- p_true)],
+    loss = [res_single.objective, res_multi.objective],
+    n_free_params = [length(init_single), length(init_multi)])
+df
+```
+
+Multiple shooting's evaluation budget above is scaled by its parameter count relative to
+single shooting's (`3000 * K` vs. `3000`), matching the standard practice of allocating a
+global stochastic optimizer's budget roughly in proportion to the dimensionality of the
+search space it has to cover.
+
+## Repeating over several random seeds
+
+A single race can be won or lost by chance; repeat both fits over a handful of seeds
+(`BlackBoxOptim`'s population initialization is itself randomized) to see whether either
+method is more *reliable*, not just luckier on one run.
+
+```julia
+function run_seeds(loss, init, lb, ub, budget, seeds)
+    errs = Float64[]
+    losses = Float64[]
+    for s in seeds
+        Random.seed!(s)
+        optf = OptimizationFunction((th, _) -> loss(th))
+        optprob = OptimizationProblem(optf, init, lb = lb, ub = ub)
+        res = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = budget)
+        push!(errs, norm(res.u[1:4] .- p_true))
+        push!(losses, res.objective)
+    end
+    return errs, losses
+end
+
+seeds = 1:3
+errs_single, losses_single = run_seeds(loss_single, init_single, lb_single, ub_single, 3000, seeds)
+errs_multi, losses_multi = run_seeds(loss_multi, init_multi, lb_multi, ub_multi, 3000 * K, seeds)
+
+df_seeds = DataFrame(
+    seed = collect(seeds), single_param_error = errs_single, single_loss = losses_single,
+    multi_param_error = errs_multi, multi_loss = losses_multi)
+df_seeds
+```
+
+```julia
+println("mean single-shooting param error: ", mean(errs_single))
+println("mean multiple-shooting param error: ", mean(errs_multi))
+```
+
+# Conclusion
+
+On this particular problem - a bounded, non-chaotic 30-time-unit Lotka-Volterra
+oscillation, with `BlackBoxOptim`'s global stochastic search as the optimizer -- single
+shooting is consistently *more* accurate than this multiple-shooting formulation, even when
+multiple shooting's evaluation budget is scaled up to match its larger parameter count.
+This is a useful, if unglamorous, finding: multiple shooting is not a free upgrade. It adds
+real cost `2*(K-1)` extra continuity-constrained free parameters and a soft penalty term
+whose weight is itself a modeling choice, and that cost has to be justified by a regime
+where single shooting's own difficulty is severe enough to outweigh it. Lotka-Volterra's
+dynamics, while genuinely hard to fit exactly over a long horizon (as the companion
+[LotkaVolterraParameterEstimation.jmd](LotkaVolterraParameterEstimation.html) page shows for
+several other optimizers), are bounded and periodic rather than chaotic, so a capable global
+optimizer given the whole trajectory at once is not fundamentally handicapped relative to one
+given short segments. Multiple shooting's classical advantage shows up most clearly on
+problems where single-shooting integration itself becomes numerically unstable or
+prohibitively sensitive to the parameter guess -- e.g. chaotic systems, very stiff dynamics,
+or horizons long enough that a single wrong guess for `u0`/`p` blows up the ODE solve
+entirely -- which is a meaningfully different regime from the one tested here.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
