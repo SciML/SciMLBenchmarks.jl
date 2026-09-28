@@ -86,7 +86,7 @@ plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
 
 At the loosest high-tolerance pair (`abstol = 1e-10`, `reltol = 1e-1`), `TRBDF2` returns
 `Unstable` before $t = 100.5$, so that point is omitted from the diagrams. Final errors for the
-SDIRK methods stay between about $2\times 10^{-9}$ and $2\times 10^{-7}$ across the
+SDIRK methods stay between about $2\times 10^{-9}$ and $4\times 10^{-8}$ across the
 high-tolerance range and are not monotone in the tolerance; on this relaxation oscillator the
 final-error estimate is phase-sensitive, so tightening the tolerance does not always improve
 it.
@@ -119,11 +119,11 @@ plot(wp; title = "Oregonator: SDIRK Methods (L∞ error)")
 
 In the latest run, `Tsit5` and `DP5` are more expensive than `Rosenbrock23` and `Rodas5P` at
 every error they reach. `BS3` costs about as much as `Rosenbrock23` at the smallest errors. At
-the loosest high-tolerance pair, `Tsit5` and `BS3` return `Unstable` (near $t \approx 48$ and
+the loosest high-tolerance pair, `Tsit5` and `BS3` return `Unstable` (near $t \approx 68$ and
 $t \approx 28$), and `TRBDF2` fails the same way as in the SDIRK diagram; those points are
-omitted. `DP5` finishes but with a final error on the order of $10^{-5}$, more than an order of
-magnitude larger than $u_2$ at $t_{\mathrm{end}}$ ($\approx 4\times 10^{-7}$), so that point is
-not meaningful.
+omitted. `DP5` finishes but with a final error of about $1.5\times 10^{-7}$, roughly 40% of
+$u_2$ at $t_{\mathrm{end}}$ ($\approx 3.6\times 10^{-7}$), making it the least accurate point
+in the diagram.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -141,9 +141,9 @@ plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
 
 ## Low Tolerances
 
-At these tolerances `Rosenbrock23` needs on the order of $10^6$ accepted steps per solve
-(about $2.4\times 10^6$ at the tightest pair), so this block raises `maxiters` to
-`Int(1e7)`. The Rodas and SDIRK methods below complete within $10^5$ iterations.
+At these tolerances `Rosenbrock23` needs about $7\times 10^4$ to $2.4\times 10^6$ accepted
+steps per solve, so this block raises `maxiters` to `Int(1e7)`. The Rodas and SDIRK methods
+below complete within $10^5$ iterations.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (14:17)
