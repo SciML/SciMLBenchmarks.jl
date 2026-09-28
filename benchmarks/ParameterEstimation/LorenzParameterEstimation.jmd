@@ -279,37 +279,55 @@ for (name, sol) in sort!(collect(global_solutions); by = first)
     println(rpad(name, 28),
         "estimate=", round.(sol.u; digits = 3),
         "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
         "  within LooserBounds: ", all(first.(LooserBounds) .<= sol.u .<= last.(LooserBounds)),
         "  within Xiang2015Bounds: ", all(xlow_bounds .<= sol.u .<= xhigh_bounds))
 end
+println("loss at the true parameters ", p, ": ", obj(p))
+println("loss with σ shifted by +1e-6: ", obj([10.0 + 1e-6, 28.0, 2.66]))
+println("loss with σ shifted by +1e-4: ", obj([10.0 + 1e-4, 28.0, 2.66]))
 ```
 
-In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample; the estimates, retcodes, and losses reported above show where each run stopped. The bounds check above shows whether each estimate lies inside `LooserBounds`, the bounds these runs search, and whether it would also satisfy the narrower `Xiang2015Bounds`, which apply only to the local runs below. Each NLopt global run keeps its iteration budget and is additionally capped at 300 seconds of wall time via `maxtime`, so a run that does not converge first reports `MaxTime` or `MaxIters`. All of the global runs take considerably longer than on the short sample. The loss at the true parameters is `obj([10.0, 28.0, 2.66]) ≈ 3.1e-3`: small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The endpoints reported above sit at losses orders of magnitude larger, so the true parameters are still a deep minimum that none of the optimizers reach.
+In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample; the estimates, retcodes, and losses printed above show where each run stopped. The bounds check above shows whether each estimate lies inside `LooserBounds`, the bounds these runs search, and whether it would also satisfy the narrower `Xiang2015Bounds`, which apply only to the local runs below. Each NLopt global run keeps its iteration budget and is additionally capped at 300 seconds of wall time via `maxtime`, so a run that does not converge first reports `MaxTime` or `MaxIters`. All of the global runs take considerably longer than on the short sample. The loss at the true parameters, printed above, is small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The endpoint losses printed above are orders of magnitude larger, so the true parameters are still a deep minimum that none of the optimizers reach.
 
 ```julia
 opt = Opt(:LN_BOBYQA, 3)
 optprob = OptimizationProblem(obj, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+local_solutions = Dict{String, Any}()
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+local_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+local_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+local_solutions["LD_SLSQP"] = res1
 ```
 
-These local optimizers run on the long objective `obj` from `LocIniPar` inside the narrow bounds. None of them reach the true parameters: `LN_BOBYQA` and `LD_SLSQP` return `Success` at wrong points (`[9.86, 20.58, 2.0]` on the β bound and `[9.25, 21.23, 2.11]` respectively) and `LN_NELDERMEAD` stops at `MaxIters` near `[9.68, 23.52, 2.16]`.
+```julia
+for (name, sol) in sort!(collect(local_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  strictly inside Xiang2015Bounds: ", all(xlow_bounds .< sol.u .< xhigh_bounds))
+end
+```
+
+These local optimizers run on the long objective `obj` from `LocIniPar` inside the narrow bounds. In the latest run none of them reach the true parameters: `LN_BOBYQA` and `LD_SLSQP` return `Success` at wrong points (`LN_BOBYQA` on the β bound, as the printed bounds flag shows) and `LN_NELDERMEAD` stops at `MaxIters`; the printed estimates and losses show where each run stopped.
 
 # Conclusion
 
- 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. In the latest run, with the short sample of 300 observations, all the global optimizers except `GN_ESCH` (which only gets close) and all the local optimizers except `LN_PRAXIS` (which stops on the σ bound) recover the true parameters. With the longer sample of 3000 observations, no global optimizer recovers them (`GN_CRS2_LM` gets closest), and the local optimizers started from `LocIniPar` converge to wrong points or bounds instead. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
+ 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. In the latest run, with the short sample of 300 observations, all the global optimizers except `GN_ISRES` and `GN_ESCH` (which only get close) and all the local optimizers except `LN_PRAXIS` (which stops on the σ bound) recover the true parameters. With the longer sample of 3000 observations, no global optimizer recovers them within the page's iteration and 300 s wall-time budgets (`GN_CRS2_LM` gets closest), and the local optimizers started from `LocIniPar` converge to wrong points or bounds instead. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
  2. When trying to hit the real data, having a low enough tolerance on the numerical solution is key. If the numerical solution is too rough, then we can never actually hone in on the true parameters since even with the true parameters we will erroneously induce numerical error. Maybe this could be adaptive?
  3. Tighter tolerances make each objective evaluation more expensive: on the short problem, BBO reached the same estimate with `Vern9` at `reltol = abstol = 1e-9` as with the default `Tsit5` tolerances, but took longer.
- 4. The estimation method and the global versus local optimization make a huge difference in the timings. Here, BBO finds the correct solution on the short problem but not on the long one, where the chaotic trajectory makes the loss landscape much rougher. For local optimization, `LN_COBYLA`, `LD_SLSQP` and `LD_MMA` are much slower than the other NLopt methods on the short problem in the latest run. These methods can scale a local optimization, but we are aiming to scale a global optimization.
+ 4. The estimation method and the global versus local optimization make a huge difference in the timings. Here, BBO finds the correct solution on the short problem but not on the long one, where the chaotic trajectory makes the loss landscape much rougher: the printed perturbation losses show even a `1e-6` shift in σ raising the loss by orders of magnitude. For local optimization, `LN_COBYLA`, `LD_SLSQP` and `LD_MMA` are much slower than the other NLopt methods on the short problem in the latest run. These methods can scale a local optimization, but we are aiming to scale a global optimization.
  5. Fitting the shorter timespan is much cheaper... maybe this can lead to determining a minimal sample size for the optimizers and the estimator to succeed.
 
 ```julia, echo = false

@@ -253,20 +253,34 @@ optprob = OptimizationProblem(obj, loc_init, lb = first.(loc_bounds), ub = last.
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions = Dict{String, Any}()
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LD_SLSQP"] = res1
 ```
 
-In the latest run on the longer sample, `GN_CRS2_LM` recovers the parameters to within `1e-9` and BlackBoxOptim gets close, while `GN_ORIG_DIRECT_L`, `GN_ISRES` and `GN_ESCH` do not recover them. Of the local optimizers on the long objective, `LN_BOBYQA` and `LN_NELDERMEAD` recover the parameters and `LD_SLSQP` stops on its iteration limit at a corner of the bounds.
+```julia
+for (name, sol) in sort!(collect(local_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  strictly inside loc_bounds: ", all(first.(loc_bounds) .< sol.u .< last.(loc_bounds)))
+end
+```
+
+In the latest run on the longer sample, `GN_CRS2_LM` recovers the parameters to within `1e-9` and BlackBoxOptim gets close, while `GN_ORIG_DIRECT_L`, `GN_ISRES` and `GN_ESCH` do not recover them. Of the local optimizers on the long objective, `LN_BOBYQA` and `LN_NELDERMEAD` recover the parameters, while `LD_SLSQP` stops on its iteration limit at a wrong interior point: the printed estimate is strictly inside `loc_bounds` on every component and its printed loss is orders of magnitude above the other two local runs'.
 
 # Conclusion
 
