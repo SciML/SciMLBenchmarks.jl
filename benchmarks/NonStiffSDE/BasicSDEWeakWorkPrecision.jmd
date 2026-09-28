@@ -32,6 +32,11 @@ gr()
 import SDEProblemLibrary: prob_sde_additive,
                           prob_sde_linear, prob_sde_wave
 const N = 1000
+weak_results = NamedTuple[]
+function record_weak_results!(problem, set_name, wp, se, names)
+    methods = [(name=names[i], errors=Float64.(getproperty.(wp[i].errors, :weak_final)), times=Float64.(wp[i].times)) for i in eachindex(names)]
+    push!(weak_results, (problem=problem, set=set_name, line=Float64(se[3]), methods=methods))
+end
 ```
 
 ### Additive Noise Problem
@@ -68,6 +73,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[6], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Additive noise", "first set", wp, se, ["EM (fixed)", "RKMil (fixed)", "SRIW1 (fixed)", "SRA1 (fixed)", "SRA1 (adaptive)", "SRIW1 (adaptive)"])
 ```
 
 ```julia
@@ -99,6 +105,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[4], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Additive noise", "second set", wp, se, ["SRA1", "SRA2", "SRA3", "SOSRA", "SOSRA2"])
 ```
 
 ```julia
@@ -144,6 +151,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[1], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Linear scalar noise", "first set", wp, se, ["SRIW1 (adaptive)", "EM (fixed)", "RKMil (fixed)", "SRIW1 (fixed)"])
 ```
 
 ```julia
@@ -178,6 +186,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[6], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Linear scalar noise", "second set", wp, se, ["EM (fixed)", "RKMil (fixed)", "SRI", "SRIW1", "SRIW2", "SOSRI", "SOSRI2"])
 ```
 
 ```julia
@@ -222,6 +231,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[4], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Scalar wave", "first set", wp, se, ["EM (fixed)", "RKMil (fixed)", "SRIW1 (fixed)", "SRIW1 (adaptive)"])
 ```
 
 ```julia
@@ -256,6 +266,7 @@ plot(wp)
 sample_size = Int[10; 1e2; 1e3; 1e4]
 se = get_sample_errors(prob, setups[6], numruns = sample_size,
     sample_error_runs = 100_000, solution_runs = 100)
+record_weak_results!("Scalar wave", "second set", wp, se, ["EM (fixed)", "RKMil (fixed)", "SRI", "SRIW1", "SRIW2", "SOSRI", "SOSRI2"])
 ```
 
 ```julia
@@ -267,10 +278,29 @@ plot!([se[3]; se[3]], times, color = :red,
 
 ## Summary
 
-In the additive noise problem, the `EM` and `RKMil` algorithms do not reach the sample error in the latest run. On the scalar wave SDE, `EM` and `RKMil` reach the sample error about as cheaply as the higher order methods, while on the linear scalar noise problem they need more time than the Rössler methods to reach it. The dashed "Sample Error: 1000" line comes from `DiffEqDevTools.get_sample_errors`, which currently divides by $\sqrt{N}$ twice, so it is a factor of about $\sqrt{1000}$ below $E_S = \sqrt{V/N}$ (a fix is proposed in https://github.com/SciML/OrdinaryDiffEq.jl/pull/4612); treat comparisons against that line as provisional.
+The lines below use each work-precision set and its own dashed sample-error line. A method reaches that line when at least one measured weak error is at or below it; reaching methods are ordered by their cheapest qualifying elapsed time. The dashed "Sample Error: 1000" line comes from `DiffEqDevTools.get_sample_errors`, which currently divides by $\sqrt{N}$ twice, so it is a factor of about $\sqrt{1000}$ below $E_S = \sqrt{V/N}$ (a fix is proposed in https://github.com/SciML/OrdinaryDiffEq.jl/pull/4612); treat comparisons against that line as provisional.
+
+```julia
+println("Weak work-precision results computed from the curves above:")
+for result in weak_results
+    reaching = NamedTuple{(:name, :time),Tuple{String,Float64}}[]
+    missing = String[]
+    for method in result.methods
+        qualifying_times = [time for (error, time) in zip(method.errors, method.times) if isfinite(error) && error <= result.line && isfinite(time) && time >= 0]
+        if isempty(qualifying_times)
+            push!(missing, method.name)
+        else
+            push!(reaching, (name=method.name, time=minimum(qualifying_times)))
+        end
+    end
+    sort!(reaching; by=r -> r.time)
+    ordered = isempty(reaching) ? "none" : join(["$(r.name) ($(round(r.time; sigdigits=3)) s)" for r in reaching], " < ")
+    not_reaching = isempty(missing) ? "none" : join(missing, ", ")
+    println("  $(result.problem) ($(result.set)), sample-error line = $(round(result.line; sigdigits=4)): reaching, cheapest first: $ordered; not reaching: $not_reaching")
+end
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
-
