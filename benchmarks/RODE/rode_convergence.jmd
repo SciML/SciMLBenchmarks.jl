@@ -15,15 +15,17 @@ to a high-order ODE integrator and expect the usual rate.
 That expectation is wrong, and it is wrong in a way that is cheap to measure. A Wiener path is
 nowhere differentiable, so the right-hand side is only Hölder-$1/2$ continuous in $t$ and the
 Taylor expansion a classical Runge-Kutta method relies on does not exist. Grüne and Kloeden
-observed the resulting order loss; Kloeden and Rosa later showed that for semimartingale noise
-the attainable pathwise rate is $1$, not the $1/2$ the Hölder exponent alone would suggest.
+showed the resulting order loss ([BIT 41, 2001](https://doi.org/10.1023/A:1021995918864)).
+Kloeden and Rosa later proved that the Euler scheme still converges with strong order $1$ for
+semimartingale noise ([arXiv:2306.15418](https://arxiv.org/abs/2306.15418), ESAIM: M2AN 59,
+2025), where the Hölder exponent alone would suggest $1/2$.
 
 This page measures both halves of that statement: the rate the dedicated RODE solvers reach,
 and the rate a nominally 5th and 9th order ODE method reaches on the same problem.
 
 ```julia
 using StochasticDiffEq, DiffEqNoiseProcess, OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqTsit5,
-      OrdinaryDiffEqVerner, Plots, Random, Statistics, Printf
+      OrdinaryDiffEqVerner, BenchmarkTools, Plots, Random, Statistics, Printf
 gr()
 
 const SEED = 20260921
@@ -184,24 +186,33 @@ plt
 
 Rate is not the whole story: a method with the same rate and a smaller constant can still be
 the right choice. This measures error against wall-clock time for one path, so the question
-becomes whether `Vern9`'s smaller constant pays for its stages.
+becomes whether `Vern9`'s smaller constant pays for its stages. Each problem is built once,
+outside the timer, and the time is the minimum over BenchmarkTools samples. The RODE solvers
+read the path from a `NoiseGrid` of $2^{18}$ points; with DiffEqNoiseProcess 5.36.4, which this
+page pins, a solve shares that grid rather than copying it, so their times reflect stepping and
+not the length of the stored path.
 
 ```julia
-function timed_errors(solve_one)
+rode_problem(alg) = path -> (
+    RODEProblem{false}(rode_f, 1.0, (0.0, TEND), noise = NoiseGrid(GRID, path)), alg)
+ode_problem(alg) = function (path)
+    Wf = make_W(path)
+    odef(u, p, t) = -u * cos(5 * Wf(t))
+    return ODEProblem(odef, 1.0, (0.0, TEND)), alg
+end
+
+function timed_errors(build)
     rng = MersenneTwister(SEED)
     path = wiener_path(rng)
     g = cos.(5 .* path)
     exact = exp.(-cumulative_trapezoid(g, FDT))
     errs = zeros(length(STEPS)); times = zeros(length(STEPS))
-    solve_one(path, STEPS[1])                       # warm up compilation
     for (j, n) in enumerate(STEPS)
-        t0 = time()
-        reps = 0
-        u = solve_one(path, n)
-        while time() - t0 < 0.05                    # accumulate at least 50ms of work
-            u = solve_one(path, n); reps += 1
-        end
-        times[j] = (time() - t0) / max(reps, 1)
+        prob, alg = build(path)
+        dt = TEND / n
+        u = solve(prob, alg, dt = dt, adaptive = false, save_everystep = true).u
+        times[j] = @belapsed solve($prob, $alg, dt = $dt, adaptive = false,
+                                   save_everystep = true) seconds = 1
         stride = FINE ÷ n
         errs[j] = maximum(abs(u[k + 1] - exact[k * stride + 1]) for k in 0:n)
     end
@@ -210,10 +221,15 @@ end
 
 wp = Dict{String, Tuple{Vector{Float64}, Vector{Float64}}}()
 for (name, alg) in rode_algs
-    wp[name] = timed_errors(rode_solver(alg))
+    wp[name] = timed_errors(rode_problem(alg))
 end
 for (name, alg) in ode_algs
-    wp[name] = timed_errors(ode_solver(alg))
+    wp[name] = timed_errors(ode_problem(alg))
+end
+
+@printf("%-16s %-14s %-12s\n", "method", "time at dt=1/256", "error")
+for (name, _) in vcat(rode_algs, ode_algs)
+    @printf("%-16s %-14.3g %-12.3g\n", name, wp[name][2][end], wp[name][1][end])
 end
 
 plt = plot(xscale = :log10, yscale = :log10, xlabel = "time (s)", ylabel = "error",
@@ -230,9 +246,9 @@ plt
 ## What this means for choosing a solver
 
 Throwing classical order at a RODE does not raise the rate. Every method above converges at
-about order 1, and the differences between them are constants. The rate is capped by what the
-solver knows about the driving path: a method that only evaluates $W$ at points cannot do
-better, whatever its tableau.
+about order 1, and the differences between them are constants. The three classical tableaus
+measured here, of nominal order 1, 5 and 9, all land at order 1 alongside the three RODE
+methods: evaluating $W$ at more points inside the step did not raise the rate for any of them.
 
 Getting past order 1 requires the step to use information about $W$ *between* its endpoints,
 for example the integral $\int_t^{t+h}(W_s - W_t)\,ds$, which is not a function of the
