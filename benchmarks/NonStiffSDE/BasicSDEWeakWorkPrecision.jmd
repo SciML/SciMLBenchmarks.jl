@@ -34,6 +34,8 @@ import SDEProblemLibrary: prob_sde_additive,
 const N = 1000
 weak_results = NamedTuple[]
 function record_weak_results!(problem, set_name, wp, se, names)
+    length(names) == length(wp) ||
+        throw(ArgumentError("$problem ($set_name): $(length(names)) method names for $(length(wp)) work-precision results"))
     methods = [(name=names[i], errors=Float64.(getproperty.(wp[i].errors, :weak_final)), times=Float64.(wp[i].times)) for i in eachindex(names)]
     push!(weak_results, (problem=problem, set=set_name, line=Float64(se[3]), methods=methods))
 end
@@ -284,18 +286,18 @@ The lines below use each work-precision set and its own dashed sample-error line
 println("Weak work-precision results computed from the curves above:")
 for result in weak_results
     reaching = NamedTuple{(:name, :time),Tuple{String,Float64}}[]
-    missing = String[]
+    not_reached = String[]
     for method in result.methods
         qualifying_times = [time for (error, time) in zip(method.errors, method.times) if isfinite(error) && error <= result.line && isfinite(time) && time >= 0]
         if isempty(qualifying_times)
-            push!(missing, method.name)
+            push!(not_reached, method.name)
         else
             push!(reaching, (name=method.name, time=minimum(qualifying_times)))
         end
     end
     sort!(reaching; by=r -> r.time)
     ordered = isempty(reaching) ? "none" : join(["$(r.name) ($(round(r.time; sigdigits=3)) s)" for r in reaching], " < ")
-    not_reaching = isempty(missing) ? "none" : join(missing, ", ")
+    not_reaching = isempty(not_reached) ? "none" : join(not_reached, ", ")
     println("  $(result.problem) ($(result.set)), sample-error line = $(round(result.line; sigdigits=4)): reaching, cheapest first: $ordered; not reaching: $not_reaching")
 end
 ```

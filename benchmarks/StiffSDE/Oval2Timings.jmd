@@ -176,15 +176,15 @@ for i in 1:3
         println("  $(method_names[i]): failed trajectories at every tested Δt")
     else
         jcoarse = passing[argmax(dts[passing])]
-        coarser = [j for j in tested if dts[j] > dts[jcoarse]]
-        nfailed = count(j -> fails[j, i] > 0, coarser)
         failing = [j for j in tested if fails[j, i] > 0]
         largest_failing = isempty(failing) ? "none" : fmt_dt(maximum(dts[failing]))
-        println("  $(method_names[i]): failures on $nfailed of $(length(coarser)) tested Δt coarser than the coarsest failure-free step (largest failing Δt = $largest_failing); coarsest failure-free Δt = $(fmt_dt(dts[jcoarse])) ($(round(times[jcoarse, i]; sigdigits = 3)) s)")
+        println("  $(method_names[i]): failures on $(length(failing)) of $(length(tested)) tested Δt (largest failing Δt = $largest_failing); coarsest failure-free Δt = $(fmt_dt(dts[jcoarse])) ($(round(times[jcoarse, i]; sigdigits = 3)) s)")
     end
 end
 for i in 1:2
-    println("  $(imp_names[i]): $(sum(fails_imp[:, i])) failed trajectories over all $(length(dts_imp)) tested Δt; fastest run $(round(minimum(times_imp[:, i]); sigdigits = 3)) s")
+    clean_imp = [j for j in eachindex(dts_imp) if fails_imp[j, i] == 0]
+    fastest = isempty(clean_imp) ? "none" : "$(round(minimum(times_imp[clean_imp, i]); sigdigits = 3)) s"
+    println("  $(imp_names[i]): $(sum(fails_imp[:, i])) failed trajectories over all $(length(dts_imp)) tested Δt; fastest failure-free run = $fastest")
 end
 fixed_successes = NamedTuple{(:label, :dt, :time),Tuple{String,Float64,Float64}}[]
 for i in 1:3, j in eachindex(dts)
@@ -215,17 +215,17 @@ end
 
 ## Conclusion
 
-The summary above recomputes every printed quantity from the stored failure counts and
-timings rather than restating fixed numbers. For each explicit fixed-step method it
-reports how many of the tested $\Delta t$ coarser than the coarsest failure-free step
-still produce failed trajectories, the largest tested $\Delta t$ with failures, and the
-coarsest failure-free $\Delta t$ together with its elapsed time. For each implicit
-method it reports the failed-trajectory total over all tested $\Delta t$ and the
-fastest run. It then reports the cheapest failure-free run across all measured
-fixed-step methods and step sizes and the ratio of that run's time to the fastest
-failure-free adaptive run; when either side of that comparison has no failure-free run
-the summary says so instead of printing a ratio. Read the printed lines for what holds
-in the latest weave; absolute wall-clock times vary with machine load.
+The summary above computes every printed quantity from the stored failure counts and
+timings. For each explicit fixed-step method it reports how many of the tested
+$\Delta t$ produce failed trajectories, the largest tested $\Delta t$ with failures,
+and the coarsest failure-free $\Delta t$ together with its elapsed time. For each
+implicit method it reports the failed-trajectory total over all tested $\Delta t$ and
+the fastest failure-free run. It then reports the cheapest failure-free run across all
+measured fixed-step methods and step sizes and the ratio of that run's time to the
+fastest failure-free adaptive run; when either side of that comparison has no
+failure-free run the summary says so instead of printing a ratio. Read the printed
+lines for what holds in the latest weave; absolute wall-clock times vary with machine
+load.
 
 ```julia, echo = false
 using SciMLBenchmarks
