@@ -1,0 +1,228 @@
+---
+title: Non-Autonomous Linear ODE (x' = A(t)x) Scaling Benchmarks
+author: Arnav Kapoor
+---
+
+# How does solving x' = A(t)x scale with system size?
+
+This benchmark addresses [SciMLBenchmarks.jl#404](https://github.com/SciML/SciMLBenchmarks.jl/issues/404):
+for a general non-autonomous linear system `x'(t) = A(t) x(t)`, (i) how does wall-clock
+time and memory to solve it scale with the system size `N`, and (ii) how large an `N x N`
+system (with a non-trivial number of time steps, up to millions) can be solved on a single
+machine? As
+[noted in the issue thread](https://github.com/SciML/SciMLBenchmarks.jl/issues/404#issuecomment-1019531233),
+`x' = A(t)x` is structurally different from a generic ODE: specialized **Magnus and
+matrix-exponential (Lie group) integrators** exist specifically for this class of problem,
+and this page benchmarks them against a general-purpose explicit solver. Per that same
+comment, this is deliberately scoped to a single machine (no multi-node/MPI), and the test
+problem is built exactly as suggested there: a method-of-lines discretization of a diffusion
+PDE, so this also illustrates how solve cost scales as a PDE is discretized more finely in
+space.
+
+```julia
+using OrdinaryDiffEqLinear, OrdinaryDiffEqTsit5
+using SciMLOperators, LinearAlgebra, SparseArrays
+using BenchmarkTools, Plots, Printf
+gr(fmt = :png)
+```
+
+## The model: a diffusion equation with time-varying diffusivity
+
+`du/dt = kappa(t) * u_xx` on `[0, 1]` with homogeneous Dirichlet boundary conditions and
+`kappa(t) = 1 + 0.5*sin(t)` (bounded, strictly positive, so the problem stays well-posed for
+all `t`). Discretizing `u_xx` with a standard second-order central difference on `N`
+interior grid points gives exactly a linear, non-autonomous ODE system `x'(t) = A(t) x(t)`,
+with `A(t) = kappa(t) * L`, `L` the (fixed, sparse, tridiagonal) discrete Laplacian scaled
+by `1/dx^2`. This is precisely the "continually discretize the PDE in space" scaling
+question raised in the issue.
+
+```julia
+function laplacian_operator(N)
+    dx = 1.0 / (N + 1)
+    L = (1 / dx^2) .* spdiagm(-1 => fill(1.0, N - 1), 0 => fill(-2.0, N), 1 => fill(1.0, N - 1))
+    return L, dx
+end
+
+function linear_problem(N; tspan = (0.0, 0.1))
+    L, dx = laplacian_operator(N)
+    update_func!(A, u, p, t) = (A .= (1 + 0.5 * sin(t)) .* L)
+    A = MatrixOperator(copy(L); update_func! = update_func!)
+    u0 = [sin(pi * i * dx) for i in 1:N]
+    return ODEProblem(A, u0, tspan), L, u0
+end
+
+function reference_problem(N; tspan = (0.0, 0.1))
+    L, dx = laplacian_operator(N)
+    function f!(du, u, p, t)
+        mul!(du, L, u)
+        du .*= (1 + 0.5 * sin(t))
+    end
+    u0 = [sin(pi * i * dx) for i in 1:N]
+    return ODEProblem(f!, u0, tspan)
+end
+```
+
+`linear_problem` wraps `A(t)` as a `SciMLOperators.MatrixOperator` with an `update_func!`,
+the representation the specialized linear/Magnus solvers require to exploit the problem's
+linearity; `reference_problem` is the exact same dynamics written as an ordinary
+(nonlinear-looking) `ODEFunction`, solvable by any general-purpose method for comparison.
+
+## Correctness check
+
+```julia
+N_check = 200
+probA, _, _ = linear_problem(N_check)
+probF = reference_problem(N_check)
+
+sol_exp = solve(probA, LinearExponential(krylov = :simple, m = 30), dt = 0.001)
+sol_tsit5 = solve(probF, Tsit5(), reltol = 1e-10, abstol = 1e-10)
+
+println("max abs difference: ", maximum(abs.(sol_exp.u[end] .- sol_tsit5.u[end])))
+```
+
+The two solutions agree to within the truncation error implied by `LinearExponential`'s
+fixed `dt = 0.001` (it must resolve `kappa(t)`'s variation using its own step size, unlike
+`Tsit5`'s adaptive, tightly-toleranced stepping), which is more than sufficient for the
+scaling comparisons below.
+
+## Scaling with system size: general-purpose vs. specialized solvers
+
+`Tsit5` is a high-order explicit Runge-Kutta method with no knowledge of the problem's
+linear structure; `LinearExponential` computes each step as a (here, Krylov-subspace)
+matrix-exponential action `exp(A(t) dt) u`, exploiting linearity directly and avoiding the
+explicit stability restriction entirely. As `N` grows, the discrete Laplacian's eigenvalues
+spread over a range that grows like `N^2` (finer grid spacing means stiffer dynamics), which
+forces an explicit method's *stable* step size down like `1/N^2` -- so its total step count,
+and hence wall-clock time, should grow roughly like `N^2`, while the exponential
+integrator's step count is set by *accuracy*, not stability, and stays fixed as `N` grows.
+
+```julia
+Ns_compare = [50, 100, 200, 400, 800]
+times_exp = Float64[]
+times_tsit5 = Float64[]
+mem_exp = Float64[]
+mem_tsit5 = Float64[]
+steps_tsit5 = Int[]
+
+# warm up (compilation)
+let (p, _, _) = linear_problem(10)
+    solve(p, LinearExponential(krylov = :simple, m = 30), dt = 0.001)
+end
+solve(reference_problem(10), Tsit5(), reltol = 1e-6, abstol = 1e-6)
+
+for N in Ns_compare
+    local probA, probF
+    probA, _, _ = linear_problem(N)
+    probF = reference_problem(N)
+
+    t1 = @belapsed solve($probA, LinearExponential(krylov = :simple, m = 30), dt = 0.001) samples=3 evals=1
+    b1 = @ballocated solve($probA, LinearExponential(krylov = :simple, m = 30), dt = 0.001) samples=1 evals=1
+    t2 = @belapsed solve($probF, Tsit5(), reltol = 1e-6, abstol = 1e-6) samples=3 evals=1
+    b2 = @ballocated solve($probF, Tsit5(), reltol = 1e-6, abstol = 1e-6) samples=1 evals=1
+
+    push!(times_exp, t1); push!(mem_exp, b1 / 1e6)
+    push!(times_tsit5, t2); push!(mem_tsit5, b2 / 1e6)
+    push!(steps_tsit5, length(solve(probF, Tsit5(), reltol = 1e-6, abstol = 1e-6).t))
+
+    @printf("N=%-5d  LinearExponential: %8.4fs %8.2fMB   Tsit5: %8.4fs %8.2fMB (%d steps)\n",
+        N, t1, b1 / 1e6, t2, b2 / 1e6, steps_tsit5[end])
+end
+```
+
+```julia
+plot(Ns_compare, times_exp, label = "LinearExponential", marker = :circle,
+    xscale = :log10, yscale = :log10, xlabel = "N", ylabel = "wall-clock time (s)",
+    title = "Time to solve vs. system size N", legend = :topleft, size = (700, 450))
+plot!(Ns_compare, times_tsit5, label = "Tsit5", marker = :square)
+```
+
+```julia
+plot(Ns_compare, mem_exp, label = "LinearExponential", marker = :circle,
+    xscale = :log10, yscale = :log10, xlabel = "N", ylabel = "memory allocated (MB)",
+    title = "Memory vs. system size N", legend = :topleft, size = (700, 450))
+plot!(Ns_compare, mem_tsit5, label = "Tsit5", marker = :square)
+```
+
+Tsit5's step count (and hence its cost) grows dramatically faster than `N` as the problem
+stiffens, exactly as the `1/N^2` stability-restricted step size argument predicts;
+`LinearExponential`'s cost grows far more mildly, since it takes the same fixed number of
+steps regardless of `N` (only each step's own sparse-matrix-exponential-action cost grows
+with `N`).
+
+## Pushing system size as far as practical on a single machine
+
+With `Tsit5` no longer competitive at this scale, we push `LinearExponential` alone to much
+larger `N`, directly answering "how big an `N x N` system can you solve" on one machine in a
+non-trivial amount of wall-clock time.
+
+```julia
+Ns_push = [1_000, 5_000, 10_000, 25_000, 50_000]
+times_push = Float64[]
+mem_push = Float64[]
+
+for N in Ns_push
+    local probA
+    probA, _, _ = linear_problem(N)
+    t = @elapsed sol = solve(probA, LinearExponential(krylov = :simple, m = 30), dt = 0.001)
+    b = @allocated solve(probA, LinearExponential(krylov = :simple, m = 30), dt = 0.001)
+    push!(times_push, t); push!(mem_push, b / 1e6)
+    @printf("N=%-6d  time=%8.3fs   memory=%8.2fMB\n", N, t, b / 1e6)
+end
+```
+
+```julia
+plot(Ns_push, times_push, marker = :circle, xscale = :log10, yscale = :log10,
+    xlabel = "N", ylabel = "wall-clock time (s)",
+    title = "LinearExponential: pushing system size", legend = false, size = (700, 450))
+```
+
+## Scaling with the number of time steps
+
+The issue also asks about pushing the number of time steps into the thousands-to-millions
+range. Since each `LinearExponential` step is an independent Krylov exponential-action
+(rather than something whose cost depends on how many steps came before it), total cost is
+expected to grow roughly in proportion to the number of steps taken, up to run-to-run
+variance in exactly how many Krylov iterations a given step needs to converge.
+
+```julia
+N_fixed = 200
+probA, _, _ = linear_problem(N_fixed)
+n_steps_list = [10^3, 10^4, 10^5, 10^6]
+times_steps = Float64[]
+
+for n_steps in n_steps_list
+    dt = 0.1 / n_steps
+    t = @elapsed solve(probA, LinearExponential(krylov = :simple, m = 30), dt = dt)
+    push!(times_steps, t)
+    @printf("n_steps=%-9d  time=%8.3fs   (%.2e s/step)\n", n_steps, t, t / n_steps)
+end
+```
+
+```julia
+plot(n_steps_list, times_steps, marker = :circle, xscale = :log10, yscale = :log10,
+    xlabel = "number of time steps", ylabel = "wall-clock time (s)",
+    title = "LinearExponential: scaling with step count (N=$N_fixed)",
+    legend = false, size = (700, 450))
+```
+
+# Conclusion
+
+For a non-autonomous linear system `x' = A(t)x` built from a method-of-lines PDE
+discretization, a general-purpose explicit integrator (`Tsit5`) and a specialized
+matrix-exponential integrator (`LinearExponential`, from the Magnus/Lie-group family in
+`OrdinaryDiffEqLinear`) agree on the solution, but scale completely differently as the
+system grows: the explicit method's cost explodes once the discretization's implied
+stiffness (`~N^2` for a diffusion operator) restricts its stable step size, while the
+exponential integrator's cost grows far more gently, since it isn't stability-restricted at
+all. That gap lets a single machine push this class of problem to system sizes and step
+counts (tens of thousands of unknowns, up to a million time steps, in this benchmark) that
+would be entirely impractical for a general-purpose solver at the same accuracy target.
+Per the [issue discussion](https://github.com/SciML/SciMLBenchmarks.jl/issues/404), this is
+intentionally single-node in scope; extending it to distributed/HPC-scale problems (and to
+other PDE benchmarks such as Brusselator or Gray-Scott, as suggested there) is a natural,
+larger follow-up.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
