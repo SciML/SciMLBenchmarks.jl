@@ -1,6 +1,6 @@
 ---
 title: Lotka-Volterra Parameter Estimation Benchmarks
-author: Vaibhav Dixit, Chris Rackauckas
+author: Vaibhav Dixit, Arnav Kapoor, Chris Rackauckas
 ---
 
 # Parameter estimation of Lotka Volterra model using optimisation methods
@@ -12,6 +12,7 @@ using ModelingToolkit
 using ModelingToolkitBase
 using SciCompDSL
 using ModelingToolkit: @mtkbuild, D_nounits as D, t_nounits as t
+using Random, Statistics, LinearAlgebra, DataFrames
 gr(fmt = :png)
 ```
 
@@ -259,9 +260,277 @@ opt = Opt(:LD_SLSQP, 4)
 
 Parameter estimation on the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, BlackBoxOptim also performs quite well, while others seem to struggle with accuracy a lot.
 
+## First-difference vs. standard loss under noise and bias
+
+This addresses part of [SciMLBenchmarks.jl#28](https://github.com/SciML/SciMLBenchmarks.jl/issues/28):
+comparing the *standard* trajectory-matching loss used above (`sum((model - data)^2)`)
+against a *first-difference* loss that instead matches consecutive differences
+(`sum((diff(model) - diff(data))^2)`). First-differencing is a classic time-series trick for
+removing an unknown, roughly-constant *offset* between model and data (a fixed sensor
+calibration bias, an unsubtracted baseline level, etc.): differencing exactly cancels an
+additive constant, at the cost of amplifying the variance of any random measurement noise
+already present (`Var(y_t - y_{t-1})` is twice the noise variance for independent noise).
+We reuse the short-horizon problem (`prob_short`, `data_short`) set up above, adding
+synthetic measurement noise and, in one scenario, a constant per-channel sensor offset on
+top of it.
+
+```julia
+Random.seed!(1)
+sigma_fd = 0.2
+noise_fd = sigma_fd .* randn(size(data_short))
+data_short_noisy = data_short .+ noise_fd
+
+sensor_bias = [0.5, -0.3]                        # a fixed, unknown per-channel offset
+data_short_biased = data_short .+ noise_fd .+ sensor_bias
+```
+
+```julia
+function simulate_fd(pvec)
+    _prob = remake(prob_short, p = pvec)
+    sol = solve(_prob, Tsit5(), saveat = t_short, reltol = 1e-8, abstol = 1e-8)
+    sol.retcode == ReturnCode.Success || return nothing
+    Array(sol)
+end
+
+loss_standard_fd(pvec, data) = (m = simulate_fd(pvec); m === nothing ? 1e10 : sum(abs2, m .- data))
+function loss_firstdiff(pvec, data)
+    m = simulate_fd(pvec)
+    m === nothing && return 1e10
+    return sum(abs2, diff(m, dims = 2) .- diff(data, dims = 2))
+end
+
+function fit_fd(loss, data; maxiters = 5000)
+    optf = OptimizationFunction((pvec, _) -> loss(pvec, data))
+    optprob = OptimizationProblem(optf, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
+    res = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = maxiters)
+    optprob2 = OptimizationProblem(optf, res.u, lb = first.(loc_bounds), ub = last.(loc_bounds))
+    solve(optprob2, Opt(:LN_BOBYQA, 4), maxiters = 2000)
+end
+```
+
+With a pure constant bias and no noise, first-differencing should recover the true
+parameters `p` to solver precision (`diff` exactly cancels a per-channel constant added at
+every time point), while the standard loss cannot: a constant offset changes the shape of
+the trajectory relative to the true dynamics, not just its level, so it isn't reproducible
+by adjusting `(a, b, c, d)` alone.
+
+```julia
+data_short_bias_only = data_short .+ sensor_bias
+res_std_bias = fit_fd(loss_standard_fd, data_short_bias_only)
+res_fd_bias = fit_fd(loss_firstdiff, data_short_bias_only)
+
+df_fd_bias = DataFrame(
+    loss = ["standard", "first-difference"],
+    param_error = [norm(res_std_bias.u .- p), norm(res_fd_bias.u .- p)])
+df_fd_bias
+```
+
+```julia
+bar(["standard", "first-difference"],
+    [norm(res_std_bias.u .- p), norm(res_fd_bias.u .- p)],
+    yscale = :log10, legend = false, ylabel = "parameter error (log scale)",
+    title = "Recovering parameters from a constant bias", size = (600, 400))
+```
+
+A single noisy fit is not a reliable comparison on its own; repeat the pure-noise scenario
+(no bias) over several random seeds to see which loss is more accurate *on average* when
+there is no offset to correct for.
+
+```julia
+seeds_range = 1:5
+function repeat_seeds_fd(loss; seeds = seeds_range, maxiters = 4000)
+    errs = Float64[]
+    for s in seeds
+        Random.seed!(s)
+        noise_s = sigma_fd .* randn(size(data_short))
+        res = fit_fd(loss, data_short .+ noise_s; maxiters = maxiters)
+        push!(errs, norm(res.u .- p))
+    end
+    return errs
+end
+
+errs_standard_fd = repeat_seeds_fd(loss_standard_fd)
+errs_firstdiff_fd = repeat_seeds_fd(loss_firstdiff)
+
+df_fd_seeds = DataFrame(seed = collect(seeds_range),
+    standard_err = errs_standard_fd, firstdiff_err = errs_firstdiff_fd)
+df_fd_seeds
+```
+
+```julia
+println("mean standard error:   ", mean(errs_standard_fd))
+println("mean firstdiff error:  ", mean(errs_firstdiff_fd))
+```
+
+## Single shooting vs. multiple shooting on the long-horizon problem
+
+This addresses another part of [SciMLBenchmarks.jl#28](https://github.com/SciML/SciMLBenchmarks.jl/issues/28):
+comparing *single shooting* (integrate the whole time span from one initial condition, as
+every fit above does) against *multiple shooting* (split the time span into segments, treat
+each segment's own initial state as an additional free parameter, and penalize
+discontinuities between consecutive segments). We reuse the long-horizon problem and data
+(`prob`, `data`, `time_points`) already set up above -- this is exactly the dataset whose
+"extremely challenging" difficulty was already noted, i.e. the regime multiple shooting is
+meant to help with. Both methods must estimate `u0` as well as the kinetic parameters
+(giving single shooting the exact `u0` for free would understate its real difficulty).
+
+```julia
+function simulate_single_ms(pvec, u0vec)
+    _prob = remake(prob, u0 = u0vec, p = pvec)
+    sol = solve(_prob, Vern9(), saveat = time_points, reltol = 1e-8, abstol = 1e-8, maxiters = 10^6)
+    sol.retcode == ReturnCode.Success || return nothing
+    Array(sol)
+end
+
+function loss_single_ms(theta)
+    m = simulate_single_ms(theta[1:4], theta[5:6])
+    m === nothing && return 1e10
+    return sum(abs2, m .- data)
+end
+
+lb_ms_single = vcat(fill(0.1, 4), fill(0.1, 2))
+ub_ms_single = vcat(fill(10.0, 4), fill(10.0, 2))
+init_ms_single = vcat(fill(5.0, 4), [3.0, 3.0])   # a deliberately poor guess
+
+optf_ms1 = OptimizationFunction((th, _) -> loss_single_ms(th))
+optprob_ms1 = OptimizationProblem(optf_ms1, init_ms_single, lb = lb_ms_single, ub = ub_ms_single)
+@time res_ms_single = solve(optprob_ms1, BBO_adaptive_de_rand_1_bin(); maxiters = 3000)
+res_ms_single.objective
+```
+
+Split `[0, 30]` into `K` equal segments. The free parameters are the shared kinetic
+parameters plus each segment's own initial state, seeded directly from the data at that
+segment's start time -- something single shooting has no equivalent of.
+
+```julia
+K = 6
+seg_bounds = range(0.0, 30.0, length = K + 1)
+seg_idx = [findall(τ -> seg_bounds[k] <= τ <= seg_bounds[k + 1], time_points) for k in 1:K]
+
+function unpack_theta_ms(theta)
+    T = eltype(theta)
+    pvec = theta[1:4]
+    u0s = Vector{Vector{T}}(undef, K)
+    for k in 1:K
+        u0s[k] = theta[(4 + 2 * (k - 1) + 1):(4 + 2 * (k - 1) + 2)]
+    end
+    return pvec, u0s
+end
+
+function loss_multi_ms(theta; continuity_weight = 100.0)
+    pvec, u0s = unpack_theta_ms(theta)
+    total = 0.0
+    for k in 1:K
+        idxs = seg_idx[k]
+        _prob = remake(prob, u0 = u0s[k], p = pvec, tspan = (seg_bounds[k], seg_bounds[k + 1]))
+        sol = solve(_prob, Vern9(), saveat = time_points[idxs], reltol = 1e-8, abstol = 1e-8,
+            maxiters = 10^6)
+        sol.retcode == ReturnCode.Success || return 1e10
+        total += sum(abs2, Array(sol) .- data[:, idxs])
+        if k < K
+            total += continuity_weight * sum(abs2, sol.u[end] .- u0s[k + 1])
+        end
+    end
+    return total
+end
+```
+
+```julia
+init_ms_multi = copy(init_ms_single[1:4])
+for k in 1:K
+    idx0 = argmin(abs.(time_points .- seg_bounds[k]))
+    append!(init_ms_multi, data[:, idx0])
+end
+lb_ms_multi = vcat(lb_ms_single[1:4], fill(0.1, 2 * K))
+ub_ms_multi = vcat(ub_ms_single[1:4], fill(10.0, 2 * K))
+
+optf_ms2 = OptimizationFunction((th, _) -> loss_multi_ms(th))
+optprob_ms2 = OptimizationProblem(optf_ms2, init_ms_multi, lb = lb_ms_multi, ub = ub_ms_multi)
+@time res_ms_multi = solve(optprob_ms2, BBO_adaptive_de_rand_1_bin(); maxiters = 3000 * K)
+res_ms_multi.objective
+```
+
+```julia
+df_ms = DataFrame(
+    method = ["Single shooting", "Multiple shooting (K=$K)"],
+    param_error = [norm(res_ms_single.u[1:4] .- p), norm(res_ms_multi.u[1:4] .- p)],
+    loss = [res_ms_single.objective, res_ms_multi.objective],
+    n_free_params = [length(init_ms_single), length(init_ms_multi)])
+df_ms
+```
+
+Multiple shooting's evaluation budget above is scaled by its parameter count relative to
+single shooting's (`3000 * K` vs. `3000`), matching the standard practice of allocating a
+global stochastic optimizer's budget roughly in proportion to the dimensionality of the
+search space.
+
+```julia
+fit_single_ms = simulate_single_ms(res_ms_single.u[1:4], res_ms_single.u[5:6])
+p_multi_fit, u0s_fit = unpack_theta_ms(res_ms_multi.u)
+fit_multi_ms = similar(data)
+for k in 1:K
+    idxs = seg_idx[k]
+    sol_k = solve(remake(prob, u0 = u0s_fit[k], p = p_multi_fit,
+            tspan = (seg_bounds[k], seg_bounds[k + 1])), Vern9(), saveat = time_points[idxs],
+        reltol = 1e-8, abstol = 1e-8)
+    fit_multi_ms[:, idxs] = Array(sol_k)
+end
+
+plot(time_points, data[1, :], label = "data (x)", color = :black, linewidth = 2,
+    xlabel = "time", title = "Fitted trajectories vs. data", legend = :outertopright,
+    size = (900, 450))
+plot!(time_points, data[2, :], label = "data (y)", color = :gray, linewidth = 2)
+plot!(time_points, fit_single_ms[1, :], label = "single shooting (x)", linestyle = :dash)
+plot!(time_points, fit_single_ms[2, :], label = "single shooting (y)", linestyle = :dash)
+plot!(time_points, fit_multi_ms[1, :], label = "multiple shooting (x)", linestyle = :dot)
+plot!(time_points, fit_multi_ms[2, :], label = "multiple shooting (y)", linestyle = :dot)
+vline!(collect(seg_bounds), label = "segment boundaries", color = :lightgray, alpha = 0.5)
+```
+
+A single race can be won or lost by chance; repeat both fits over a handful of seeds
+(`BlackBoxOptim`'s population initialization is itself randomized) to see whether either
+method is more *reliable*, not just luckier on one run.
+
+```julia
+function run_seeds_ms(loss, init, lb, ub, budget, seeds)
+    errs = Float64[]
+    for s in seeds
+        Random.seed!(s)
+        optf = OptimizationFunction((th, _) -> loss(th))
+        optprob = OptimizationProblem(optf, init, lb = lb, ub = ub)
+        res = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = budget)
+        push!(errs, norm(res.u[1:4] .- p))
+    end
+    return errs
+end
+
+seeds_ms = 1:3
+errs_single_ms = run_seeds_ms(loss_single_ms, init_ms_single, lb_ms_single, ub_ms_single, 3000, seeds_ms)
+errs_multi_ms = run_seeds_ms(loss_multi_ms, init_ms_multi, lb_ms_multi, ub_ms_multi, 3000 * K, seeds_ms)
+
+bar(["single shooting", "multiple shooting"], [mean(errs_single_ms), mean(errs_multi_ms)],
+    yerror = [std(errs_single_ms), std(errs_multi_ms)], legend = false,
+    ylabel = "parameter error (mean +/- std over seeds)",
+    title = "Reliability across $(length(seeds_ms)) random seeds", size = (500, 400))
+```
+
 # Conclusion
 
 In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLopt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison.
+
+The two extra comparisons above answer [issue #28](https://github.com/SciML/SciMLBenchmarks.jl/issues/28)'s
+loss-function and shooting-formulation questions on this same model and data. The two
+losses trade off exactly as the noise-amplification argument predicts: with pure,
+zero-mean measurement noise and no offset, the standard loss gives a lower average
+parameter error, since first-differencing doubles the effective noise variance without
+buying anything in return; with a constant, unknown additive bias, first-differencing
+recovers the true parameters almost exactly while the standard loss converges to a
+measurably biased answer. On the long-horizon shooting comparison, single shooting is
+consistently *more* accurate than this multiple-shooting formulation here, even with its
+evaluation budget scaled up to match its larger parameter count -- a useful, if unglamorous,
+finding, since this bounded, non-chaotic oscillation doesn't put single-shooting integration
+itself into the numerically unstable regime where multiple shooting's classical advantage
+(short segments insulated from a bad guess blowing up over a long integration) would show up.
 
 ```julia, echo = false
 using SciMLBenchmarks
