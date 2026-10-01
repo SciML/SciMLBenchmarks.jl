@@ -117,8 +117,9 @@ plot(plot(xyzt, xyz), plot(xy, xz, yz, layout = (1, 3), w = 1), layout = (2, 1),
 ```julia
 obj_short = build_loss_objective(prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
+short_solutions = Dict{String, Any}()
 @btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
-# Tolerance is still too high to get close enough
+short_solutions["BBO (Tsit5 default tol)"] = res1
 ```
 
 ```julia
@@ -126,7 +127,7 @@ obj_short = build_loss_objective(
     prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short, reltol = 1e-9)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
 @btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
-# With the tolerance lower, it achieves the correct solution in 3.5 seconds.
+short_solutions["BBO (Tsit5 reltol=1e-9)"] = res1
 ```
 
 ```julia
@@ -134,9 +135,7 @@ obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short
     tstops = t_short, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
 @btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
-# With the more accurate solver Vern9 in the solution of the ODE, the convergence is less efficient!
-
-# Fastest BlackBoxOptim: 3.5 seconds
+short_solutions["BBO (Vern9 1e-9)"] = res1
 ```
 
 # Using NLopt
@@ -152,21 +151,25 @@ obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short
 opt = Opt(:GN_ORIG_DIRECT_L, 3)
 optprob = OptimizationProblem(obj_short, GloIniPar, lb = first.(LooserBounds), ub = last.(LooserBounds))
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ORIG_DIRECT_L"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12) # Accurate to single precision 8.2 seconds
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12) # Approximately accurate, good starting values for local optimization
+@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ESCH"] = res1
 ```
 
 Next, the local optimization algorithms that could be used after the global algorithms as a check on the solution and its precision. All the local optimizers are started from LocIniPar and with the narrow bounds of the Xiang2015Paper.
@@ -175,51 +178,77 @@ Next, the local optimization algorithms that could be used after the global algo
 opt = Opt(:LN_BOBYQA, 3)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_SLSQP"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_COBYLA, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_COBYLA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NEWUOA_BOUND, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_NEWUOA_BOUND"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_PRAXIS, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_PRAXIS"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_SBPLX, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_SBPLX"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_MMA, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_MMA"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_LBFGS, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_LBFGS"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_TNEWTON_PRECOND_RESTART, 3)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_TNEWTON_PRECOND_RESTART"] = res1
+```
+
+Each run's estimate, retcode, loss and largest componentwise distance from the true parameters `[10.0, 28.0, 2.66]`, together with the lowest-loss and closest runs:
+
+```julia
+for (name, sol) in sort!(collect(short_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3))
+end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in short_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in short_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
 ```
 
 ## Now let's solve the longer version for a global solution
@@ -228,18 +257,18 @@ Notice from the plotting above that this ODE problem is chaotic and tends to div
 Vern9 solver with reltol=1e-9 and abstol=1e-9 has been established to be accurate on the time interval [0,50]. The long objective is built with `Optimization.AutoForwardDiff()` because `LD_SLSQP` below requires a gradient.
 
 ```julia
-# BB with Vern9 converges very slowly.
+# BBO is given a smaller iteration budget on the long problem.
 obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data),
     Optimization.AutoForwardDiff(), tstops = time_points, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj, GloIniPar, lb = first.(LooserBounds), ub = last.(LooserBounds))
 global_solutions = Dict{String, Any}()
-res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 4e3) # Default adaptive_de_rand_1_bin_radiuslimited 33 sec [10.2183, 24.6711, 2.28969]
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 4e3)
 global_solutions["BBO_adaptive_de_rand_1_bin"] = res1
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :adaptive_de_rand_1_bin, MaxSteps = 4e3) # Method 32 sec [13.2222, 25.8589, 2.56176]
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :dxnes, MaxSteps = 2e3) # Method dxnes 119 sec  [16.8648, 24.393, 2.29119]
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :xnes, MaxSteps = 2e3) # Method xnes 304 sec  [19.1647, 24.9479, 2.39467]
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :de_rand_1_bin_radiuslimited, MaxSteps = 2e3) # Method 44 sec  [13.805, 24.6054, 2.37274]
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :generating_set_search, MaxSteps = 2e3) # Method 195 sec [19.1847, 24.9492, 2.39412]
+#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :adaptive_de_rand_1_bin, MaxSteps = 4e3)
+#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :dxnes, MaxSteps = 2e3)
+#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :xnes, MaxSteps = 2e3)
+#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :de_rand_1_bin_radiuslimited, MaxSteps = 2e3)
+#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :generating_set_search, MaxSteps = 2e3)
 ```
 
 ```julia
@@ -256,23 +285,23 @@ global_solutions["GN_ORIG_DIRECT_L"] = res1
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 3)
-res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300) # Hit and miss. converge approximately accurate values for local opt.91 seconds
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300)
 global_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 3)
-res1 = @btime solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12, maxtime = 300) # Approximately accurate within local bounds
+res1 = @btime solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12, maxtime = 300)
 global_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 3)
-res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300) # Approximately accurate
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12, maxtime = 300)
 global_solutions["GN_ESCH"] = res1
 ```
 
-Whether each estimate lies inside the bounds its optimizer was given, and inside the narrower Xiang bounds used by the local optimizers below:
+Each global run's estimate, retcode, loss, largest componentwise distance from the true parameters `[10.0, 28.0, 2.66]`, and whether the estimate lies inside the bounds its optimizer searched (`LooserBounds`) and inside the narrower `Xiang2015Bounds` used by the local optimizers below:
 
 ```julia
 for (name, sol) in sort!(collect(global_solutions); by = first)
@@ -280,15 +309,20 @@ for (name, sol) in sort!(collect(global_solutions); by = first)
         "estimate=", round.(sol.u; digits = 3),
         "  retcode=", sol.retcode,
         "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3),
         "  within LooserBounds: ", all(first.(LooserBounds) .<= sol.u .<= last.(LooserBounds)),
         "  within Xiang2015Bounds: ", all(xlow_bounds .<= sol.u .<= xhigh_bounds))
 end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in global_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in global_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
 println("loss at the true parameters ", p, ": ", obj(p))
 println("loss with σ shifted by +1e-6: ", obj([10.0 + 1e-6, 28.0, 2.66]))
 println("loss with σ shifted by +1e-4: ", obj([10.0 + 1e-4, 28.0, 2.66]))
 ```
 
-In the latest run, none of the global optimizers recover the true parameters `[10.0, 28.0, 2.66]` on the longer sample; the estimates, retcodes, and losses printed above show where each run stopped. The bounds check above shows whether each estimate lies inside `LooserBounds`, the bounds these runs search, and whether it would also satisfy the narrower `Xiang2015Bounds`, which apply only to the local runs below. Each NLopt global run keeps its iteration budget and is additionally capped at 300 seconds of wall time via `maxtime`, so a run that does not converge first reports `MaxTime` or `MaxIters`. All of the global runs take considerably longer than on the short sample. The loss at the true parameters, printed above, is small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The endpoint losses printed above are orders of magnitude larger, so the true parameters are still a deep minimum that none of the optimizers reach.
+The printed table shows where each global run stopped on the longer sample. Each NLopt global run keeps its iteration budget and is additionally capped at 300 seconds of wall time via `maxtime`, so a run that does not converge first reports `MaxTime` or `MaxIters`. The loss at the true parameters, printed above, is small but not zero, because `tstops` at every data point forces the fitting solve onto a slightly different step sequence than the data-generation solve, and the chaotic trajectory amplifies that difference. The perturbation losses printed above are orders of magnitude larger, so the true parameters sit in a deep, narrow minimum on this problem.
 
 ```julia
 opt = Opt(:LN_BOBYQA, 3)
@@ -316,18 +350,23 @@ for (name, sol) in sort!(collect(local_solutions); by = first)
         "estimate=", round.(sol.u; digits = 3),
         "  retcode=", sol.retcode,
         "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3),
         "  strictly inside Xiang2015Bounds: ", all(xlow_bounds .< sol.u .< xhigh_bounds))
 end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in local_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in local_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
 ```
 
-These local optimizers run on the long objective `obj` from `LocIniPar` inside the narrow bounds. In the latest run none of them reach the true parameters: `LN_BOBYQA` and `LD_SLSQP` return `Success` at wrong points (`LN_BOBYQA` on the β bound, as the printed bounds flag shows) and `LN_NELDERMEAD` stops at `MaxIters`; the printed estimates and losses show where each run stopped.
+These local optimizers run on the long objective `obj` from `LocIniPar` inside the narrow bounds. The printed table shows each run's estimate, retcode, loss, distance from the true parameters, and whether the estimate lies strictly inside `Xiang2015Bounds`; on this landscape a `Success` retcode does not by itself mean the run found the true parameters, and a run stopped on its iteration limit may still sit at a wrong point.
 
 # Conclusion
 
- 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. In the latest run, with the short sample of 300 observations, all the global optimizers except `GN_ISRES` and `GN_ESCH` (which only get close) and all the local optimizers except `LN_PRAXIS` (which stops on the σ bound) recover the true parameters. With the longer sample of 3000 observations, no global optimizer recovers them within the page's iteration and 300 s wall-time budgets (`GN_CRS2_LM` gets closest), and the local optimizers started from `LocIniPar` converge to wrong points or bounds instead. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
+ 1. The Lorenz system is extremely sensitive to the initial condition; this page generates its data from `r0 = [1.0, 0.0, 0.0]`. The summary tables above print each run's estimate, retcode, loss and largest componentwise distance from the true parameters `[10.0, 28.0, 2.66]` on both the short (300-observation) and the longer (3000-observation) sample, including which run has the lowest loss and which lands closest; the long-problem global runs are additionally capped at 300 s of wall time via `maxtime`. The global optimizers are stochastic, so the distances and winners differ from run to run. Other initial conditions, such as `r0 = [-11.8, -5.1, 37.5]` from PODES, are not run on this page.
  2. When trying to hit the real data, having a low enough tolerance on the numerical solution is key. If the numerical solution is too rough, then we can never actually hone in on the true parameters since even with the true parameters we will erroneously induce numerical error. Maybe this could be adaptive?
- 3. Tighter tolerances make each objective evaluation more expensive: on the short problem, BBO reached the same estimate with `Vern9` at `reltol = abstol = 1e-9` as with the default `Tsit5` tolerances, but took longer.
- 4. The estimation method and the global versus local optimization make a huge difference in the timings. Here, BBO finds the correct solution on the short problem but not on the long one, where the chaotic trajectory makes the loss landscape much rougher: the printed perturbation losses show even a `1e-6` shift in σ raising the loss by orders of magnitude. For local optimization, `LN_COBYLA`, `LD_SLSQP` and `LD_MMA` are much slower than the other NLopt methods on the short problem in the latest run. These methods can scale a local optimization, but we are aiming to scale a global optimization.
+ 3. Tighter tolerances make each objective evaluation more expensive: the three BBO runs on the short problem use the default `Tsit5` tolerances, `Tsit5` at `reltol = 1e-9` and `Vern9` at `reltol = abstol = 1e-9`, and the printed timings and the distance column in the summary table show what each setting buys.
+ 4. The estimation method and the global versus local optimization make a huge difference in the timings. The chaotic trajectory makes the loss landscape much rougher on the long problem: the printed perturbation losses show even a `1e-6` shift in σ raising the loss by orders of magnitude. The `LD_*` local methods evaluate a gradient of the objective at every step; the printed timings show the per-run cost on each problem. These methods can scale a local optimization, but we are aiming to scale a global optimization.
  5. Fitting the shorter timespan is much cheaper... maybe this can lead to determining a minimal sample size for the optimizers and the estimator to succeed.
 
 ```julia, echo = false

@@ -215,16 +215,20 @@ bayesian_result_turing
 ```
 
 The direct model above and this backend solve the same problem with the same sampler settings, and each
-timed run follows a 10-draw warmup that compiles its sampling path, so their measured time and allocations
-are comparable:
+timed run follows a 10-draw warmup that compiles its sampling path. The divergent-transition counts printed
+below show whether the two samplers took similar paths through the posterior; on this chaotic problem the
+counts can differ by orders of magnitude, in which case the wall times are not like-for-like measurements
+of the same trajectory:
 
 ```julia
 println("Direct Turing model: $(round(timed_turing_direct.time; digits=2)) s, ",
-    "$(round(timed_turing_direct.bytes / 2^30; digits=3)) GiB allocated")
+    "$(round(timed_turing_direct.bytes / 2^30; digits=3)) GiB allocated, ",
+    sum(chain[:numerical_error]), " divergent transitions")
 println("DiffEqBayes backend: $(round(timed_turing_backend.time; digits=2)) s, ",
-    "$(round(timed_turing_backend.bytes / 2^30; digits=3)) GiB allocated")
-println("Backend / direct: $(round(timed_turing_backend.time / timed_turing_direct.time; digits=1))x time, ",
-    "$(round(timed_turing_backend.bytes / timed_turing_direct.bytes; sigdigits=3))x allocated")
+    "$(round(timed_turing_backend.bytes / 2^30; digits=3)) GiB allocated, ",
+    sum(bayesian_result_turing[:numerical_error]), " divergent transitions")
+println("Backend / direct: $(round(timed_turing_backend.time / timed_turing_direct.time; sigdigits=2))x time, ",
+    "$(round(timed_turing_backend.bytes / timed_turing_direct.bytes; sigdigits=2))x allocated")
 ```
 
 ### Using DynamicHMC.jl backend
