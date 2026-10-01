@@ -131,7 +131,7 @@ end
 pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
 
 pso_solve(opt, prob, budget) = opt isa HybridPSO ?
-    solve(prob, opt; maxiters = budget, local_maxiters = 50, abstol = 1.0e-8, reltol = 1.0e-8) :
+    solve(prob, opt; maxiters = budget, local_maxiters = 300, abstol = 1.0e-8, reltol = 1.0e-8) :
     solve(prob, opt; maxiters = budget)
 ```
 
@@ -256,7 +256,7 @@ function time_to_success_one(algo, f::BBOBFunction)
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
         t = chunked!(cache.pso_cache, target, t0)             # PSO phase
         isfinite(t) && return t
-        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = 50, abstol = 1.0e-8, reltol = 1.0e-8)
+        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = 300, abstol = 1.0e-8, reltol = 1.0e-8)
         return _to_f64(sol.objective) < target ? time() - t0 : Inf   # L-BFGS phase only
     else
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
