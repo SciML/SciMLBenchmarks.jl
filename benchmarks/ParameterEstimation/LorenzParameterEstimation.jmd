@@ -118,7 +118,7 @@ plot(plot(xyzt, xyz), plot(xy, xz, yz, layout = (1, 3), w = 1), layout = (2, 1),
 obj_short = build_loss_objective(prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
 short_solutions = Dict{String, Any}()
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 short_solutions["BBO (Tsit5 default tol)"] = res1
 ```
 
@@ -126,7 +126,7 @@ short_solutions["BBO (Tsit5 default tol)"] = res1
 obj_short = build_loss_objective(
     prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short, reltol = 1e-9)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 short_solutions["BBO (Tsit5 reltol=1e-9)"] = res1
 ```
 
@@ -134,7 +134,7 @@ short_solutions["BBO (Tsit5 reltol=1e-9)"] = res1
 obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short),
     tstops = t_short, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 7e3)
 short_solutions["BBO (Vern9 1e-9)"] = res1
 ```
 
@@ -150,25 +150,25 @@ obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 3)
 optprob = OptimizationProblem(obj_short, GloIniPar, lb = first.(LooserBounds), ub = last.(LooserBounds))
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["GN_ORIG_DIRECT_L"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["GN_ESCH"] = res1
 ```
 
@@ -177,61 +177,61 @@ Next, the local optimization algorithms that could be used after the global algo
 ```julia
 opt = Opt(:LN_BOBYQA, 3)
 optprob = OptimizationProblem(obj_short, LocIniPar, lb = xlow_bounds, ub = xhigh_bounds)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LD_SLSQP"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_COBYLA, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_COBYLA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NEWUOA_BOUND, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_NEWUOA_BOUND"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_PRAXIS, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_PRAXIS"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_SBPLX, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LN_SBPLX"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_MMA, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LD_MMA"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_LBFGS, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LD_LBFGS"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_TNEWTON_PRECOND_RESTART, 3)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 short_solutions["LD_TNEWTON_PRECOND_RESTART"] = res1
 ```
 
@@ -264,11 +264,11 @@ optprob = OptimizationProblem(obj, GloIniPar, lb = first.(LooserBounds), ub = la
 global_solutions = Dict{String, Any}()
 res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 4e3)
 global_solutions["BBO_adaptive_de_rand_1_bin"] = res1
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :adaptive_de_rand_1_bin, MaxSteps = 4e3)
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :dxnes, MaxSteps = 2e3)
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :xnes, MaxSteps = 2e3)
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :de_rand_1_bin_radiuslimited, MaxSteps = 2e3)
-#@btime res1 = bboptimize(obj;SearchRange = LooserBounds, Method = :generating_set_search, MaxSteps = 2e3)
+#res1 = @btime bboptimize(obj;SearchRange = LooserBounds, Method = :adaptive_de_rand_1_bin, MaxSteps = 4e3)
+#res1 = @btime bboptimize(obj;SearchRange = LooserBounds, Method = :dxnes, MaxSteps = 2e3)
+#res1 = @btime bboptimize(obj;SearchRange = LooserBounds, Method = :xnes, MaxSteps = 2e3)
+#res1 = @btime bboptimize(obj;SearchRange = LooserBounds, Method = :de_rand_1_bin_radiuslimited, MaxSteps = 2e3)
+#res1 = @btime bboptimize(obj;SearchRange = LooserBounds, Method = :generating_set_search, MaxSteps = 2e3)
 ```
 
 ```julia
