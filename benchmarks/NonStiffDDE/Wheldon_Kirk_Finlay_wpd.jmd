@@ -27,7 +27,7 @@ test_sol = TestSolution(sol)
 plot(sol)
 ```
 
-Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
 
 ```julia
 function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
@@ -66,7 +66,8 @@ function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
     end
     println("  Smallest error reached, most accurate first: ", join(parts, " "))
     points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
-    beaten(e, t) = any(p -> p[1] <= e && margin * p[2] < t, points)
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
     front = map(ok) do r
         kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
         (; r.name, kept, n = length(r.errors))
@@ -74,7 +75,7 @@ function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
     sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
     println(
         "  Unbeaten runs by method, as error (time); a run is beaten when another run",
-        " is at least as accurate and more than $(margin)x faster:"
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
     )
     for f in front
         runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
