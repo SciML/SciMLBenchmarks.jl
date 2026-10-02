@@ -42,10 +42,10 @@ def _solve_diffrax(k1, adaptive):
     sol = diffrax.diffeqsolve(
         diffrax.ODETerm(_lorenz),
         diffrax.Tsit5(),
-        0.0,
-        1.0,
-        0.001,
-        jnp.array([1.0, 0.0, 0.0]),
+        np.float32(0.0),
+        np.float32(1.0),
+        np.float32(0.001),
+        jnp.array([1.0, 0.0, 0.0], dtype=jnp.float32),
         args=k1,
         saveat=diffrax.SaveAt(t1=True),
         max_steps=100_000,
@@ -71,7 +71,7 @@ def _min_seconds(fn, warmup, repeats):
 
 def time_diffrax(n, adaptive=False, warmup=3, repeats=10):
     require_jax_gpu()
-    rhos = jnp.linspace(0.0, 21.0, int(n))
+    rhos = jnp.linspace(0.0, 21.0, int(n), dtype=jnp.float32)
     solve = _solve_adaptive if adaptive else _solve_fixed
 
     def run():
