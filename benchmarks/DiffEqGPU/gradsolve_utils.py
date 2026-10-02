@@ -1,5 +1,7 @@
 """Host-to-host adaptive Lorenz solves through public Python solver APIs."""
+import contextlib
 import os
+import sys
 import time
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
@@ -11,6 +13,30 @@ import jax.numpy as jnp
 import numpy as np
 
 jax.config.update("jax_enable_x64", True)
+
+
+@contextlib.contextmanager
+def _silence_build_log():
+    """Redirect fds 1 and 2 to devnull while GRADSOLVE nvcc-compiles a kernel.
+
+    The ``[nvcc -Xptxas -v]`` register report and jaxlib header warnings are
+    printed from the build step on first use; the output goes to the C-level
+    fds, which ``contextlib.redirect_stdout`` cannot catch.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved = (os.dup(1), os.dup(2))
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        os.close(saved[0])
+        os.close(saved[1])
+        os.close(devnull)
 
 
 class Lorenz:
@@ -68,6 +94,12 @@ def prepare(rhos, precision, rtol, library, device="gpu"):
             raise AssertionError("Non-finite solver output")
         return result
 
+    if library == "GRADSOLVE":
+        # First call nvcc-compiles the cuda_tsit5 kernel; keep its build log
+        # out of the rendered page. Later warmup/timing calls are unaffected.
+        with _silence_build_log():
+            checked()
+
     return checked
 
 
@@ -95,7 +127,10 @@ def prepare_kernel(rhos, precision, rtol, device="gpu"):
     y0[0] = 1
     y0 = jax.device_put(y0, target)
     rho = jax.device_put(np.asarray(rhos, dtype=dtype), target)
-    run = make_runner("lorenz", 3, precision, "cuda")
+    with _silence_build_log():
+        run = make_runner("lorenz", 3, precision, "cuda")
+        # First trace of the FFI call can also emit compiler output.
+        jax.block_until_ready(run(y0, rho, 1.0, rtol, rtol / 1000, 100_000))
 
     def call():
         return jax.block_until_ready(run(y0, rho, 1.0, rtol, rtol / 1000, 100_000))

@@ -11,7 +11,7 @@ controller GRADSOLVE uses. Generally prefer PI control: the I controller has
 less stable step-size selection, and on simple nonstiff systems such as Lorenz
 it can look faster at equal tolerances partly because achieved accuracy is
 lower. The work-precision plots below expose that difference. The Lorenz RHS
-uses `@muladd`. The environment uses DiffEqGPU 3.21.2.
+uses `@muladd`.
 
 All implementations solve the same system: $\sigma=10$, $\beta=8/3$,
 $\rho\in[0,21]$, $u(0)=(1,0,0)$, and $t\in[0,1]$. Each comparison uses the
@@ -39,7 +39,7 @@ using PythonCall, Plots, Printf, LinearAlgebra, MuladdMacro
 CUDA.versioninfo()
 println("Julia ", VERSION, "; DiffEqGPU ", pkgversion(DiffEqGPU))
 const KERNEL = EnsembleGPUKernel(CUDA.CUDABackend(), 0.0)
-const METHODS = ("GPUTsit5 (PI)", "GPUTsit5 (I)", "GRADSOLVE", "Diffrax")
+const METHODS = ("GPUTsit5 (PI)", "GPUTsit5 (I)", "GPUTsit5 (PI, vectorized_asolve)", "GRADSOLVE", "Diffrax")
 
 ENV["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 ENV["GRADSOLVE_CUDA_CACHE"] = joinpath(@__DIR__, ".gradsolve_cuda")
@@ -121,9 +121,32 @@ function julia_kernel_runner(rhos::Vector{T}, method, tol) where {T}
     return call, host
 end
 
+# Host-to-host arm through the low-level API: problem construction, upload,
+# solve, download, and result materialization are all inside the timed closure.
+function julia_lowlevel_runner(rhos::Vector{T}, tol) where {T}
+    prob = ODEProblem{false}(lorenz_wp, SVector{3, T}(1, 0, 0), (zero(T), one(T)), SVector(rhos[1]))
+    return function ()
+        probs = CuArray([DiffEqGPU.make_prob_compatible(remake(prob; p = SVector(rho))) for rho in rhos])
+        _, us = CUDA.@sync DiffEqGPU.vectorized_asolve(
+            probs, prob, GPUTsit5(); dt = T(0.01), reltol = T(tol), abstol = T(tol / 1000),
+            save_everystep = false
+        )
+        states = endpoint_matrix(Array(us)[end, :])
+        @assert size(states) == (length(rhos), 3)
+        @assert eltype(states) === T
+        @assert all(isfinite, states)
+        return states
+    end
+end
+
 function measurement(rhos::Vector{T}, method, tol, indices, refs; kernel = false) where {T}
     @info "measurement" T method tol n = length(rhos) kernel
-    if startswith(method, "GPUTsit5")
+    if method == "GPUTsit5 (PI, vectorized_asolve)"
+        @assert !kernel "the low-level host-to-host arm is not a kernel-only method"
+        run = julia_lowlevel_runner(rhos, tol)
+        seconds = measure_julia(run)
+        states = run()
+    elseif method in ("GPUTsit5 (PI)", "GPUTsit5 (I)")
         call, run = kernel ? julia_kernel_runner(rhos, method, tol) :
             (r -> (r, r))(julia_runner(rhos, method, tol))
         seconds = measure_julia(call)
@@ -257,6 +280,9 @@ is checked again against references at that size; nominal tolerance alone is
 never used as the accuracy match. An unavailable target is an error, not an
 omitted curve. This is a finite tolerance search, not a claim of globally optimal
 tuning. The ceilings are `1e-4` for Float32 and `1e-7` for Float64.
+The `vectorized_asolve` arm and the stage breakdown below show how much of the
+high-level solve's time at large N is host-side problem setup and solution
+construction rather than the kernel itself.
 
 ```julia
 scaling = NamedTuple[]
@@ -297,6 +323,34 @@ panels = map(("Float32", "Float64")) do precision
     p
 end
 plot(panels...; layout = (1, 2), size = (1100, 450))
+```
+
+```julia
+let T = Float64, n = 2^21, tol = 1.0e-7
+    rhos = collect(range(zero(T), T(21); length = n))
+    prob = ODEProblem{false}(lorenz_wp, SVector{3, T}(1, 0, 0), (zero(T), one(T)), SVector(rhos[1]))
+    construct() = [DiffEqGPU.make_prob_compatible(remake(prob; p = SVector(rho))) for rho in rhos]
+    cpu_probs = construct()
+    t_construct = minimum(@elapsed(construct()) for _ in 1:5)
+    probs = CuArray(cpu_probs)
+    t_upload = minimum(@elapsed(CUDA.@sync(CuArray(cpu_probs))) for _ in 1:5)
+    asolve() = DiffEqGPU.vectorized_asolve(
+        probs, prob, GPUTsit5(); dt = T(0.01), reltol = T(tol), abstol = T(tol / 1000),
+        save_everystep = false
+    )
+    _, us = CUDA.@sync asolve()
+    t_solve = minimum(@elapsed(CUDA.@sync asolve()) for _ in 1:5)
+    download() = endpoint_matrix(Array(us)[end, :])
+    download()
+    t_download = minimum(@elapsed(download()) for _ in 1:5)
+    t_highlevel = measure_julia(julia_runner(rhos, "GPUTsit5 (PI)", tol))
+    @printf("N = 2^21, Float64, reltol = 1e-7 stage times (min of 5):\n")
+    @printf("  CPU problem construction      %.3f ms\n", 1000t_construct)
+    @printf("  CuArray upload                %.3f ms\n", 1000t_upload)
+    @printf("  vectorized_asolve (synced)    %.3f ms\n", 1000t_solve)
+    @printf("  endpoint download + matrix    %.3f ms\n", 1000t_download)
+    @printf("  high-level solve total        %.3f ms\n", 1000t_highlevel)
+end
 ```
 
 GRADSOLVE's `cuda_tsit5` engine is forward-only. Its gradient engine records and
