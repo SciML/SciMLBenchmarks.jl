@@ -598,6 +598,24 @@ display(forward_timings)
 Adjoint requires a slightly different setup even with forward mode ADs since it requires
 a loss function choice. For that we simply take the L2 norm of the solution.
 
+Every method is timed on every model. Each block also records the relative error
+`maximum(abs, g .- g_ForwardDiff) / maximum(abs, g_ForwardDiff)` of the gradient it
+returns, so a fast but wrong gradient is visible in the error table below. A method that
+throws records `missing` and prints its error.
+
+```julia
+relerr(g_ref, g) = maximum(abs, g_ref .- vec(g)) / maximum(abs, g_ref)
+
+function try_gradient(name, f)
+    try
+        f()
+    catch e
+        println(name, " fails: ", first(split(sprint(showerror, e), '\n')))
+        missing
+    end
+end
+```
+
 ```julia
 adjoint_lv = let
     @info "Running the Lotka-Volerra model:"
@@ -628,7 +646,8 @@ adjoint_lv = let
     end
     t4 = @belapsed numerical_sen_l2(
         $lvdf, $lvu0, $lvtspan, $lvp, $lvt, $(Tsit5()); $tols...);
-    [t1; t2; t3; t4]
+    (times = [t1; t2; t3; t4],
+        errors = [0.0; relerr(lsol1, lsol2); [relerr(lsol1, g) for g in lsol3]; relerr(lsol1, lsol4)])
 end
 ```
 
@@ -641,9 +660,9 @@ adjoint_bruss = let
     bfun, b_u0, b_p, brusselator_jac, brusselator_comp = makebrusselator(n)
     @time bsol1 = auto_sen_l2(
         bfun, b_u0, tspan, b_p, bt, (Rodas5()); diffalg = (ForwardDiff.gradient), tols...);
-    #@time bsol2 = auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff=AutoFiniteDiff())); diffalg=(ReverseDiff.gradient), tols...);
-    #@test maximum(abs, bsol1 .- bsol2)/maximum(abs,  bsol1) < 1e-2
-
+    @time bsol2 = try_gradient("ReverseDiff",
+        () -> auto_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5(autodiff = AutoFiniteDiff()));
+            diffalg = (ReverseDiff.gradient), tols...))
     @time bsol3 = map(ADJOINT_METHODS) do alg
         @info "Running $alg"
         f = SciMLSensitivity.alg_autodiff(alg) ? bfun :
@@ -653,26 +672,25 @@ adjoint_bruss = let
             f, b_u0, tspan, b_p, bt, solver, reltol = 1e-7; sensalg = alg, tols...)
     end
     @time bsol4 = numerical_sen_l2(bfun, b_u0, tspan, b_p, bt, (Rodas5()); tols...);
-    # NOTE: backsolve gives unstable results!!!
     @test all(i->maximum(abs, bsol1 .- bsol3[i]')/maximum(abs, bsol1) < 4e-2,
         eachindex(ADJOINT_METHODS)[1:(2end ÷ 3)])
-    @test all(i->maximum(abs, bsol1 .- bsol3[i]')/maximum(abs, bsol1) >= 4e-2,
-        eachindex(ADJOINT_METHODS)[(2end ÷ 3 + 1):end])
     @test maximum(abs, bsol1 .- bsol4)/maximum(abs, bsol1) < 2e-2
     t1 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5());
         diffalg = $(ForwardDiff.gradient), $tols...);
-    #t2 = @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5(autodiff=AutoFiniteDiff())); diffalg=$(ReverseDiff.gradient), $tols...);
-    t2 = NaN
-    t3 = map(ADJOINT_METHODS[1:(2end ÷ 3)]) do alg
+    t2 = ismissing(bsol2) ? missing :
+         @belapsed auto_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt,
+        $(Rodas5(autodiff = AutoFiniteDiff())); diffalg = $(ReverseDiff.gradient), $tols...);
+    t3 = map(ADJOINT_METHODS) do alg
         @info "Running $alg"
         f = SciMLSensitivity.alg_autodiff(alg) ? bfun :
             ODEFunction{true, SciMLBase.FullSpecialize}(bfun, jac = brusselator_jac)
         solver = Rodas5(autodiff = AutoFiniteDiff())
         @elapsed diffeq_sen_l2(f, b_u0, tspan, b_p, bt, solver; sensalg = alg, tols...);
     end
-    t3 = [t3; fill(NaN, length(ADJOINT_METHODS)÷3)]
     t4 = @belapsed numerical_sen_l2($bfun, $b_u0, $tspan, $b_p, $bt, $(Rodas5()); $tols...);
-    [t1; t2; t3; t4]
+    (times = [t1; t2; t3; t4],
+        errors = [0.0; ismissing(bsol2) ? missing : relerr(bsol1, bsol2);
+                  [relerr(bsol1, g) for g in bsol3]; relerr(bsol1, bsol4)])
 end
 ```
 
@@ -685,8 +703,10 @@ adjoint_pollution = let
     @time psol1 = auto_sen_l2(
         (ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp,
         pts, (Rodas5(autodiff = AutoFiniteDiff())); diffalg = (ForwardDiff.gradient), tols...);
-    #@time psol2 = auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0, ptspan, pp, pts, (Rodas5(autodiff=AutoFiniteDiff())); diffalg=(ReverseDiff.gradient), tols...);
-    #@test maximum(abs, psol1 .- psol2)/maximum(abs,  psol1) < 1e-2
+    @time psol2 = try_gradient("ReverseDiff",
+        () -> auto_sen_l2((ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), pu0,
+            ptspan, pp, pts, (Rodas5(autodiff = AutoFiniteDiff()));
+            diffalg = (ReverseDiff.gradient), tols...))
     @time psol3 = map(ADJOINT_METHODS) do alg
         @info "Running $alg"
         f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f :
@@ -697,29 +717,29 @@ adjoint_pollution = let
     @time psol4 = numerical_sen_l2(
         (ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)),
         pu0, ptspan, pp, pts, (Rodas5(autodiff = AutoFiniteDiff())); tols...);
-    # NOTE: backsolve gives unstable results!!!
     @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) < 1e-2,
         eachindex(ADJOINT_METHODS)[1:(2end ÷ 3)])
-    @test all(i->maximum(abs, psol1 .- psol3[i]')/maximum(abs, psol1) >= 1e-2,
-        eachindex(ADJOINT_METHODS)[(2end ÷ 3 + 1):end])
     @test maximum(abs, psol1 .- psol4)/maximum(abs, psol1) < 1e-2
     t1 = @belapsed auto_sen_l2(
         $(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp,
         $pts, $(Rodas5(autodiff = AutoFiniteDiff())); diffalg = $(ForwardDiff.gradient), $tols...);
-    #t2 = @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)), $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff=AutoFiniteDiff())); diffalg=$(ReverseDiff.gradient), $tols...);
-    t2 = NaN
-    t3 = map(ADJOINT_METHODS[1:(2end ÷ 3)]) do alg
+    t2 = ismissing(psol2) ? missing :
+         @belapsed auto_sen_l2($(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)),
+        $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff = AutoFiniteDiff()));
+        diffalg = $(ReverseDiff.gradient), $tols...);
+    t3 = map(ADJOINT_METHODS) do alg
         @info "Running $alg"
         f = SciMLSensitivity.alg_autodiff(alg) ? pollution.f :
             ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f, jac = pollution.jac)
         solver = Rodas5(autodiff = AutoFiniteDiff())
         @elapsed diffeq_sen_l2(f, pu0, ptspan, pp, pts, solver; sensalg = alg, tols...);
     end
-    t3 = [t3; fill(NaN, length(ADJOINT_METHODS)÷3)]
     t4 = @belapsed numerical_sen_l2(
         $(ODEFunction{true, SciMLBase.FullSpecialize}(pollution.f)),
         $pu0, $ptspan, $pp, $pts, $(Rodas5(autodiff = AutoFiniteDiff())); $tols...);
-    [t1; t2; t3; t4]
+    (times = [t1; t2; t3; t4],
+        errors = [0.0; ismissing(psol2) ? missing : relerr(psol1, psol2);
+                  [relerr(psol1, g) for g in psol3]; relerr(psol1, psol4)])
 end
 ```
 
@@ -734,7 +754,7 @@ adjoint_pkpd = let
     pkpdsol2 = @time auto_sen_l2((pkpdf.f), pkpdu0, pkpdtspan, pkpdp, pts,
         (Tsit5()); callback = pkpdcb, tstops = 0:24:240,
         diffalg = (ReverseDiff.gradient), tols...);
-    pkpdsol3 = @time map(ADJOINT_METHODS[1:(2end ÷ 3)]) do alg
+    pkpdsol3 = @time map(ADJOINT_METHODS) do alg
         f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f :
             ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f, jac = pkpdf.jac)
         diffeq_sen_l2(f, pkpdu0, pkpdtspan, pkpdp, pts, (Tsit5()); sensalg = alg,
@@ -754,21 +774,24 @@ adjoint_pkpd = let
     t2 = @belapsed auto_sen_l2($(pkpdf.f), $pkpdu0, $pkpdtspan, $pkpdp, $pts,
         $(Tsit5()); callback = pkpdcb, tstops = 0:24:240,
         diffalg = $(ReverseDiff.gradient), $tols...);
-    t3 = map(ADJOINT_METHODS[1:(2end ÷ 3)]) do alg
+    t3 = map(ADJOINT_METHODS) do alg
         f = SciMLSensitivity.alg_autodiff(alg) ? pkpdf.f :
             ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f, jac = pkpdf.jac)
         @belapsed diffeq_sen_l2(
             $f, $pkpdu0, $pkpdtspan, $pkpdp, $pts, $(Tsit5()); tstops = 0:24:240,
             callback = pkpdcb, sensalg = $alg, tols...);
     end
-    t3 = [t3; fill(NaN, length(ADJOINT_METHODS)÷3)]
     t4 = @belapsed numerical_sen_l2(
         $(ODEFunction{true, SciMLBase.FullSpecialize}(pkpdf.f)), $pkpdu0,
         $pkpdtspan, $pkpdp, $pts, $(Tsit5()); tstops = 0:24:240,
         callback = $pkpdcb, $tols...);
-    [t1; t2; t3; t4]
+    (times = [t1; t2; t3; t4],
+        errors = [0.0; relerr(pkpdsol1, pkpdsol2); [relerr(pkpdsol1, g) for g in pkpdsol3];
+                  relerr(pkpdsol1, pkpdsol4)])
 end
 ```
+
+Timings (seconds):
 
 ```julia
 adjoint_methods = ["ForwardDiff", "ReverseDiff",
@@ -777,10 +800,20 @@ adjoint_methods = ["ForwardDiff", "ReverseDiff",
     "BacksolveAdjoint User Jac", "BacksolveAdjoint AD Jac", "BacksolveAdjoint v'J",
     "Numerical Differentiation"]
 adjoint_timings = DataFrame(
-    methods = adjoint_methods, LV = adjoint_lv, Bruss = adjoint_bruss,
-    Pollution = adjoint_pollution, PKPD = adjoint_pkpd)
+    methods = adjoint_methods, LV = adjoint_lv.times, Bruss = adjoint_bruss.times,
+    Pollution = adjoint_pollution.times, PKPD = adjoint_pkpd.times)
 Markdown.parse(PrettyTables.pretty_table(
     String, adjoint_timings; backend = :markdown, column_labels = names(adjoint_timings)))
+```
+
+Relative error of each gradient against the ForwardDiff gradient:
+
+```julia
+adjoint_errors = DataFrame(
+    methods = adjoint_methods, LV = adjoint_lv.errors, Bruss = adjoint_bruss.errors,
+    Pollution = adjoint_pollution.errors, PKPD = adjoint_pkpd.errors)
+Markdown.parse(PrettyTables.pretty_table(
+    String, adjoint_errors; backend = :markdown, column_labels = names(adjoint_errors)))
 ```
 
 ## Appendix
