@@ -5,16 +5,7 @@ author: Chris Rackauckas
 
 # Stochastic Heat Equation Benchmarks
 
-In this notebook we will benchmark against the stochastic heat equation with Dirichlet BCs and scalar noise. The function for generating the problem is as follows:
-
-Stochastic Heat Equation with scalar multiplicative noise
-
-S-ROCK: CHEBYSHEV METHODS FOR STIFF STOCHASTIC
-DIFFERENTIAL EQUATIONS
-
-ASSYR ABDULLE AND STEPHANE CIRILLI
-
-Raising D or k increases stiffness
+In this notebook we will benchmark against the stochastic heat equation with Dirichlet BCs and scalar multiplicative noise, taken from A. Abdulle and S. Cirilli, "S-ROCK: Chebyshev methods for stiff stochastic differential equations". Raising `D` or `k` increases stiffness. The function for generating the problem is as follows:
 
 ```julia
 using StochasticDiffEq, DiffEqNoiseProcess, LinearAlgebra, Statistics, SciMLBase
@@ -44,16 +35,17 @@ D = 1; k = 1
     A = D/(dx^2) * A;
 ```
 
-Now lets solve it with high accuracy.
+Now let's solve it with high accuracy.
 
 ```julia
 prob = generate_stiff_stoch_heat(1.0,1.0)
+heat_stability = NamedTuple{(:method, :dt, :stable),Tuple{String,Float64,Bool}}[]
 @time sol = solve(prob,SRIW1(),progress=true,abstol=1e-6,reltol=1e-6);
 ```
 
-## Highest dt
+## Step-Size Stability
 
-Let's try to find the highest possible dt:
+Let's solve the problem with each method and step size below and record whether the run stays stable:
 
 ```julia
 @time sol = solve(generate_stiff_stoch_heat(1.0,1.0),SRIW1());
@@ -61,30 +53,37 @@ Let's try to find the highest possible dt:
 
 ```julia
 @time sol = solve(generate_stiff_stoch_heat(1.0,1.0),SRIW1(),progress=true,adaptive=false,dt=0.00005);
+push!(heat_stability, (method="SRIW1", dt=0.00005, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ```julia
 @time sol = solve(generate_stiff_stoch_heat(1.0,1.0),EM(),progress=true,adaptive=false,dt=0.00005);
+push!(heat_stability, (method="EM", dt=0.00005, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.1);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.1);
+push!(heat_stability, (method="ImplicitRKMil", dt=0.1, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.01);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.01);
+push!(heat_stability, (method="ImplicitRKMil", dt=0.01, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,dt=0.001);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitRKMil(),progress=true,adaptive=false,dt=0.001);
+push!(heat_stability, (method="ImplicitRKMil", dt=0.001, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ```julia
-@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitEM(),progress=true,dt=0.001);
+@time sol = solve(generate_stiff_stoch_heat(1.0,1.0),ImplicitEM(),progress=true,adaptive=false,dt=0.001);
+push!(heat_stability, (method="ImplicitEM", dt=0.001, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ## Simple Error Analysis
-Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratanovich sense, so we are limited in the methods we can calculate errors for.
+
+Now let's check the error at an arbitrary timepoint in there. Our analytical solution only exists in the Stratonovich sense, so we are limited in the methods we can calculate errors for. All runs below use fixed steps, so `dt` is the step size actually taken.
 
 ```julia
 function simple_error(alg;kwargs...)
@@ -92,47 +91,68 @@ function simple_error(alg;kwargs...)
     W_end = sol.W.u[end]
     sum(abs2, sol.u[end] .- exp(A * sol.t[end] + W_end * I) * prob.u0)
 end
+heat_errors = Dict{String,Vector{Pair{Float64,Float64}}}()
 ```
 
 ```julia
-mean(simple_error(EulerHeun(),dt=0.00005) for i in 1:400)
+heat_errors["EulerHeun"] = [0.00005 => mean(simple_error(EulerHeun(),dt=0.00005) for i in 1:400)]
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.1) for i in 1:400)
+heat_errors["ImplicitRKMil"] = [0.1 => mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.1) for i in 1:400)]
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.01) for i in 1:400)
+push!(heat_errors["ImplicitRKMil"], 0.01 => mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.01) for i in 1:400))
 ```
 
 ```julia
-mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),dt=0.001) for i in 1:400)
+push!(heat_errors["ImplicitRKMil"], 0.001 => mean(simple_error(ImplicitRKMil(interpretation=SciMLBase.AlgorithmInterpretation.Stratonovich),adaptive=false,dt=0.001) for i in 1:400))
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.001) for i in 1:400)
+heat_errors["ImplicitEulerHeun"] = [0.001 => mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.001) for i in 1:400)]
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.01) for i in 1:400)
+push!(heat_errors["ImplicitEulerHeun"], 0.01 => mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.01) for i in 1:400))
 ```
 
 ```julia
-mean(simple_error(ImplicitEulerHeun(),dt=0.1) for i in 1:400)
+push!(heat_errors["ImplicitEulerHeun"], 0.1 => mean(simple_error(ImplicitEulerHeun(),adaptive=false,dt=0.1) for i in 1:400))
 ```
 
-## Interesting Property
+## RSwM1 Noise Process
 
-Note that RSwM1 and RSwM2 are not stable on this problem.
+The following adaptive solve uses the RSwM1 noise process. Its stability status is reported in the conclusion.
 
 ```julia
 sol = solve(generate_stiff_stoch_heat(1.0,1.0,adaptivealg=:RSwM1),SRIW1());
+push!(heat_stability, (method="SRIW1 (RSwM1 noise process)", dt=NaN, stable=SciMLBase.successful_retcode(sol) && sol.t[end] == sol.prob.tspan[2] && all(isfinite, sol.u[end])))
 ```
 
 ## Conclusion
 
-In this problem, the implicit methods do not have a stepsize limit. This is because the stiffness almost entirely deteriministic due to diffusion. In that case, if we do not care about the error too much, the implicit methods dominate. Of course, as the tolerance gets lower there is a tradeoff point where the higher order methods will become more efficient. The explicit methods are clearly stability-bound and thus unless we want an error of like 10^-10 we are better off using an implicit method here.
+The spatial diffusion term drives the deterministic stiffness in this problem. Here, stable means the solver reaches the final time with a successful return code and a finite final state. The lines below report this status for each solve above, the measured squared errors, and the error ratios for adjacent step sizes.
+
+```julia
+println("Stochastic heat results computed from the solves above:")
+for run in heat_stability
+    step = isnan(run.dt) ? "adaptive stepping" : "dt = $(run.dt)"
+    println("  $(run.method) with $step: $(run.stable ? "stable" : "unstable")")
+end
+for method in ("EulerHeun", "ImplicitRKMil", "ImplicitEulerHeun")
+    measurements = sort(heat_errors[method]; by=first, rev=true)
+    for (dt, err) in measurements
+        println("  $method squared error at dt = $dt: $(round(err; sigdigits=4))")
+    end
+    for i in 1:(length(measurements)-1)
+        coarse_dt, coarse_error = measurements[i]
+        fine_dt, fine_error = measurements[i+1]
+        println("  $method error ratio, dt = $coarse_dt to $fine_dt: $(round(coarse_error / fine_error; sigdigits=3))")
+    end
+end
+```
 
 ```julia, echo = false
 using SciMLBenchmarks

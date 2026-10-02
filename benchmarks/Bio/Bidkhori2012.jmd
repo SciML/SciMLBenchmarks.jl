@@ -4,9 +4,9 @@ author: Utkarsh
 ---
 
 The following benchmark is of 109 ODEs and 188 parameters that describe a stiff
-SBML model, modelling the EGFR signalling between normal and NSCLC cells [Bidkhori et
-al.](https://doi.org/10.1371/journal.pone.0048004). It is referenced from [Biomodels Database](https://www.ebi.ac.uk/biomodels/curation/index),
-and the model was parsed to Julia are finally to ODEs using [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl).
+SBML model of EGFR signalling in normal and NSCLC cells [Bidkhori et
+al.](https://doi.org/10.1371/journal.pone.0048004). The model is taken from the [BioModels Database](https://www.ebi.ac.uk/biomodels/curation/index),
+parsed to Julia, and finally converted to ODEs using [ModelingToolkit](https://github.com/SciML/ModelingToolkit.jl).
 
 ```julia
 using DiffEqBase, OrdinaryDiffEq, OrdinaryDiffEqCore, Catalyst, ReactionNetworkImporters,
@@ -21,7 +21,7 @@ gr()
 par = load(joinpath(@__DIR__, "params_Bidkhori2012.jld2"))
 ```
 
-# Defining the reaction system
+## Defining the reaction system
 
 ```julia
 function sbml_model!(du, u, p, t)
@@ -1332,9 +1332,10 @@ sol = solve(oprob, CVODE_BDF())
 plot(sol, legend = false, fmt = :png)
 ```
 
-For these benchmarks we will be using the time-series error with these saving
-points since the final time point is not well-indicative of the solution
-behavior (capturing the oscillation is the key!).
+The work-precision diagrams below save the solution every `tspan[2]/1000` time
+units and measure the time-series (L2) error over those points
+(`error_estimate = :l2`), since the final time point is not well-indicative of
+the solution behavior (capturing the oscillation is the key!).
 
 ## Generate Test Solution
 
@@ -1379,11 +1380,14 @@ solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF", "NordsieckBDF", "lsoda", 
 
 ## Automatic Jacobian Solves
 
-First we test using auto-generated Jacobians (finite difference)
+First we test without a user-supplied Jacobian, so each solver builds its own
+(automatic differentiation for the OrdinaryDiffEq methods, internal finite
+differences for the Sundials, LSODA and ODEInterface solvers).
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups;
-    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+    names = solnames, appxsol = test_sol, save_everystep = false, saveat = tspan[2]/1000,
+    error_estimate = :l2, maxiters = Int(1e5), numruns = 10)
 
 plot(
     wp, title = "Implicit Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
@@ -1424,7 +1428,8 @@ solnames = ["CVODE_BDF", "KenCarp4", "Rodas4", "QNDF","NordsieckBDF",
     "ImplHWExtpl (threaded)", "ImplHWExtpl (non-threaded)"]
 
 wp = WorkPrecisionSet(densejacprob, abstols, reltols, setups;
-    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+    names = solnames, appxsol = test_sol, save_everystep = false, saveat = tspan[2]/1000,
+    error_estimate = :l2, maxiters = Int(1e5), numruns = 10)
 
 plot(
     wp, title = "Implicit Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
@@ -1460,7 +1465,8 @@ setups = [
 solnames = ["KenCarp4", "Rodas4", "QNDF", "NordsieckBDF"]
 
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups;
-    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+    names = solnames, appxsol = test_sol, save_everystep = false, saveat = tspan[2]/1000,
+    error_estimate = :l2, maxiters = Int(1e5), numruns = 10)
 
 plot(
     wp, title = "Implicit Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
@@ -1483,7 +1489,8 @@ solnames = ["RKC", "ROCK2", "ROCK4", "TSRKC3"
 ]
 
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups;
-    names = solnames, appxsol = test_sol, save_everystep = false, maxiters = Int(1e5), numruns = 10)
+    names = solnames, appxsol = test_sol, save_everystep = false, saveat = tspan[2]/1000,
+    error_estimate = :l2, maxiters = Int(1e5), numruns = 10)
 
 plot(
     wp, title = "Explicit Stabilized Methods: SBML Model", legend = :outertopleft, size = (1000, 500),
