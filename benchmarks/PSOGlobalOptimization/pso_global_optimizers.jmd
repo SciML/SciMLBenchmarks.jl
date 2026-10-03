@@ -24,9 +24,10 @@ objective below `f_opt + 1e-6`. Two experiments are run:
    true minimizer, and number of objective evaluations. This feeds the iteration, evaluations,
    heatmap and distance plots. Success rates are pooled over dimensions 3, 5 and 10.
 2. **Time-to-success experiment.** Each optimizer gets one run per (function, trial) with a
-   10,000-iteration budget, and we record the wall-clock time at which it *first* reached the
-   target. From those times we build a CDF: for a time budget T, what fraction of runs were
-   solved within T seconds. This feeds the wall-clock plot and the relative-runtime bar chart.
+   10,000-iteration budget (`HybridPSO`: at most 100 swarm iterations, then its L-BFGS phase),
+   and we record the wall-clock time at which it *first* reached the target. From those times
+   we build a CDF: for a time budget T, what fraction of runs were solved within T seconds.
+   This feeds the wall-clock plot and the relative-runtime bar chart.
 
 Everything is evaluated in `Float64`: BBOB's `f_opt` is of order 100 and `eps(100f0) ≈ 8e-6`
 is larger than the `1e-6` target, so a `Float32` objective could never register success.
@@ -63,6 +64,8 @@ const SERIAL_PARTICLES = 512       # CPU swarm
 const RUN_LENGTH = round.(Int, 10 .^ LinRange(1, 4, 15))   # budget experiment
 const MAX_TTS_ITERS = 10_000    # time-to-success experiment
 const TTS_CHUNK = 20        # GPU: read back the best cost every this many iterations
+const HYBRID_SWARM_ITERS = 100   # swarm iterations before L-BFGS in time-to-success
+const LOCAL_MAXITERS = 300       # L-BFGS iterations per particle
 # f4, f7, f10 crash the GPU kernels and are excluded.
 suite(D) = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(D)))
 const SUITES = (suite(3), suite(5), suite(10))
@@ -107,8 +110,8 @@ particles_of(algo) = algo == "SerialPSO" ? SERIAL_PARTICLES : NUM_PARTICLES
 
 ## PSO plumbing
 
-PSO needs `SVector` inputs and a penalty for points outside the box. The penalty must also
-accept ForwardDiff `Dual`s, which `HybridPSO`'s L-BFGS phase uses.
+PSO needs `SVector` inputs and a penalty for points outside the box. `HybridPSO`'s L-BFGS
+phase differentiates it with Enzyme.
 
 ```julia
 _value(x::Real) = x
@@ -123,7 +126,7 @@ end
 # `obj` is any x -> objective callable. u0 only fixes type and dimension; the swarm is
 # sampled from the box.
 function pso_problem(obj, ::Val{D}) where {D}
-    optf = OptimizationFunction{false}((x, p) -> obj(x), SciMLBase.NoAD())
+    optf = OptimizationFunction{false}((x, p) -> obj(x), Optimization.AutoEnzyme())
     lb = SVector{D, Float64}(ntuple(_ -> -5.5, Val(D)))     # same box as the baselines
     ub = SVector{D, Float64}(ntuple(_ -> 5.5, Val(D)))
     return OptimizationProblem{false}(optf, SVector{D, Float64}(pinit(D)), nothing; lb, ub)
@@ -131,7 +134,7 @@ end
 pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
 
 pso_solve(opt, prob, budget) = opt isa HybridPSO ?
-    solve(prob, opt; maxiters = budget, local_maxiters = 300, abstol = 1.0e-8, reltol = 1.0e-8) :
+    solve(prob, opt; maxiters = budget, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8) :
     solve(prob, opt; maxiters = budget)
 ```
 
@@ -189,7 +192,11 @@ function benchmark(algo)
     )
 end
 
-@memoize run_bench(algo) = benchmark(algo)
+const MINUTES = Dict{Tuple{String, Symbol}, Float64}()   # (optimizer, experiment) => minutes
+@memoize run_bench(algo) = (
+    t = @elapsed(r = benchmark(algo)); MINUTES[(algo, :sweep)] = t / 60;
+    @info algo sweep_minutes = round(t / 60; digits = 1); r
+)
 
 results = Dict{String, BenchmarkResults}()
 for algo in LABELS
@@ -211,8 +218,9 @@ The CDF pools dimensions 3, 5 and 10.
 - **GPU optimizers**: a kernel cannot call `time()`, so the swarm is advanced in chunks of
   `TTS_CHUNK` iterations and the best cost is read back on the host in between. The swarm
   lives in the solver cache, so this is one continuous run with a time resolution of one
-  chunk. For `HybridPSO` the PSO phase is chunked the same way; if it never hits, the L-BFGS
-  phase runs from the final swarm and its finish time is used.
+  chunk. For `HybridPSO` the PSO phase is chunked the same way, for at most
+  `HYBRID_SWARM_ITERS` iterations; if it never hits, the L-BFGS phase (`LOCAL_MAXITERS`
+  iterations, Enzyme gradients) runs from the final swarm and its finish time is used.
 
 The clock starts before the optimizer's own setup in every case, and one untimed warm-up run
 per (optimizer, function, dimension) keeps compilation out of the numbers, since the kernels
@@ -229,8 +237,8 @@ end
 # Advance a PSO cache in chunks; return the time of the first chunk whose best cost is
 # below `target`, or Inf. (solve! resets the inertia weight each call; harmless with the
 # default wdamp = 1.)
-function chunked!(cache, target, t0)
-    for _ in 1:cld(MAX_TTS_ITERS, TTS_CHUNK)
+function chunked!(cache, target, t0, maxiters = MAX_TTS_ITERS)
+    for _ in 1:cld(maxiters, TTS_CHUNK)
         sol = SciMLBase.solve!(cache; maxiters = TTS_CHUNK)
         if cache.alg isa SyncPSOKernel                       # sync kernel does not store gbest back
             obj = _to_f64(sol.objective)
@@ -254,9 +262,9 @@ function time_to_success_one(algo, f::BBOBFunction)
         return hit[]
     elseif opt isa HybridPSO
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
-        t = chunked!(cache.pso_cache, target, t0)             # PSO phase
+        t = chunked!(cache.pso_cache, target, t0, HYBRID_SWARM_ITERS)   # PSO phase
         isfinite(t) && return t
-        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = 300, abstol = 1.0e-8, reltol = 1.0e-8)
+        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8)
         return _to_f64(sol.objective) < target ? time() - t0 : Inf   # L-BFGS phase only
     else
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
@@ -275,7 +283,10 @@ function time_to_success(algo)
     return times
 end
 
-@memoize run_tts(algo) = time_to_success(algo)
+@memoize run_tts(algo) = (
+    t = @elapsed(r = time_to_success(algo)); MINUTES[(algo, :tts)] = t / 60;
+    @info algo tts_minutes = round(t / 60; digits = 1); r
+)
 
 tts = Dict{String, Vector{Float64}}()
 for algo in LABELS
@@ -290,7 +301,7 @@ end
 using Printf
 for l in sort(collect(keys(results)))
     v = filter(isfinite, tts[l])
-    @printf "%-28s final success = %.3f   solved = %3d/%d   median TTS = %s\n" l results[l].success_rate[end] length(v) length(tts[l]) (isempty(v) ? "never" : @sprintf("%.3f s", median(v)))
+    @printf "%-28s final success = %.3f   solved = %3d/%d   median TTS = %s   minutes: sweep %.1f, TTS %.1f\n" l results[l].success_rate[end] length(v) length(tts[l]) (isempty(v) ? "never" : @sprintf("%.3f s", median(v))) MINUTES[(l, :sweep)] MINUTES[(l, :tts)]
 end
 ```
 
