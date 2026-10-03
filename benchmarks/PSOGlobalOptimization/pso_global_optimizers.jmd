@@ -11,8 +11,10 @@ established global optimizers on the
 It uses the reference
 [Black-Box Global Optimizer Benchmarks](https://docs.sciml.ai/SciMLBenchmarksOutput/stable/Optimization/GlobalOptimization/)
 protocol and its first-hit wall-clock measurement. Differences: three BBOB functions that
-crash the GPU kernels are excluded, and this is a reduced configuration: 10 trials and
-15 budgets from 10 to 10,000, versus the reference's 40 trials and 30 budgets to 100,000.
+crash the GPU kernels are excluded; this is a reduced configuration (10 trials and
+15 budgets from 10 to 10,000, versus the reference's 40 trials and 30 budgets to 100,000);
+and in the time-to-success experiment every optimizer gets the same wall-clock budget, with
+restarts, rather than the same iteration count.
 
 ## How it works
 
@@ -23,10 +25,10 @@ objective below `f_opt + 1e-6`. Two experiments are run:
    10,000), 10 times per budget, on every function. Each run records success, distance to the
    true minimizer, and number of objective evaluations. This feeds the iteration, evaluations,
    heatmap and distance plots. Success rates are pooled over dimensions 3, 5 and 10.
-2. **Time-to-success experiment.** Each optimizer gets one run per (function, trial) with a
-   10,000-iteration budget, and we record the wall-clock time at which it *first* reached the
-   target. From those times we build a CDF: for a time budget T, what fraction of runs were
-   solved within T seconds. This feeds the wall-clock plot and the relative-runtime bar chart.
+2. **Time-to-success experiment.** Every optimizer gets 3 s per (function, trial), restarting
+   from a fresh random start after each failed run (up to 100,000 iterations per run;
+   `HybridPSO`: 100 swarm iterations, then L-BFGS). We record when it first hits the target
+   and plot the fraction of runs solved by each time.
 
 Everything is evaluated in `Float64`: BBOB's `f_opt` is of order 100 and `eps(100f0) ≈ 8e-6`
 is larger than the `1e-6` target, so a `Float32` objective could never register success.
@@ -61,8 +63,11 @@ const Δf = 1.0e-6
 const NUM_PARTICLES = 50_000    # GPU swarm
 const SERIAL_PARTICLES = 512       # CPU swarm
 const RUN_LENGTH = round.(Int, 10 .^ LinRange(1, 4, 15))   # budget experiment
-const MAX_TTS_ITERS = 10_000    # time-to-success experiment
+const TIME_BUDGET = 3.0         # time-to-success: seconds per (function, trial), restarts included
+const MAX_TTS_ITERS = 100_000   # time-to-success: iterations per restart
 const TTS_CHUNK = 20        # GPU: read back the best cost every this many iterations
+const HYBRID_SWARM_ITERS = 100   # swarm iterations before L-BFGS in time-to-success
+const LOCAL_MAXITERS = 300       # L-BFGS iterations per particle
 # f4, f7, f10 crash the GPU kernels and are excluded.
 suite(D) = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(D)))
 const SUITES = (suite(3), suite(5), suite(10))
@@ -75,6 +80,11 @@ Baselines are chained: 90% of the budget to the global method, 10% to a Nelder-M
 `setup` maps each label to a constructor, and every run (warm-ups included) builds a fresh
 optimizer: Metaheuristics' `DE` and `ECA` keep their population between solves, so a reused
 instance carries a 3-dimensional population into the 5- and 10-dimensional problems.
+
+The baselines run with library defaults. Only `HybridPSO`'s settings were chosen for this
+benchmark: `HYBRID_SWARM_ITERS = 100` from earlier runs (100 swarm iterations then L-BFGS
+reached 0.816 success, against 0.757 after 10,000), and `LOCAL_MAXITERS = 300`, raised from
+the package default of 50 without a separate measurement.
 
 ```julia
 chain(t; isboxed = false) =
@@ -107,8 +117,8 @@ particles_of(algo) = algo == "SerialPSO" ? SERIAL_PARTICLES : NUM_PARTICLES
 
 ## PSO plumbing
 
-PSO needs `SVector` inputs and a penalty for points outside the box. The penalty must also
-accept ForwardDiff `Dual`s, which `HybridPSO`'s L-BFGS phase uses.
+PSO needs `SVector` inputs and a penalty for points outside the box. `HybridPSO`'s L-BFGS
+phase differentiates it with Enzyme.
 
 ```julia
 _value(x::Real) = x
@@ -123,7 +133,7 @@ end
 # `obj` is any x -> objective callable. u0 only fixes type and dimension; the swarm is
 # sampled from the box.
 function pso_problem(obj, ::Val{D}) where {D}
-    optf = OptimizationFunction{false}((x, p) -> obj(x), SciMLBase.NoAD())
+    optf = OptimizationFunction{false}((x, p) -> obj(x), Optimization.AutoEnzyme())
     lb = SVector{D, Float64}(ntuple(_ -> -5.5, Val(D)))     # same box as the baselines
     ub = SVector{D, Float64}(ntuple(_ -> 5.5, Val(D)))
     return OptimizationProblem{false}(optf, SVector{D, Float64}(pinit(D)), nothing; lb, ub)
@@ -131,7 +141,7 @@ end
 pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
 
 pso_solve(opt, prob, budget) = opt isa HybridPSO ?
-    solve(prob, opt; maxiters = budget, local_maxiters = 50, abstol = 1.0e-8, reltol = 1.0e-8) :
+    solve(prob, opt; maxiters = budget, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8) :
     solve(prob, opt; maxiters = budget)
 ```
 
@@ -189,7 +199,11 @@ function benchmark(algo)
     )
 end
 
-@memoize run_bench(algo) = benchmark(algo)
+const MINUTES = Dict{Tuple{String, Symbol}, Float64}()   # (optimizer, experiment) => minutes
+@memoize run_bench(algo) = (
+    t = @elapsed(r = benchmark(algo)); MINUTES[(algo, :sweep)] = t / 60;
+    @info algo sweep_minutes = round(t / 60; digits = 1); r
+)
 
 results = Dict{String, BenchmarkResults}()
 for algo in LABELS
@@ -203,34 +217,48 @@ end
 
 ## Experiment 2: wall-clock time to success
 
-One run per (dimension, function, trial) at `MAX_TTS_ITERS`; record the time of the *first* hit.
-The CDF pools dimensions 3, 5 and 10.
-
-- **CPU optimizers** (baselines, `SerialPSO`): the objective is wrapped in a closure that
-  stamps the clock on the first evaluation below the target. This is the reference's method.
-- **GPU optimizers**: a kernel cannot call `time()`, so the swarm is advanced in chunks of
-  `TTS_CHUNK` iterations and the best cost is read back on the host in between. The swarm
-  lives in the solver cache, so this is one continuous run with a time resolution of one
-  chunk. For `HybridPSO` the PSO phase is chunked the same way; if it never hits, the L-BFGS
-  phase runs from the final swarm and its finish time is used.
-
-The clock starts before the optimizer's own setup in every case, and one untimed warm-up run
-per (optimizer, function, dimension) keeps compilation out of the numbers, since the kernels
-specialize on the objective and on `D`.
+Each optimizer gets `TIME_BUDGET` seconds per (dimension, function, trial), restarting after
+each failed run of `MAX_TTS_ITERS` iterations; a hit after the budget counts as a failure. CPU
+optimizers are timed by wrapping the objective to record the first evaluation below the target,
+as in the reference benchmark; the wrapper also ends the run at that hit or once the budget
+has passed. A GPU kernel can't read the clock, so GPU swarms advance in
+chunks of `TTS_CHUNK` iterations, with the best cost checked in between; `HybridPSO` runs
+`HYBRID_SWARM_ITERS` swarm iterations this way, then its L-BFGS phase. `NLopt.GN_DIRECT()`
+ignores the starting point, so restarts can't help it. The clock starts before the
+optimizer's setup and covers every restart. One untimed warm-up per (optimizer, function,
+dimension) keeps compilation out of the times.
 
 ```julia
-# Wrap an objective so the first evaluation below `target` records the elapsed time.
+struct Stop <: Exception end
+
+# Wrap an objective so the first evaluation below `target` records the elapsed time and ends
+# the run; the run also ends once `TIME_BUDGET` has passed (clock read every 100 evaluations).
 function tracked(obj, target, t0)
-    hit = Ref(Inf)
-    g(x) = (v = obj(x); v < target && hit[] == Inf && (hit[] = time() - t0); v)
+    hit, n = Ref(Inf), Ref(0)
+    function g(x)
+        v = obj(x)
+        v < target && (hit[] = time() - t0; throw(Stop()))
+        (n[] += 1) % 100 == 0 && time() - t0 > TIME_BUDGET && throw(Stop())
+        return v
+    end
     return g, hit
 end
 
-# Advance a PSO cache in chunks; return the time of the first chunk whose best cost is
-# below `target`, or Inf. (solve! resets the inertia weight each call; harmless with the
-# default wdamp = 1.)
-function chunked!(cache, target, t0)
-    for _ in 1:cld(MAX_TTS_ITERS, TTS_CHUNK)
+# Run `solve()` until `tracked` stops it. The check is on state, not on the exception type,
+# because SciPy hands the exception back wrapped as a Python error.
+function until_stopped(solve, hit, t0)
+    try solve() catch
+        isfinite(hit[]) || time() - t0 > TIME_BUDGET || rethrow()
+    end
+    return hit[]
+end
+
+# Advance a PSO cache in chunks until `TIME_BUDGET`; return the time of the first chunk whose
+# best cost is below `target`, or Inf. (solve! resets the inertia weight each call; harmless
+# with the default wdamp = 1.)
+function chunked!(cache, target, t0, maxiters = MAX_TTS_ITERS)
+    for _ in 1:cld(maxiters, TTS_CHUNK)
+        time() - t0 > TIME_BUDGET && break
         sol = SciMLBase.solve!(cache; maxiters = TTS_CHUNK)
         if cache.alg isa SyncPSOKernel                       # sync kernel does not store gbest back
             obj = _to_f64(sol.objective)
@@ -241,33 +269,41 @@ function chunked!(cache, target, t0)
     return Inf
 end
 
-function time_to_success_one(algo, f::BBOBFunction)
-    opt, target = setup[algo](), f.f_opt + Δf
-    t0 = time()
+# One run from a fresh random start; return its first-hit time measured from `t0`, or Inf.
+function timed_run(algo, f::BBOBFunction, target, t0, iters = MAX_TTS_ITERS)
+    opt = setup[algo]()
     if !(algo in PSO_KEYS)
         g, hit = tracked(f, target, t0)
-        solve_problem(opt, g, length(f.x_opt), MAX_TTS_ITERS)
-        return hit[]
+        return until_stopped(() -> solve_problem(opt, g, length(f.x_opt), iters), hit, t0)
     elseif opt isa SerialPSO
         g, hit = tracked(x -> pso_objective(f, x), target, t0)
-        pso_solve(opt, pso_problem(g, f), MAX_TTS_ITERS)
-        return hit[]
+        return until_stopped(() -> pso_solve(opt, pso_problem(g, f), iters), hit, t0)
     elseif opt isa HybridPSO
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
-        t = chunked!(cache.pso_cache, target, t0)             # PSO phase
+        t = chunked!(cache.pso_cache, target, t0, HYBRID_SWARM_ITERS)   # PSO phase
         isfinite(t) && return t
-        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = 50, abstol = 1.0e-8, reltol = 1.0e-8)
+        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8)
         return _to_f64(sol.objective) < target ? time() - t0 : Inf   # L-BFGS phase only
     else
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
-        return chunked!(cache, target, t0)
+        return chunked!(cache, target, t0, iters)
     end
+end
+
+# Restart until the target is hit or `TIME_BUDGET` seconds have passed.
+function time_to_success_one(algo, f::BBOBFunction)
+    target, t0 = f.f_opt + Δf, time()
+    while time() - t0 < TIME_BUDGET
+        t = timed_run(algo, f, target, t0)
+        isfinite(t) && return t <= TIME_BUDGET ? t : Inf
+    end
+    return Inf
 end
 
 function time_to_success(algo)
     times = Float64[]
     for funcs in SUITES, f in funcs
-        time_to_success_one(algo, f)                       # warm-up per (function, D): compile, discard
+        timed_run(algo, f, -Inf, Inf, 100)                # warm-up per (function, D): compile every phase, never stops early
         for _ in 1:NTRIALS
             push!(times, time_to_success_one(algo, f))
         end
@@ -275,7 +311,10 @@ function time_to_success(algo)
     return times
 end
 
-@memoize run_tts(algo) = time_to_success(algo)
+@memoize run_tts(algo) = (
+    t = @elapsed(r = time_to_success(algo)); MINUTES[(algo, :tts)] = t / 60;
+    @info algo tts_minutes = round(t / 60; digits = 1); r
+)
 
 tts = Dict{String, Vector{Float64}}()
 for algo in LABELS
@@ -290,7 +329,7 @@ end
 using Printf
 for l in sort(collect(keys(results)))
     v = filter(isfinite, tts[l])
-    @printf "%-28s final success = %.3f   solved = %3d/%d   median TTS = %s\n" l results[l].success_rate[end] length(v) length(tts[l]) (isempty(v) ? "never" : @sprintf("%.3f s", median(v)))
+    @printf "%-28s final success = %.3f   solved = %3d/%d   median TTS = %s   minutes: sweep %.1f, TTS %.1f\n" l results[l].success_rate[end] length(v) length(tts[l]) (isempty(v) ? "never" : @sprintf("%.3f s", median(v))) MINUTES[(l, :sweep)] MINUTES[(l, :tts)]
 end
 ```
 
@@ -322,6 +361,8 @@ end
 
 Higher and further left is better. One PSO iteration moves every particle (50,000 evaluations
 on the GPU); one Nelder-Mead step is a few evaluations, so this view favours parallel methods.
+`HybridPSO_LBFGS` also runs up to `LOCAL_MAXITERS` L-BFGS iterations after its swarm at every
+budget, which this axis does not count. Use the wall-clock plot for a like-for-like comparison.
 
 ```julia
 plot_curves(
@@ -348,14 +389,15 @@ plot_curves(
 
 ### Success rate vs. wall-clock time
 
-For a time budget T (x), the fraction of (function, trial) runs that had already reached the
-target by T seconds (y). A curve that plateaus below 1 never solved the remaining problems
-within `MAX_TTS_ITERS`. This is where the GPU gets credit for cheap evaluations.
+For a time T (x), the fraction of (function, trial) runs that had already reached the
+target by T seconds (y). Every optimizer ran, with restarts, for the full `TIME_BUDGET` on
+every problem it did not solve, so the axis ends at the budget and the right edge is a
+like-for-like comparison. This is where the GPU gets credit for cheap evaluations.
 
 ```julia
 finite = filter(isfinite, reduce(vcat, values(tts); init = Float64[]))
-isempty(finite) && (finite = [1.0e-3, 1.0e3])          # nothing succeeded; keep the plot alive
-thresholds = 10 .^ range(log10(minimum(finite) / 2), log10(maximum(finite) * 2), length = 50)
+tmin = isempty(finite) ? 1.0e-3 : minimum(finite) / 2  # nothing succeeded; keep the plot alive
+thresholds = 10 .^ range(log10(tmin), log10(TIME_BUDGET), length = 50)
 cdf(times) = [count(<=(T), times) / length(times) for T in thresholds]
 
 plot_curves(
