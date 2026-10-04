@@ -9,7 +9,7 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots,
       LinearAlgebra, IncompleteLU, AlgebraicMultigrid, Symbolics, ModelingToolkit,
       RecursiveFactorization
 using OrdinaryDiffEqBDF, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
-using OrdinaryDiffEqExponentialRK, SciMLOperators, FFTW, Printf
+using OrdinaryDiffEqExponentialRK, ExponentialUtilities, SciMLOperators, FFTW, Printf
 gr()
 
 const N = 8
@@ -370,6 +370,11 @@ sol4 = solve(bruss_flat(N), CVODE_BDF(), abstol = 1/10^14, reltol = 1/10^14)
 ```
 
 ```julia
+# The fifth entry is the semilinear split form, declared alongside the other four because it
+# is a problem formulation in the same sense they are. No work-precision setup below selects
+# it: at 128 ODEs the sparse factorization is nearly free, so the exponential integrators
+# that require this formulation are not competitive at this grid. The size-dependence
+# section at the end of the page measures them where the comparison is informative.
 test_sol = [sol, sol2, sol, sol3, sol4]
 probs = [prob, prob_mtk, fastprob, prob_mol, prob_split];
 
@@ -538,25 +543,14 @@ plot(wp)
 ```
 
 ```julia
-# The exponential integrators run fixed-dt on the split problem (prob_choice 5).
-# WorkPrecisionSet pairs abstols[i] with dts[i], so this vector must match abstols in
-# length. The upper end is set by the Krylov subspace, not by accuracy: with m = 15 the
-# approximation degrades once dt*norm(L) grows past roughly 80, and here norm(L) is about
-# 8*alpha/dx^2 = 3.9e3, which puts the ceiling near dt = 0.02.
-dts_exp_high = [0.02, 0.01, 0.005, 0.0025]
-
 setups = [
     Dict(:alg=>TRBDF2()),
     Dict(:alg=>KenCarp4()),
     Dict(:alg=>KenCarp47()),
     # Dict(:alg=>QNDF()), # bad
-    Dict(:alg=>FBDF()),
-    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
-    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high)
+    Dict(:alg=>FBDF())
 ]
-names = ["TRBDF2", "KenCarp4", "KenCarp47", "FBDF",
-    "ETDRK3 m=15 (fixed dt)", "ETDRK4 m=15 (fixed dt)"];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
@@ -573,14 +567,11 @@ setups = [
         :prob_choice => 2),
     Dict(:alg=>ROCK4(), :prob_choice => 2),
     Dict(:alg=>TSRKC3(), :prob_choice => 2),
-    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
-    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_high),
 ]
 names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
     "FBDF KLU MTK", "FBDF GMRES MTK",
     "CVODE MTK KLU", "CVODE iLU MTK GMRES",
-    "ROCK4 MTK", "TSRKC3 MTK",
-    "ETDRK3 m=15 split", "ETDRK4 m=15 split"
+    "ROCK4 MTK", "TSRKC3 MTK"
 ];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
@@ -597,11 +588,6 @@ This is the speed at lower tolerances, measuring what's good when accuracy is ne
 ```julia
 abstols = 1.0 ./ 10.0 .^ (7:12)
 reltols = 1.0 ./ 10.0 .^ (4:9)
-
-# Six values to match abstols. ETDRK3 is third order, so reaching the tight end of this
-# range costs roughly 10^(1/3) more steps per decade of accuracy; the smallest dt here is
-# ~115k steps over tspan 11.5, which is the dominant cost of this section.
-dts_exp_low = [0.005, 0.0025, 0.001, 0.0005, 0.00025, 0.0001]
 
 setups = [
     Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2),
@@ -636,15 +622,12 @@ setups = [
         :prob_choice => 2),
     Dict(:alg=>ROCK4(), :prob_choice => 2),
     Dict(:alg=>TSRKC3(), :prob_choice => 2),
-    Dict(:alg=>ETDRK3(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_low),
-    Dict(:alg=>ETDRK4(krylov = true, m = 15), :prob_choice => 5, :dts => dts_exp_low),
 ]
 names = ["KenCarp47 KLU MTK", "KenCarp47 GMRES MTK",
     "FBDF KLU MTK", "FBDF GMRES MTK",
     "Rodas5P GMRES MTK",
     "CVODE MTK KLU", "CVODE iLU MTK GMRES",
-    "ROCK4 MTK", "TSRKC3 MTK",
-    "ETDRK3 m=15 split", "ETDRK4 m=15 split"
+    "ROCK4 MTK", "TSRKC3 MTK"
 ];
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
     save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
@@ -656,13 +639,25 @@ Although ROCK4 is marginally faster at moderate tolerances,
 TSRKC3 is more robust and more reliably meets the prescribed tolerances, making it the better choice.
 
 ## Problem size dependence
-For N=8 which is 128 ODE's, sparse factorization of Jacobian is nearly free and so Newton solve methods
-perform better than exponential integators. Exponential integrators rests entirely on the implicit linear solve
-becoming expensive. A 1-D tridiagonal operator factorizes in O(n) and beats fifteen Krylov
-matrix-vector products outright; a 2-D Laplacian's fill-in pushes the factorization toward
-O(n^1.5), and the ordering eventually reverses. Measured on those two problems with the same
-solver and the same tolerance, FBDF costs 0.067 ms/step in the first case and 7.66 ms/step in
-the second.
+
+At N = 8 the exponential integrators are not included in the comparisons above. Every implicit
+method here spends almost nothing on its linear solve: 128 ODEs with a five-point stencil
+factorizes essentially for free, so the work an exponential integrator avoids is work that was
+never expensive.
+
+That is a property of the grid rather than of the methods. The cost of a sparse factorization
+grows faster with the grid than the cost of applying the operator does, so the ordering should
+change as the grid refines. This section tests that directly: a work-precision diagram at
+N = 32, then the cost of reaching a fixed accuracy as a function of N.
+
+`const N` above is left at 8 and these problems are built locally at their own sizes, so none
+of the figures above change.
+
+One ingredient is needed first. The exponential methods approximate `exp(hL)v` with a Krylov
+subspace, which costs work and carries its own error. Here the operator is a periodic Laplacian
+on a uniform grid, which the 2-D DFT diagonalizes exactly, so `phi` can be applied in closed
+form instead. Both variants appear below, and the difference between them separates the cost of
+the Krylov approximation from the cost of the scheme.
 
 ```julia
 const N_LARGE = 32          # 2*N^2 = 2048 ODEs
@@ -738,8 +733,7 @@ function _fft_phi(A::FourierDiagOp, k::Int; M::Int = 64)
     r = max(1.0, 1.0e-3*maximum(abs, A.coef))
     [_like(A, [_phi_contour(z, j, M, r) for z in A.coef]) for j in 0:k]
 end
-const EU = OrdinaryDiffEqExponentialRK.ExponentialUtilities
-EU.phi(A::FourierDiagOp, k::Int) = _fft_phi(A, k)
+ExponentialUtilities.phi(A::FourierDiagOp, k::Int) = _fft_phi(A, k)
 
 # The same PDE posed four ways at the larger grid: Newton with and without a declared
 # sparsity pattern, and the split form with the stiff operator supplied as a sparse matrix
