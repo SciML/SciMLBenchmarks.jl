@@ -9,22 +9,28 @@ experiment (Section 3.2) of the ParallelParticleSwarms.jl workshop paper
 ([ParallelParticleSwarms.jl#76](https://github.com/SciML/ParallelParticleSwarms.jl/pull/76)),
 extended with the library's other PSO variants and compared at equal wall-clock time.
 
-Six optimizers:
+Nine optimizers:
 
 - **Gradient-based**: `Adam` and `LBFGS`, trained through the ODE solve with
   `QuadratureAdjoint`.
+- **CPU global**: BlackBoxOptim's adaptive DE and NLopt's `GN_CRS2_LM`, on the same loss and
+  box, stopped by their own `maxtime`.
 - **PSO**: `SerialPSO` on the CPU; GPU-PSO through `parameter_estim_ode!` (all particles'
   ODEs solved as one GPU ensemble); `SyncPSOKernel` and `HybridPSO-LBFGS` on a fixed-step
   RK4 loss that runs inside the GPU kernels. The last two share loss and swarm, so their
-  difference isolates the L-BFGS polish.
+  difference isolates the L-BFGS polish. `HybridPSO (restarts)` uses the same swarm and loss
+  as short, repeated runs (100 swarm iterations, then 100 L-BFGS iterations) until the budget
+  runs out, keeping the best.
 
 ## Protocol
 
 Every optimizer gets the same wall-clock budget, `BUDGET` seconds, enforced against the
-clock: Adam and L-BFGS stop through a callback, the GPU swarms are advanced in chunks with
-the best cost read back between chunks, and `HybridPSO` reserves its measured polish time
-out of the budget. `SerialPSO` has no resumable cache, so its iteration count is calibrated
-from a timed run instead. An optimizer that converges early keeps its early result.
+clock: Adam and L-BFGS stop through a callback, the CPU global methods through their own
+`maxtime`, the GPU swarms are advanced in chunks with the best cost read back between
+chunks, `HybridPSO` reserves its measured polish time out of the budget, and
+`HybridPSO (restarts)` starts a restart only if its measured duration still fits.
+`SerialPSO` has no resumable cache, so its iteration count is calibrated from a timed run
+instead. An optimizer that converges early keeps its early result.
 
 Each optimizer runs from `length(SEEDS)` fresh starts. The table reports, per optimizer:
 
@@ -48,6 +54,7 @@ the difference between the two rows is what the polish adds.
 using Random; Random.seed!(0)
 using SimpleChains, StaticArrays, OrdinaryDiffEq, SciMLSensitivity
 using Optimization, OptimizationOptimisers, OptimizationOptimJL, Optimisers
+using OptimizationBBO, OptimizationNLopt
 using ParallelParticleSwarms, DiffEqGPU, CUDA, KernelAbstractions, Adapt
 using Statistics, Printf, CairoMakie
 CairoMakie.activate!()
@@ -61,7 +68,7 @@ const NPARAMS  = 12
 const DATASIZE = 30
 const BOX      = 10.0f0
 const BUDGET   = 60.0           # seconds per optimizer per run
-const SEEDS    = 1:5
+const SEEDS    = 1:10
 
 const NPART_GPU    = 10_000     # GPU-PSO, SyncPSOKernel, HybridPSO-LBFGS
 const NPART_CPU    = 512        # SerialPSO
@@ -165,6 +172,24 @@ function run_serial(deadline)
 end
 ```
 
+### CPU global baselines
+
+Same training loss and box as `SerialPSO`; both stop on `maxtime`. The problem is in
+`Float64` because NLopt works in `Float64`; candidates are converted back to `Float32`, so
+the loss is exactly the one Adam and L-BFGS train on.
+
+```julia
+box_prob = OptimizationProblem(OptimizationFunction((x, p) -> (NEVALS[] += 1; loss_tsit5(Float32.(x)))),
+    Float64.(p_nn); lb = fill(Float64(-BOX), NPARAMS), ub = fill(Float64(BOX), NPARAMS))
+function run_global(opt, deadline)
+    NEVALS[] = 0
+    sol = solve(box_prob, opt; maxtime = deadline - time(), maxiters = 10^9)
+    (; u = Float32.(sol.u), own = Float64(sol.objective), iters = missing, evals = NEVALS[])
+end
+run_de(deadline)   = run_global(BBO_adaptive_de_rand_1_bin_radiuslimited(), deadline)
+run_crs2(deadline) = run_global(NLopt.GN_CRS2_LM(), deadline)
+```
+
 ### GPU-PSO through `parameter_estim_ode!` (the paper's method)
 
 Each iteration solves all particles' ODEs as one GPU ensemble (adaptive `GPUTsit5`) and
@@ -257,12 +282,26 @@ function run_hybrid(deadline)
     _, iters = chunked!(cache.pso_cache, deadline - POLISH_TIME[])
     result(polish(cache), iters, missing)
 end
+
+const RESTART_SWARM_ITERS, RESTART_LOCAL_ITERS = 100, 100
+one_restart() = solve(k_prob, hybrid_opt; maxiters = RESTART_SWARM_ITERS,
+    local_maxiters = RESTART_LOCAL_ITERS, abstol = 1.0f-8, reltol = 1.0f-8)
+const RESTART_TIME = Ref(0.0)                 # set in warm-up
+function run_hybrid_restarts(deadline)        # fresh swarm each restart; keep the best
+    best, n = nothing, 0
+    while time() + RESTART_TIME[] < deadline
+        sol = one_restart(); n += 1
+        (best === nothing || first(sol.objective) < first(best.objective)) && (best = sol)
+    end
+    result(best, n * RESTART_SWARM_ITERS, missing)
+end
 ```
 
 ## Runs
 
 One warm-up per optimizer absorbs compilation; for `HybridPSO` it runs a full-budget swarm
-and times the polish on it, for `SerialPSO` it calibrates the iteration count. Each seed then gets one run against the
+and times the polish on it, for `HybridPSO (restarts)` it times one restart, and for
+`SerialPSO` it calibrates the iteration count. Each seed then gets one run against the
 budget; the recorded solution is the median-loss run.
 
 ```julia
@@ -275,6 +314,10 @@ function warmup!(name, run)
         chunked!(cache.pso_cache, time() + BUDGET)    # full-length swarm, as in the real runs
         polish(cache)
         POLISH_TIME[] = @elapsed polish(cache)
+    elseif name == "HybridPSO (restarts)"
+        one_restart()
+        RESTART_TIME[] = @elapsed one_restart()
+        @assert RESTART_TIME[] < BUDGET "one HybridPSO restart does not fit in the budget"
     elseif name == "SerialPSO"
         serial_solve(CAL_ITERS)
         t = @elapsed serial_solve(CAL_ITERS)
@@ -300,25 +343,29 @@ end
 
 record!("Adam",            run_adam)
 record!("L-BFGS",          run_lbfgs)
+record!("BBO adaptive DE", run_de)
+record!("NLopt CRS2",      run_crs2)
 record!("SerialPSO",       run_serial)
 record!("GPU-PSO",         run_gpupso)
 record!("SyncPSOKernel",   run_sync)
 record!("HybridPSO-LBFGS", run_hybrid)
+record!("HybridPSO (restarts)", run_hybrid_restarts)
 nothing
 ```
 
 ## Results
 
 ```julia
-const ORDER = ["Adam", "L-BFGS", "SerialPSO", "GPU-PSO", "SyncPSOKernel", "HybridPSO-LBFGS"]
+const ORDER = ["Adam", "L-BFGS", "BBO adaptive DE", "NLopt CRS2", "SerialPSO", "GPU-PSO",
+    "SyncPSOKernel", "HybridPSO-LBFGS", "HybridPSO (restarts)"]
 
 @printf "budget per run: %.0f s, %d seeds; particles: GPU %d, Serial %d\n\n" BUDGET length(SEEDS) NPART_GPU NPART_CPU
-println(rpad("optimizer", 16), lpad("median", 9), lpad("best", 9), lpad("worst", 9),
+println(rpad("optimizer", 22), lpad("median", 9), lpad("best", 9), lpad("worst", 9),
         lpad("own", 9), lpad("iters", 7), lpad("evals", 10), lpad("time(s)", 8))
 for name in ORDER
     r  = results[name]
-    ev = ismissing(r.evals) ? "n/a" : string(r.evals)
-    @printf "%-16s%9.4f%9.4f%9.4f%9.4f%7d%10s%8.1f\n" name median(r.losses) minimum(r.losses) maximum(r.losses) r.own r.iters ev r.time
+    na(x) = ismissing(x) ? "n/a" : string(x)
+    @printf "%-22s%9.4f%9.4f%9.4f%9.4f%7s%10s%8.1f\n" name median(r.losses) minimum(r.losses) maximum(r.losses) r.own na(r.iters) na(r.evals) r.time
 end
 ```
 
@@ -329,12 +376,12 @@ means the optimizer was minimizing solver error rather than the ODE fit.
 
 ```julia
 const GAP_TOL = 0.10
-println(rpad("optimizer", 18), lpad("own", 12), lpad("reference", 12), lpad("rel. gap", 10))
+println(rpad("optimizer", 22), lpad("own", 12), lpad("reference", 12), lpad("rel. gap", 10))
 for name in ORDER
     r   = results[name]
     ref = common(r.u)
     gap = abs(r.own - ref) / ref
-    @printf "%-18s%12.4f%12.4f%9.1f%%%s\n" name r.own ref 100gap (gap > GAP_TOL ? "   <-- exceeds tolerance" : "")
+    @printf "%-22s%12.4f%12.4f%9.1f%%%s\n" name r.own ref 100gap (gap > GAP_TOL ? "   <-- exceeds tolerance" : "")
 end
 ```
 
@@ -344,7 +391,7 @@ end
 fig = Figure(size = (1000, 480))
 ax  = Axis(fig[1, 1]; xlabel = "t", ylabel = "u₁(t)", title = @sprintf("Fit after %.0f s of wall clock", BUDGET))
 scatter!(ax, tsteps, data[1, :]; label = "data", color = :black, markersize = 12)
-markers = [:circle, :rect, :utriangle, :diamond, :star5, :xcross]
+markers = [:circle, :rect, :utriangle, :diamond, :star5, :xcross, :hexagon, :cross, :ltriangle]
 for (i, name) in enumerate(ORDER)
     scatterlines!(ax, tsteps, ref_solve(results[name].u)[1, :]; label = name,
         marker = markers[i], markersize = 8, linewidth = 1.5)
