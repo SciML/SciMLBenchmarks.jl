@@ -179,11 +179,11 @@ Same training loss and box as `SerialPSO`; both stop on `maxtime`. The problem i
 the loss is exactly the one Adam and L-BFGS train on.
 
 ```julia
-box_prob = OptimizationProblem(OptimizationFunction((x, p) -> (NEVALS[] += 1; loss_tsit5(Float32.(x)))),
+box_prob = OptimizationProblem(OptimizationFunction((x, p) -> (NEVALS[] += 1; Float64(loss_tsit5(Float32.(x))))),
     Float64.(p_nn); lb = fill(Float64(-BOX), NPARAMS), ub = fill(Float64(BOX), NPARAMS))
 function run_global(opt, deadline)
     NEVALS[] = 0
-    sol = solve(box_prob, opt; maxtime = deadline - time(), maxiters = 10^9)
+    sol = solve(box_prob, opt; maxtime = deadline - time(), maxiters = 10^7)
     (; u = Float32.(sol.u), own = Float64(sol.objective), iters = missing, evals = NEVALS[])
 end
 run_de(deadline)   = run_global(BBO_adaptive_de_rand_1_bin_radiuslimited(), deadline)
