@@ -38,6 +38,68 @@ tspan = (0.0, tf)
 show(to);
 ```
 
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
+```
+
 ```julia
 @timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem{true, SciMLBase.FullSpecialize}(
     osys, Float64[], tspan, Float64[], jac = true, sparse = true)
@@ -133,6 +195,11 @@ names = ["lsoda" "CVODE_BDF" "CVODE_BDF (LapackDense)" "CVODE_BDF (GMRES)"]
 plot(wp; label = names)
 ```
 
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
+```
+
 ## Implicit Work-Precision Diagram
 
 Next, we try a couple of implicit Julia solvers.
@@ -166,9 +233,10 @@ names = ["TRBDF2" "QNDF" "FBDF" "NordsieckBDF" "KenCarp4" "Rosenbrock23" "Rodas4
 plot(wp; label = names)
 ```
 
-In the latest run the fastest implicit methods (`NordsieckBDF`, `QNDF`) are
-about as fast as, but not faster than, the best explicit methods below, which
-suggests that the problem is not stiff enough for implicit methods to pay off.
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
+```
 
 ## Explicit Work-Precision Diagram
 
@@ -202,15 +270,19 @@ names = ["lsoda" "Tsit5" "BS5" "VCABM" "Vern6" "Vern7" "Vern8" "Vern9" "ROCK4"]
 plot(wp; label = names)
 ```
 
-## Loser methods (large cost in isolation)
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
+```
 
-`CVODE_Adams` and `ROCK2` are **not** folded into the multi-tolerance /
-multi-run work-precision suites; instead a single-tolerance timing against a
-competitive explicit method (`Vern7`) shows the wall-time gap. Each method is
-solved once untimed so that first-call compilation stays out of the
-measurement, then timed as the best of five solves. The printed timings below
-are regenerated on each build; in the run at the time of writing `CVODE_Adams`
-took roughly 8x and `ROCK2` roughly 15x as long as `Vern7` at this tolerance.
+## Methods timed in isolation
+
+`CVODE_Adams` and `ROCK2` are not part of the multi-tolerance work-precision diagrams; instead
+each is timed at a single tolerance next to `Vern7`, the reference. Each
+method is solved once untimed so that first-call compilation stays out of the
+measurement, then timed as the best of five solves. The summary below the chart
+prints each time, its ratio to the reference and the return code of the untimed
+solve.
 
 ```julia
 const _loser_tol = 1e-6
@@ -221,6 +293,7 @@ const _loser_runs = 5
 
 loser_labels = String[]
 loser_elapsed = Float64[]
+loser_retcodes = Any[]
 
 function _time_loser!(label, alg)
     println("--- $label ---")
@@ -230,20 +303,29 @@ function _time_loser!(label, alg)
     println("elapsed = ", t, " s")
     push!(loser_labels, label)
     push!(loser_elapsed, t)
+    push!(loser_retcodes, sol.retcode)
     return sol
 end
 
 _time_loser!("Vern7 (reference)", Vern7())
-_time_loser!("CVODE_Adams (loser)", CVODE_Adams())
-_time_loser!("ROCK2 (loser)", ROCK2())
+_time_loser!("CVODE_Adams", CVODE_Adams())
+_time_loser!("ROCK2", ROCK2())
 ```
 
 ```julia
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; legend = false, xrotation = 20,
     ylabel = "wall time / Vern7 reference",
-    title = "multistate loser isolation (tol=$_loser_tol, best of $_loser_runs after warm-up)",
+    title = "multistate isolation (tol=$_loser_tol, best of $_loser_runs after warm-up)",
     size = (700, 400), bottom_margin = 8Plots.mm)
+```
+
+```julia, wrap = false
+ref = loser_elapsed[1]
+println("Summary computed from the timings above (tolerance $_loser_tol, best of $_loser_runs solves after an untimed one):")
+for (label, t, rc) in zip(loser_labels, loser_elapsed, loser_retcodes)
+    println("  $label: $(round(t; sigdigits = 3)) s, $(round(t / ref; sigdigits = 3))x the reference, retcode $rc")
+end
 ```
 
 ## Summary of results
@@ -286,6 +368,11 @@ plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     legendfontsize = 15, tickfontsize = 15, guidefontsize = 15, legend = :topright,
     lw = 20, la = 0.8, markersize = 20, markerstrokealpha = 1.0,
     markerstrokewidth = 1.5, gridalpha = 0.3, gridlinewidth = 7.5, size = (1100, 1000))
+```
+
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
 ```
 
 ```julia, echo = false

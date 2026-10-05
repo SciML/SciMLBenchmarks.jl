@@ -41,6 +41,68 @@ oprob_sparse = ODEProblem{true, SciMLBase.FullSpecialize}(
     osys, Float64[], tspan, Float64[]; sparse = true);
 ```
 
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
+```
+
 ```julia
 @timeit to "ODEProb SparseJac" sparsejacprob = ODEProblem{true, SciMLBase.FullSpecialize}(
     osys, Float64[], tspan, Float64[], jac = true, sparse = true)
@@ -55,9 +117,7 @@ show(to)
 
 ## Time ODE derivative function compilation
 
-As compiling the ODE derivative functions has in the past taken longer than
-running a simulation, we first force compilation by evaluating these functions
-one time.
+We first force compilation by evaluating these functions one time.
 
 ```julia
 u = oprob.u0
@@ -148,19 +208,12 @@ abstols = 1.0 ./ 10.0 .^ (5:8)
 reltols = 1.0 ./ 10.0 .^ (5:8);
 ```
 
-## Work-Precision Diagrams (competitive solvers)
+## Work-Precision Diagrams
 
-Main suites: methods that remain competitive on this large sparse stiff system.
-Everything else is timed once, in isolation, in the loser section below.
-
-`lsoda` and the default dense `CVODE_BDF` used to be swept across this whole
-tolerance grid. Measured on CI (2026-07-27 build, per point): `lsoda` 500-1200 s
-and `CVODE_BDF` 210-370 s, against 9-22 s for `CVODE_BDF` with GMRES +
-incomplete LU. That one panel alone cost 2 h 44 min of the document's 7 h 57 min,
-so both were moved to the isolation section. `TRBDF2` (880 s / 975 s summed over
-the grid for the GMRES+iLU and KLU variants) and `KenCarp4` with GMRES+iLU
-(870 s) were removed from the Julia panels for the same reason - roughly 7x
-`QNDF`/`FBDF` in the same configuration.
+The methods below are swept across the tolerance grid. `lsoda`, the default
+dense `CVODE_BDF`, `TRBDF2` (GMRES + incomplete LU, and KLU) and `KenCarp4`
+(GMRES + incomplete LU) are timed once, in isolation, in the section after these
+diagrams instead.
 
 #### GMRES + incomplete LU
 
@@ -187,6 +240,11 @@ names = ["CVODE_BDF (GMRES, iLU)" "QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "Nords
 plot(wp; label = names)
 ```
 
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
+```
+
 #### Sparse Jacobian + KLU
 
 ```julia
@@ -207,30 +265,21 @@ names = ["CVODE_BDF (KLU, sparse jac)" "QNDF (KLU, sparse jac)" "FBDF (KLU, spar
 plot(wp; label = names)
 ```
 
-## Loser methods (large cost in isolation)
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
+```
 
-On this ~1122-ODE sparse chemistry system the following are not competitive
-with the sparse/preconditioned setups above: `lsoda`, dense direct CVODE
-(default and Lapack), default dense Julia Newton/linear solves, GMRES without a
-preconditioner, and `TRBDF2`/`KenCarp4` even with the good linear solvers. We do
-**not** fold them into the main work-precision suites. Instead each is timed
-**once**, in isolation, at a fixed tolerance, next to a competitive sparse
-reference so the wall-time gap is visible.
+## Methods timed in isolation
 
-The size of that gap varies a lot between methods. In the latest run, relative
-to the `FBDF` + KLU reference: `lsoda` took roughly 10x as long; dense
-`CVODE_BDF`, default dense `TRBDF2` and every unpreconditioned-GMRES entry hit
-the wall-clock cap; `KenCarp4` (default dense), `TRBDF2`/`KenCarp4` with
-GMRES + iLU and `TRBDF2` with KLU took roughly 2-4x as long; while `CVODE_BDF`
-with `LapackDense` and `QNDF`/`FBDF` with their default dense linear solver were
-within about 1.4x of the reference at this single tolerance.
-
-Each isolated solve is capped by wall clock. In the 2026-07-27 CI build the
-uncapped versions of the four unpreconditioned-GMRES entries alone measured
-2110 s, 3763 s, 4707 s and 7267 s - about 4.9 h for four data points, i.e. this
-"cheap isolation" section had itself become one of the most expensive parts of
-the document. A solve that hits the cap is reported as a lower bound (`>cap`),
-which is all the diagram needs in order to show the gap.
+The following are not part of the work-precision diagrams: `lsoda`, dense
+direct CVODE (default and Lapack), default dense Julia Newton/linear solves,
+GMRES without a preconditioner, `TRBDF2`/`KenCarp4` with GMRES + incomplete
+LU, and `TRBDF2` with KLU. Each is timed once, in isolation, at a fixed tolerance, next to the
+`FBDF` + KLU reference. Every solve except `lsoda`, which does not support
+callbacks, is stopped by a wall-clock cap; a solve that hits the cap is a lower
+bound, labelled `(>cap)`, and the summary below the chart prints its time and
+ratio with ≥.
 
 ```julia
 const _loser_tol = 1e-6
@@ -239,6 +288,8 @@ const _loser_cap = 180.0   # seconds of wall clock per isolated solve
 
 loser_labels = String[]
 loser_elapsed = Float64[]
+loser_retcodes = Any[]
+loser_capped = Bool[]
 
 # LSODA.jl does not support callbacks, so `lsoda` is the one entry that has to
 # run to completion; everything else is stopped by the wall-clock callback.
@@ -260,6 +311,8 @@ function _time_loser!(label, prob, alg; cap = true)
     println("elapsed = ", t, " s", hit_cap ? " (hit the $(_loser_cap) s cap)" : "")
     push!(loser_labels, hit_cap ? label * " (>cap)" : label)
     push!(loser_elapsed, t)
+    push!(loser_retcodes, sol.retcode)
+    push!(loser_capped, hit_cap)
     return sol
 end
 
@@ -307,8 +360,19 @@ _time_loser!("TRBDF2 (KLU, sparse jac)", sparsejacprob,
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; xrotation = 45, legend = false,
     ylabel = "wall time / (FBDF+KLU reference)",
-    title = "BCR loser isolation (tol=$_loser_tol, one capped solve each)",
+    title = "BCR isolation (tol=$_loser_tol, one capped solve each)",
     size = (900, 500), left_margin = 5Plots.mm, bottom_margin = 15Plots.mm)
+```
+
+```julia, wrap = false
+ref = loser_elapsed[1]
+println("Summary computed from the timings above (tolerance $_loser_tol, one solve each, $(_loser_cap) s cap):")
+loser_capped[1] && println("  The reference hit the cap, so no ratios are reported.")
+for (label, t, rc, capped) in zip(loser_labels, loser_elapsed, loser_retcodes, loser_capped)
+    bound = capped ? "≥ " : ""
+    ratio = loser_capped[1] ? "" : ", $(bound)$(round(t / ref; sigdigits = 3))x the reference"
+    println("  $label: $(bound)$(round(t; sigdigits = 3)) s$ratio, retcode $rc")
+end
 ```
 
 ## Summary of results
@@ -359,6 +423,11 @@ plot(wp; label = names, left_margin = 10Plots.mm, right_margin = 10Plots.mm,
     tickfontsize = 15, guidefontsize = 15, legend = :topright, lw = 20,
     la = 0.8, markersize = 20, markerstrokealpha = 1.0, markerstrokewidth = 1.5,
     gridalpha = 0.3, gridlinewidth = 7.5, size = (1100, 1000))
+```
+
+```julia, wrap = false
+foreach((w, n) -> w.name = n, wp.wps, names)
+wp_verdict(wp)
 ```
 
 ```julia, echo = false
