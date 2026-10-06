@@ -9,7 +9,7 @@ experiment (Section 3.2) of the ParallelParticleSwarms.jl workshop paper
 ([ParallelParticleSwarms.jl#76](https://github.com/SciML/ParallelParticleSwarms.jl/pull/76)),
 extended with the library's other PSO variants and compared at equal wall-clock time.
 
-Nine optimizers:
+Twelve optimizers:
 
 - **Gradient-based**: `Adam` and `LBFGS`, trained through the ODE solve with
   `QuadratureAdjoint`.
@@ -21,6 +21,14 @@ Nine optimizers:
   difference isolates the L-BFGS polish. `HybridPSO (restarts)` uses the same swarm and loss
   as short, repeated runs (100 swarm iterations, then 100 L-BFGS iterations) until the budget
   runs out, keeping the best.
+- **Unreleased ParallelParticleSwarms features**: `SyncPSO local-best` is `SyncPSOKernel`
+  with `local_best = true`, so each block of particles follows its own best
+  ([ParallelParticleSwarms.jl#149](https://github.com/SciML/ParallelParticleSwarms.jl/pull/149)).
+  `HybridPSO local-best` is `HybridPSO-LBFGS` on that swarm. `HybridPSO-LBFGS+NM` is
+  `HybridPSO-LBFGS` with a Nelder-Mead polish of the best point after L-BFGS, capped at
+  1,000 iterations per run so the polish fits in the budget
+  ([ParallelParticleSwarms.jl#150](https://github.com/SciML/ParallelParticleSwarms.jl/pull/150)).
+  These rows run on a fork branch that combines both pull requests.
 
 ## Protocol
 
@@ -70,7 +78,7 @@ const BOX = 10.0f0
 const BUDGET = 60.0           # seconds per optimizer per run
 const SEEDS = 1:10
 
-const NPART_GPU = 10_000     # GPU-PSO, SyncPSOKernel, HybridPSO-LBFGS
+const NPART_GPU = 10_000     # every GPU swarm
 const NPART_CPU = 512        # SerialPSO
 const CHUNK_KERNEL = 50         # kernel-PSO iterations between clock checks
 const CHUNK_GPUPSO = 1          # GPU-PSO iterations between clock checks
@@ -277,7 +285,13 @@ k_prob = OptimizationProblem{false}(
 )
 
 sync_opt = ParallelParticleSwarms.ParallelSyncPSOKernel(NPART_GPU; backend = BACKEND)
+sync_local_opt = ParallelParticleSwarms.ParallelSyncPSOKernel(NPART_GPU; backend = BACKEND, local_best = true)
 hybrid_opt = ParallelParticleSwarms.HybridPSO(; backend = BACKEND, pso = sync_opt)
+const HYBRID_OPTS = Dict(                     # HybridPSO rows run with run_hybrid
+    "HybridPSO-LBFGS" => hybrid_opt,
+    "HybridPSO local-best" => ParallelParticleSwarms.HybridPSO(; backend = BACKEND, pso = sync_local_opt),
+    "HybridPSO-LBFGS+NM" => ParallelParticleSwarms.HybridPSO(; backend = BACKEND, pso = sync_opt, polish = NelderMeadPolish(; maxiters = 1_000)),
+)
 
 function chunked!(cache, deadline)            # advance a kernel-PSO cache until the deadline
     iters, sol = 0, nothing
@@ -290,17 +304,21 @@ function chunked!(cache, deadline)            # advance a kernel-PSO cache until
 end
 result(sol, iters, evals) = (; u = asvec(sol.u), own = Float64(first(sol.objective)), iters, evals)
 
-function run_sync(deadline)
-    sol, iters = chunked!(SciMLBase.init(k_prob, sync_opt), deadline)
-    return result(sol, iters, iters * NPART_GPU)
+function run_sync(opt)
+    return function (deadline)
+        sol, iters = chunked!(SciMLBase.init(k_prob, opt), deadline)
+        return result(sol, iters, iters * NPART_GPU)
+    end
 end
 
 polish(cache) = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS, abstol = 1.0f-8, reltol = 1.0f-8)
-const POLISH_TIME = Ref(0.0)                  # set in warm-up
-function run_hybrid(deadline)
-    cache = SciMLBase.init(k_prob, hybrid_opt)
-    _, iters = chunked!(cache.pso_cache, deadline - POLISH_TIME[])
-    return result(polish(cache), iters, missing)
+const POLISH_TIME = Dict{String, Float64}()   # set in warm-up, per HybridPSO row
+function run_hybrid(name)
+    return function (deadline)
+        cache = SciMLBase.init(k_prob, HYBRID_OPTS[name])
+        _, iters = chunked!(cache.pso_cache, deadline - POLISH_TIME[name])
+        return result(polish(cache), iters, missing)
+    end
 end
 
 const RESTART_SWARM_ITERS, RESTART_LOCAL_ITERS = 100, 100
@@ -331,11 +349,12 @@ results = Dict{String, Any}()
 
 function warmup!(name, run)
     Random.seed!(0)
-    return if name == "HybridPSO-LBFGS"
-        cache = SciMLBase.init(k_prob, hybrid_opt)
+    return if haskey(HYBRID_OPTS, name)
+        cache = SciMLBase.init(k_prob, HYBRID_OPTS[name])
         chunked!(cache.pso_cache, time() + BUDGET)    # full-length swarm, as in the real runs
         polish(cache)
-        POLISH_TIME[] = @elapsed polish(cache)
+        POLISH_TIME[name] = @elapsed polish(cache)
+        @assert POLISH_TIME[name] < BUDGET "the $name polish does not fit in the budget"
     elseif name == "HybridPSO (restarts)"
         one_restart()
         RESTART_TIME[] = @elapsed one_restart()
@@ -369,9 +388,12 @@ record!("BBO adaptive DE", run_de)
 record!("NLopt CRS2", run_crs2)
 record!("SerialPSO", run_serial)
 record!("GPU-PSO", run_gpupso)
-record!("SyncPSOKernel", run_sync)
-record!("HybridPSO-LBFGS", run_hybrid)
+record!("SyncPSOKernel", run_sync(sync_opt))
+record!("HybridPSO-LBFGS", run_hybrid("HybridPSO-LBFGS"))
 record!("HybridPSO (restarts)", run_hybrid_restarts)
+record!("SyncPSO local-best", run_sync(sync_local_opt))
+record!("HybridPSO local-best", run_hybrid("HybridPSO local-best"))
+record!("HybridPSO-LBFGS+NM", run_hybrid("HybridPSO-LBFGS+NM"))
 nothing
 ```
 
@@ -381,6 +403,7 @@ nothing
 const ORDER = [
     "Adam", "L-BFGS", "BBO adaptive DE", "NLopt CRS2", "SerialPSO", "GPU-PSO",
     "SyncPSOKernel", "HybridPSO-LBFGS", "HybridPSO (restarts)",
+    "SyncPSO local-best", "HybridPSO local-best", "HybridPSO-LBFGS+NM",
 ]
 
 @printf "budget per run: %.0f s, %d seeds; particles: GPU %d, Serial %d\n\n" BUDGET length(SEEDS) NPART_GPU NPART_CPU
@@ -417,7 +440,10 @@ end
 fig = Figure(size = (1000, 480))
 ax = Axis(fig[1, 1]; xlabel = "t", ylabel = "u₁(t)", title = @sprintf("Fit after %.0f s of wall clock", BUDGET))
 scatter!(ax, tsteps, data[1, :]; label = "data", color = :black, markersize = 12)
-markers = [:circle, :rect, :utriangle, :diamond, :star5, :xcross, :hexagon, :cross, :ltriangle]
+markers = [
+    :circle, :rect, :utriangle, :diamond, :star5, :xcross,
+    :hexagon, :cross, :ltriangle, :rtriangle, :pentagon, :dtriangle,
+]
 for (i, name) in enumerate(ORDER)
     scatterlines!(
         ax, tsteps, ref_solve(results[name].u)[1, :]; label = name,
