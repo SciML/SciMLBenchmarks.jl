@@ -19,7 +19,7 @@ Nine optimizers:
   ODEs solved as one GPU ensemble); `SyncPSOKernel` and `HybridPSO-LBFGS` on a fixed-step
   RK4 loss that runs inside the GPU kernels. The last two share loss and swarm, so their
   difference isolates the L-BFGS polish. `HybridPSO (restarts)` uses the same swarm and loss
-  as short, repeated runs (100 swarm iterations, then 100 L-BFGS iterations) until the budget
+  as short, repeated runs (100 swarm iterations, then 10 L-BFGS iterations) until the budget
   runs out, keeping the best.
 
 ## Protocol
@@ -303,10 +303,10 @@ function run_hybrid(deadline)
     return result(polish(cache), iters, missing)
 end
 
-const RESTART_SWARM_ITERS, RESTART_LOCAL_ITERS = 100, 100
+const RESTART_SWARM_ITERS = 100
 one_restart() = solve(
     k_prob, hybrid_opt; maxiters = RESTART_SWARM_ITERS,
-    local_maxiters = RESTART_LOCAL_ITERS, abstol = 1.0f-8, reltol = 1.0f-8
+    local_maxiters = LOCAL_MAXITERS, abstol = 1.0f-8, reltol = 1.0f-8
 )
 const RESTART_TIME = Ref(0.0)                 # set in warm-up
 function run_hybrid_restarts(deadline)        # fresh swarm each restart; keep the best
@@ -336,10 +336,11 @@ function warmup!(name, run)
         chunked!(cache.pso_cache, time() + BUDGET)    # full-length swarm, as in the real runs
         polish(cache)
         POLISH_TIME[] = @elapsed polish(cache)
+        @assert POLISH_TIME[] < BUDGET "HybridPSO polish takes $(POLISH_TIME[]) s, over the $BUDGET s budget"
     elseif name == "HybridPSO (restarts)"
         one_restart()
         RESTART_TIME[] = @elapsed one_restart()
-        @assert RESTART_TIME[] < BUDGET "one HybridPSO restart does not fit in the budget"
+        @assert RESTART_TIME[] < BUDGET "one HybridPSO restart takes $(RESTART_TIME[]) s, over the $BUDGET s budget"
     elseif name == "SerialPSO"
         serial_solve(CAL_ITERS)
         t = @elapsed serial_solve(CAL_ITERS)
