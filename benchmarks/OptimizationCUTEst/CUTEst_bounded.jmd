@@ -9,17 +9,15 @@ This benchmark runs constrained problems from the
 [CUTEst](https://github.com/JuliaSmoothOptimizers/CUTEst.jl) test set through the
 Optimization.jl interface using `OptimizationNLPModels`. Two candidate pools are used:
 
-  - equality constrained: `CUTEst.select_sif_problems(min_con = 1, only_equ_con = true, only_free_var = false)`
-  - inequality constrained: `CUTEst.select_sif_problems(min_con = 1, only_ineq_con = true, only_free_var = false)`
+  - equality constrained: `CUTEst.select_sif_problems(min_con = 1, only_equ_con = true)`
+  - inequality constrained: `CUTEst.select_sif_problems(min_con = 1, only_ineq_con = true)`
 
 `min_con = 1` requires at least one general (linear or nonlinear) constraint,
-`only_equ_con` keeps problems whose constraints are all equalities, and `only_ineq_con`
-keeps problems with no equality constraints. `only_free_var = false` is CUTEst's default
-and does not restrict variable bounds, so these pools contain problems with and without
-bounds on the variables; the companion `CUTEst_unbounded` page is the subset with
-`only_free_var = true`. Tightening this page to bounded variables only
-(`only_bnd_var = true`) is a selection change tracked in
-[SciMLBenchmarks#1857](https://github.com/SciML/SciMLBenchmarks.jl/issues/1857).
+`only_equ_con` keeps problems whose constraints are all equalities, and `only_ineq_con` keeps
+problems with no equality constraints. The bounded page includes every problem with at least
+one variable bound, including problems that also have free variables. The companion
+`CUTEst_unbounded` page contains problems whose variables are all free. These categories are
+disjoint and cover the eligible equality and inequality pools.
 
 All four CUTEst pages in this folder share the harness in `cutest_benchmark_utils.jl`,
 which defines the selection constants, the solver constructors, the run loop, and the
@@ -46,12 +44,11 @@ include(joinpath(isdefined(Main, :WEAVE_ARGS) ? WEAVE_ARGS[:folder] : @__DIR__,
 
 ## Problem selection
 
-`select_safe_problems` walks each candidate pool in the order returned by
-`CUTEst.select_sif_problems`, skips any name in the hand-maintained `KNOWN_BAD_PROBLEMS`
-list, loads each remaining problem once to read its metadata, keeps it only if
-`nvar <= MAX_NVAR` and `ncon <= MAX_NCON`, and stops after `MAX_PROBLEMS_PER_CATEGORY`
-problems. Problems whose metadata cannot be loaded are skipped. The values in effect for
-this run are printed below.
+`select_safe_problems` sorts candidate names, filters the measured skip map and size limits,
+then selects up to `MAX_PROBLEMS_PER_CATEGORY` across the 1–10, 11–100, and 101–`MAX_NVAR`
+variable buckets. It samples each name-sorted bucket evenly, redistributing quotas when a
+bucket has fewer candidates. Size strata come from CUTEst's public selection filters. The
+selected and eligible counts are printed per bucket.
 
 ```julia
 println("MAX_PROBLEMS_PER_CATEGORY = ", MAX_PROBLEMS_PER_CATEGORY)
@@ -59,17 +56,30 @@ println("MAX_NVAR = ", MAX_NVAR)
 println("MAX_NCON = ", MAX_NCON)
 println("SOLVE_MAXITERS = ", SOLVE_MAXITERS)
 println("SOLVE_TIMEOUT_SECONDS = ", SOLVE_TIMEOUT_SECONDS)
-println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(KNOWN_BAD_PROBLEMS)), ", "))
+println("KNOWN_BAD_PROBLEMS = ", join(sort(collect(keys(KNOWN_BAD_PROBLEMS))), ", "))
 
-bounded_equality_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(min_con = 1, only_equ_con = true,
-        only_free_var = false))
-)
+all_equality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_equ_con = true, max_var = MAX_NVAR, max_con = MAX_NCON))
+bounded_equality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_equ_con = true, max_var = MAX_NVAR, max_con = MAX_NCON,
+    custom_filter = p -> p["variables"]["free"] < p["variables"]["number"]))
+free_equality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_equ_con = true, only_free_var = true, max_var = MAX_NVAR, max_con = MAX_NCON))
+assert_bounded_pool_coverage(all_equality_candidates, bounded_equality_candidates,
+    free_equality_candidates, "Equality")
 
-bounded_inequality_problems = select_safe_problems(
-    collect(CUTEst.select_sif_problems(min_con = 1, only_ineq_con = true,
-        only_free_var = false))
-)
+all_inequality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_ineq_con = true, max_var = MAX_NVAR, max_con = MAX_NCON))
+bounded_inequality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_ineq_con = true, max_var = MAX_NVAR, max_con = MAX_NCON,
+    custom_filter = p -> p["variables"]["free"] < p["variables"]["number"]))
+free_inequality_candidates = collect(CUTEst.select_sif_problems(min_con = 1,
+    only_ineq_con = true, only_free_var = true, max_var = MAX_NVAR, max_con = MAX_NCON))
+assert_bounded_pool_coverage(all_inequality_candidates, bounded_inequality_candidates,
+    free_inequality_candidates, "Inequality")
+
+bounded_equality_problems = select_safe_problems(bounded_equality_candidates)
+bounded_inequality_problems = select_safe_problems(bounded_inequality_candidates)
 
 println("Selected bounded equality-constrained problems: ", length(bounded_equality_problems))
 println(join(bounded_equality_problems, ", "))
