@@ -56,6 +56,7 @@ section_titles = [
     "AutomaticDifferentiationTuring" => "Turing.jl Automatic Differentiation",
     "NonStiffODE" => "Non-Stiff Ordinary Differential Equations (ODEs)",
     "StiffODE" => "Stiff Ordinary Differential Equations (ODEs)",
+    "LinearODE" => "Non-Autonomous Linear ODE Scaling Benchmarks",
     "Bio" => "Biological Differential Equations",
     "AstroChem" => "Astrochemistry Differential Equations",
     "DAE" => "Differential-Algebraic Equations (DAEs)",
