@@ -50,9 +50,12 @@ u0 = [1.0, 1.0]                          #initial values
 tspan = (0.0, 10.0)
 p = [1.5, 1.0, 3.0, 1.0]                   #parameters used, these need to be estimated from the data
 tspan = (0.0, 30.0)                     # sample of 3000 observations over the (0,30) timespan
-prob = ODEProblem(f, u0, tspan, p)
-tspan2 = (0.0, 3.0)                     # sample of 3000 observations over the (0,30) timespan
-prob_short = ODEProblem(f, u0, tspan2, p)
+# unknowns(f) is ordered [y, x] rather than in declaration order, so the
+# initial condition and parameters are keyed by name instead of positionally.
+varmap = merge(Dict([f.x, f.y] .=> u0), Dict([f.a, f.b, f.c, f.d] .=> p))
+prob = ODEProblem(f, varmap, tspan)
+tspan2 = (0.0, 3.0)                     # sample of 300 observations over the (0,3) timespan
+prob_short = ODEProblem(f, varmap, tspan2)
 ```
 
 ```julia
@@ -98,24 +101,25 @@ p2 = plot(data_sol)
 ```julia
 obj_short = build_loss_objective(prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short)
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
-# Lower tolerance could lead to smaller fitness (more accuracy)
+short_solutions = Dict{String, Any}()
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
+short_solutions["BBO (Tsit5 default tol)"] = res1
 ```
 
 ```julia
 obj_short = build_loss_objective(
     prob_short, Tsit5(), L2Loss(t_short, data_short), tstops = t_short, reltol = 1e-9)
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
-# Change in tolerance makes it worse
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
+short_solutions["BBO (Tsit5 reltol=1e-9)"] = res1
 ```
 
 ```julia
 obj_short = build_loss_objective(prob_short, Vern9(), L2Loss(t_short, data_short),
     tstops = t_short, reltol = 1e-9, abstol = 1e-9)
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
-# using the more accurate Vern9() reduces the fitness marginally and leads to some increase in time taken
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(); maxiters = 7e3)
+short_solutions["BBO (Vern9 1e-9)"] = res1
 ```
 
 # Using NLopt
@@ -130,22 +134,26 @@ optprob = OptimizationProblem(obj_short, glo_init, lb = first.(glo_bounds), ub =
 
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ORIG_DIRECT_L"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["GN_ESCH"] = res1
 ```
 
 Now local optimization algorithms are used to verify the global ones. These use the local bounds (`loc_bounds`) and initial values (`loc_init`).
@@ -156,47 +164,75 @@ optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub =
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_SLSQP"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_COBYLA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_COBYLA"] = res1
 ```
 
 ```julia
+# LN_NEWUOA_BOUND is pathologically slow on this objective with NLopt_jll 2.11
+# (https://github.com/jump-dev/NLopt.jl/issues/280); it is given a 300 s
+# wall-time budget so the page terminates.
 opt = Opt(:LN_NEWUOA_BOUND, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+short_solutions["LN_NEWUOA_BOUND"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_PRAXIS, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_PRAXIS"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_SBPLX, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LN_SBPLX"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_MMA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_MMA"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_TNEWTON_PRECOND_RESTART, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+short_solutions["LD_TNEWTON_PRECOND_RESTART"] = res1
+```
+
+Each run's estimate, retcode, loss and largest componentwise distance from the true parameters `[1.5, 1.0, 3.0, 1.0]` on the short problem, together with the lowest-loss and closest runs:
+
+```julia
+for (name, sol) in sort!(collect(short_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3))
+end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in short_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in short_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
 ```
 
 ## Now the longer problem is solved for a global solution
@@ -211,57 +247,101 @@ optprob = OptimizationProblem(obj, glo_init, lb = first.(glo_bounds), ub = last.
 ```
 
 ```julia
-@btime res1 = solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 4e3)
+long_solutions = Dict{String, Any}()
+res1 = @btime solve(optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 4e3)
+long_solutions["BBO_adaptive_de_rand_1_bin"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ORIG_DIRECT_L, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+long_solutions["GN_ORIG_DIRECT_L"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_CRS2_LM, 4)
-@btime res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+long_solutions["GN_CRS2_LM"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ISRES, 4)
-@btime res1 = solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 50000, xtol_rel = 1e-12)
+long_solutions["GN_ISRES"] = res1
 ```
 
 ```julia
 opt = Opt(:GN_ESCH, 4)
-@btime res1 = solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 20000, xtol_rel = 1e-12)
+long_solutions["GN_ESCH"] = res1
+```
+
+Each global run's estimate, retcode, loss and largest componentwise distance from the true parameters `[1.5, 1.0, 3.0, 1.0]` on the longer problem, together with the lowest-loss and closest runs:
+
+```julia
+for (name, sol) in sort!(collect(long_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3))
+end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in long_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in long_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
 ```
 
 ## Local problem
 
+Each local solve on the long problem is given a 300 s wall-time budget so the
+page terminates even when an optimizer does not converge.
+
 ```julia
-obj = build_loss_objective(prob, Vern9(), L2Loss(t, data), Optimization.AutoForwardDiff(),
-    tstops = t, reltol = 1e-9, abstol = 1e-9)
-optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
+obj = build_loss_objective(prob, Vern9(), L2Loss(time_points, data), Optimization.AutoForwardDiff(),
+    tstops = time_points, reltol = 1e-9, abstol = 1e-9)
+optprob = OptimizationProblem(obj, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
 ```
 
 ```julia
 opt = Opt(:LN_BOBYQA, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+local_solutions = Dict{String, Any}()
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LN_BOBYQA"] = res1
 ```
 
 ```julia
 opt = Opt(:LN_NELDERMEAD, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LN_NELDERMEAD"] = res1
 ```
 
 ```julia
 opt = Opt(:LD_SLSQP, 4)
-@btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
+res1 = @btime solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12, maxtime = 300)
+local_solutions["LD_SLSQP"] = res1
 ```
 
-Parameter estimation on the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, BlackBoxOptim also performs quite well, while others seem to struggle with accuracy a lot.
+```julia
+for (name, sol) in sort!(collect(local_solutions); by = first)
+    println(rpad(name, 28),
+        "estimate=", round.(sol.u; digits = 3),
+        "  retcode=", sol.retcode,
+        "  loss=", sol.objective,
+        "  max|est-true|=", round(maximum(abs.(sol.u .- p)); sigdigits = 3),
+        "  strictly inside loc_bounds: ", all(first.(loc_bounds) .< sol.u .< last.(loc_bounds)))
+end
+best_loss, best_loss_name = minimum((sol.objective, name) for (name, sol) in local_solutions)
+best_dist, best_dist_name = minimum((maximum(abs.(sol.u .- p)), name) for (name, sol) in local_solutions)
+println("lowest loss: ", best_loss_name, " (loss = ", best_loss, ")")
+println("closest to the true parameters: ", best_dist_name, " (max|est-true| = ", best_dist, ")")
+```
+
+The two tables above summarize the longer-problem runs: each global run's estimate, retcode, loss and distance from the true parameters `[1.5, 1.0, 3.0, 1.0]`, and each local run's estimate, retcode, loss, distance and whether the estimate lies strictly inside `loc_bounds`. `LD_SLSQP` uses the objective's gradient, which is why `obj` is built with `Optimization.AutoForwardDiff()`.
 
 # Conclusion
 
-In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLopt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison.
+Tighter ODE solver tolerances make each objective evaluation more expensive: the three BBO runs on the short problem use the default `Tsit5` tolerance, `Tsit5` at `reltol = 1e-9` and `Vern9` at `reltol = abstol = 1e-9`, and the printed timings and the distance column in the summary table show what each setting buys. `LN_NEWUOA_BOUND` on the short problem is given a 300 s wall-time budget because NLopt_jll 2.11's newuoa is pathologically slow on this objective (see the note above). The summary tables print each run's estimate, retcode, loss and distance from the true parameters `[1.5, 1.0, 3.0, 1.0]` on both the short and the longer problem, including which run has the lowest loss and which lands closest; the global optimizers are stochastic, so the distances and winners differ from run to run.
 
 ```julia, echo = false
 using SciMLBenchmarks
