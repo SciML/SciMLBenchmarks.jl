@@ -1,6 +1,6 @@
 ---
 title: Lotka-Volterra Bayesian Parameter Estimation Benchmarks
-author: Vaibhav Dixit, Chris Rackauckas
+author: Vaibhav Dixit, Arnav Kapoor, Chris Rackauckas
 
 ---
 
@@ -13,7 +13,7 @@ using DiffEqBayes, StanSample, DynamicHMC, Turing
 ```julia
 using Distributions, BenchmarkTools, StaticArrays
 using OrdinaryDiffEq, RecursiveArrayTools, ParameterizedFunctions
-using Plots, LinearAlgebra
+using Plots, LinearAlgebra, Statistics, DataFrames
 ```
 
 ```julia
@@ -178,10 +178,60 @@ display_ess_per_sec(chain, elapsed_turing_direct)
     prob, Tsit5(), t, data, priors; num_samples = 10_000)
 ```
 
+## MLE vs. MAP vs. the full posterior above
+
+This addresses part of [SciMLBenchmarks.jl#28](https://github.com/SciML/SciMLBenchmarks.jl/issues/28):
+comparing three ways of answering "what are the parameters?" from the *same* probabilistic
+model -- maximum likelihood estimation (MLE, a point estimate that ignores the priors
+entirely), maximum a posteriori estimation (MAP, a point estimate that incorporates the
+priors), and the full posterior already sampled above via NUTS (which additionally
+quantifies *uncertainty* in each parameter, not just a single best value). Both point
+estimates are computed here directly against the exact same `model` object used for the
+`chain` above, so the only thing that differs between all three is how that one model is
+queried.
+
+```julia
+mle_result = @btime maximum_likelihood(model)
+mle_result.params
+```
+
+```julia
+map_result = @btime maximum_a_posteriori(model)
+map_result.params
+```
+
+```julia
+syms = [:α, :β, :γ, :δ]
+posterior_means = Dict(sym => mean(vec(chain[sym])) for sym in syms)
+posterior_stds = Dict(sym => std(vec(chain[sym])) for sym in syms)
+
+df_estimates = DataFrame(
+    parameter = string.(syms),
+    truth = p,
+    mle = [mle_result.params[s] for s in syms],
+    map = [map_result.params[s] for s in syms],
+    posterior_mean = [posterior_means[s] for s in syms],
+    posterior_std = [posterior_stds[s] for s in syms])
+df_estimates
+```
+
+MLE and MAP both return a single "best" parameter vector at a fraction of full MCMC's cost,
+and should agree closely with each other and with the posterior mean whenever the data are
+informative enough that the priors above barely matter. Only the full posterior's
+`posterior_std` column shows *how much* to trust each point estimate -- information neither
+MLE nor MAP can surface on their own, since a point estimate looks equally confident
+regardless of how tightly the data actually constrain that parameter.
+
 ## Conclusion
 
 The Lotka-Volterra equation is a "predator-prey" model: it models the populations of two species, one of which is the predator (wolf) and the other the prey (rabbit).
 Its solutions are periodic. This page runs each backend at a single ODE solver tolerance, so it does not measure how the estimate depends on the tolerance.
+
+The MLE/MAP/full-posterior comparison above makes the point-estimate-vs-uncertainty
+trade-off concrete on this same model: MLE and MAP are cheap and agree closely with each
+other and with the posterior mean here, but only the full NUTS posterior -- at substantially
+higher computational cost -- reveals how much uncertainty remains around each parameter,
+which a point estimate alone cannot show.
 
 ```julia, echo = false
 using SciMLBenchmarks
