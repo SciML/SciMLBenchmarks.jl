@@ -621,6 +621,21 @@ pso_iters = 4000 ÷ n_particles
 res_pso.objective
 ```
 
+```julia
+using StaticArrays, KernelAbstractions
+const PPS = ParallelParticleSwarms
+const D = length(b6_p_start)
+
+sprob = OptimizationProblem{false}(optf, SVector{D}(b6_p_start), nothing;
+    lb = SVector{D}(b6_p_lower), ub = SVector{D}(b6_p_upper))
+
+@time res_psok = solve(sprob, PPS.ParallelPSOKernel(n_particles; backend = CPU()), maxiters = pso_iters)
+@time res_psos = solve(sprob, PPS.ParallelSyncPSOKernel(n_particles; backend = CPU()), maxiters = pso_iters)
+@time res_hyb  = solve(sprob, PPS.HybridPSO(pso = PPS.ParallelSyncPSOKernel(n_particles; backend = CPU()); backend = CPU()),
+    maxiters = pso_iters, local_maxiters = 50)
+res_psok.objective, res_psos.objective, res_hyb.objective
+```
+
 ## Local refinement
 
 Global metaheuristics are good at finding a promising basin but slow to fine-tune within
@@ -652,10 +667,12 @@ df = DataFrame(
     method = ["Reference eqparms (p_nom)", "Reference input (p_start, no fit)",
         "Reference pbest", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM", "ParallelPSOArray",
         "LN_BOBYQA polish (from BBO)", "LN_BOBYQA polish (from GN_CRS2_LM)",
-        "LN_BOBYQA polish (from ParallelPSOArray)"],
+        "LN_BOBYQA polish (from ParallelPSOArray)",
+        "ParallelPSOKernel", "ParallelSyncPSOKernel", "HybridPSO (SyncPSO + LBFGS)"],
     cost = [cost_nom, cost_start, cost_pbest, res_bbo.objective, res_nlopt.objective,
         res_pso.objective, res_bbo_polish.objective, res_nlopt_polish.objective,
-        res_pso_polish.objective])
+        res_pso_polish.objective,
+        res_psok.objective, res_psos.objective, res_hyb.objective])
 ```
 
 ## Convergence
