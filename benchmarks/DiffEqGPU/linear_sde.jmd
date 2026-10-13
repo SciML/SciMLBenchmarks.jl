@@ -8,13 +8,13 @@ Linear geometric Brownian motion ensemble from Utkarsh et al.,
 ([arXiv:2304.06835](https://arxiv.org/abs/2304.06835);
 [artifacts](https://github.com/utkarsh530/GPUODEBenchmarks)).
 
-$$
+```math
 dX = p\, X\, dt + q\, X\, dW, \qquad
 X_0 = (0.1, 0.1, 0.1),\quad
 p = 1.5,\quad
 q = 0.01,\quad
 t \in [0, 1]
-$$
+```
 
 Fixed-step Euler–Maruyama with $dt = 2^{-8}$. GPU uses `GPUEM` +
 `EnsembleGPUKernel` in `Float32`; CPU uses `EM` + `EnsembleThreads` in
@@ -77,8 +77,8 @@ let
     ens = make_sde_ensemble()
     sol = solve(ens, GPUEM(), KERNEL; trajectories = 4, save_everystep = false,
         adaptive = false, dt = Float32(1 // 2^8))
-    @assert length(sol) == 4
-    println("GPUEM smoke: 4 trajectories, u[end] = ", sol[1].u[end])
+    @assert length(sol.u) == 4
+    println("GPUEM smoke: 4 trajectories, u[end] = ", sol.u[1].u[end])
 end
 ```
 
@@ -114,4 +114,9 @@ for n in TRAJ_GPU
     tc = (i = findfirst(==(n), TRAJ_CPU); i === nothing ? NaN : t_cpu[i] * 1e3)
     @printf("%10d %12.3f %12.3f\n", n, tg, tc)
 end
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

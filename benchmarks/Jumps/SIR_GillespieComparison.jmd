@@ -1,0 +1,147 @@
+---
+title: "SIR Model: JumpProcesses.jl vs Gillespie.jl External Library Comparison"
+author: Arnav Kapoor
+weave_options:
+      fig_ext : ".png"
+---
+
+This benchmark compares JumpProcesses.jl's SSA aggregators against
+[Gillespie.jl](https://github.com/sdwfrost/Gillespie.jl), a standalone
+implementation of Gillespie's direct method, on the standard SIR epidemic
+model. This addresses
+[SciMLBenchmarks.jl#27](https://github.com/SciML/SciMLBenchmarks.jl/issues/27),
+which requested comparisons against other Gillespie SSA libraries in
+addition to the existing aggregator-vs-aggregator benchmarks in this folder.
+
+```julia
+using JumpProcesses, Gillespie
+using Random, Statistics, DataFrames, StatsPlots
+fmt = :png
+```
+
+# Model and setup
+
+The susceptible-infected-recovered (SIR) model has state `(S, I, R)` and two
+reactions
+
+```math
+S + I \overset{\beta}{\rightarrow} 2I, \qquad I \overset{\gamma}{\rightarrow} R
+```
+
+The same initial condition, rates, and end time are used for both
+libraries, taken from the SIR example in the Gillespie.jl README.
+
+```julia
+u0 = [999, 1, 0]
+p = (β = 0.1 / 1000.0, γ = 0.01)
+tf = 250.0
+```
+
+## Gillespie.jl
+
+```julia
+function F(x, params)
+    (S, I, R) = x
+    (β, γ) = params
+    infection = β * S * I
+    recovery = γ * I
+    [infection, recovery]
+end
+
+nu = [[-1 1 0]; [0 -1 1]]
+gillespie_params = [p.β, p.γ]
+
+Random.seed!(1234)
+result = ssa(u0, F, nu, gillespie_params, tf)
+data = ssa_data(result)
+first(data, 5)
+```
+
+## JumpProcesses.jl
+
+```julia
+rate1(u, p, t) = p.β * u[1] * u[2]
+function affect1!(integrator)
+    integrator.u[1] -= 1
+    integrator.u[2] += 1
+end
+jump1 = ConstantRateJump(rate1, affect1!)
+
+rate2(u, p, t) = p.γ * u[2]
+function affect2!(integrator)
+    integrator.u[2] -= 1
+    integrator.u[3] += 1
+end
+jump2 = ConstantRateJump(rate2, affect2!)
+
+dprob = DiscreteProblem(u0, (0.0, tf), p)
+```
+
+# Benchmarking performance of the methods
+
+We compare Gillespie.jl's `ssa` (Gillespie's direct method) against the
+JumpProcesses.jl aggregators that work directly on `ConstantRateJump`s
+without requiring a precomputed dependency graph.
+
+```julia
+methods = (Direct(), FRM())
+shortlabels = [string(nameof(typeof(leg))) for leg in methods]
+labels = vcat(["Gillespie.jl"], shortlabels)
+```
+
+```julia
+function run_benchmark!(t, f)
+    f()
+    @inbounds for i in 1:length(t)
+        t[i] = @elapsed f()
+    end
+end
+```
+
+```julia
+nsims = 2000
+benchmarks = Vector{Vector{Float64}}()
+
+t = Vector{Float64}(undef, nsims)
+run_benchmark!(t, () -> ssa(u0, F, nu, gillespie_params, tf))
+push!(benchmarks, t)
+
+for method in methods
+    local t
+    jump_prob = JumpProblem(
+        dprob, method, jump1, jump2; save_positions = (false, false))
+    stepper = SSAStepper()
+    t = Vector{Float64}(undef, nsims)
+    run_benchmark!(t, () -> solve(jump_prob, stepper))
+    push!(benchmarks, t)
+end
+```
+
+```julia
+medtimes = Vector{Float64}(undef, length(labels))
+stdtimes = Vector{Float64}(undef, length(labels))
+avgtimes = Vector{Float64}(undef, length(labels))
+for i in 1:length(labels)
+    medtimes[i] = median(benchmarks[i])
+    avgtimes[i] = mean(benchmarks[i])
+    stdtimes[i] = std(benchmarks[i])
+end
+medtimes / medtimes[1]
+```
+
+```julia
+df = DataFrame(
+    names = labels, medtimes = medtimes, relmedtimes = (medtimes / medtimes[1]),
+    avgtimes = avgtimes, std = stdtimes, cv = stdtimes ./ avgtimes)
+sa = [text(string(round(mt * 1000, sigdigits = 3), "ms"), :center, 10) for mt in df.medtimes]
+bar(df.names, df.medtimes * 1000, legend = false, fmt = fmt)
+scatter!(df.names, 0.05 .+ df.medtimes * 1000, markeralpha = 0,
+    series_annotations = sa, fmt = fmt)
+ylabel!("median time (ms)")
+title!("SIR Model: JumpProcesses.jl vs Gillespie.jl")
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

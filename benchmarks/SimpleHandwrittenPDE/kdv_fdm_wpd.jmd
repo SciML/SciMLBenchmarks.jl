@@ -1,11 +1,11 @@
 ---
-title: Kortwrieg-de Vries Equation FDM Work-Precision Diagrams
+title: Korteweg-de Vries Equation Finite-Difference Method Work-Precision Diagrams
 author: Arjit Seth
 ---
 
 ### Problem Description
 
-The Kortwrieg de Vries (KdV) partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times R,~L = 16,~T = 5$, with the following initial and periodic boundary conditions:
+The Korteweg-de Vries (KdV) partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 16,~T = 5$, with the following initial and periodic boundary conditions:
 ```math
 \begin{align}
     \partial_t u(t,x) & = -6u(t,x)\partial_x u(t,x) -\partial_x^3 u(t,x), \\
@@ -124,7 +124,11 @@ setups = [
     Dict(:alg => NorsettEuler(krylov=true, m=20), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(), :dts => 1e-4 * multipliers),
     Dict(:alg => ETDRK2(krylov=true, m=5), :dts => 1e-4 * multipliers),
-    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers)
+    Dict(:alg => ETDRK2(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => HochOst4(), :dts => 1e-4 * multipliers),
+    Dict(:alg => HochOst4(krylov=true, m=20), :dts => 1e-4 * multipliers),
+    Dict(:alg => Friedli(), :dts => 1e-4 * multipliers),
+    Dict(:alg => Friedli(krylov=true, m=20), :dts => 1e-4 * multipliers)
 ]
 labels = hcat(
     "NorsettEuler (caching)", 
@@ -132,7 +136,11 @@ labels = hcat(
     "NorsettEuler (m=20)",
     "ETDRK2 (caching)", 
     "ETDRK2 (m=5)", 
-    "ETDRK2 (m=20)"
+    "ETDRK2 (m=20)",
+    "HochOst4 (caching)",
+    "HochOst4 (m=20)",
+    "Friedli (caching)",
+    "Friedli (m=20)"
 )
 @time wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     print_names=true, names=labels, numruns=5, error_estimate=:l2,

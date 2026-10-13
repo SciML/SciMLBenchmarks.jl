@@ -8,7 +8,10 @@ author: Vaibhav Dixit, Chris Rackauckas
 ```julia
 using ParameterizedFunctions, OrdinaryDiffEq, DiffEqParamEstim, Optimization, ForwardDiff
 using OptimizationBBO, OptimizationNLopt, Plots, RecursiveArrayTools, BenchmarkTools
-using ModelingToolkit: t_nounits as t, D_nounits as D
+using ModelingToolkit
+using ModelingToolkitBase
+using SciCompDSL
+using ModelingToolkit: @mtkbuild, D_nounits as D, t_nounits as t
 gr(fmt = :png)
 ```
 
@@ -28,7 +31,6 @@ glo_init = [5.0, 5.0, 5.0, 5.0]
         b = 1.0  # Predation rate
         c = 3.0  # Death rate of predators
         d = 1.0  # Reproduction rate of predators
-        e = 0.0  # Additional parameter (if needed)
     end
     @variables begin
         x(t) = 1.0  # Population of prey with initial condition
@@ -46,7 +48,7 @@ end
 ```julia
 u0 = [1.0, 1.0]                          #initial values
 tspan = (0.0, 10.0)
-p = [1.5, 1.0, 3.0, 1, 0]                   #parameters used, these need to be estimated from the data
+p = [1.5, 1.0, 3.0, 1.0]                   #parameters used, these need to be estimated from the data
 tspan = (0.0, 30.0)                     # sample of 3000 observations over the (0,30) timespan
 prob = ODEProblem(f, u0, tspan, p)
 tspan2 = (0.0, 3.0)                     # sample of 3000 observations over the (0,30) timespan
@@ -146,7 +148,7 @@ opt = Opt(:GN_ESCH, 4)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
-Now local optimization algorithms are used to verify the global ones. These use the local constraints, different initial values and time step.
+Now local optimization algorithms are used to verify the global ones. These use the local bounds (`loc_bounds`) and initial values (`loc_init`).
 
 ```julia
 optprob = OptimizationProblem(obj_short, loc_init, lb = first.(loc_bounds), ub = last.(loc_bounds))
@@ -255,11 +257,11 @@ opt = Opt(:LD_SLSQP, 4)
 @btime res1 = solve(optprob, opt, maxiters = 10000, xtol_rel = 1e-12)
 ```
 
-#### Parameter estimation on the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, BlacBoxOptim also performs quite well while others seem to struggle with accuracy a lot.
+Parameter estimation on the longer sample proves to be extremely challenging for some of the global optimizers. A few give the accurate values, BlackBoxOptim also performs quite well, while others seem to struggle with accuracy a lot.
 
 # Conclusion
 
-In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLOpt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison. QuadDIRECT gives accurate results in the case of the shorter problem but doesn't perform very well in the longer problem case.
+In general we observe that lower tolerances lead to higher accuracy but too low tolerance could affect the convergence time drastically. Also fitting a shorter timespan seems to be easier in comparison (quite intuitively). NLopt methods seem to give great accuracy in the shorter problem with a lot of the algorithms giving 0 fitness, BBO performs very well on it with marginal change with `tol` values. In the case of global optimization for the longer problem, there is some difference in performance among the algorithms with `LD_SLSQP` `GN_ESCH` `GN_ISRES` `GN_ORIG_DIRECT_L` performing among the worst, BBO also gives a bit high fitness in comparison.
 
 ```julia, echo = false
 using SciMLBenchmarks

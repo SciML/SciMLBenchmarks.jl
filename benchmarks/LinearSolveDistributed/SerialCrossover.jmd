@@ -6,7 +6,7 @@ priority: 80
 
 The most actionable question about a distributed linear solver is not how it
 scales but **when to reach for it at all**: below some problem size, a good
-serial sparse direct factorization wins outright, because the distributed solve
+serial sparse direct factorization should win outright, because the distributed solve
 pays MPI setup and communication that a single process never does. This document
 measures that crossover for 2-D finite-difference Laplacians: the best serial
 direct solvers available through `LinearSolve.jl` against the distributed
@@ -128,9 +128,15 @@ dist_times = [r.dist.time for r in rows]
 ns = [r.n for r in rows]
 cross = findfirst(i -> dist_times[i] < best_serial[i], 1:length(rows))
 println()
-println(cross === nothing ?
-    "No crossover in the measured range: the best serial factorization wins throughout." :
-    "Crossover: the distributed solve first beats the best serial factorization at N = $(ns[cross]).")
+println(
+    if cross === nothing
+        "No crossover in the measured range: the best serial factorization wins throughout."
+    elseif cross == 1
+        "No crossover in the measured range: the distributed solve already beats the best serial factorization at the smallest size, N = $(ns[1]), so the crossover lies below it."
+    else
+        "Crossover: the distributed solve first beats the best serial factorization at N = $(ns[cross]) (the best serial factorization still wins at N = $(ns[cross - 1]))."
+    end
+)
 ```
 
 ```julia
@@ -151,10 +157,15 @@ p
 Where the diamond line crosses below the best serial curve is the size at which
 distribution starts paying on this problem class. Below it, the winning move is a
 serial factorization (and, for repeated solves, its cached reuse — see the
-CacheReuse document in the LinearSolve folder). The distributed iteration counts
-are printed so a reader can check that GAMG stays algorithmically flat across the
-sweep; if iterations grew, the crossover would be an artifact of solver strength
-rather than parallelism.
+CacheReuse document in the LinearSolve folder). If the diamond line is already
+below every serial curve at the smallest size, as in the latest run, the
+crossover lies below the measured range and `SIZES` has to be extended downward
+to locate it.
+
+The distributed iteration counts are printed so a reader can check how
+algorithmically scalable GAMG is across the sweep. In the latest run they grow
+slowly (13 at the smallest size to 17 at the largest, over a 25× increase in N)
+rather than staying exactly flat.
 
 Scope: 2-D FD Laplacians (SPD, well-conditioned, planar sparsity), one fixed rank
 count, modest sizes chosen to fit a CI budget. The conclusions transfer to

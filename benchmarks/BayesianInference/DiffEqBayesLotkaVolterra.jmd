@@ -17,17 +17,20 @@ using Plots, LinearAlgebra
 ```
 
 ```julia
-"""Display ESS/s (effective samples per second) from a Turing chain."""
+"""Print elapsed sampling time and the Turing chain."""
 function display_ess_per_sec(chain, elapsed)
-    stats = summarystats(chain)
-    ess_bulk = stats[:, :ess_bulk]
-    println("Elapsed time: $(round(elapsed; digits=2)) seconds\n")
-    println("ESS/s (effective samples per second, bulk):")
-    for (i, param) in enumerate(stats[:, :parameters])
-        println("  $param: $(round(ess_bulk[i] / elapsed; digits=1))")
-    end
-    println("\nMinimum ESS/s (bulk): $(round(minimum(ess_bulk) / elapsed; digits=1))")
+    println("Elapsed time: $(round(elapsed; digits=2)) seconds")
+    display(chain)
 end
+
+# Distributions requires a vector mean; sol[:, i] can be a scalar after ODE 7.
+_mvn(u, σ) = MvNormal(
+    let n = length(σ)
+        μ = u isa AbstractVector ? collect(float.(u)) : [float(u)]
+        length(μ) == n ? μ : fill(μ[1], n)
+    end,
+    Diagonal(σ .^ 2),
+)
 
 """Extract and display Stan's internal timing from its CSV output files."""
 function display_stan_timing(stan_result)
@@ -101,9 +104,9 @@ priors = [truncated(Normal(1.5, 0.5), 0.5, 2.5), truncated(Normal(1.2, 0.5), 0, 
 
 ### Stan.jl backend
 
-The solution converges for tolerance values lower than 1e-3, lower tolerance leads to better accuracy in result but is accompanied by longer warmup and sampling time, truncated normal priors are used for preventing Stan from stepping into negative values.
+Truncated normal priors are used to prevent Stan from stepping into negative values.
 
-We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
+We use `adapt_delta = 0.85` (slightly above Stan's default of 0.8) consistently across the Stan and Turing backends for a fair comparison.
 Stan infers a separate noise parameter (`sigma`) per data dimension via the `vars` specification.
 
 ```julia
@@ -138,8 +141,8 @@ We use a per-dimension noise model (matching Stan) with `InverseGamma(2, 3)` pri
     predicted = solve(_prob, Tsit5(); saveat = t)
 
     # Observations.
-    for i in 1:length(predicted)
-        data[:, i] ~ MvNormal(predicted[i], Diagonal(σ .^ 2))
+    for i in axes(data, 2)
+        data[:, i] ~ _mvn(predicted(t[i]), σ)
     end
 
     return nothing
@@ -164,7 +167,7 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 @btime bayesian_result_turing = turing_inference(
     prob, Tsit5(), t, data, priors;
     sample_args = (sampler = Turing.NUTS(0.85), num_samples = 10_000),
-    likelihood = (u, p, t, σ) -> MvNormal(u, Diagonal(σ .^ 2)),
+    likelihood = (u, p, t, σ) -> _mvn(u, σ),
     likelihood_dist_priors = [InverseGamma(2, 3), InverseGamma(2, 3)])
 ```
 
@@ -177,8 +180,8 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 
 ## Conclusion
 
-Lotka-Volterra Equation is a "predator-prey" model, it models population of two species in which one is the predator (wolf) and the other is the prey (rabbit).
-It depicts a cyclic behaviour, which is also seen in its Uncertainty Quantification Plots. This behaviour makes it easy to estimate even at very high tolerance values (1e-3).
+The Lotka-Volterra equation is a "predator-prey" model: it models the populations of two species, one of which is the predator (wolf) and the other the prey (rabbit).
+Its solutions are periodic. This page runs each backend at a single ODE solver tolerance, so it does not measure how the estimate depends on the tolerance.
 
 ```julia, echo = false
 using SciMLBenchmarks

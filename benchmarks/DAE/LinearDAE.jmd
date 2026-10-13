@@ -22,17 +22,18 @@ The benchmark systems are sourced from:
 
 The suite includes:
 
-  - **Index-1 DAEs**: RLC Circuit
+  - **Index-1 DAEs**: RLC Circuit, Electric Generator
   - **Index-2 DAEs**: Two Interconnected Rotating Masses, RL Network
-  - **Index-3 DAEs**: Cart Pendulum, Electric Generator, Damped Mass-Spring System
+  - **Index-3 DAEs**: Cart Pendulum, Damped Mass-Spring System
 
-Each DAE is defined using both ModelingToolkit symbolic form and static array mass matrix form with physically meaningful time-dependent input functions.
+Each DAE is written symbolically in ModelingToolkit, with physically meaningful time-dependent input functions, and compiled with `@mtkcompile`. Every system is benchmarked both as an in-place problem and as an out-of-place `StaticArrays` problem.
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
       Plots, DASSL, DASKR, StaticArrays
 using OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock
 using LinearAlgebra, SparseArrays
+using SymbolicIndexingInterface: getsym, remake_buffer
 using ModelingToolkit: t_nounits as t, D_nounits as D
 const SA = StaticArrays.SA
 
@@ -64,7 +65,7 @@ B_rlc = [0; 0; 0; -1]
 C_rlc = [1 0 0 0; 0 0 1 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables i_L(t)=0.0 v_C(t)=0.0 i_R(t)=0.0 i_C(t)=0.0
+@variables i_L(t) [guess = 0.0] v_C(t) [guess = 0.0] i_R(t) [guess = 0.0] i_C(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [i_L, v_C, i_R, i_C]
@@ -79,8 +80,8 @@ rlc_eqs = E_rlc * Dx ~ A_rlc * x + B_rlc .* u(t)
 @mtkcompile rlc_sys = System(rlc_eqs, t)
 
 # Problems using constant voltage input
-rlc_prob = ODEProblem(rlc_sys, [i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
-rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_R => 0.0, v_C => 0.0], (0.0, 1e-3))
+rlc_prob = ODEProblem(rlc_sys, [i_L => 0.0, i_R => 0.0], (0.0, 1e-3))
+rlc_static_prob = ODEProblem{false}(rlc_sys, SA[i_L => 0.0, i_R => 0.0], (0.0, 1e-3))
 ```
 
 ## Index-2 DAE: Two Interconnected Rotating Masses
@@ -106,7 +107,7 @@ B_masses = [1 0; 0 1; 0 0; 0 0]
 C_masses = [1 0 0 0; 0 0 1 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables θ1(t)=0.0 θ2(t)=0.0 ω1(t)=0.0 ω2(t)=0.0
+@variables θ1(t) [guess = 0.0] θ2(t) [guess = 0.0] ω1(t) [guess = 0.0] ω2(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [θ1, θ2, ω1, ω2]
@@ -123,8 +124,8 @@ masses_eqs = E_masses * Dx ~ A_masses * x + B_masses * u(t)
 @mtkcompile masses_sys = System(masses_eqs, t)
 
 # Problems using torque inputs
-masses_prob = ODEProblem(masses_sys, [], (0.0, 1.0))
-masses_static_prob = ODEProblem{false}(masses_sys, SA[], (0.0, 1.0))
+masses_prob = ODEProblem(masses_sys, [θ1 => 0.0], (0.0, 1.0))
+masses_static_prob = ODEProblem{false}(masses_sys, SA[θ1 => 0.0], (0.0, 1.0))
 ```
 
 ## Index-2 DAE: RL Network
@@ -148,7 +149,7 @@ B_rl = [1; 0; 0]
 C_rl = [1 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables i1(t)=0.0 i2(t)=0.0 v_L(t)=0.0
+@variables i1(t) [guess = 0.0] i2(t) [guess = 0.0] v_L(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [i1, i2, v_L]
@@ -196,8 +197,8 @@ B_cart = [0; 0; 0; 1; 0; 0; 0]
 C_cart = [1 0 0 0 0 0 0; 0 0 1 0 0 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u  
-@variables x_cart(t)=0.0 y_cart(t)=0.0 φ_cart(t)=0.1
-@variables dx_cart(t)=0.0 dy_cart(t)=0.0 dφ_cart(t)=0.0 λ_cart(t)=0.0
+@variables x_cart(t) [guess = 0.0] y_cart(t) [guess = 0.0] φ_cart(t) [guess = 0.0]
+@variables dx_cart(t) [guess = 0.0] dy_cart(t) [guess = 0.0] dφ_cart(t) [guess = 0.0] λ_cart(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [x_cart, y_cart, φ_cart, dx_cart, dy_cart, dφ_cart, λ_cart]
@@ -217,7 +218,7 @@ cart_static_prob = ODEProblem{false}(cart_sys, SA[dy_cart => 0.0, y_cart => 0.0]
     0.0, 1.0))
 ```
 
-## Index-3 DAE: Electric Generator
+## Index-1 DAE: Electric Generator
 
 **System**: E*dx/dt = A*x + B*u, where x = [ω, i, v_emf, v_load]
 
@@ -252,7 +253,7 @@ B_gen = [1; 0; 0; 0]
 C_gen = [1 0 0 0; 0 0 0 1]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables ω_gen(t)=1.0 i_gen(t)=0.0 v1_gen(t)=0.0 v2_gen(t)=0.0
+@variables ω_gen(t) [guess = 1.0] i_gen(t) [guess = 0.0] v1_gen(t) [guess = 0.0] v2_gen(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [ω_gen, i_gen, v1_gen, v2_gen]
@@ -273,7 +274,20 @@ gen_static_prob = ODEProblem{false}(gen_sys, SA[ω_gen => 1.0], (0.0, 1.0))
 
 ## Index-3 DAE: Damped Mass-Spring System
 
-**System**: E*dx/dt = A*x + B*u, where x = [x1, x2, x3, v1, v2, v3, λ]
+**System**: E*dx/dt = A*x + B*u, where x = [x1, x2, v1, v2, λ]
+
+The 7-variable three-mass matrices are defined for reference, but the benchmarked
+system is the 5-variable two-mass version (`E_spring_5`, `A_spring_5`).
+
+The input force jumps from 10 to 0.1·e⁻⁵ᵗ at t = 0.1. The Lagrange multiplier λ depends
+algebraically on the input, so it jumps there too. A step that crosses t = 0.1 has an error
+in λ of the size of the jump however short the step is, so an adaptive solver cannot step
+over it. The problem therefore stops the integration at t = 0.1 (`tstops`), switches the input with a
+`DiscreteCallback` that sets the parameter `impulse_on` to 0, and resets λ to the value that
+satisfies the algebraic equation with the new input. The differential states x1 and v1 are
+continuous and left unchanged. The benchmark solves do not save the two event points, so
+errors are measured at the same saved points as for the other systems. The reference solves
+save both sides of the jump, so their interpolant is correct up to t = 0.1 and after it.
 
 ```julia
 # Mass-Spring Parameters (3 masses)
@@ -316,24 +330,43 @@ B_spring_5 = [0; 0; 1; 0; 0]
 C_spring_5 = [1 0 0 0 0; 0 1 0 0 0]
 
 # ModelingToolkit formulation using E*Dx = A*x + B*u
-@variables x1_spring(t)=0.0 x2_spring(t)=0.0 v1_spring(t)=0.0 v2_spring(t)=0.0 λ_spring(t)=0.0
+@variables x1_spring(t) [guess = 0.0] x2_spring(t) [guess = 0.0] v1_spring(t) [guess = 0.0] v2_spring(t) [guess = 0.0] λ_spring(t) [guess = 0.0]
 
 # State vector x and its derivative Dx
 x = [x1_spring, x2_spring, v1_spring, v2_spring, λ_spring]
 Dx = D.(x)
 
-# Input function: impulse force followed by decay
-u(t) = ifelse((t < 0.1), 10.0, 0.1*exp(-5*t))  # Initial impulse then decay
+# Input: impulse force of 10 until t = 0.1, then 0.1*exp(-5t)
+@parameters impulse_on = 1.0
+u_spring = impulse_on * 10.0 + (1 - impulse_on) * 0.1 * exp(-5 * t)
 
 # E*Dx = A*x + B*u
-spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u(t)
+spring_eqs = E_spring_5 * Dx ~ A_spring_5 * x + B_spring_5 .* u_spring
 
 @mtkcompile spring_sys = System(spring_eqs, t)
 
+# λ enters the algebraic equation linearly, so its consistent value after the switch
+# is the symbolic solution of that equation.
+λ_consistent = getsym(spring_sys,
+    Symbolics.symbolic_linear_solve(only(alg_equations(spring_sys)), λ_spring))
+λ_idx = findfirst(isequal(λ_spring), unknowns(spring_sys))
+function end_impulse!(integ)
+    integ.p = remake_buffer(spring_sys, integ.p, (impulse_on,), (0.0,))
+    λ = λ_consistent(integ)
+    if integ.u isa SVector
+        integ.u = Base.setindex(integ.u, λ, λ_idx)
+    else
+        integ.u[λ_idx] = λ
+    end
+end
+impulse_end(save) = DiscreteCallback((u, t, integ) -> t == 0.1, end_impulse!;
+    save_positions = (save, save), initializealg = SciMLBase.NoInit())
+
 # Problems using force input
-spring_prob = ODEProblem(spring_sys, [λ_spring => 0.0, v1_spring => 1.0], (0.0, 20.0))
-spring_static_prob = ODEProblem{false}(spring_sys, SA[λ_spring => 0.0, v1_spring => 1.0], (
-    0.0, 20.0))
+spring_prob = ODEProblem(spring_sys, [x1_spring => 0.0, v1_spring => 1.0], (0.0, 20.0);
+    callback = impulse_end(false), tstops = [0.1])
+spring_static_prob = ODEProblem{false}(spring_sys, SA[x1_spring => 0.0, v1_spring => 1.0],
+    (0.0, 20.0); callback = impulse_end(false), tstops = [0.1])
 ```
 
 ## Generate Reference Solutions
@@ -355,8 +388,15 @@ cart_static_ref = solve(cart_static_prob, Rodas5P(), abstol = abstol_ref, reltol
 gen_ref = solve(gen_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
 gen_static_ref = solve(gen_static_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
 
-spring_ref = solve(spring_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
-spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref)
+spring_ref = solve(spring_prob, Rodas5P(), abstol = abstol_ref, reltol = reltol_ref,
+    callback = impulse_end(true))
+spring_static_ref = solve(spring_static_prob, Rodas5P(), abstol = abstol_ref,
+    reltol = reltol_ref, callback = impulse_end(true))
+
+# λ on both sides of the input switch in the mass-spring reference
+i_switch = findall(==(0.1), spring_ref.t)
+println("Mass-spring reference at t = 0.1: λ = ", spring_ref[λ_spring][i_switch],
+    ", retcodes = ", (spring_ref.retcode, spring_static_ref.retcode))
 
 # Problem and reference solution arrays
 all_probs = [
@@ -365,7 +405,7 @@ all_probs = [
     # Index-2: Two Masses and RL Network
     [masses_prob, masses_static_prob],
     [rl_prob, rl_static_prob],
-    # Index-3: Cart, Generator, Spring
+    # Index-3: Cart and Spring; Index-1: Generator
     [cart_prob, cart_static_prob],
     [gen_prob, gen_static_prob],
     [spring_prob, spring_static_prob]
@@ -381,7 +421,7 @@ all_refs = [
 ]
 
 system_names = ["RLC Circuit (Index-1)", "Two Masses (Index-2)", "RL Network (Index-2)",
-    "Cart Pendulum (Index-3)", "Electric Generator (Index-3)", "Mass-Spring (Index-3)"]
+    "Cart Pendulum (Index-3)", "Electric Generator (Index-1)", "Mass-Spring (Index-3)"]
 ```
 
 ## Visualize Solutions
@@ -485,7 +525,7 @@ wp_cart = WorkPrecisionSet(all_probs[4], abstols, reltols, setups_cart;
 plot(wp_cart, title = "Cart Pendulum (Index-3) Work-Precision")
 ```
 
-### Index-3 DAE: Electric Generator
+### Index-1 DAE: Electric Generator
 
 ```julia
 setups_gen = [
@@ -501,7 +541,7 @@ setups_gen = [
 
 wp_gen = WorkPrecisionSet(all_probs[5], abstols, reltols, setups_gen;
     save_everystep = false, appxsol = all_refs[5], maxiters = Int(1e5), numruns = 10)
-plot(wp_gen, title = "Electric Generator (Index-3) Work-Precision")
+plot(wp_gen, title = "Electric Generator (Index-1) Work-Precision")
 ```
 
 ### Index-3 DAE: Damped Mass-Spring System

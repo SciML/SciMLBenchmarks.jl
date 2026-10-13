@@ -122,6 +122,23 @@ sol = @btime solve(
 validate_solution(sol, tolerance)
 ```
 
+## MIRK runtimes include an upstream initial-guess bug
+
+The MIRK2 and MIRK4 timings are inflated by a BoundaryValueDiffEq bug rather
+than by the cost of the solves themselves. After each adaptive mesh
+redistribution, MIRK seeds the next nonlinear solve by interpolating the
+previous solution at every new mesh point. The interpolation loop overwrites
+the old-mesh values that later interpolation points still read, so a
+refinement step produces a corrupted initial guess and the Newton solver
+restarts almost from scratch. On this problem MIRK4's refinement iteration
+begins from a residual norm of about 9e6 instead of about 8e-3 and takes
+~1200 Newton iterations where 2 suffice, which shows up above as gigabytes of
+allocations. [BoundaryValueDiffEq.jl#648](https://github.com/SciML/BoundaryValueDiffEq.jl/pull/648)
+fixes the interpolation; with the fix, MIRK4 runs in ~0.6 s / 83 MB instead
+of ~46 s / 8.6 GB and MIRK2 in ~34 s instead of ~480 s. The remaining MIRK2
+cost is genuine: its low order needs a mesh of ~2900 points to reach this
+tolerance.
+
 ## Appendix
 
 ```julia, echo = false
