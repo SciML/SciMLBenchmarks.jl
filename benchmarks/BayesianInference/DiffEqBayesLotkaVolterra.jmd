@@ -104,9 +104,9 @@ priors = [truncated(Normal(1.5, 0.5), 0.5, 2.5), truncated(Normal(1.2, 0.5), 0, 
 
 ### Stan.jl backend
 
-The solution converges for tolerance values lower than 1e-3, lower tolerance leads to better accuracy in result but is accompanied by longer warmup and sampling time, truncated normal priors are used for preventing Stan from stepping into negative values.
+Truncated normal priors are used to prevent Stan from stepping into negative values.
 
-We use `adapt_delta = 0.85` (Stan's default) consistently across all backends for a fair comparison.
+We use `adapt_delta = 0.85` (slightly above Stan's default of 0.8) consistently across the Stan and Turing backends for a fair comparison.
 Stan infers a separate noise parameter (`sigma`) per data dimension via the `vars` specification.
 
 ```julia
@@ -180,8 +180,8 @@ display_ess_per_sec(chain, elapsed_turing_direct)
 
 ## Conclusion
 
-Lotka-Volterra Equation is a "predator-prey" model, it models population of two species in which one is the predator (wolf) and the other is the prey (rabbit).
-It depicts a cyclic behaviour, which is also seen in its Uncertainty Quantification Plots. This behaviour makes it easy to estimate even at very high tolerance values (1e-3).
+The Lotka-Volterra equation is a "predator-prey" model: it models the populations of two species, one of which is the predator (wolf) and the other the prey (rabbit).
+Its solutions are periodic. This page runs each backend at a single ODE solver tolerance, so it does not measure how the estimate depends on the tolerance.
 
 ```julia, echo = false
 using SciMLBenchmarks

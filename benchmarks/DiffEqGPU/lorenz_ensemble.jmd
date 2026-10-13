@@ -28,6 +28,12 @@ Compared:
 
 `cpu_offload` is `0` so the GPU numbers are GPU-only.
 
+The [work-precision comparison](lorenz_workprecision.md) adds
+`GPUTsit5IController` and GRADSOLVE, explicit Float32/Float64 comparisons, and
+scaling at common achieved-error ceilings. The Julia code below uses
+`beta=2.666` while the Python definitions use `8/3`; the work-precision
+comparison uses `8/3` in every implementation.
+
 ```julia
 using Printf
 using CUDA
@@ -126,8 +132,10 @@ time_torch(n) = python_gpu === nothing ? NaN :
 ```
 
 Trajectory counts follow the paper's `8, 32, 128, …` geometric sequence.
-`EnsembleGPUArray` and the Python solvers stop earlier than the kernel
-path: at $2^{23}$ they are the memory- and time-heavy ones on a 16 GB V100.
+The kernel path runs up to $2^{23}$ trajectories; `EnsembleGPUArray`, JAX,
+the CPU ensemble and PyTorch stop earlier ($2^{21}$, $2^{21}$, $2^{19}$ and
+$2^{19}$ respectively) because they are the memory- and time-heavy ones at the
+largest sizes.
 
 ```julia
 const TRAJ_KERNEL = [8, 32, 128, 512, 2048, 8192, 32768, 131072, 524288, 2097152, 8388608]

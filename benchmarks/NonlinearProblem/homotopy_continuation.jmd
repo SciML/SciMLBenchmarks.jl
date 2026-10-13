@@ -270,9 +270,10 @@ res_quad = benchmark_case(HomotopyProblem(h_quad, copy(u0_quad)),
 result_table(res_quad)
 ```
 
-All solvers find the root. The direct methods are an order of magnitude cheaper both in
-residual calls and wall time — this is the constant-factor path-traversal overhead you
-pay for homotopy when the direct solve was never in danger.
+All solvers find the root. In the latest run the direct methods need 2–29 residual calls
+against 69–84 for the homotopy solvers, and all of them except `LevenbergMarquardt` are
+faster in wall time than every homotopy solver — this is the constant-factor
+path-traversal overhead you pay for homotopy when the direct solve was never in danger.
 
 ## Problem 2: S-curve with folds
 
@@ -292,10 +293,20 @@ that enforce residual decrease get trapped at the spurious stationary point near
 residual calls). Undamped `NewtonRaphson` and `Broyden` reach the root only via an
 uncontrolled jump across the non-monotone region — that happens to work here because
 the ``\lambda = 1`` cubic has a single real root, but it is exactly the failure mode
-that returns a wrong-basin root when multiple roots exist. The continuation solvers
-follow the branch connected to the starting point: `ArcLengthContinuation` rounds both
-folds in the augmented ``(u, \lambda)`` space, and `HomotopySweep`'s adaptive bisection
-detects the fold and re-converges past it.
+that returns a wrong-basin root when multiple roots exist. `ArcLengthContinuation`
+(with either predictor) follows the branch connected to the starting point, rounding both
+folds in the augmented ``(u, \lambda)`` space. Both `HomotopySweep` variants stop at the
+first fold, ``(\lambda, u) \approx (5/6, -1)``, and report failure; the ``\|u - u^*\|_\infty``
+of 3.1 is the distance from ``u = -1`` to the root. This is the expected limit of
+natural-parameter continuation: past ``\lambda = 5/6`` the branch it is tracking no longer
+exists, so the step size shrinks until the sweep gives up. With the default inner
+polyalgorithm the reported return code is `Default` rather than a failure code. That is
+a reporting bug in the polyalgorithm, which on a failed attempt can return a stale
+subsolver result
+([NonlinearSolve.jl#1322](https://github.com/SciML/NonlinearSolve.jl/pull/1322)).
+The default `solve(prob)` dispatch (`HomotopyPolyAlgorithm`: the sweep, then
+`ArcLengthContinuation` from where the sweep stopped) does reach the root, but it is the
+most expensive successful solver here (2439 residual calls).
 
 ## Problem 3: n = 50 coupled cubic, good start
 
@@ -393,21 +404,25 @@ save("homotopy_summary.svg", fig)
 The takeaways match the theory of embedding homotopies:
 
  1. **Direct methods win when they work.** On the monotone quadratic and the coupled
-    cubic from a good start, direct Newton/quasi-Newton methods are 10–100x cheaper in
-    residual calls and wall time. Homotopy traverses the full ``\lambda`` path no matter
+    cubic from a good start, direct Newton/quasi-Newton methods need far fewer
+    residual calls than the homotopy solvers and are generally faster in wall time
+    (from the good start, `NewtonRaphson` takes about 58 μs in the latest run against
+    0.6–1.7 ms for the homotopy solvers). Homotopy traverses the full ``\lambda`` path no matter
     how easy the target problem is, so it should never be the default for problems where
     a decent initial guess exists.
  2. **Homotopy pays off when the direct solve is fragile.** On the S-curve problem the
     residual-decrease-enforcing methods (`TrustRegion`, `LevenbergMarquardt`) fail
     outright from the lower-sheet start, and the methods that do succeed do so by an
     uncontrolled basin jump that would silently return a wrong-basin root on problems
-    with multiple ``\lambda = 1`` roots. The continuation solvers reliably deliver the
-    root *connected to the starting configuration* — success here is a property of the
-    algorithm, not luck.
- 3. **Sweep vs. arclength.** `HomotopySweep` is the cheaper of the two on every problem
-    where both succeed, and its adaptive ``\lambda`` bisection got it through this fold
-    — but only by re-converging onto a different point of the curve after the branch
-    folded back, which is again a (controlled) jump. `ArcLengthContinuation` follows the
+    with multiple ``\lambda = 1`` roots. `ArcLengthContinuation` delivers the root
+    *connected to the starting configuration* — success there is a property of the
+    algorithm, not luck. Natural-parameter continuation is not enough on its own: both
+    `HomotopySweep` variants fail on this problem in the latest run.
+ 3. **Sweep vs. arclength.** `HomotopySweep` with a `NewtonRaphson` inner solver is the
+    fastest homotopy solver in wall time on every problem where it succeeds, but it cannot
+    round a fold: a natural-parameter sweep can only get past one by re-converging onto a
+    different point of the curve after the branch folds back, and in the latest run it
+    failed to do so on the S-curve problem. `ArcLengthContinuation` follows the
     actual solution curve through the folds in the augmented ``(u, \lambda)`` space and
     is the branch-faithful choice, at the cost of solving an ``(n+1)``-dimensional
     corrector per step (and, for the `:tangent` predictor, one augmented Jacobian per

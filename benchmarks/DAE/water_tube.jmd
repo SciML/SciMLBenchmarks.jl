@@ -21,17 +21,18 @@ water systems.
 1. **Regime switching:** Each pipe transitions between laminar (R ≤ 2300) and
    turbulent flow, with the turbulent Colebrook equation being implicit in λ.
 2. **Scale separation:** Flows ∼ 10⁻³, friction factors ∼ 10⁻², pressures ∼ 10⁵
-   — nine orders of magnitude difference.
+   — eight orders of magnitude difference.
 3. **Index-2 structure:** Variables 1–38 are index-1, while the 11 non-buffer
    node pressures (variables 39–49) are index-2 algebraic constraints.
 
 We benchmark three formulations:
 
 1. **Mass-Matrix ODE Form:** `M·du/dt = f(u, t)` with diagonal singular M,
-   solved with Rosenbrock-W methods and BDF.
-2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with IDA.
+   solved with Rosenbrock methods and BDF.
+2. **DAE Residual Form:** `F(du, u, t) = M·du − f(u, t) = 0`, solved with IDA,
+   DFBDF and DNordsieckBDF.
 3. **MTK Index-Reduced Form:** Defined symbolically with `structural_simplify`
-   reducing from 49 to 32 states via automatic index reduction.
+   reducing from 49 to 31 states via automatic index reduction.
 
 Reference: Fekete, I.: Water tube system, IVP Test Set for DAE Solvers,
 Release 2.4, University of Bari, 2006.
@@ -110,7 +111,10 @@ The right-hand side has three blocks:
 3. **Node balance** (37–49): Kirchhoff mass conservation at each node
 
 The Colebrook equation for turbulent flow is:
-$$\frac{1}{\sqrt{\lambda}} = 1.74 - 2\log_{10}\left(\frac{2k}{d} + \frac{18.7}{|R|\sqrt{\lambda}}\right)$$
+
+```math
+\frac{1}{\sqrt{\lambda}} = 1.74 - 2\log_{10}\left(\frac{2k}{d} + \frac{18.7}{|R|\sqrt{\lambda}}\right)
+```
 
 where $R = |u_{ij}| d / \nu$ is the Reynolds number. In the laminar regime
 ($R \le R_\text{crit}$), the Colebrook equation uses $R_\text{crit}$ in place

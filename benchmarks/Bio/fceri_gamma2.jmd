@@ -1,5 +1,5 @@
 ---
-title: Fceri_gamma2 Work-Precision Diagrams
+title: FcεRI Signaling (fceri_gamma2) Work-Precision Diagrams
 author: Torkel Loman
 ---
 
@@ -140,10 +140,11 @@ reltols = 1.0 ./ 10.0 .^ (5:7);
 ```
 
 Note on cost: this is one of the most expensive documents in the repository.
-Every work-precision point costs three solves (one for the error, one to warm
-up, one that is timed), and on this network a single stiff solve at these
-tolerances runs from a few seconds (preconditioned Krylov) to well over ten
-minutes (dense direct solves). The tolerance grid was therefore cut from four
+Every work-precision point costs at least three solves (one for the error, one
+to warm up, one that is timed; only solves faster than 2 s are repeated up to
+`numruns` times), and on this network a single stiff solve at these tolerances
+runs from under a second (preconditioned Krylov) to many minutes (dense direct
+solves). The tolerance grid was therefore cut from four
 points (`1e-5 … 1e-8`) to three, `saveat` was relaxed from `tf/10000` to
 `tf/1000`, and the methods that are an order of magnitude off the pace are
 timed once in the isolation section below instead of being swept across every
@@ -152,12 +153,12 @@ numbers behind those choices.
 
 ## Work-Precision Diagrams (CVODE and lsoda solvers)
 
-#### Declare solvers.
+#### Declare solvers
 
 `lsoda` and the default (dense direct) `CVODE_BDF` are **not** in this suite:
-they run 700-2000 s and 300-800 s per point respectively, which is 100x the
-preconditioned-Krylov CVODE variants and by itself made this chunk take 6.5 h
-of CI time. Both are timed once in the isolation section below.
+in an earlier build they ran 700-2000 s and 300-800 s per point respectively,
+which by itself made this chunk take 6.5 h of CI time. Both are timed once in
+the isolation section below.
 
 ```julia
 setups = [
@@ -170,7 +171,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram.
+#### Plot Work-Precision Diagram
 
 ```julia
 wp = WorkPrecisionSet(
@@ -183,7 +184,7 @@ plot(wp; label = names)
 
 ## Work-Precision Diagrams (various Julia solvers)
 
-#### Declare solvers (using default linear solver).
+#### Declare solvers (using default linear solver)
 
 ```julia
 setups = [
@@ -194,7 +195,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using default linear solver).
+#### Plot Work-Precision Diagram (using default linear solver)
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
@@ -204,7 +205,7 @@ names = ["QNDF" "FBDF" "NordsieckBDF" "KenCarp4"]
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using GMRES linear solver).
+#### Declare solvers (using GMRES linear solver)
 
 ```julia
 setups = [
@@ -215,7 +216,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using GMRES linear solver).
+#### Plot Work-Precision Diagram (using GMRES linear solver)
 
 ```julia
 wp = WorkPrecisionSet(oprob, abstols, reltols, setups; error_estimate = :l2,
@@ -225,7 +226,7 @@ names = ["QNDF (GMRES)" "FBDF (GMRES)" "NordsieckBDF (GMRES)" "KenCarp4 (GMRES)"
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using GMRES linear solver, with pre-conditioner).
+#### Declare solvers (using GMRES linear solver, with pre-conditioner)
 
 ```julia
 setups = [
@@ -237,7 +238,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using GMRES linear solver, with pre-conditioner).
+#### Plot Work-Precision Diagram (using GMRES linear solver, with pre-conditioner)
 
 ```julia
 wp = WorkPrecisionSet(sparsejacprob, abstols, reltols, setups; error_estimate = :l2,
@@ -247,7 +248,7 @@ names = ["QNDF (GMRES, iLU)" "FBDF (GMRES, iLU)" "NordsieckBDF (GMRES, iLU)" "Ke
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using sparse jacobian)
+#### Declare solvers (using sparse Jacobian)
 
 We designate the solvers we wish to use.
 
@@ -260,7 +261,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using sparse jacobian)
+#### Plot Work-Precision Diagram (using sparse Jacobian)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 
@@ -275,8 +276,10 @@ plot(wp; label = names)
 ## Methods that are not competitive (timed once, capped)
 
 On this 3744-species / 58276-reaction stiff network the dense direct solves and
-`TRBDF2` are one to two orders of magnitude off the pace of the preconditioned
-Krylov and sparse-KLU methods. Sweeping them across the whole tolerance grid
+`TRBDF2` are far off the pace of the preconditioned Krylov and sparse-KLU
+methods: in the latest run the preconditioned `CVODE_BDF` reference solve took
+well under a second, `lsoda` took several minutes, and dense `CVODE_BDF` and
+`TRBDF2` (KLU) both hit the 300 s cap. Sweeping them across the whole tolerance grid
 costs multiple hours of CI time per document and dominated the runtime of this
 benchmark, so they are **not** folded into the work-precision suites above.
 Instead each is solved **once**, at a fixed tolerance, next to a competitive
@@ -340,7 +343,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes CVODE_Adams.
+We designate the solvers we wish to use; this also includes `CVODE_Adams`.
 
 ```julia
 setups = [
@@ -353,11 +356,10 @@ setups = [
 ];
 ```
 
-`Vern7` and `Vern8` were dropped from this panel: every explicit method sits in
-a narrow 40-60 s band on this problem, so the intermediate Verner orders add
-about 15 minutes of CI time without adding information that `Vern6`/`Vern9`
-do not already carry. (The previous version of this cell also passed eight
-setups with only seven `names`, so the labels were shifted.)
+`Vern7` and `Vern8` were dropped from this panel: in an earlier build every
+explicit method sat in a narrow 40-60 s band on this problem, so the
+intermediate Verner orders added about 15 minutes of CI time without adding
+information that `Vern6`/`Vern9` do not already carry.
 
 #### Plot Work-Precision Diagram
 

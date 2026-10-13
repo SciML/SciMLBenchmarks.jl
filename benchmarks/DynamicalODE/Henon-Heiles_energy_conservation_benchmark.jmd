@@ -9,8 +9,9 @@ We will see how the energy error behaves at very tight tolerances and how differ
 such as using symplectic solvers or manifold projections, benchmark against each other.
 The Hamiltonian for this system is given by:
 
-$$\mathcal{H}=\frac{1}{2}(p_1^2 + p_2^2) + \frac{1}{2}\left(q_1^2 + q_2^2 + 2q_1^2 q_2 - \frac{2}{3}q_2^3\right)$$
-
+```math
+\mathcal{H}=\frac{1}{2}(p_1^2 + p_2^2) + \frac{1}{2}\left(q_1^2 + q_2^2 + 2q_1^2 q_2 - \frac{2}{3}q_2^3\right)
+```
 We will also compare the in place approach with the out of place approach by using `Array`s
 (for the in place version) and `StaticArrays` (for out of place versions).
 In order to separate these two, we will use `iip` for the in-place names and `oop` for out of place ones.
@@ -178,8 +179,8 @@ end
 ```
 
 The `mode` argument chooses between the in place approach
-and the out of place one. The `all` parameter is used to compare only the integrators that support both
-the in place and the out of place versions (we refer here only to the 6 high order methods chosen below).
+and the out of place one. With `all = false`, only the integrators that support both
+the in place and the out of place versions are compared.
 The `plt` argument can be used to overlay the results over a previous plot and the `tmax` keyword determines
 the simulation time.
 
@@ -206,13 +207,15 @@ compare(:inplace, false; tmax = 1e4)
 ```
 
 We can see that as the simulation time increases, the energy error increases. For this particular example
-the energy error for all the methods is comparable. For relatively short simulation times,
-if a highly accurate solution is required, the symplectic method is not recommended as
-its energy error fluctuations are larger than for other methods.
-An other thing to notice is the fact that the two versions of `Vern9` behave identically, as expected,
-until the energy error set by `ftol` is reached.
+the maximum energy error of all the methods except `DPRKN12` is at the level of $10^{-16}$–$10^{-13}$,
+while `DPRKN12` stays around $10^{-5}$. For relatively short simulation times (`tmax = 1e2` and `1e3`),
+if a highly accurate solution is required, the symplectic methods are not recommended, as
+their maximum energy error is a few times larger than that of `Vern9`; at `tmax = 1e4`,
+`KahanLi8` has a lower maximum energy error than `Vern9`.
+Another thing to notice is that the two versions of `Vern9` give identical maximum energy errors,
+since the energy error of `Vern9` stays below the `ftol` used by the projection.
 
-We will now compare the in place with the out of place versions. In the plots bellow we will use
+We will now compare the in place with the out of place versions. In the plots below we will use
 a dashed line for the out of place versions.
 
 ```julia
@@ -242,10 +245,10 @@ in_vs_out(tmax = 1e2)
 in_vs_out(tmax = 1e3)
 ```
 
-As we see from the above comparisons, the `StaticArray` versions are significantly faster and use less memory.
-The speedup provided for the out of place version is more prominent at larger values for `tmax`.
-We can see again that if the simulation time is increased, the energy error of the symplectic methods
-is less noticeable compared to the rest of the methods.
+As we see from the `StaticArrays`-only comparisons above, the out of place versions are faster and use much less memory
+(the out of place timings in the first summary are dominated by compilation).
+In the latest run the speedup is about 2x for most methods and 10x or more for `Vern9`, and it is
+larger at `tmax = 1e3` than at `tmax = 1e2`.
 
 The benchmarks were performed on a machine with
 

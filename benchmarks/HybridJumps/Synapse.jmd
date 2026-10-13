@@ -1,5 +1,5 @@
 ---
-title: Synapse model
+title: Synapse Model
 author: Guilherme Zagatti
 weave_options:
     fig_ext: ".png"
@@ -15,7 +15,7 @@ const PDMP = PiecewiseDeterministicMarkovProcesses
 const fmt = :png
 ```
 
-This benchmark implements the stochastic model of hippocampal synaptic plasticity with geometrical readount of enzyme dynamics from Rodrigues et al. [1]. The source code for the model was obtained from the Github repository [SynapseElife](https://github.com/rveltz/SynapseElife/) that accompanies the paper. The original source code is licensed with the MIT license. We have added comments on the parts of the code that were directly borrowed from the repository.
+This benchmark implements the stochastic model of hippocampal synaptic plasticity with geometrical readout of enzyme dynamics from Rodrigues et al. [1]. The source code for the model was obtained from the GitHub repository [SynapseElife](https://github.com/rveltz/SynapseElife/) that accompanies the paper. The original source code is licensed with the MIT license. We have added comments on the parts of the code that were directly borrowed from the repository.
 
 Initial idea for benchmarking this model comes from a [Discourse discussion](https://discourse.julialang.org/t/help-me-beat-lsoda/88236).
 
@@ -57,7 +57,7 @@ Initial idea for benchmarking this model comes from a [Discourse discussion](htt
 end
 ```
 
-### Postsynpatic parameters
+### Postsynaptic parameters
 
 ```julia
 # adapted from  SynapseElife/src/ParamsSynapse.jl
@@ -954,7 +954,7 @@ const xd0 = initial_conditions_discrete(p_synapse);
 
 ## Model
 
-Rodrigues et al. [1] synapse model that replaces NMDA model with fully state-based one from Jahr and Stevens, plus three types of VGCCs (R-type, T-type and L-type), from Magee and Johhston [2].
+Rodrigues et al. [1] synapse model that replaces NMDA model with fully state-based one from Jahr and Stevens, plus three types of VGCCs (R-type, T-type and L-type), from Magee and Johnston [2].
 
 ### Continuous evolution
 
@@ -1288,7 +1288,7 @@ function F_synapse(dxc, xc, xd, p_synapse::SynapseParams, t, events_bap, bap_by_
 end
 ```
 
-### Discrete jumps.
+### Discrete jumps
 
 For the PDMP package we need to define the rates in which the jumps occur.
 
@@ -1513,7 +1513,7 @@ function R_synapse(rate, xc, xd, p_synapse::SynapseParams, t, sum_rate, glu = 0)
 end
 ```
 
-Alternatively, for the JumpProcesses packages we need to define the jumps. First we define a macro to aid us in the definition of the jumps.
+Alternatively, for the JumpProcesses package we need to define the jumps. First we define a macro to aid us in the definition of the jumps.
 
 ```julia
 """
@@ -1870,7 +1870,7 @@ function J_synapse(p_synapse::SynapseParams, nu)
 end
 ```
 
-`R_synapse` and `J_synapse` define the exact same discrete problem. The comments at the end of the line in `J_synapse` corresponds to the rate index defined in `R_synapse`. For example, in `R_synapse` we have `rate[1]`
+`R_synapse` and `J_synapse` define the exact same discrete problem. The comments at the end of the line in `J_synapse` correspond to the rate index defined in `R_synapse`. For example, in `R_synapse` we have `rate[1]`
 
 ```
 rate[1] = 4 * AMPA_k1 * Glu * xd[1]
@@ -1882,7 +1882,7 @@ Equivalently, in `J_synapse` we have the equivalent formulation in terms of a ju
 @j_jump(1, p_synapse, nu, 4 * AMPA_k1 * p.Glu * p.xd[1]), # 1
 ```
 
-Also, note that we modify the order of jumps in `J_synapse` compared to `R_synapse` because we bundle `ConstantRateJump` and `VariableRateJump` separately. Algorithms in `JumpProcesses` will approach each of this jumps in a different way.
+Also, note that we modify the order of jumps in `J_synapse` compared to `R_synapse` because we bundle `ConstantRateJump` and `VariableRateJump` separately. Algorithms in `JumpProcesses` will approach each of these jumps in a different way.
 
 We also remove the sampling rate from `J_synapse` (`rate[55]` in `R_synapse`) as it is not needed for `JumpProcesses`. The package can take a snapshot of the evolution at any point desired.
 
@@ -2376,7 +2376,7 @@ end
 
 ## Algorithms to benchmark
 
-`CoevolveSynced` allow us to save at regular intervals. Thus, rather than saving when a jump occurs, we save at the same average frequency as obtained with `PDMP`.
+The `JumpProcesses` algorithms allow us to save at regular intervals with `saveat`. Thus, rather than saving when a jump occurs, we save at the same average frequency as obtained with `PDMP`.
 
 ```julia
 const solver = AutoTsit5(Rosenbrock23());
@@ -2448,7 +2448,7 @@ end
 ```
 
 ```julia
-fig = plot(xlabel = "Voltage", ylabel = "Time");
+fig = plot(xlabel = "Time", ylabel = "Voltage");
 for (i, algo) in enumerate(algorithms)
     res = results[i]
     plot!(res.t, res.Vsp, label = algo.label)
@@ -2457,7 +2457,7 @@ title!("Vsp")
 ```
 
 ```julia
-fig = plot(xlabel = "N", ylabel = "Time");
+fig = plot(xlabel = "Time", ylabel = "N");
 for (i, algo) in enumerate(algorithms)
     res = results[i]
     xd_arr = Array(res.XD)
