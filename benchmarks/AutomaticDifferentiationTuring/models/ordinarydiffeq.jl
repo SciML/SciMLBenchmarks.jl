@@ -28,8 +28,8 @@ odedata = rand.(Poisson.(q * Array(sol)))
     q ~ truncated(Normal(1.7, 0.2); lower = 0, upper = 3)
     p = [α, β, γ, δ]
     predicted = solve(prob, Tsit5(); p = p, saveat = 0.1, abstol = 1.0e-6, reltol = 1.0e-6)
-    for i in eachindex(predicted)
-        data[:, i] ~ product_distribution(Poisson.(q .* predicted[i] .+ 1.0e-5))
+    for i in axes(predicted, 2)
+        data[:, i] ~ product_distribution(Poisson.(q .* predicted[:, i] .+ 1.0e-5))
     end
     return nothing
 end

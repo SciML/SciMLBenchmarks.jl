@@ -57,4 +57,53 @@ if [[ "${TARGETS}" != "benchmarks/Beta" ]]; then
     exit 1
 fi
 
+SUPPORT_BASE_SHA=$(git -C "${FIXTURE}" rev-parse HEAD)
+printf '#!/bin/sh\n' > "${FIXTURE}/benchmarks/Alpha/setup.sh"
+git -C "${FIXTURE}" add benchmarks/Alpha/setup.sh
+git -C "${FIXTURE}" commit -qm "Update Alpha setup"
+
+SUPPORT_OUTPUT_FILE="${TEST_ROOT}/support-github-output"
+(
+    cd "${FIXTURE}"
+    GITHUB_EVENT_NAME=push \
+        PUSH_BASE_SHA="${SUPPORT_BASE_SHA}" \
+        GITHUB_OUTPUT="${SUPPORT_OUTPUT_FILE}" \
+        PATH="${TEST_ROOT}/bin:${PATH}" \
+        .github/scripts/detect-changed-benchmarks.sh
+)
+
+SUPPORT_TARGETS=$(sed -n 's/^matrix=//p' "${SUPPORT_OUTPUT_FILE}" \
+    | grep -o '"target":"[^"]*"' \
+    | cut -d'"' -f4 \
+    | sort || true)
+
+if [[ "${SUPPORT_TARGETS}" != "benchmarks/Alpha" ]]; then
+    printf 'Expected benchmarks/Alpha for a support-file change, got:\n%s\n' \
+        "${SUPPORT_TARGETS}" >&2
+    exit 1
+fi
+
+printf '# Deleted benchmark\n' > "${FIXTURE}/benchmarks/Alpha/deleted.jmd"
+git -C "${FIXTURE}" add benchmarks/Alpha/deleted.jmd
+git -C "${FIXTURE}" commit -qm "Add benchmark to delete"
+DELETION_BASE_SHA=$(git -C "${FIXTURE}" rev-parse HEAD)
+git -C "${FIXTURE}" rm -q benchmarks/Alpha/deleted.jmd
+git -C "${FIXTURE}" commit -qm "Delete benchmark"
+
+DELETION_OUTPUT_FILE="${TEST_ROOT}/deletion-github-output"
+(
+    cd "${FIXTURE}"
+    GITHUB_EVENT_NAME=push \
+        PUSH_BASE_SHA="${DELETION_BASE_SHA}" \
+        GITHUB_OUTPUT="${DELETION_OUTPUT_FILE}" \
+        PATH="${TEST_ROOT}/bin:${PATH}" \
+        .github/scripts/detect-changed-benchmarks.sh
+)
+
+if ! grep -Fxq 'has_changes=false' "${DELETION_OUTPUT_FILE}"; then
+    printf 'Expected a deleted .jmd file to schedule no benchmark, got:\n' >&2
+    sed -n 's/^matrix=//p' "${DELETION_OUTPUT_FILE}" >&2
+    exit 1
+fi
+
 echo "Push detection selected only changes since the event's before SHA."

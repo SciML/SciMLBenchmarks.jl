@@ -105,11 +105,13 @@ p
 
 ## Reading the result
 
-Flat iteration counts with efficiency near 100% is the headline weak-scaling
-claim: the solver does proportionally more work in the same time as ranks are
+Flat iteration counts with efficiency near 100% would be the ideal weak-scaling
+result: the solver does proportionally more work in the same time as ranks are
 added. Efficiency decay isolates *parallel* overhead (communication, setup),
 since constant per-rank work removes the serial-fraction confound that
-complicates strong scaling.
+complicates strong scaling. The latest run falls well short of that ideal: the
+iteration count grows only slightly (14 to 16 over an 8× larger problem), but weak
+efficiency drops to about 62% at 2 and 4 ranks and to about 50% at 8 ranks.
 
 Two caveats bound what this document can show. First, the
 replicated-input path makes every rank assemble the *full* matrix, so the
@@ -117,8 +119,8 @@ constant-work-per-rank premise holds for the solve phase but not for assembly:
 assembly cost grows with total `N` on every rank, which drags measured weak
 efficiency down even when the solver itself scales. Second, the same replication
 caps how far `RANKS` can extend before total memory becomes the binding
-constraint. A partitioned-input variant removes the second and third limits and
-is the natural follow-up for large-rank weak scaling.
+constraint. A partitioned-input variant removes both limits and is the natural
+follow-up for large-rank weak scaling.
 
 ## Appendix
 

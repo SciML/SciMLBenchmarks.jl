@@ -4,7 +4,7 @@ author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Paglia
 ---
 
 Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
-Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+Uses the [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) library from the
 [SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
 for the implementation of physics-informed neural networks (PINNs) and other
 science-guided AI techniques.
@@ -23,6 +23,7 @@ using CUDA, LuxCUDA, ComponentArrays, Random
 @assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
 println("GPU: ", CUDA.name(CUDA.device()))
 const gpud = gpu_device()
+const cpud = cpu_device()
 ```
 
 ```julia
@@ -130,7 +131,7 @@ function hamilton_jacobi(strategy, minimizer, maxIters)
             # Extract parameters for loss calculation
             params = p.u
             loss_ = loss_function_(p, nothing)
-            push!(error, only(Array(loss_)))
+            push!(error, only(cpud(loss_)))
 
             timeCounter += time_ns() - deltaT_s
             return false

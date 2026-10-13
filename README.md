@@ -293,7 +293,7 @@ benchmarks/
     Project.toml
     DiffEqBayesLorenz.jmd
   ModelingToolkit/
-    setup.sh            # Configures JuliaHubRegistry
+    setup.sh            # Installs OpenModelica (omc)
     Project.toml
     ...
   NonStiffODE/

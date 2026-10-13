@@ -1,12 +1,13 @@
 ---
-title: Quadruple Boson Energy Conservation
+title: Quadrupole Boson Hamiltonian Energy Conservation
 author: Sebastian Micluța-Câmpeanu, Chris Rackauckas
 ---
 
 In this notebook we will study the energy conservation properties of several high-order methods for a system with the following Hamiltonian:
 
-$$\mathcal{H}\left(q_0,q_2,p_0,p_2\right) = \frac{A}{2} \left(p_0^2 + p_2^2 + q_0^2 + q_2^2\right) + \frac{B}{\sqrt{2}} q_0 \left(3q_2^2 - q_0^2\right) + \frac{D}{4} \left(q_0^2+q_2^2\right)^2$$
-
+```math
+\mathcal{H}\left(q_0,q_2,p_0,p_2\right) = \frac{A}{2} \left(p_0^2 + p_2^2 + q_0^2 + q_2^2\right) + \frac{B}{\sqrt{2}} q_0 \left(3q_2^2 - q_0^2\right) + \frac{D}{4} \left(q_0^2+q_2^2\right)^2
+```
 This Hamiltonian resembles the Hénon-Heiles one, but it has an additional fourth order term.
 The aim of this benchmark is to see what happens with the energy error when highly accurate solutions are needed and how the results compare with the Hénon-Heiles case.
 
@@ -175,7 +176,7 @@ end
 ```
 
 The `mode` argument chooses between the in place approach
-and the out of place one. The `all` parameter is used to compare only the integrators that support both the in place and the out of place versions (we refer here only to the 6 high order methods chosen bellow).
+and the out of place one. With `all = false`, only the integrators that support both the in place and the out of place versions are compared.
 The `plt` argument can be used to overlay the results over a previous plot and the `tmax` keyword determines the simulation time.
 
 Note:
@@ -199,9 +200,9 @@ compare(tmax = 1e3)
 compare(:inplace, false; tmax = 1e4)
 ```
 
-As we can see from the above plots, we can achieve a very low energy error for long time simulation by manifold projection and with very high order Taylor methods. In comparison with the Hénon-Heiles system we see that as the Hamiltonian got more complex, the energy error for the other integration methods increased significantly.
+As we can see from the above results, manifold projection keeps the maximum energy error at the same low level as the simulation time increases, and the very high order Taylor method also reaches a very low energy error. In comparison with the Hénon-Heiles system, where the maximum energy errors were around $10^{-16}$–$10^{-13}$, the energy error for the other integration methods increased significantly as the Hamiltonian got more complex (to around $10^{-12}$–$10^{-9}$, and around $10^{-3}$ for `DPRKN12`).
 
-We will now compare the in place with the out of place versions. In the plots bellow we will use a dashed line for the out of place versions.
+We will now compare the in place with the out of place versions. In the plots below we will use a dashed line for the out of place versions.
 
 ```julia
 function in_vs_out(; all = false, tmax = 1e2)
@@ -229,9 +230,8 @@ in_vs_out(tmax = 1e2)
 in_vs_out(tmax = 1e3)
 ```
 
-As we see from the above comparisons, the `StaticArray` versions are significantly faster and use less memory. The speedup provided for the out of place version is more proeminent at larger values for `tmax`.
-We can see again that if the simulation time is increased, the energy error of the symplectic methods is less noticeable compared to the rest of the methods.
-In comparison with the Henon-Heiles case, we see that the symplectic methods are more competitive with `DPRKN12`.
+As we see from the `StaticArrays`-only comparisons above, the out of place versions use much less memory (the out of place timings in the first summary are dominated by compilation). In the latest run the out of place `Vern9` is about 9x faster than the in place one and `DPRKN12` about 2x, while the symplectic methods are only slightly faster; the speedups are similar at `tmax = 1e2` and `tmax = 1e3`.
+As in the Hénon-Heiles case, if the simulation time is increased, the energy error of the symplectic methods is less noticeable compared to the rest of the methods: at `tmax = 1e4`, `KahanLi8` has a lower maximum energy error than `Vern9`, and `DPRKN12` has by far the largest energy error at every `tmax`.
 
 ```julia, echo = false
 using SciMLBenchmarks

@@ -1,5 +1,5 @@
 ---
-title: Egfr_net Work-Precision Diagrams
+title: EGFR Network (egfr_net) Work-Precision Diagrams
 author: Torkel Loman
 ---
 
@@ -173,7 +173,7 @@ names = ["lsoda" "CVODE_BDF (GMRES)" "TRBDF2 (GMRES)" "QNDF (GMRES)" "FBDF (GMRE
 plot(wp; label = names)
 ```
 
-#### Declare solvers (using sparse jacobian)
+#### Declare solvers (using sparse Jacobian)
 
 We designate the solvers we wish to use.
 
@@ -191,7 +191,7 @@ setups = [
 ];
 ```
 
-#### Plot Work-Precision Diagram (using sparse jacobian)
+#### Plot Work-Precision Diagram (using sparse Jacobian)
 
 Finally, we generate a work-precision diagram for the selection of solvers.
 
@@ -209,7 +209,7 @@ Benchmarks for explicit solvers.
 
 #### Declare solvers
 
-We designate the solvers we wish to use, this also includes lsoda and CVODE.
+We designate the solvers we wish to use; this also includes `lsoda` and `CVODE_Adams`.
 
 ```julia
 setups = [
@@ -238,22 +238,28 @@ plot(wp; label = names)
 
 ## Loser methods (large cost in isolation)
 
-`ROCK2` is not competitive with the explicit set above. It is **not** folded into
-the multi-tolerance / multi-run work-precision suites; a single-tolerance isolation
-timing against a competitive explicit (`Vern6`) shows the wall-time gap.
+`ROCK2` is **not** folded into the multi-tolerance / multi-run work-precision
+suites; instead a single-tolerance timing against a competitive explicit method
+(`Vern6`) shows the wall-time gap. Each method is solved once untimed so that
+first-call compilation stays out of the measurement, then timed as the best of
+five solves. The printed timings below are regenerated on each build; in the
+run at the time of writing `ROCK2` took roughly 18x as long as `Vern6` at this
+tolerance.
 
 ```julia
 const _loser_tol = 1e-6
 const _loser_maxiters = Int(1e7)
 _solve_kwargs = (; abstol = _loser_tol, reltol = _loser_tol, maxiters = _loser_maxiters,
     save_everystep = false)
+const _loser_runs = 5
 
 loser_labels = String[]
 loser_elapsed = Float64[]
 
 function _time_loser!(label, alg)
     println("--- $label ---")
-    t = @elapsed sol = solve(oprob, alg; _solve_kwargs...)
+    sol = solve(oprob, alg; _solve_kwargs...)
+    t = minimum(@elapsed(solve(oprob, alg; _solve_kwargs...)) for _ in 1:_loser_runs)
     @show sol.retcode
     println("elapsed = ", t, " s")
     push!(loser_labels, label)
@@ -269,7 +275,7 @@ _time_loser!("ROCK2 (loser)", ROCK2())
 ref_t = loser_elapsed[1]
 bar(loser_labels, loser_elapsed ./ ref_t; legend = false,
     ylabel = "wall time / Vern6 reference",
-    title = "egfr_net ROCK2 isolation (tol=$_loser_tol, one solve each)",
+    title = "egfr_net ROCK2 isolation (tol=$_loser_tol, best of $_loser_runs after warm-up)",
     size = (600, 400))
 ```
 
