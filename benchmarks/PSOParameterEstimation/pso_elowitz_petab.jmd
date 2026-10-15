@@ -1,0 +1,425 @@
+---
+title: PSO Elowitz Repressilator (PEtab) Parameter Estimation Benchmark
+author: Aditya Pandey
+---
+
+This benchmark fits the repressilator of Elowitz and Leibler (2000), a synthetic three-gene
+circuit whose protein levels oscillate, to the real fluorescence measurements from Elowitz's
+lab. The problem is `Elowitz_Nature2000` from the PEtab benchmark collection (Hass et al.,
+2019), and it is solved by the PSO variants from
+[ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl) and the same
+global optimizers as the PSO Global Optimizer Benchmarks (`benchmarks/PSOGlobalOptimization`).
+The optimizers and the budget experiment are the same as in the BBOB benchmark; only the
+problem and a few settings change, because this objective is much costlier (see Setup).
+
+## How it works
+
+The model has eight states: the three repressor proteins and their mRNAs, plus a GFP reporter
+and its mRNA. Only fluorescence is observed, as `log10(background + scale * GFP)`, at 58 time
+points between `t = 10` and `t = 600`. All 21 parameters are estimated: kinetic
+constants, the eight initial conditions, the observable's `background` and `scale`, and the
+noise level `sigma`. As in PEtab, each is searched on a log10 scale in `[-5, 3]`.
+
+The cost is the PEtab negative log-likelihood (nllh) of the data, with Gaussian noise of
+standard deviation `sigma` on the log10 scale (including the `log(m ln 10)` term from the
+change of variables, `m` the measurement). With real data the global minimum is not known,
+so success is measured against the best-known point, the nominal parameter values the PEtab
+collection ships for this problem: `f_opt` is the nllh there, about `-63.2032`. PEtab.jl gives
+`-63.2028` at the same point, which agrees to within 0.0005. A run **succeeds** if it finds a point with cost below `f_opt + DELTA`, with
+`DELTA = 0.1` nllh units: a difference of 0.1 in log-likelihood is a likelihood ratio of about
+1.1, so such a point fits the data as well as the reference does, while the tolerance is wider
+than the solver error.
+
+The model is stiff, so trajectories use an adaptive Rosenbrock23 method (the
+Shampine-Reichelt scheme behind OrdinaryDiffEq's `Rosenbrock23`), written as a plain loop
+over `SVector`s so the same objective runs on the CPU baselines and inside the GPU swarm
+kernels. When the step's linear system is singular, the step is retried with a smaller step
+size instead of raising an error. The integrator is capped at 4,000 steps: points that need more count as failures and
+get the `1e10` penalty, as do points where the simulation blows up. The best-known point
+needs about 1,300 steps. The problem is wrapped as a `BBOBFunction` of `z ∈ [-5.5, 5.5]^21`,
+the box all optimizers already use, with `z` mapped linearly onto the log10 bounds.
+
+As in the BBOB benchmark's budget experiment, each optimizer is run from scratch at each
+iteration budget in `RUN_LENGTH`, `NTRIALS` times, with no time limit; each run records
+success, evaluations and wall time. The BBOB page's time-to-success experiment is left out:
+at this objective's cost one GPU swarm iteration takes about as long as that experiment's
+20 s budget. Everything is evaluated in `Float64`.
+
+## Setup
+
+The settings are scaled down from the PSO Global Optimizer Benchmarks for this objective's
+cost. A T4 GPU evaluates it about 2,800 times per second, so at the BBOB page's 50,000
+particles one swarm iteration would take about 18 s. The GPU swarms therefore use 4,096
+particles and `HybridPSO` 1,024, with 5 trials, and `RUN_LENGTH` is 10, 32 and 100 iterations
+instead of 15 budgets up to 10,000. A GPU swarm run at 100 iterations then takes about 2.5
+minutes, and `SerialPSO` (512 particles, as on the BBOB page) about 4 minutes, at about 5 ms
+of CPU time per evaluation. `HybridPSO` keeps the BBOB page's 100 L-BFGS iterations.
+
+```julia
+using Random; Random.seed!(42)
+using BlackBoxOptimizationBenchmarking, CairoMakie, Optimization, Memoize, Statistics
+using StaticArrays, LinearAlgebra, ForwardDiff, KernelAbstractions, CUDA
+using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
+using OptimizationMetaheuristics, OptimizationSciPy
+using OptimizationOptimJL: Optim          # NelderMead and SAMIN live here
+using ParallelParticleSwarms
+CairoMakie.activate!()
+
+import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
+    BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
+
+const PSOKernel = ParallelParticleSwarms.ParallelPSOKernel
+const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
+const SerialPSO = ParallelParticleSwarms.SerialPSO
+const HybridPSO = ParallelParticleSwarms.HybridPSO
+const BACKEND = CUDABackend()
+
+const NTRIALS = 5
+const DELTA = 0.1               # success: cost below f_opt + DELTA (nllh units)
+const NUM_PARTICLES = 4_096     # GPU swarm
+const HYBRID_PARTICLES = 1_024  # HybridPSO's swarm
+const SERIAL_PARTICLES = 512       # CPU swarm
+const RUN_LENGTH = round.(Int, 10 .^ LinRange(1, 2, 3))   # budgets: 10, 32, 100 iterations
+# L-BFGS iterations of each HybridPSO entry
+const LOCAL_MAXITERS = Dict("HybridPSO_LBFGS" => 100)
+```
+
+## Problem
+
+The PEtab files are downloaded at run time. Parameters are in the order of the rows of
+`parameters.tsv`; the nominal values (column 6) are the best-known point.
+
+```julia
+using Downloads
+const PETAB_URL = "https://raw.githubusercontent.com/Benchmarking-Initiative/Benchmark-Models-PEtab/master/problems/Elowitz_Nature2000/v1/"
+read_tsv(name) = [split(l, '\t') for l in readlines(Downloads.download(PETAB_URL * name))[2:end]]
+
+const PARAMS = read_tsv("parameters.tsv")
+const MEAS = read_tsv("measurements.tsv")
+const PNAMES = first.(PARAMS)
+const V_NOMINAL = SVector{21}(log10.(parse.(Float64, getindex.(PARAMS, 6))))
+times, meas = parse.(Float64, getindex.(MEAS, 5)), parse.(Float64, getindex.(MEAS, 4))
+
+const TS, MS = SVector{58}(times), SVector{58}(meas)
+const L2 = log(2.0)
+const DR, E32 = 1 / (2 + sqrt(2.0)), 6 + sqrt(2.0)
+_val(x) = x isa ForwardDiff.Dual ? _val(ForwardDiff.value(x)) : x
+
+# States: proteins X, Y, Z, GFP, then their mRNAs. q = parameters on the linear scale.
+@inline function rhs(u, q)
+    Xp, Yp, Zp, G, Xm, Ym, Zm, Gm = u
+    eff, effG, τm, τmG, τp, τpG = q[3], q[4], q[16], q[17], q[18], q[19]
+    Kn, nH, tr, ta = q[1]^q[13], q[13], q[21], q[20]
+    H(p) = 60tr - Kn * (60tr - 60ta) / (Kn + max(p, zero(p))^nH)
+    return SVector(Xm * eff / τm - Xp * L2 / τp, Ym * eff / τm - Yp * L2 / τp,
+                   Zm * eff / τm - Zp * L2 / τp, Gm * effG / τmG + H(Xp) - G * L2 / τpG,
+                   H(Zp) - Xm * L2 / τm, H(Xp) - Ym * L2 / τm, H(Yp) - Zm * L2 / τm,
+                   -Gm * L2 / τmG)
+end
+
+# One Rosenbrock23 step (Shampine-Reichelt); returns the new state and the error estimate.
+# A singular W returns a NaN error estimate, so the step is retried smaller instead of throwing.
+@inline function ros23_step(u, q, h)
+    W = lu(I - h * DR * ForwardDiff.jacobian(x -> rhs(x, q), u); check = false)
+    any(d -> iszero(_val(d)), diag(W.U)) && return u, u * NaN
+    F0 = rhs(u, q);                 k1 = W \ F0
+    F1 = rhs(u + h / 2 * k1, q);    k2 = W \ (F1 - k1) + k1
+    un = u + h * k2
+    F2 = rhs(un, q);                k3 = W \ (F2 - E32 * (k2 - F1) - 2 * (k1 - F0))
+    return un, h / 6 * (k1 - 2k2 + k3)
+end
+
+# PEtab negative log-likelihood at v = log10 parameters; Inf past `maxsteps` solver steps.
+function elowitz_nllh(v; abstol = 1e-6, reltol = 1e-6, maxsteps = 4_000)
+    q = 10 .^ v
+    u = SVector(q[8], q[10], q[12], q[5], q[7], q[9], q[11], q[6])
+    t, h, s, n = 0.0, 1e-6, zero(eltype(q)), 0
+    for k in 1:58
+        while t < TS[k]
+            hk = min(h, TS[k] - t)
+            un, err = ros23_step(u, q, hk)
+            e = _val(sqrt(sum(abs2, err ./ (abstol .+ reltol .* max.(abs.(u), abs.(un)))) / 8))
+            isfinite(e) || (h = hk / 5; (n += 1) > maxsteps ? (return oftype(s, Inf)) : continue)
+            e <= 1 && (t += hk; u = un)
+            h = hk * min(5.0, max(0.2, 0.9 * e^(-1 / 3)))
+            (n += 1) > maxsteps && return oftype(s, Inf)
+        end
+        y = q[2] + q[14] * u[4]
+        y > 0 || return oftype(s, Inf)
+        r = (log10(MS[k]) - log10(y)) / q[15]
+        s += 0.5 * log(2π * q[15]^2) + 0.5 * r^2 + log(MS[k] * log(10))
+    end
+    return s
+end
+
+# Cost as a function of z ∈ [-5.5, 5.5]^21, the box all optimizers use, mapped linearly onto
+# the log10 bounds [-5, 3].
+function elowitz_cost(z, _x_opt, _f_opt, _Q, _R)
+    v = -5 .+ (clamp.(z, -5.5, 5.5) .+ 5.5) ./ 11 .* 8
+    s = elowitz_nllh(v)
+    return isfinite(s) ? s : 1.0e10 + zero(s)
+end
+
+const F_OPT = elowitz_nllh(V_NOMINAL)
+const Id = SMatrix{21, 21, Float32}(I)
+const PROBLEMS = [
+    "Elowitz_Nature2000" => BBOBFunction(
+        elowitz_cost, SVector{21, Float32}(11 .* (V_NOMINAL .+ 5) ./ 8 .- 5.5), Float32(F_OPT), Id, Id
+    ),
+]
+```
+
+The reference loss here and in PEtab.jl, which gives `-63.2028` at the nominal point:
+
+```julia
+println("f_opt here:    ", round(F_OPT; digits = 4))
+println("f_opt PEtab.jl: -63.2028")
+# Sanity check: the cost at x_opt (stored in Float32) matches f_opt.
+last(only(PROBLEMS))(last(only(PROBLEMS)).x_opt)
+```
+
+Time of one CPU evaluation at the nominal point:
+
+```julia
+elowitz_nllh(V_NOMINAL)                  # compile
+println("one CPU evaluation: ", round(@elapsed(elowitz_nllh(V_NOMINAL)) * 1000; digits = 2), " ms")
+```
+
+## Optimizers
+
+Baselines are chained: 90% of the budget to the global method, 10% to a Nelder-Mead polish.
+`setup` maps each label to a constructor, and every run (warm-ups included) builds a fresh
+optimizer: Metaheuristics' `DE` and `ECA` keep their population between solves, so a reused
+instance would start each trial from the previous trial's population.
+
+The baselines use library defaults.
+
+`HybridPSO` is the released version in ParallelParticleSwarms 1.6.4, with a 1,024-particle
+swarm (`HYBRID_PARTICLES`) and the BBOB benchmark's 100 L-BFGS iterations (`LOCAL_MAXITERS`).
+Its L-BFGS phase computes a 21-wide ForwardDiff gradient per particle inside one kernel, which
+fails to launch for this objective; the error is shown with the results, and its runs count
+as failures.
+
+```julia
+chain(t; isboxed = false) =
+    Chain(BenchmarkSetup(t; isboxed), BenchmarkSetup(Optim.NelderMead(); isboxed = false), 0.9)
+
+setup = Dict(
+    "NelderMead" => () -> BenchmarkSetup(Optim.NelderMead()),
+    "NLopt.GN_CRS2_LM()" => () -> chain(NLopt.GN_CRS2_LM(), isboxed = true),
+    "NLopt.GN_DIRECT()" => () -> chain(NLopt.GN_DIRECT(), isboxed = true),
+    "NLopt.GN_ESCH()" => () -> chain(NLopt.GN_ESCH(), isboxed = true),
+    "OptimizationEvolutionary.GA()" => () -> chain(OptimizationEvolutionary.GA(), isboxed = true),
+    "OptimizationEvolutionary.DE()" => () -> chain(OptimizationEvolutionary.DE(), isboxed = true),
+    "OptimizationEvolutionary.ES()" => () -> chain(OptimizationEvolutionary.ES(), isboxed = true),
+    "Optim.SAMIN" => () -> chain(Optim.SAMIN(verbosity = 0), isboxed = true),
+    "BBO_adaptive_de_rand_1_bin" => () -> chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
+    "BBO_de_rand_2_bin" => () -> chain(BBO_de_rand_2_bin(), isboxed = true),
+    "OptimizationMetaheuristics.ECA" => () -> chain(OptimizationMetaheuristics.ECA(), isboxed = true),
+    "OptimizationMetaheuristics.DE" => () -> chain(OptimizationMetaheuristics.DE(), isboxed = true),
+    "ScipyDifferentialEvolution" => () -> chain(ScipyDifferentialEvolution(), isboxed = true),
+    "SerialPSO" => () -> SerialPSO(SERIAL_PARTICLES),
+    "PSOKernel" => () -> PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true),
+    "SyncPSOKernel" => () -> SyncPSOKernel(NUM_PARTICLES; backend = BACKEND),
+)
+for l in keys(LOCAL_MAXITERS)       # HybridPSO entries differ only in their L-BFGS iterations
+    setup[l] = () -> HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
+end
+
+const LABELS = collect(keys(setup))
+const PSO_KEYS = Set(["SerialPSO", "PSOKernel", "SyncPSOKernel", keys(LOCAL_MAXITERS)...])
+particles_of(algo) = algo == "SerialPSO" ? SERIAL_PARTICLES :
+    haskey(LOCAL_MAXITERS, algo) ? HYBRID_PARTICLES : NUM_PARTICLES
+```
+
+## PSO plumbing
+
+PSO needs `SVector` inputs and a penalty for points outside the box. `HybridPSO`'s L-BFGS
+phase differentiates it with ForwardDiff. An error in the L-BFGS phase is recorded once per
+optimizer, printed with the results, and the run counts as a failure.
+
+```julia
+_value(x::Real) = x
+_value(x::ForwardDiff.Dual) = ForwardDiff.value(x)
+_to_f64(x) = Float64(_value(x))
+
+function pso_objective(f::BBOBFunction, x)
+    any(xi -> !isfinite(_value(xi)) || abs(_value(xi)) > 15, x) && return zero(first(x)) + 1.0e10
+    return f(x)
+end
+
+# `obj` is any x -> objective callable. u0 only fixes type and dimension; the swarm is
+# sampled from the box.
+function pso_problem(obj, ::Val{D}) where {D}
+    optf = OptimizationFunction{false}((x, p) -> obj(x), Optimization.AutoForwardDiff())
+    lb = SVector{D, Float64}(ntuple(_ -> -5.5, Val(D)))     # same box as the baselines
+    ub = SVector{D, Float64}(ntuple(_ -> 5.5, Val(D)))
+    return OptimizationProblem{false}(optf, SVector{D, Float64}(pinit(D)), nothing; lb, ub)
+end
+pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
+
+pso_solve(algo, opt, prob, budget) = opt isa HybridPSO ?
+    solve(prob, opt; maxiters = budget, local_maxiters = LOCAL_MAXITERS[algo], abstol = 1.0e-8, reltol = 1.0e-8) :
+    solve(prob, opt; maxiters = budget)
+
+const HYBRID_ERRORS = Dict{String, String}()   # optimizer => first line of its first error
+record_error(algo, e) = get!(HYBRID_ERRORS, algo, first(split(sprint(showerror, e), '\n')))
+```
+
+## Success rate vs. budget
+
+Same as the budget experiment of the PSO Global Optimizer Benchmarks, on one problem: each
+optimizer is run from scratch at every budget in `RUN_LENGTH` (iterations), `NTRIALS` times,
+with no time limit; `HybridPSO` runs its swarm for the budget, then its `LOCAL_MAXITERS`
+L-BFGS iterations. `run_one(algo, f, budget)` returns `(objective, minimizer, evaluations)`.
+For the PSO methods the evaluation count is `budget × particles`, so for `HybridPSO` it covers
+the swarm only: L-BFGS runs on the GPU, where its evaluations cannot be counted. The median
+wall time per run is recorded as well, so that cost is visible.
+
+```julia
+function run_one(algo, f::BBOBFunction, budget::Int)
+    if algo in PSO_KEYS
+        sol = try
+            pso_solve(algo, setup[algo](), pso_problem(x -> pso_objective(f, x), f), budget)
+        catch e
+            haskey(LOCAL_MAXITERS, algo) || rethrow()
+            record_error(algo, e)
+            return Inf, f.x_opt .* NaN, budget * particles_of(algo)
+        end
+        u = sol.u isa AbstractVector ? sol.u : sol.u[]
+        return _to_f64(sol.objective), u, budget * particles_of(algo)
+    else
+        counted = FunctionCallsCounter(f)
+        sol = solve_problem(setup[algo](), counted, length(f.x_opt), budget)
+        return sol.objective, sol.u, counted.count
+    end
+end
+
+function benchmark(algo)
+    f = last(only(PROBLEMS))
+    success, calls = zeros(length(RUN_LENGTH)), zeros(length(RUN_LENGTH))
+    wall = zeros(length(RUN_LENGTH), NTRIALS)
+    run_one(algo, f, 10)                                   # warm-up: compile, discard
+    for (ri, rl) in enumerate(RUN_LENGTH), k in 1:NTRIALS
+        t0 = time()
+        fval, _, n = run_one(algo, f, rl)
+        wall[ri, k] = time() - t0
+        success[ri] += fval < f.f_opt + DELTA
+        calls[ri] += n
+    end
+    success ./= NTRIALS
+    calls ./= NTRIALS
+    qlow, qhigh = compute_CI(success, NTRIALS, 0.25)
+    return BenchmarkResults(;
+        run_length = collect(RUN_LENGTH),
+        success_count = round.(Int, success .* NTRIALS),
+        success_rate = success,
+        success_rate_qlow = qlow,
+        success_rate_qhigh = qhigh,
+        distance_to_minimizer = fill(NaN, length(RUN_LENGTH)),
+        minimum = fill(NaN, length(RUN_LENGTH)),
+        runtime = median(wall[end, :]),                     # median wall time per run, largest budget
+        Neffective = NTRIALS,
+        callcount = calls,
+        success_rate_per_function = success[end:end],
+    )
+end
+
+@memoize run_bench(algo) = (
+    t = @elapsed(r = benchmark(algo));
+    @info algo budget_minutes = round(t / 60; digits = 1); r
+)
+
+results = Dict{String, BenchmarkResults}()
+for algo in LABELS
+    algo in PSO_KEYS && (results[algo] = run_bench(algo))
+end   # GPU first
+for algo in LABELS
+    algo in PSO_KEYS || (results[algo] = run_bench(algo))
+end
+```
+
+Success rate, mean evaluations and median wall time per run, at the largest budget, followed
+by any error recorded in a `HybridPSO` L-BFGS phase:
+
+```julia
+using Printf
+@printf "%-28s %10s %14s %18s\n" "optimizer" "success" "evaluations" "median time/run"
+for l in sort(LABELS)
+    r = results[l]
+    @printf "%-28s %10.2f %13.0f%s %17.3fs\n" l r.success_rate[end] r.callcount[end] (haskey(LOCAL_MAXITERS, l) ? "*" : " ") r.runtime
+end
+println("* swarm evaluations only (L-BFGS phase not counted)")
+for (l, msg) in sort(collect(HYBRID_ERRORS))
+    println(l, ": ", msg)
+end
+```
+
+## Plots
+
+```julia
+const MARKERS = [
+    :circle, :rect, :utriangle, :diamond, :dtriangle, :pentagon, :cross,
+    :xcross, :star4, :star5, :hexagon, :star6, :ltriangle, :rtriangle,
+]
+const LINESTYLES = [:solid, :dash, :dot, :dashdot, (:dot, :dense)]
+const STYLE = Dict(l => (MARKERS[mod1(i, end)], LINESTYLES[mod1(i, end)]) for (i, l) in enumerate(LABELS))
+
+# xs, ys: Dict label => vector. Legend ordered by each curve's final y value; `names` renames
+# legend entries.
+function plot_curves(
+        xs, ys; xlabel, ylabel, xlims = (nothing, nothing), ylims = (0, 1), best_is_high = true,
+        names = Dict{String, String}()
+    )
+    order = sort(collect(keys(ys)); by = l -> ys[l][end], rev = best_is_high)
+    fig = Figure(size = (1100, 450))
+    ax = Axis(fig[1, 1]; xscale = log10, xlabel, ylabel, limits = (xlims..., ylims...))
+    for l in order
+        marker, linestyle = STYLE[l]
+        scatterlines!(ax, xs[l], ys[l]; label = get(names, l, l), marker, linestyle, linewidth = 2, markersize = 6)
+    end
+    Legend(fig[1, 2], ax; framevisible = false)
+    return fig
+end
+```
+
+### Success rate vs. iterations
+
+Higher and further left is better. One PSO iteration moves every particle; one
+Nelder-Mead step is a few evaluations, so this view favours parallel methods.
+
+```julia
+plot_curves(
+    Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
+    Dict(l => results[l].success_rate for l in LABELS);
+    xlabel = "Iterations", ylabel = "Success rate", xlims = (1, maximum(RUN_LENGTH))
+)
+```
+
+### Success rate vs. function evaluations
+
+The same runs, with the number of objective calls on the x-axis. `HybridPSO`'s count covers
+its swarm only, so its curves sit further left than the work it does.
+
+```julia
+plot_curves(
+    Dict(l => results[l].callcount for l in LABELS),
+    Dict(l => results[l].success_rate for l in LABELS);
+    xlabel = "Function evaluations", ylabel = "Success rate",
+    names = Dict(l => "$l: swarm evaluations only (L-BFGS phase not counted)" for l in keys(LOCAL_MAXITERS))
+)
+```
+
+
+## References
+
+- M. B. Elowitz and S. Leibler, "A synthetic oscillatory network of transcriptional
+  regulators," *Nature* 403, 335–338 (2000).
+- H. Hass, C. Loos, E. Raimúndez-Álvarez, J. Timmer, J. Hasenauer, and C. Kreutz, "Benchmark
+  problems for dynamic modeling of intracellular processes," *Bioinformatics* 35(17),
+  3073–3082 (2019).
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
