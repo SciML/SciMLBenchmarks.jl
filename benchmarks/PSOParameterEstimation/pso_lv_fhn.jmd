@@ -1,0 +1,534 @@
+---
+title: PSO Lotka-Volterra and FitzHugh-Nagumo Parameter Estimation Benchmark
+author: Aditya Pandey
+---
+
+This benchmark fits the two ODE parameter-estimation problems from the
+[ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl) workshop paper
+(ICLR 2024 AI4DiffEqtnsInSci workshop): Lotka-Volterra and FitzHugh-Nagumo. It uses the same
+models, initial conditions, true parameters, bounds and data window as the paper's scripts
+(`benchmarks/Lotka_Volterra/lotka_volterra.jl` and `benchmarks/Fitzhugh_Nagumo/ode_estimation.jl`
+in that repository). The paper compares PSO with single Adam and L-BFGS runs. Here the PSO variants
+are compared with the same global optimizers as the PSO Global Optimizer Benchmarks
+(`benchmarks/PSOGlobalOptimization`), over repeated trials.
+
+## How it works
+
+- **Lotka-Volterra:** `dx = p1 x - p2 x y`, `dy = -p3 y + p4 x y`, with `u0 = (1, 1)`, true
+  `p = (1.5, 1.0, 3.0, 1.0)` and bounds `[0, 10]^4`.
+- **FitzHugh-Nagumo:** `dv = v - v^3/3 - w + l`, `dw = τinv (v + a - b w)`, with
+  `p = (a, b, τinv, l)`, `u0 = (1, 1)`, true `p = (0.7, 0.8, 0.08, 0.5)` and bounds `[0, 5]^4`.
+
+The data are both states at `t = 0:0.01:3`, the scripts' short window. They are generated with the
+same fixed-step RK4 as the cost (`dt = 0.01`, one step per sample), so the true parameters fit
+exactly and `f_opt = 0`. The cost is the mean squared error over all states and samples, with a
+`1e10` penalty if it is not finite. A run **succeeds** if it finds a point with cost below `1e-6`.
+Each problem is wrapped as a `BBOBFunction` of `z ∈ [-5.5, 5.5]^4`, the box all optimizers already
+use, with `z` mapped linearly onto the parameter bounds. Everything is evaluated in `Float64`.
+
+Both experiments of the PSO Global Optimizer Benchmarks are run on each problem:
+
+1. **Budget experiment.** Each optimizer is run from scratch at 10 iteration budgets (10 to
+   1,000), 10 times per budget, with no time limit. Each run records success, its final cost
+   and the number of objective evaluations.
+2. **Time-to-success experiment.** Every optimizer gets 20 s per trial, restarting from a fresh
+   random start after each failed run (up to 100,000 iterations per run; `HybridPSO`: 100 swarm
+   iterations, then L-BFGS). We record when it first hits the target and plot the fraction of
+   trials solved by each time.
+
+## Setup
+
+The settings are those of the PSO Global Optimizer Benchmarks, except that the budget sweep
+stops at 1,000 iterations instead of 10,000. Each evaluation here is a 300-step ODE solve in
+`Float64`, so the BBOB page's sweep to 10,000 would take many hours on the CI GPU.
+
+```julia
+using Random; Random.seed!(42)
+using BlackBoxOptimizationBenchmarking, CairoMakie, Optimization, Memoize, Statistics
+using StaticArrays, LinearAlgebra, ForwardDiff, KernelAbstractions, CUDA
+using OptimizationBBO, OptimizationOptimJL, OptimizationEvolutionary, OptimizationNLopt
+using OptimizationMetaheuristics, OptimizationSciPy
+using OptimizationOptimJL: Optim          # NelderMead and SAMIN live here
+using ParallelParticleSwarms
+CairoMakie.activate!()
+
+import BlackBoxOptimizationBenchmarking: Chain, BenchmarkSetup, BenchmarkResults,
+    BBOBFunction, FunctionCallsCounter, solve_problem, pinit, compute_CI
+const SciMLBase = Optimization.SciMLBase
+
+const PSOKernel = ParallelParticleSwarms.ParallelPSOKernel
+const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
+const SerialPSO = ParallelParticleSwarms.SerialPSO
+const HybridPSO = ParallelParticleSwarms.HybridPSO
+const BACKEND = CUDABackend()
+
+const NTRIALS = 10
+const DELTA = 1.0e-6            # success: cost below f_opt + DELTA
+const NUM_PARTICLES = 50_000    # GPU swarm
+const HYBRID_PARTICLES = 25_000 # HybridPSO's swarm
+const SERIAL_PARTICLES = 512       # CPU swarm
+const RUN_LENGTH = round.(Int, 10 .^ LinRange(1, 3, 10))   # budget experiment: 10 to 1,000
+const TIME_BUDGET = 20.0        # time-to-success: seconds per trial, restarts included
+const MAX_TTS_ITERS = 100_000   # time-to-success: iterations per restart
+const TTS_CHUNK = 20        # GPU: read back the best cost every this many iterations
+const HYBRID_SWARM_ITERS = 100   # swarm iterations before L-BFGS in time-to-success
+# L-BFGS iterations of each HybridPSO entry
+const LOCAL_MAXITERS = Dict("HybridPSO_LBFGS" => 100)
+```
+
+## Problems
+
+`rk4` takes `nsub` fixed steps of size `dt`. `inverse_problem` generates the data with it at the
+true parameters (`nsave` samples after `t = 0`) and returns the cost as a `BBOBFunction`; `x_opt`
+is the `z` of the true parameters.
+
+```julia
+function rk4(f, u, p, dt, nsub)
+    for _ in 1:nsub
+        k1 = f(u, p); k2 = f(u + dt / 2 * k1, p); k3 = f(u + dt / 2 * k2, p); k4 = f(u + dt * k3, p)
+        u = u + dt / 6 * (k1 + 2k2 + 2k3 + k4)
+    end
+    return u
+end
+
+function inverse_problem(f, u0, p_true, lb, ub; nsave, dt, nsub)
+    to_p(z) = lb + (clamp.(z, -5.5, 5.5) .+ 5.5) / 11 .* (ub - lb)
+    states, v = Vector{typeof(u0)}(undef, nsave), u0
+    for k in 1:nsave
+        v = rk4(f, v, p_true, dt, nsub)
+        states[k] = v
+    end
+    data = SVector{nsave}(states)
+    function cost(z, _x_opt, _f_opt, _Q, _R)
+        p = to_p(z)
+        u, s = u0 .* one(eltype(p)), zero(eltype(p))
+        for d in data
+            u = rk4(f, u, p, dt, nsub)
+            s += sum(abs2, u - d)
+        end
+        s /= nsave
+        return isfinite(s) ? s : 1.0e10 + zero(s)
+    end
+    D = length(p_true)
+    z_opt = SVector{D, Float32}(11 .* (p_true - lb) ./ (ub - lb) .- 5.5)
+    Id = SMatrix{D, D, Float32}(I)
+    return BBOBFunction(cost, z_opt, 0.0f0, Id, Id)
+end
+
+lotka_volterra(u, p) = SVector(p[1] * u[1] - p[2] * u[1] * u[2], -p[3] * u[2] + p[4] * u[1] * u[2])
+
+function fitzhugh_nagumo(u, p)
+    a, b, τinv, l = p
+    v, w = u
+    return SVector(v - v^3 / 3 - w + l, τinv * (v + a - b * w))
+end
+
+const PROBLEMS = [
+    "Lotka-Volterra" => inverse_problem(
+        lotka_volterra, SVector(1.0, 1.0), SVector(1.5, 1.0, 3.0, 1.0),
+        SVector(0.0, 0.0, 0.0, 0.0), SVector(10.0, 10.0, 10.0, 10.0); nsave = 300, dt = 0.01, nsub = 1
+    ),
+    "FitzHugh-Nagumo" => inverse_problem(
+        fitzhugh_nagumo, SVector(1.0, 1.0), SVector(0.7, 0.8, 0.08, 0.5),
+        SVector(0.0, 0.0, 0.0, 0.0), SVector(5.0, 5.0, 5.0, 5.0); nsave = 300, dt = 0.01, nsub = 1
+    ),
+]
+const PROBLEM_NAMES = first.(PROBLEMS)
+```
+
+Sanity check: the cost at `x_opt` is about 0 (`x_opt` is stored in `Float32`).
+
+```julia
+for (name, f) in PROBLEMS
+    println(rpad(name, 17), "cost at x_opt = ", f(f.x_opt))
+end
+```
+
+## Optimizers
+
+Baselines are chained: 90% of the budget to the global method, 10% to a Nelder-Mead polish.
+`setup` maps each label to a constructor, and every run (warm-ups included) builds a fresh
+optimizer: Metaheuristics' `DE` and `ECA` keep their population between solves, so a reused
+instance would start each trial from the previous trial's population.
+
+The baselines use library defaults.
+
+`HybridPSO` is the released version in ParallelParticleSwarms 1.6.4, with a 25,000-particle swarm
+(`HYBRID_PARTICLES`) and 100 L-BFGS iterations (`LOCAL_MAXITERS`), the values the BBOB benchmark
+chose from its grid. Any error in its L-BFGS phase is shown with the results, and its runs then
+count as failures.
+
+```julia
+chain(t; isboxed = false) =
+    Chain(BenchmarkSetup(t; isboxed), BenchmarkSetup(Optim.NelderMead(); isboxed = false), 0.9)
+
+setup = Dict(
+    "NelderMead" => () -> BenchmarkSetup(Optim.NelderMead()),
+    "NLopt.GN_CRS2_LM()" => () -> chain(NLopt.GN_CRS2_LM(), isboxed = true),
+    "NLopt.GN_DIRECT()" => () -> chain(NLopt.GN_DIRECT(), isboxed = true),
+    "NLopt.GN_ESCH()" => () -> chain(NLopt.GN_ESCH(), isboxed = true),
+    "OptimizationEvolutionary.GA()" => () -> chain(OptimizationEvolutionary.GA(), isboxed = true),
+    "OptimizationEvolutionary.DE()" => () -> chain(OptimizationEvolutionary.DE(), isboxed = true),
+    "OptimizationEvolutionary.ES()" => () -> chain(OptimizationEvolutionary.ES(), isboxed = true),
+    "Optim.SAMIN" => () -> chain(Optim.SAMIN(verbosity = 0), isboxed = true),
+    "BBO_adaptive_de_rand_1_bin" => () -> chain(BBO_adaptive_de_rand_1_bin(), isboxed = true),
+    "BBO_de_rand_2_bin" => () -> chain(BBO_de_rand_2_bin(), isboxed = true),
+    "OptimizationMetaheuristics.ECA" => () -> chain(OptimizationMetaheuristics.ECA(), isboxed = true),
+    "OptimizationMetaheuristics.DE" => () -> chain(OptimizationMetaheuristics.DE(), isboxed = true),
+    "ScipyDifferentialEvolution" => () -> chain(ScipyDifferentialEvolution(), isboxed = true),
+    "SerialPSO" => () -> SerialPSO(SERIAL_PARTICLES),
+    "PSOKernel" => () -> PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true),
+    "SyncPSOKernel" => () -> SyncPSOKernel(NUM_PARTICLES; backend = BACKEND),
+)
+for l in keys(LOCAL_MAXITERS)       # HybridPSO entries differ only in their L-BFGS iterations
+    setup[l] = () -> HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
+end
+
+const LABELS = collect(keys(setup))
+const PSO_KEYS = Set(["SerialPSO", "PSOKernel", "SyncPSOKernel", keys(LOCAL_MAXITERS)...])
+particles_of(algo) = algo == "SerialPSO" ? SERIAL_PARTICLES :
+    haskey(LOCAL_MAXITERS, algo) ? HYBRID_PARTICLES : NUM_PARTICLES
+```
+
+## PSO plumbing
+
+PSO needs `SVector` inputs and a penalty for points outside the box. `HybridPSO`'s L-BFGS
+phase differentiates it with ForwardDiff. An error in the L-BFGS phase is recorded once per
+optimizer, printed with the results, and the run counts as a failure.
+
+```julia
+_value(x::Real) = x
+_value(x::ForwardDiff.Dual) = ForwardDiff.value(x)
+_to_f64(x) = Float64(_value(x))
+
+function pso_objective(f::BBOBFunction, x)
+    any(xi -> !isfinite(_value(xi)) || abs(_value(xi)) > 15, x) && return zero(first(x)) + 1.0e10
+    return f(x)
+end
+
+# `obj` is any x -> objective callable. u0 only fixes type and dimension; the swarm is
+# sampled from the box.
+function pso_problem(obj, ::Val{D}) where {D}
+    optf = OptimizationFunction{false}((x, p) -> obj(x), Optimization.AutoForwardDiff())
+    lb = SVector{D, Float64}(ntuple(_ -> -5.5, Val(D)))     # same box as the baselines
+    ub = SVector{D, Float64}(ntuple(_ -> 5.5, Val(D)))
+    return OptimizationProblem{false}(optf, SVector{D, Float64}(pinit(D)), nothing; lb, ub)
+end
+pso_problem(obj, f::BBOBFunction{F, N}) where {F, N} = pso_problem(obj, Val(N))
+
+pso_solve(algo, opt, prob, budget) = opt isa HybridPSO ?
+    solve(prob, opt; maxiters = budget, local_maxiters = LOCAL_MAXITERS[algo], abstol = 1.0e-8, reltol = 1.0e-8) :
+    solve(prob, opt; maxiters = budget)
+
+const HYBRID_ERRORS = Dict{String, String}()   # optimizer => first line of its first error
+record_error(algo, e) = get!(HYBRID_ERRORS, algo, first(split(sprint(showerror, e), '\n')))
+```
+
+## Experiment 1: success rate vs. budget
+
+Each optimizer is run from scratch at every budget in `RUN_LENGTH` (iterations), `NTRIALS`
+times per problem, with no time limit; `HybridPSO` runs its swarm for the budget, then its
+`LOCAL_MAXITERS` L-BFGS iterations. `run_one(algo, f, budget)` returns
+`(objective, minimizer, evaluations)`. For the PSO methods the evaluation count is
+`budget × particles`, so for `HybridPSO` it covers the swarm only: L-BFGS runs on the GPU, where
+its evaluations cannot be counted. The median final cost at each budget is recorded too.
+
+```julia
+function run_one(algo, f::BBOBFunction, budget::Int)
+    if algo in PSO_KEYS
+        sol = try
+            pso_solve(algo, setup[algo](), pso_problem(x -> pso_objective(f, x), f), budget)
+        catch e
+            haskey(LOCAL_MAXITERS, algo) || rethrow()
+            record_error(algo, e)
+            return Inf, f.x_opt .* NaN, budget * particles_of(algo)
+        end
+        u = sol.u isa AbstractVector ? sol.u : sol.u[]
+        return _to_f64(sol.objective), u, budget * particles_of(algo)
+    else
+        counted = FunctionCallsCounter(f)
+        sol = solve_problem(setup[algo](), counted, length(f.x_opt), budget)
+        return sol.objective, sol.u, counted.count
+    end
+end
+
+function benchmark(algo, f::BBOBFunction)
+    success, calls = zeros(length(RUN_LENGTH)), zeros(length(RUN_LENGTH))
+    wall, best = zeros(length(RUN_LENGTH), NTRIALS), zeros(length(RUN_LENGTH), NTRIALS)
+    run_one(algo, f, 10)                                   # warm-up per problem: compile, discard
+    for (ri, rl) in enumerate(RUN_LENGTH), k in 1:NTRIALS
+        t0 = time()
+        fval, _, n = run_one(algo, f, rl)
+        wall[ri, k] = time() - t0
+        best[ri, k] = fval
+        success[ri] += fval < f.f_opt + DELTA
+        calls[ri] += n
+    end
+    success ./= NTRIALS
+    calls ./= NTRIALS
+    qlow, qhigh = compute_CI(success, NTRIALS, 0.25)
+    return BenchmarkResults(;
+        run_length = collect(RUN_LENGTH),
+        success_count = round.(Int, success .* NTRIALS),
+        success_rate = success,
+        success_rate_qlow = qlow,
+        success_rate_qhigh = qhigh,
+        distance_to_minimizer = fill(NaN, length(RUN_LENGTH)),
+        minimum = vec(median(best, dims = 2)),             # median final cost per budget
+        runtime = median(wall[end, :]),                     # median wall time per run, largest budget
+        Neffective = NTRIALS,
+        callcount = calls,
+        success_rate_per_function = success[end:end],
+    )
+end
+
+@memoize run_bench(algo, name) = (
+    t = @elapsed(r = benchmark(algo, Dict(PROBLEMS)[name]));
+    @info algo name budget_minutes = round(t / 60; digits = 1); r
+)
+
+results = Dict{Tuple{String, String}, BenchmarkResults}()   # (problem, optimizer) => results
+for name in PROBLEM_NAMES, algo in LABELS
+    algo in PSO_KEYS && (results[(name, algo)] = run_bench(algo, name))
+end   # GPU first
+for name in PROBLEM_NAMES, algo in LABELS
+    algo in PSO_KEYS || (results[(name, algo)] = run_bench(algo, name))
+end
+```
+
+## Experiment 2: wall-clock time to success
+
+Each optimizer gets `TIME_BUDGET` seconds per (problem, trial), restarting after each failed
+run of `MAX_TTS_ITERS` iterations; a hit after the budget counts as a failure. CPU optimizers
+are timed by wrapping the objective to record the first evaluation below the target, as in the
+reference benchmark; the wrapper also ends the run at that hit or once the budget has passed.
+A GPU kernel can't read the clock, so GPU swarms advance in chunks of `TTS_CHUNK` iterations,
+with the best cost checked in between; `HybridPSO` runs `HYBRID_SWARM_ITERS` swarm iterations
+this way, then its L-BFGS phase. `NLopt.GN_DIRECT()` ignores the starting point, so restarts
+can't help it. The clock starts before the optimizer's setup and covers every restart. One
+untimed warm-up per (optimizer, problem) keeps compilation out of the times.
+
+```julia
+struct Stop <: Exception end
+
+# Wrap an objective so the first evaluation below `target` records the elapsed time and ends
+# the run; the run also ends once `TIME_BUDGET` has passed (clock read every 100 evaluations).
+function tracked(obj, target, t0)
+    hit, n = Ref(Inf), Ref(0)
+    function g(x)
+        v = obj(x)
+        v < target && (hit[] = time() - t0; throw(Stop()))
+        (n[] += 1) % 100 == 0 && time() - t0 > TIME_BUDGET && throw(Stop())
+        return v
+    end
+    return g, hit
+end
+
+# Run `solve()` until `tracked` stops it. The check is on state, not on the exception type,
+# because SciPy hands the exception back wrapped as a Python error.
+function until_stopped(solve, hit, t0)
+    try solve() catch
+        isfinite(hit[]) || time() - t0 > TIME_BUDGET || rethrow()
+    end
+    return hit[]
+end
+
+# Advance a PSO cache in chunks until `TIME_BUDGET`; return the time of the first chunk whose
+# best cost is below `target`, or Inf. (solve! resets the inertia weight each call; harmless
+# with the default wdamp = 1.)
+function chunked!(cache, target, t0, maxiters = MAX_TTS_ITERS)
+    for _ in 1:cld(maxiters, TTS_CHUNK)
+        time() - t0 > TIME_BUDGET && break
+        sol = SciMLBase.solve!(cache; maxiters = TTS_CHUNK)
+        if cache.alg isa SyncPSOKernel                       # sync kernel does not store gbest back
+            obj = _to_f64(sol.objective)
+            cache.gbest = ParallelParticleSwarms.SPSOGBest(sol.u, obj)
+        end
+        _to_f64(sol.objective) < target && return time() - t0
+    end
+    return Inf
+end
+
+# One run from a fresh random start; return its first-hit time measured from `t0`, or Inf.
+function timed_run(algo, f::BBOBFunction, target, t0, iters = MAX_TTS_ITERS)
+    opt = setup[algo]()
+    if !(algo in PSO_KEYS)
+        g, hit = tracked(f, target, t0)
+        return until_stopped(() -> solve_problem(opt, g, length(f.x_opt), iters), hit, t0)
+    elseif opt isa SerialPSO
+        g, hit = tracked(x -> pso_objective(f, x), target, t0)
+        return until_stopped(() -> pso_solve(algo, opt, pso_problem(g, f), iters), hit, t0)
+    elseif opt isa HybridPSO
+        try
+            cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
+            t = chunked!(cache.pso_cache, target, t0, HYBRID_SWARM_ITERS)   # PSO phase
+            isfinite(t) && return t
+            sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS[algo], abstol = 1.0e-8, reltol = 1.0e-8)
+            return _to_f64(sol.objective) < target ? time() - t0 : Inf   # L-BFGS phase only
+        catch e
+            record_error(algo, e)
+            return Inf
+        end
+    else
+        cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
+        return chunked!(cache, target, t0, iters)
+    end
+end
+
+# Restart until the target is hit or `TIME_BUDGET` seconds have passed.
+function time_to_success_one(algo, f::BBOBFunction)
+    target, t0 = f.f_opt + DELTA, time()
+    while time() - t0 < TIME_BUDGET
+        t = timed_run(algo, f, target, t0)
+        isfinite(t) && return t <= TIME_BUDGET ? t : Inf
+    end
+    return Inf
+end
+
+function time_to_success(algo, f::BBOBFunction)
+    timed_run(algo, f, -Inf, Inf, 100)                     # warm-up per problem: compile every phase, never stops early
+    return [time_to_success_one(algo, f) for _ in 1:NTRIALS]
+end
+
+@memoize run_tts(algo, name) = (
+    t = @elapsed(r = time_to_success(algo, Dict(PROBLEMS)[name]));
+    @info algo name tts_minutes = round(t / 60; digits = 1); r
+)
+
+tts = Dict{Tuple{String, String}, Vector{Float64}}()   # (problem, optimizer) => times
+for name in PROBLEM_NAMES, algo in LABELS
+    algo in PSO_KEYS && (tts[(name, algo)] = run_tts(algo, name))
+end
+for name in PROBLEM_NAMES, algo in LABELS
+    algo in PSO_KEYS || (tts[(name, algo)] = run_tts(algo, name))
+end
+```
+
+## Results
+
+Per problem: trials solved within `TIME_BUDGET` and their median time to success
+(Experiment 2), and the median final cost of the budget experiment's runs at the largest
+budget, 1,000 iterations (Experiment 1). Any error recorded in a `HybridPSO` L-BFGS phase
+follows the tables.
+
+```julia
+using Printf
+for name in PROBLEM_NAMES
+    println(name)
+    @printf "  %-28s %8s %12s %18s\n" "optimizer" "solved" "median TTS" "median best cost"
+    for l in sort(LABELS)
+        v = filter(isfinite, tts[(name, l)])
+        @printf "  %-28s %5d/%-2d %12s %18.3e\n" l length(v) NTRIALS (isempty(v) ? "never" : @sprintf("%.3f s", median(v))) results[(name, l)].minimum[end]
+    end
+    println()
+end
+for (l, msg) in sort(collect(HYBRID_ERRORS))
+    println(l, ": ", msg)
+end
+```
+
+## Plots
+
+```julia
+const MARKERS = [
+    :circle, :rect, :utriangle, :diamond, :dtriangle, :pentagon, :cross,
+    :xcross, :star4, :star5, :hexagon, :star6, :ltriangle, :rtriangle,
+]
+const LINESTYLES = [:solid, :dash, :dot, :dashdot, (:dot, :dense)]
+const STYLE = Dict(l => (MARKERS[mod1(i, end)], LINESTYLES[mod1(i, end)]) for (i, l) in enumerate(LABELS))
+
+# xs, ys: Dict label => vector. Legend ordered by each curve's final y value; `names` renames
+# legend entries.
+function plot_curves(
+        xs, ys; xlabel, ylabel, xlims = (nothing, nothing), ylims = (0, 1), best_is_high = true,
+        names = Dict{String, String}(), title = ""
+    )
+    order = sort(collect(keys(ys)); by = l -> ys[l][end], rev = best_is_high)
+    fig = Figure(size = (1100, 450))
+    ax = Axis(fig[1, 1]; xscale = log10, xlabel, ylabel, title, limits = (xlims..., ylims...))
+    for l in order
+        marker, linestyle = STYLE[l]
+        scatterlines!(ax, xs[l], ys[l]; label = get(names, l, l), marker, linestyle, linewidth = 2, markersize = 6)
+    end
+    Legend(fig[1, 2], ax; framevisible = false)
+    return fig
+end
+
+plot_iterations(name) = plot_curves(
+    Dict(l => Float64.(RUN_LENGTH) for l in LABELS),
+    Dict(l => results[(name, l)].success_rate for l in LABELS);
+    xlabel = "Iterations", ylabel = "Success rate", xlims = (1, maximum(RUN_LENGTH)), title = name
+)
+
+plot_evaluations(name) = plot_curves(
+    Dict(l => results[(name, l)].callcount for l in LABELS),
+    Dict(l => results[(name, l)].success_rate for l in LABELS);
+    xlabel = "Function evaluations", ylabel = "Success rate", title = name,
+    names = Dict(l => "$l: swarm evaluations only (L-BFGS phase not counted)" for l in keys(LOCAL_MAXITERS))
+)
+
+function plot_wallclock(name)
+    finite = filter(isfinite, reduce(vcat, (tts[(name, l)] for l in LABELS); init = Float64[]))
+    tmin = isempty(finite) ? 1.0e-3 : minimum(finite) / 2  # nothing succeeded; keep the plot alive
+    thresholds = 10 .^ range(log10(tmin), log10(TIME_BUDGET), length = 50)
+    cdf(times) = [count(<=(T), times) / length(times) for T in thresholds]
+    return plot_curves(
+        Dict(l => thresholds for l in LABELS),
+        Dict(l => cdf(tts[(name, l)]) for l in LABELS);
+        xlabel = "Wall time (s)", ylabel = "Success rate", title = name
+    )
+end
+```
+
+### Success rate vs. iterations
+
+Higher and further left is better. One PSO iteration moves every particle (50,000 evaluations
+for the GPU swarms, 25,000 for `HybridPSO_LBFGS`); one Nelder-Mead step is a few evaluations,
+so this view favours parallel methods. `HybridPSO_LBFGS` also runs up to `LOCAL_MAXITERS`
+L-BFGS iterations after its swarm at every budget, which this axis does not count.
+
+```julia
+plot_iterations("Lotka-Volterra")
+```
+
+```julia
+plot_iterations("FitzHugh-Nagumo")
+```
+
+### Success rate vs. function evaluations
+
+The same runs, with the number of objective calls on the x-axis. `HybridPSO`'s count covers
+its swarm only, so its curves sit further left than the work it does.
+
+```julia
+plot_evaluations("Lotka-Volterra")
+```
+
+```julia
+plot_evaluations("FitzHugh-Nagumo")
+```
+
+### Success rate vs. wall-clock time
+
+For a time T (x), the fraction of trials that had already reached the target by T seconds
+(y). Every optimizer ran, with restarts, for the full `TIME_BUDGET` on every trial it did not
+solve, so the axis ends at the budget and the right edge is a like-for-like comparison.
+
+```julia
+plot_wallclock("Lotka-Volterra")
+```
+
+```julia
+plot_wallclock("FitzHugh-Nagumo")
+```
+
+## References
+
+- Utkarsh, V. Dixit, J. Samaroo, A. Pal, A. Edelman, and C. Rackauckas, "Efficient
+  GPU-Accelerated Global Optimization for Inverse Problems," ICLR 2024 Workshop on AI4DiffEqtnsInSci
+  (2024).
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
