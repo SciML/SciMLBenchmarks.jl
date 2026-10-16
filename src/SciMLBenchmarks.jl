@@ -41,6 +41,23 @@ function weave_file(folder, file, build_list = (:script, :github))
         Pkg.activate(folder)
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
             Pkg.instantiate()
+            # Conda.jl's module body validates its env dir at load time; on
+            # runners with a persistent depot a deleted env breaks precompile.
+            # Building first recreates it (build_benchmark.sh does the same
+            # for the root env). Only build entries with an installed source:
+            # manifests resolved under older Julia versions can list former
+            # stdlibs that no longer ship with Julia and have no path, which
+            # makes plain Pkg.build() error.
+            ctx = Pkg.Types.Context()
+            buildable = Pkg.PackageSpec[]
+            for (uuid, entry) in ctx.env.manifest.deps
+                Pkg.Types.is_stdlib(uuid) && continue
+                path = Pkg.Operations.source_path(ctx.env.manifest_file, entry)
+                path === nothing && continue
+                isfile(joinpath(path, "deps", "build.jl")) &&
+                    push!(buildable, Pkg.PackageSpec(; uuid = uuid))
+            end
+            isempty(buildable) || Pkg.build(buildable)
         end
         Pkg.precompile()
     end
