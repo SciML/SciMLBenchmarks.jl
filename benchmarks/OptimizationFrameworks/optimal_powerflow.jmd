@@ -1787,10 +1787,18 @@ println(sort(abs.(test_cons)))
 ## Optim.jl
 
 Implementation reference: https://julianlsolvers.github.io/Optim.jl/stable/#examples/generated/ipnewton_basics/
-In the latest run it does not converge to a feasible point (`"feasible" => false` in the test runs below); the root cause is unclear.
+The constraint Jacobian and Hessian are computed with ForwardDiff and passed to `TwiceDifferentiableConstraints`
+explicitly. The automatic-differentiation form `TwiceDifferentiableConstraints(c!, lx, ux, lc, uc)` in NLSolversBase 7.10
+returns an identically zero constraint Hessian, which makes `IPNewton` stop at infeasible points; this environment cannot
+use NLSolversBase 8, where that constructor is correct, because PowerModels requires NLsolve 4, which requires NLSolversBase 7.
+With exact constraint derivatives, `IPNewton` reaches the same optimum as Ipopt on `case3_lmbd`, but on `case5_pjm` it stops
+(its step-size convergence test triggers) at a point that violates the power-flow constraints, so that result is reported
+as `"feasible" => false`. Each Hessian call below rebuilds a closure over the constraint function and runs a dense
+`ForwardDiff.hessian` with no reused config, so the `IPNewton` timings include that per-call derivative overhead.
 
 ```julia
 import Optim
+import ForwardDiff
 
 function build_opf_optim_prob(dataset)
     (; data, ref) = dataset
@@ -2077,9 +2085,21 @@ function build_opf_optim_prob(dataset)
         push!(con_ubs, branch["rate_a"]^2)
     end
 
+    ncons = length(con_lbs)
+    function opf_constraints_jacobian!(J, x)
+        ForwardDiff.jacobian!(J, opf_constraints, zeros(eltype(x), ncons), x)
+        return J
+    end
+    # IPNewton expects the constraint Hessian callback to add sum(λ .* ∇²c) to H
+    function opf_constraints_hessian!(H, x, λ)
+        H .+= ForwardDiff.hessian(y -> sum(λ .* opf_constraints(zeros(eltype(y), ncons), y)), x)
+        return H
+    end
+
     df = Optim.TwiceDifferentiable(opf_objective, var_init)
     dfc = Optim.TwiceDifferentiableConstraints(
-        opf_constraints, var_lb, var_ub, con_lbs, con_ubs)
+        opf_constraints, opf_constraints_jacobian!, opf_constraints_hessian!,
+        var_lb, var_ub, con_lbs, con_ubs)
     df, dfc, var_init, con_lbs, con_ubs
 end
 
