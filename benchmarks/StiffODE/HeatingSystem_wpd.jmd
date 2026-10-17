@@ -21,7 +21,7 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
 using OrdinaryDiffEqCore, Polyester
 using SciMLLogging
-using PreallocationTools
+using StaticArrays
 gr()
 using LinearAlgebra, RecursiveFactorization
 
@@ -81,12 +81,16 @@ hist(x, p, e = 1) = -(x + 0.5)*(x - 0.5) * x * 1/(0.0474)*e + p
 sat(x, xmin, xmax) = tanh(2*(x-xmin)/(xmax-xmin)-1) * (xmax-xmin)/2 + (xmax+xmin)/2
 
 # Main ODE function for the heating system
-function heating(du, u, (p, _Qh, _Que), t)
+function heating(du, u, p, t)
     (Td, Tu, x) = set_up_vars(u)
     (dTd, dTu, dx) = set_up_vars(du)
     (Cu, Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b) = set_up_params(p)
-    Qh = PreallocationTools.get_tmp(_Qh, du)
-    Que = PreallocationTools.get_tmp(_Que, du)
+
+    # Per-call stack buffers: the threaded extrapolation methods evaluate heating
+    # concurrently, so work arrays shared through `p` would be a data race.
+    T = promote_type(eltype(u), eltype(du), typeof(t))
+    Qh = MVector{N, T}(undef)
+    Que = MVector{N, T}(undef)
 
     # External temperature with daily variation
     Text = 278.15 + 8*sin(2π*t/86400)
@@ -120,8 +124,6 @@ end
 
 # Initial conditions and parameters
 u0 = [Td0, fill(Tu0, N)..., fill(-0.5, N)...]
-Qh0 = DiffCache(zeros(N))
-Que0 = DiffCache(zeros(N))
 p = [Cu..., Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b]
 tspan = (0., 50_000.)
 
@@ -140,7 +142,7 @@ tspan = (0., 50_000.)
 LinearAlgebra.BLAS.set_num_threads(1)
 
 # Problem setup
-prob = ODEProblem(heating, u0, tspan, (p, Qh0, Que0))
+prob = ODEProblem(heating, u0, tspan, p)
 
 # Reference solution using a robust stiff solver
 sol = solve(prob, Rodas5P(), abstol=1e-12, reltol=1e-12)
