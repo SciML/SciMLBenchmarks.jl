@@ -1,5 +1,18 @@
 using SciMLBenchmarks
 using Test
+using TOML
+
+@testset "benchmark dependencies" begin
+    project = TOML.parsefile(
+        joinpath(dirname(@__DIR__), "benchmarks", "MultiLanguage", "Project.toml")
+    )
+    for package in (
+            "ODEInterfaceDiffEq", "Plots", "RCall", "SciPyDiffEq", "Sundials",
+            "deSolveDiffEq",
+        )
+        @test haskey(project["deps"], package)
+    end
+end
 
 @testset "documentation workflow consistency" begin
     repository_root = dirname(@__DIR__)
