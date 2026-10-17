@@ -117,7 +117,28 @@ end
 
 u0 = zeros(NN_beam)
 tspan = (0.0, 5.0)
+```
 
+Concurrent RHS evaluations agree with serial evaluations for distinct states and times.
+
+```julia
+let inputs = [u0 .+ 0.01 * i .* sin.(eachindex(u0)) for i in 1:512],
+        times = [5.0 * i / 512 for i in 1:512]
+    serial = [similar(u0) for _ in inputs]
+    threaded = [similar(u0) for _ in inputs]
+    for i in eachindex(inputs)
+        beam!(serial[i], inputs[i], nothing, times[i])
+    end
+    Threads.@threads for i in eachindex(inputs)
+        beam!(threaded[i], inputs[i], nothing, times[i])
+    end
+    mismatches = count(i -> threaded[i] != serial[i], eachindex(inputs))
+    @assert mismatches == 0 "Beam concurrent RHS mismatches: $mismatches/512"
+    println("Beam: concurrent RHS matches serial on 512 calls")
+end
+```
+
+```julia
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(beam!, u0, tspan)
 
 # Generate reference solution using tight tolerances

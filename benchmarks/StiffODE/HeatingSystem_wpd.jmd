@@ -126,7 +126,28 @@ end
 u0 = [Td0, fill(Tu0, N)..., fill(-0.5, N)...]
 p = [Cu..., Cd, Gh, Gu, Qmax, Teps, Td0, Tu0, Kp, a, b]
 tspan = (0., 50_000.)
+```
 
+Concurrent RHS evaluations agree with serial evaluations for distinct states and times.
+
+```julia
+let inputs = [u0 .+ 0.01 * i .* sin.(eachindex(u0)) for i in 1:512],
+        times = [50000.0 * i / 512 for i in 1:512]
+    serial = [similar(u0) for _ in inputs]
+    threaded = [similar(u0) for _ in inputs]
+    for i in eachindex(inputs)
+        heating(serial[i], inputs[i], p, times[i])
+    end
+    Threads.@threads for i in eachindex(inputs)
+        heating(threaded[i], inputs[i], p, times[i])
+    end
+    mismatches = count(i -> threaded[i] != serial[i], eachindex(inputs))
+    @assert mismatches == 0 "HeatingSystem concurrent RHS mismatches: $mismatches/512"
+    println("HeatingSystem: concurrent RHS matches serial on 512 calls")
+end
+```
+
+```julia
 # Pin BLAS to one thread for the whole file.
 #
 # This system is 81 dense states, so every solver step is an 81x81 factorization - far too

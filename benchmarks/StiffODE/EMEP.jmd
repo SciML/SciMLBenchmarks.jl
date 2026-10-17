@@ -342,7 +342,28 @@ u0[4] = 3.8e12
 u0[5] = 3.5e13
 u0[14] = 5.0e11
 u0[38] = 1.0e-3
+```
 
+Concurrent RHS evaluations agree with serial evaluations for distinct states and times.
+
+```julia
+let inputs = [u0 .+ 1.0e-5 * i .* sin.(eachindex(u0)) for i in 1:512],
+        times = [15000.0 + 65000.0 * i / 512 for i in 1:512]
+    serial = [similar(u0) for _ in inputs]
+    threaded = [similar(u0) for _ in inputs]
+    for i in eachindex(inputs)
+        emep!(serial[i], inputs[i], nothing, times[i])
+    end
+    Threads.@threads for i in eachindex(inputs)
+        emep!(threaded[i], inputs[i], nothing, times[i])
+    end
+    mismatches = count(i -> threaded[i] != serial[i], eachindex(inputs))
+    @assert mismatches == 0 "EMEP concurrent RHS mismatches: $mismatches/512"
+    println("EMEP: concurrent RHS matches serial on 512 calls")
+end
+```
+
+```julia
 # Time span: 4 hours to hour 116 (417600 seconds)
 # With 8 discontinuities at day/night transitions (dawn at 4:00, dusk at 20:00)
 # T(0) = 4*3600 = 14400, T(end) = 20*3600 + 4*24*3600 = 417600
@@ -364,7 +385,32 @@ daylight_cb = DiscreteCallback((u, t, integrator) -> t in disc_times,
     save_positions = (false, false))
 prob = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan,
     EMEPDaylight(is_daylight(tspan[1])); callback = daylight_cb)
+```
 
+Repeated solves reset the daylight parameter and produce identical solutions across dusk.
+
+```julia
+let restart_prob = remake(
+        prob; tspan = (disc_times[1] - 1, disc_times[1] + 1),
+        p = deepcopy(prob.p)
+    )
+    solutions = map(1:2) do _
+        integrator = init(
+            restart_prob, Rodas5P(); abstol = 1.0e-8, reltol = 1.0e-8,
+            tstops = [disc_times[1]], save_everystep = false
+        )
+        @assert integrator.p.daylight == is_daylight(restart_prob.tspan[1]) "EMEP daylight parameter is not reset"
+        solution = solve!(integrator)
+        @assert SciMLBase.successful_retcode(solution)
+        @assert !integrator.p.daylight "EMEP dusk callback did not update the parameter"
+        solution
+    end
+    @assert solutions[1].t == solutions[2].t && solutions[1].u == solutions[2].u "EMEP repeated solves differ"
+    println("EMEP: repeated solves reset daylight and match across dusk")
+end
+```
+
+```julia
 # lsoda does not accept callbacks, and the ODEInterfaceDiffEq version in this
 # environment (4.x) errors on any callback (SciML/ODEInterfaceDiffEq.jl#8 tracks
 # callback support upstream), so rodas, radau, seulex and lsoda use
