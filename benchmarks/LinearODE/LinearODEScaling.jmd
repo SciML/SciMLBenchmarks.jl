@@ -18,15 +18,11 @@ and the test problem is built exactly as suggested there: a method-of-lines disc
 of a diffusion PDE, so this also illustrates how solve cost scales as a PDE is discretized
 more finely in space.
 
-An earlier version of this page compared methods at mismatched, arbitrarily-chosen
-tolerances (a fixed `dt` for the exponential integrator against a fixed `reltol` for
-`Tsit5`) and tested only the generic `LinearExponential` wrapper, not the actual Magnus
-family or the stabilized explicit (ROCK) methods designed for exactly this class of
-mildly-stiff, parabolic problem. This revision fixes both: it uses proper **work-precision
-diagrams** (time to reach a given, matched accuracy, the standard methodology used
-throughout this repository) and includes `MagnusGL4`, `MagnusGL6`, and the adaptive
-`MagnusAdapt4` from `OrdinaryDiffEqLinear`, alongside `ROCK2`/`ROCK4` from
-`OrdinaryDiffEqStabilizedRK`.
+Methods are compared with **work-precision diagrams** (time to reach a given, matched
+accuracy, the standard methodology used throughout this repository), covering the Magnus
+family (`MagnusGL4`, `MagnusGL6`, and the adaptive `MagnusAdapt4`) and `LinearExponential`
+from `OrdinaryDiffEqLinear`, the stabilized explicit `ROCK2`/`ROCK4` from
+`OrdinaryDiffEqStabilizedRK`, and the general-purpose `Tsit5`/`Vern7`.
 
 ```julia
 using OrdinaryDiffEqLinear, OrdinaryDiffEqTsit5, OrdinaryDiffEqVerner, OrdinaryDiffEqStabilizedRK
@@ -243,8 +239,7 @@ plot(n_steps_list, times_steps, marker = :circle, xscale = :log10, yscale = :log
 # Conclusion
 
 For a non-autonomous linear system `x' = A(t)x` built from a method-of-lines PDE
-discretization, matched-accuracy work-precision comparisons (rather than time at
-mismatched, arbitrarily-chosen tolerances) show a genuinely three-way trade-off, not a
+discretization, matched-accuracy work-precision comparisons show a genuinely three-way trade-off, not a
 single winner: the true Magnus family (`MagnusGL4`, `MagnusGL6`, `MagnusAdapt4`) integrates
 the time-dependence to high order and dominates on accuracy-per-step at small-to-moderate
 `N`; the stabilized explicit `ROCK2`/`ROCK4` methods avoid any dense linear algebra and so
