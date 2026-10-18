@@ -72,15 +72,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: Set manual target
         id: manual
-        run: |
-          target="${{ github.event.inputs.benchmark_target }}"
-          source .github/scripts/read-benchmark-config.sh
-          config=$(get_benchmark_config "${target}")
-          runner=$(echo "${config}" | cut -d'|' -f1)
-          timeout=$(echo "${config}" | cut -d'|' -f2)
-          julia_version=$(echo "${config}" | cut -d'|' -f3)
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "matrix=[{\"target\":\"${target}\",\"runner\":${runner},\"timeout\":${timeout},\"julia_version\":\"${julia_version}\"}]" >> "$GITHUB_OUTPUT"
+        run: .github/scripts/detect-changed-benchmarks.sh "$BENCHMARK_TARGET"
+        env:
+          BENCHMARK_TARGET: ${{ inputs.benchmark_target }}
 
   benchmark:
     name: "Run: ${{ matrix.target }}"
