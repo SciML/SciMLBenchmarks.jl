@@ -3,11 +3,11 @@ title: Ionic Liquid Dehumidifier Benchmarks
 author: Qingyu Qu and maysam-gholampour
 ---
 
-This benchmark compares the runtime and error of BVP solvers, including FIRK solvers and FORTRAN BVP solvers on ionic liquid dehumidifier problem.
+This benchmark compares the runtime and error of BVP solvers, including FIRK solvers and a FORTRAN BVP solver, on the ionic liquid dehumidifier problem.
 For this problem, we test the following solvers:
 
-  - BoundaryValueDiffEq.jl's FIRK nested solvers(including `RadauIIa3`, `RadauIIa5`, `RadauIIa7`, `LobattoIIIa3`, `LobattoIIIa4`, `LobattoIIIa5`, `LobattoIIIb3`, `LobattoIIIb4`, `LobattoIIIb5`, `LobattoIIIc3`, `LobattoIIIc4`, `LobattoIIIc5`).
-  - FORTRAN BVP solvers from ODEInterface.jl(including `BVPM2` and `COLNEW`).
+  - BoundaryValueDiffEq.jl's FIRK nested solvers (including `RadauIIa3`, `RadauIIa5`, `RadauIIa7`, `LobattoIIIa3`, `LobattoIIIa4`, `LobattoIIIa5`, `LobattoIIIb3`, `LobattoIIIb4`, `LobattoIIIb5`, `LobattoIIIc3`, `LobattoIIIc4`, `LobattoIIIc5`).
+  - The FORTRAN BVP solver `COLNEW` from ODEInterface.jl.
 
 # Setup
 
@@ -70,17 +70,17 @@ solvers_all = [
                                                                            10.0 .^ (2:4))),
     (; pkg = :boundaryvaluediffeq,
         type = :firk,
-        name = "LobattoIIIb3",
+        name = "LobattoIIIc3",
         solver = Dict(:alg => LobattoIIIc3(; nested_nlsolve = true), :dts=>1.0 ./
                                                                            10.0 .^ (2:4))),
     (; pkg = :boundaryvaluediffeq,
         type = :firk,
-        name = "LobattoIIIb4",
+        name = "LobattoIIIc4",
         solver = Dict(:alg => LobattoIIIc4(; nested_nlsolve = true), :dts=>1.0 ./
                                                                            10.0 .^ (2:4))),
     (; pkg = :boundaryvaluediffeq,
         type = :firk,
-        name = "LobattoIIIb5",
+        name = "LobattoIIIc5",
         solver = Dict(:alg => LobattoIIIc5(; nested_nlsolve = true), :dts=>1.0 ./
                                                                            10.0 .^ (2:4))),
     (; pkg = :wrapper, type = :general, name = "COLNEW",
@@ -227,13 +227,13 @@ bvp_fun = BVPFunction(
 )
 
 prob = TwoPointBVProblem(bvp_fun, u0, tspan, p)
-sol = solve(prob, RadauIIa7(nested_nlsolve = true, nest_tol = 1e-3), dt = dt, abstol = 1e-5)
+sol = solve(prob, RadauIIa7(nested_nlsolve = true, nested_nlsolve_kwargs = (; abstol = 1e-3, reltol = 1e-3)), dt = dt, abstol = 1e-5)
 testsol = TestSolution(sol)
 wp_set = WorkPrecisionSet(prob, abstols, reltols, getfield.(solvers_all, :solver);
     names = getfield.(solvers_all, :name), appxsol = testsol, maxiters = Int(1e4))
 ```
 
-Plot the result
+Plot the results.
 
 ```julia
 fig = begin

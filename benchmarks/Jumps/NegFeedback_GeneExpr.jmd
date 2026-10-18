@@ -24,11 +24,13 @@ reactions(rn)
 methods = (Direct(), FRM(), SortingDirect(), NRM(), DirectCR(),
     RSSA(), RSSACR(), Coevolve(), RDirect())
 shortlabels = [string(leg)[15:(end - 2)] for leg in methods]
-prob = prob_jump_dnarepressor.discrete_prob
 tf = prob_jump_dnarepressor.tstop
 ploth = plot(reuse = false)
 for (i, method) in enumerate(methods)
-    jump_prob = JumpProblem(rn, prob, method, save_positions = (false, false))
+    jump_prob = JumpProblem(
+        rn, prob_jump_dnarepressor.u0, (0.0, tf), prob_jump_dnarepressor.rates;
+        aggregator = method, save_positions = (false, false)
+    )
     sol = solve(jump_prob, SSAStepper(), saveat = tf/1000.0)
     plot!(ploth, sol.t, sol[3, :], label = shortlabels[i], format = fmt)
 end
@@ -50,7 +52,10 @@ end
 nsims = 2000
 benchmarks = Vector{Vector{Float64}}()
 for method in methods
-    jump_prob = JumpProblem(rn, prob, method, save_positions = (false, false))
+    jump_prob = JumpProblem(
+        rn, prob_jump_dnarepressor.u0, (0.0, tf), prob_jump_dnarepressor.rates;
+        aggregator = method, save_positions = (false, false)
+    )
     stepper = SSAStepper()
     t = Vector{Float64}(undef, nsims)
     run_benchmark!(t, jump_prob, stepper)

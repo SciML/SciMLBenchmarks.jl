@@ -6,7 +6,7 @@ author: Oscar Dowson
 ## Introduction
 
 This benchmark is the clnlbeam example, adapted from H. Maurer and H.D.
-Mittelman, "The non-linear beam via optimal control with bound state variables,"
+Mittelmann, "The non-linear beam via optimal control with bound state variables,"
 Optimal Control Applications and Methods 12, pp.19-31, 1991.
 
 This benchmark uses the following packages:
@@ -128,9 +128,12 @@ end
 function run_modelingtoolkit(N::Int, use_structural_simplify::Bool = true)
     h = 1 / N
     alpha = 350
-    MTK.@variables t[1:(N + 1)] [bounds = (-1.0, 1.0)]
-    MTK.@variables x[1:(N + 1)] [bounds = (-0.05, 0.05)]
+    MTK.@variables t[1:(N + 1)]
+    MTK.@variables x[1:(N + 1)]
     MTK.@variables u[1:(N + 1)]
+    t = [MTK.ModelingToolkitBase.setbounds(ti, (-1.0, 1.0)) for ti in collect(t)]
+    x = [MTK.ModelingToolkitBase.setbounds(xi, (-0.05, 0.05)) for xi in collect(x)]
+    u = collect(u)
     loss = sum(
         0.5 * h * (u[i + 1]^2 + u[i]^2) +
         0.5 * alpha * h * (cos(t[i + 1]) + cos(t[i])) for i in 1:N
@@ -211,4 +214,9 @@ end
 
 ```julia
 plt = run_benchmark(vcat(1:10, 20:20:200))
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

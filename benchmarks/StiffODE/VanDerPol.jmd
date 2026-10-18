@@ -1,12 +1,14 @@
 ---
-title: VanDerPol Work-Precision Diagrams
+title: Van der Pol Work-Precision Diagrams
 author: Chris Rackauckas
 ---
 
 ```julia
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using SciMLLogging
 gr()
-using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester
+using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester, OrdinaryDiffEqCore
 
 van = @ode_def begin
   dy = μ*((1-x^2)*y - x)
@@ -127,13 +129,14 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
           Dict(:alg=>FBDF()),
           Dict(:alg=>QNDF()),
+          Dict(:alg=>NordsieckBDF()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>ddebdf()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
 ```
@@ -150,7 +153,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>ROS34PW1a()),
           ]
 gr()
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
@@ -166,7 +169,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>SDIRK2()),
           Dict(:alg=>radau())]
 names = ["Rosenbrock23" "Rosenbrock23 Static" "Kvaerno3" "KenCarp4" "TRBDF2" "KenCarp3" "ARKODE" "SDIRK2" "radau"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
 ```
@@ -182,7 +185,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>ARKODE(nonlinear_convergence_coefficient = 1e-6)),
           Dict(:alg=>ARKODE(nonlinear_convergence_coefficient = 1e-6,order=3))]
 names = ["Rosenbrock23" "Rosenbrock23 Static" "KenCarp5" "KenCarp4" "KenCarp4 Static" "KenCarp3" "ARKODE5" "ARKODE4" "ARKODE3"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
 ```
@@ -196,16 +199,17 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>ImplicitHairerWannerExtrapolation()),
           Dict(:alg=>ABDF2()),
           Dict(:alg=>FBDF()),
+          Dict(:alg=>NordsieckBDF()),
           #Dict(:alg=>QNDF()), # ???
           #Dict(:alg=>Exprb43()), # Diverges
           #Dict(:alg=>Exprb32()), # SingularException
 ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
 
-Notice that `KenCarp4` is the same overarching algorithm as `ARKODE` here (with major differences to stage predictors and adaptivity though). In this case, `KenCarp4` is more robust and more efficient than `ARKODE`. `CVODE_BDF` does quite well here, which is unusual for it on small equations. You can see that the low-order Rosenbrock methods `Rosenbrock23` and `Rodas3` dominate this test.
+Notice that `KenCarp4` is the same overarching algorithm as `ARKODE` here (with major differences to stage predictors and adaptivity though). In this case, `KenCarp4` is much faster than `ARKODE` but only reaches errors of about 1, while `ARKODE` reaches much smaller errors at a much higher cost. `CVODE_BDF` is in the middle of the pack. The low-order Rosenbrock methods `Rosenbrock23` and `Rodas3` do well on this test, with `Rosenbrock23` the fastest.
 
 #### Timeseries error
 
@@ -218,6 +222,7 @@ reltols = 1.0 ./ 10.0 .^ (1:4)
 setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Rosenbrock23(), :prob_choice => 2),
           Dict(:alg=>FBDF()),
+          Dict(:alg=>NordsieckBDF()),
           #Dict(:alg=>QNDF()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>TRBDF2()),
@@ -225,7 +230,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>radau())]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       error_estimate=:l2,appxsol=test_sol,maxiters=Int(1e5),seconds=5)
 plot(wp)
 ```
@@ -242,7 +247,7 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>ROS34PW1a()),
           ]
 gr()
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e5),numruns=10)
 plot(wp)
 ```
@@ -271,7 +276,7 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>ImplicitEulerBarycentricExtrapolation()),
           Dict(:alg=>ImplicitHairerWannerExtrapolation()),
           ]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 ```
@@ -292,7 +297,7 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>radau()),
           Dict(:alg=>Rodas5())]
 names = ["Rodas3" "Kvaerno4" "Kvaerno5" "CVODE_BDF" "KenCarp4" "KenCarp5" "ARKODE" "Rodas4" "Rodas5P" "Rodas5P Static" "radau" "Rodas5"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       names=names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 ```
@@ -305,7 +310,7 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas5()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>Rodas5P(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 ```
@@ -327,7 +332,7 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>lsoda()),
           Dict(:alg=>RadauIIA5()),
           Dict(:alg=>Rodas5())]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups;error_estimate=:l2, verbose=SciMLLogging.None(), dense=false,
                       save_everystep=false,appxsol=test_sol,maxiters=Int(1e6),seconds=5)
 plot(wp)
 ```
@@ -345,7 +350,7 @@ setups = [Dict(:alg=>Rodas3()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>Rodas5P(), :prob_choice => 2)]
 names = ["Rodas3" "Kvaerno4" "Kvaerno5" "CVODE_BDF" "KenCarp4" "KenCarp5" "Rodas4" "radau" "Rodas5" "Rodas5P" "Rodas5P Static"]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       names=names,appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
 plot(wp)
 ```
@@ -357,12 +362,12 @@ setups = [Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>Rodas5()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>Rodas5P(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       appxsol=test_sol,maxiters=Int(1e6),error_estimate=:l2,seconds=5)
 plot(wp)
 ```
 
-Multithreading benchmarks with Parallel Extrapolation Methods
+### Multithreading Benchmarks with Parallel Extrapolation Methods
 
 ```julia
 #Setting BLAS to one thread to measure gains
@@ -375,20 +380,21 @@ setups = [Dict(:alg=>ImplicitHairerWannerExtrapolation()),
           ]
 
 names = ["unthreaded","threaded","Polyester"];
-wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=false, dense=false,
+wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(), dense=false,
                       names = names,save_everystep=false,appxsol=test_sol,maxiters=Int(1e5))
 plot(wp)
 ```
 
 The timeseries test is a little odd here because of the high peaks in the VanDerPol oscillator. At a certain accuracy, the steps try to resolve those peaks and so the error becomes higher.
 
-While the higher order order Julia-based Rodas methods (`Rodas4` and `Rodas4P`) Rosenbrock methods are not viable at higher tolerances, they dominate for a large portion of this benchmark. When the tolerance gets low enough, `radau` adaptive high order (up to order 13) takes the lead.
+The higher order Julia Rosenbrock methods (`Rodas4`, `Rodas4P` and `Rodas5P`) dominate a large portion of this benchmark, with `Rodas5P` and `Rodas4` the fastest in the latest run. At the tightest tolerances, `radau` (adaptive high order, up to order 13) reaches the smallest timeseries errors.
 
 ### Conclusion
 
-`Rosenbrock23` and `Rodas3` do well when tolerances are higher. In most standard tolerances, `Rodas4` and `Rodas4P` do extremely well. Only when the tolerances get very low does `radau` do well. The Julia Rosenbrock methods vastly outperform their Fortran counterparts. `CVODE_BDF` is a top performer in the final timepoint errors with low accuracy, but take that with a grain of salt because the problem is periodic which means it's getting the spikes wrong but the low parts correct. `ARKODE` does poorly in these tests. `lsoda` does quite well in both low and high accuracy domains, but is never the top.
+`Rosenbrock23` and `Rodas3` do well when tolerances are higher. In most standard tolerances, `Rodas5P` and `Rodas4` do extremely well. `radau` reaches the smallest timeseries errors only at the tightest tolerances. `ARKODE` does poorly in these tests. `lsoda` is in the middle of the pack in both the low and high accuracy domains.
 
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder],WEAVE_ARGS[:file])
 ```
+

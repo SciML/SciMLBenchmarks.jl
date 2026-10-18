@@ -1,18 +1,18 @@
 ---
-title: Acceleration function benchmarks
+title: Acceleration Function Benchmarks
 author: Sebastian Micluța-Câmpeanu, Mikhail Vaganov
 ---
 
-Solving the equations of notions for an N-body problem implies solving a (large)
+Solving the equations of motion for an N-body problem implies solving a (large)
 system of differential equations. In `DifferentialEquations.jl` these are represented
 through ODE or SDE problems. To build the problem we need a function that
-describe the equations. In the case of N-body problems, this function
+describes the equations. In the case of N-body problems, this function
 gives the accelerations for the particles in the system.
 
 Here we will test the performance of several acceleration functions used
 in N-body simulations. The systems that will be used are not necessarily realistic
-as we are not solving the problem, we just time how fast is an acceleration
-function call.
+as we are not solving the problem, we just time how fast an acceleration
+function call is.
 
 ```julia
 using BenchmarkTools, NBodySimulator
@@ -198,14 +198,14 @@ end
 function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
     (u0, v0, n) = gather_bodies_initial_coordinates(simulation)
 
-    (o_acelerations, h_acelerations) = gather_accelerations_for_potentials(simulation)
+    (o_accelerations, h_accelerations) = gather_accelerations_for_potentials(simulation)
     group_accelerations = gather_group_accelerations(simulation)
     simultaneous_acceleration = gather_simultaneous_acceleration(simulation)
 
     function soode_system!(dv, v, u, p, t)
         @inbounds for i in 1:n
             a = MVector(0.0, 0.0, 0.0)
-            for acceleration! in o_acelerations
+            for acceleration! in o_accelerations
                 acceleration!(a, u, v, t, 3 * (i - 1) + 1);
             end
             dv[:, 3 * (i - 1) + 1] .= a
@@ -213,7 +213,7 @@ function acceleration(simulation::NBodySimulation{<:WaterSPCFw})
         @inbounds for i in 1:n, j in (2, 3)
 
             a = MVector(0.0, 0.0, 0.0)
-            for acceleration! in h_acelerations
+            for acceleration! in h_accelerations
                 acceleration!(a, u, v, t, 3 * (i - 1) + j);
             end
             dv[:, 3 * (i - 1) + j] .= a
@@ -274,7 +274,7 @@ let SUITE=SUITE
 end
 ```
 
-Here are the results of the benchmarks
+Here are the results of the benchmarks:
 
 ```julia
 r = run(SUITE)

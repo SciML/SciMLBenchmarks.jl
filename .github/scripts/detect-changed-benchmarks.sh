@@ -4,7 +4,7 @@ set -eo pipefail
 # Detect changed benchmark files and produce a JSON matrix for GHA.
 # Replicates the project-coalescing logic:
 #   - A changed .jmd file triggers a rebuild of just that file
-#   - A changed .toml file (Project.toml/Manifest.toml) triggers a rebuild of its entire benchmark directory
+#   - Any other changed file triggers a rebuild of its entire benchmark directory
 #   - If a directory is already being rebuilt, individual .jmd files in it are suppressed
 #
 # Reads runner configuration from:
@@ -20,9 +20,26 @@ source "${SCRIPT_DIR}/read-benchmark-config.sh"
 if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
-    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/')
+    CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/' 2>/dev/null || true)
+    if [[ -z "${CHANGED_FILES}" ]]; then
+        # The three-dot range needs a merge base, which a shallow (--depth=1)
+        # fetch of the base lacks once master advances past the PR's branch
+        # point — git then aborts with "no merge base". PR builds check out
+        # refs/pull/N/merge, so HEAD~1 is the base tip; diffing against it
+        # yields exactly the PR's changes without requiring a merge base.
+        CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'benchmarks/' 2>/dev/null || true)
+    fi
+elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+    if [[ -n "${PUSH_BASE_SHA:-}" ]] \
+        && [[ ! "${PUSH_BASE_SHA}" =~ ^0+$ ]] \
+        && git cat-file -e "${PUSH_BASE_SHA}^{commit}" 2>/dev/null; then
+        echo "Diffing against push event base SHA: ${PUSH_BASE_SHA}" >&2
+        CHANGED_FILES=$(git diff --name-only "${PUSH_BASE_SHA}" HEAD -- 'benchmarks/' 2>/dev/null || true)
+    else
+        echo "Push event base SHA not available; falling back to HEAD~1 diff" >&2
+        CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
+    fi
 else
-    # Push event: compare with parent commit
     CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
 fi
 
@@ -43,8 +60,7 @@ find_project() {
 
 while IFS= read -r f; do
     [[ -z "${f}" ]] && continue
-    # Skip benchmark_config.toml changes — they don't trigger rebuilds
-    [[ "${f}" == */benchmark_config.toml ]] && continue
+    [[ "${f}" == *.jmd && ! -f "${f}" ]] && continue
     proj=$(find_project "$(dirname "${f}")")
     if [[ -z "${proj}" ]]; then
         echo "::warning::Unable to find project for ${f}"
@@ -53,7 +69,7 @@ while IFS= read -r f; do
 
     if [[ "${f}" == *.jmd ]]; then
         FILES["${f}"]="${proj}"
-    elif [[ "${f}" == *.toml ]]; then
+    else
         PROJECTS["${proj}"]=1
     fi
 done <<< "${CHANGED_FILES}"

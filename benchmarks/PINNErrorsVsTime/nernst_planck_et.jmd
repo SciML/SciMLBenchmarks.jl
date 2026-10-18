@@ -4,7 +4,7 @@ author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Paglia
 ---
 
 Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
-Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+Uses the [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) library from the
 [SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
 for the implementation of physics-informed neural networks (PINNs) and other
 science-guided AI techniques.
@@ -19,7 +19,13 @@ using Lux, Plots
 using DelimitedFiles
 using OptimizationOptimisers
 using QuasiMonteCarlo
-import ModelingToolkit: Interval, infimum, supremum
+import DomainSets: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
+const cpud = cpu_device()
 ```
 
 ```julia
@@ -84,6 +90,8 @@ function nernst_planck(strategy, minimizer, maxIters)
     n = 16   #neuron number
 
     chain = Lux.Chain(Lux.Dense(4, n, tanh), Lux.Dense(n, n, tanh), Lux.Dense(n, 1))   #Neural network from OptimizationFlux library
+    # NeuralPDE trains on the device of init_params
+    ps = Lux.setup(Random.default_rng(), chain)[1] |> ComponentArray |> gpud .|> Float64
 
     indvars = [t, x, y, z]   #independent variables
     depvars = [c(t, x, y, z)]       #dependent (target) variable
@@ -98,7 +106,7 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     error_strategy = GridTraining(dx_err)
 
-    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    discretization_ = PhysicsInformedNN(chain, error_strategy; init_params = ps)
     @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
     prob_ = discretize(pde_system_, discretization_)
 
@@ -118,7 +126,7 @@ function nernst_planck(strategy, minimizer, maxIters)
             # Extract parameters for loss calculation
             params = p.u
             loss_ = loss_function_(p, nothing)
-            push!(error, loss_)
+            push!(error, only(cpud(loss_)))
 
             timeCounter += time_ns() - deltaT_s
             return false
@@ -130,7 +138,7 @@ function nernst_planck(strategy, minimizer, maxIters)
 
     @named pde_system = PDESystem(eq, bcs, domains, indvars, depvars)
 
-    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy)
+    discretization = NeuralPDE.PhysicsInformedNN(chain, strategy; init_params = ps)
     prob = NeuralPDE.discretize(pde_system, discretization)
 
     timeCounter = 0.0
@@ -145,7 +153,7 @@ function nernst_planck(strategy, minimizer, maxIters)
     domain = [ts, xs, ys, zs]
 
     u_predict = [reshape(
-                     [phi([t, x, y, z], res.minimizer) for x in xs for y in ys for z in zs],
+                     [Array(phi([t, x, y, z], res.minimizer)) for x in xs for y in ys for z in zs],
                      (length(xs), length(ys), length(zs))) for t in ts]
 
     return [error, params, domain, times]

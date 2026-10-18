@@ -51,14 +51,14 @@ const B4_STATE_NAMES = [
 #  Reaction names (indices 1..32)
 # ---------------------------------------------------------------------------- #
 const B4_REACTION_NAMES = [
-    "EXCHANGE_glc",   "EXCHANGE_lac",   "EXCHANGE_leu",   "EXCHANGE_met",
-    "EXCHANGE_product", "Glud1",        "Glul",           "Got2",
-    "Mdh2",           "ND1_a",          "Pklr",           "Subset0",
-    "Subset1",        "Subset2",        "Subset26",       "Subset3",
-    "Subset35",       "Subset37",       "Subset4",        "Subset5",
-    "Ucp",            "adencarr",       "akgcarr",        "aspglucarr",
-    "atpase",         "atpase1",        "dicarr",         "feed_glc",
-    "feed_leu",       "feed_met",       "glucarr",        "mitphocarr",
+    "EXCHANGE_glc", "EXCHANGE_lac", "EXCHANGE_leu", "EXCHANGE_met",
+    "EXCHANGE_product", "Glud1", "Glul", "Got2",
+    "Mdh2", "ND1_a", "Pklr", "Subset0",
+    "Subset1", "Subset2", "Subset26", "Subset3",
+    "Subset35", "Subset37", "Subset4", "Subset5",
+    "Ucp", "adencarr", "akgcarr", "aspglucarr",
+    "atpase", "atpase1", "dicarr", "feed_glc",
+    "feed_leu", "feed_met", "glucarr", "mitphocarr",
 ]
 
 # ---------------------------------------------------------------------------- #
@@ -211,21 +211,21 @@ struct B4Constants{T}
 end
 
 function build_b4_constants(::Type{T} = Float64) where {T}
-    rho   = T(141.4710605)
+    rho = T(141.4710605)
     vol_1 = T(0.9)
     vol_2 = T(0.1)
-    vr    = vol_1 / vol_2   # 9.0
+    vr = vol_1 / vol_2   # 9.0
 
     rss = zeros(T, 32)
-    rss[1]  = T(83401.9654177705)
-    rss[2]  = T(127877.37232994902)
-    rss[3]  = T(603.4140712332287)
-    rss[4]  = T(603.4140712332287)
-    rss[5]  = T(5.028450593613567)
-    rss[6]  = T(2413.6562849217303) * vr
-    rss[7]  = T(603.414071180172)
-    rss[8]  = T(40133.38664791273) * vr
-    rss[9]  = T(74836.04665510054) * vr
+    rss[1] = T(83401.9654177705)
+    rss[2] = T(127877.37232994902)
+    rss[3] = T(603.4140712332287)
+    rss[4] = T(603.4140712332287)
+    rss[5] = T(5.028450593613567)
+    rss[6] = T(2413.6562849217303) * vr
+    rss[7] = T(603.414071180172)
+    rss[8] = T(40133.38664791273) * vr
+    rss[9] = T(74836.04665510054) * vr
     rss[10] = T(180754.26889005644) * vr
     rss[11] = T(164390.2745505474)
     rss[12] = T(36512.902220891134)
@@ -251,9 +251,9 @@ function build_b4_constants(::Type{T} = Float64) where {T}
     rss[32] = T(533134.5811139438)
 
     css = zeros(T, 34)
-    css[1]  = T(100000); css[2]  = T(1);     css[3]  = T(1000);  css[4]  = T(1000)
-    css[5]  = T(30);     css[6]  = T(1000);  css[7]  = T(1000);  css[8]  = T(1000)
-    css[9]  = T(1000);   css[10] = T(1000);  css[11] = T(1000);  css[12] = T(1000)
+    css[1] = T(100000); css[2] = T(1);     css[3] = T(1000);  css[4] = T(1000)
+    css[5] = T(30);     css[6] = T(1000);  css[7] = T(1000);  css[8] = T(1000)
+    css[9] = T(1000);   css[10] = T(1000);  css[11] = T(1000);  css[12] = T(1000)
     css[13] = T(3000);   css[14] = T(1000);  css[15] = T(1000);  css[16] = T(1000)
     css[17] = T(100);    css[18] = T(100);   css[19] = T(100);   css[20] = T(100)
     css[21] = T(1000);   css[22] = T(1000);  css[23] = T(1000);  css[24] = T(1000)
@@ -277,7 +277,7 @@ const B4_CONSTANTS = build_b4_constants()
     end
     # Fixed zeros / ones
     @inbounds begin
-        e[9]  = 0.0
+        e[9] = 0.0
         e[10] = 1.0
         e[11] = 0.0
         e[12] = 0.0
@@ -311,25 +311,25 @@ const B4_CONSTANTS = build_b4_constants()
 
     # Negate the product / inhibitor elasticities
     @inbounds begin
-        e[16]  = -par[11];  e[17]  = -par[12]
-        e[20]  = -par[15];  e[21]  = -par[16]
-        e[24]  = -par[19];  e[25]  = -par[20]
-        e[29]  = -par[24];  e[30]  = -par[25]
-        e[34]  = -par[29];  e[35]  = -par[30];  e[36] = -par[31]
-        e[39]  = -par[34];  e[40]  = -par[35]
-        e[45]  = -par[39];  e[46]  = -par[40]
-        e[49]  = -par[42]
-        e[52]  = -par[45];  e[53]  = -par[46]
-        e[55]  = -par[48];  e[56]  = -par[49];  e[57] = -par[50]
-        e[61]  = -par[54];  e[62]  = -par[55];  e[63] = -par[56]
-        e[65]  = -par[58]
-        e[69]  = -par[62];  e[70]  = -par[63];  e[71] = -par[64]
-        e[74]  = -par[67];  e[75]  = -par[68]
-        e[77]  = -par[70]
-        e[80]  = -par[73];  e[81]  = -par[74]
-        e[87]  = -par[80];  e[88]  = -par[81];  e[89] = -par[82];  e[90] = -par[83]
-        e[93]  = -par[84]
-        e[98]  = -par[87];  e[99]  = -par[88]
+        e[16] = -par[11];  e[17] = -par[12]
+        e[20] = -par[15];  e[21] = -par[16]
+        e[24] = -par[19];  e[25] = -par[20]
+        e[29] = -par[24];  e[30] = -par[25]
+        e[34] = -par[29];  e[35] = -par[30];  e[36] = -par[31]
+        e[39] = -par[34];  e[40] = -par[35]
+        e[45] = -par[39];  e[46] = -par[40]
+        e[49] = -par[42]
+        e[52] = -par[45];  e[53] = -par[46]
+        e[55] = -par[48];  e[56] = -par[49];  e[57] = -par[50]
+        e[61] = -par[54];  e[62] = -par[55];  e[63] = -par[56]
+        e[65] = -par[58]
+        e[69] = -par[62];  e[70] = -par[63];  e[71] = -par[64]
+        e[74] = -par[67];  e[75] = -par[68]
+        e[77] = -par[70]
+        e[80] = -par[73];  e[81] = -par[74]
+        e[87] = -par[80];  e[88] = -par[81];  e[89] = -par[82];  e[90] = -par[83]
+        e[93] = -par[84]
+        e[98] = -par[87];  e[99] = -par[88]
         e[102] = -par[91];  e[103] = -par[92]
         e[106] = -par[95];  e[107] = -par[96]
         e[109] = -par[98]
@@ -365,8 +365,8 @@ function biopredyn_b4!(du, u, p, t)
     rss = mc.rss
     css = mc.css
     inv_rho = mc.inv_rho
-    vr  = mc.vol_ratio      # vol_1/vol_2 = 9.0
-    fp  = mc.fp              # feed pulse magnitude (0.0)
+    vr = mc.vol_ratio      # vol_1/vol_2 = 9.0
+    fp = mc.fp              # feed pulse magnitude (0.0)
 
     # Build the 128-element elasticity array from the 117 parameters
     e = zeros(eltype(u), 128)
@@ -383,67 +383,107 @@ function biopredyn_b4!(du, u, p, t)
 
     # ---- Reactions ----
     # r[1..5] = 0 (exchange reactions, set to zero)
-    r1  = zero(eltype(u))
-    r2  = zero(eltype(u))
-    r3  = zero(eltype(u))
-    r4  = zero(eltype(u))
-    r5  = zero(eltype(u))
+    r1 = zero(eltype(u))
+    r2 = zero(eltype(u))
+    r3 = zero(eltype(u))
+    r4 = zero(eltype(u))
+    r5 = zero(eltype(u))
 
     # Glud1 (r6)
-    r6  = rss[6]  * (1.0 + (e[14]*clogk[8] + e[15]*clogk[9]) +
-                             (e[16]*clogk[6] + e[17]*clogk[7]))
+    r6 = rss[6] * (
+        1.0 + (e[14] * clogk[8] + e[15] * clogk[9]) +
+            (e[16] * clogk[6] + e[17] * clogk[7])
+    )
 
     # Glul (r7)
-    r7  = rss[7]  * (1.0 + (e[18]*clogk[12] + e[19]*clogk[13]) +
-                             (e[20]*clogk[10] + e[21]*clogk[11]))
+    r7 = rss[7] * (
+        1.0 + (e[18] * clogk[12] + e[19] * clogk[13]) +
+            (e[20] * clogk[10] + e[21] * clogk[11])
+    )
 
     # Got2 (r8)
-    r8  = rss[8]  * (1.0 + ((e[22]*clogk[15] + e[23]*clogk[6]) +
-                             (e[24]*clogk[8]  + e[25]*clogk[14])) +
-                             e[26]*clogk[16])
+    r8 = rss[8] * (
+        1.0 + (
+            (e[22] * clogk[15] + e[23] * clogk[6]) +
+                (e[24] * clogk[8] + e[25] * clogk[14])
+        ) +
+            e[26] * clogk[16]
+    )
 
     # Mdh2 (r9)
-    r9  = rss[9]  * (1.0 + (e[27]*clogk[16] + e[28]*clogk[7]) +
-                             (e[29]*clogk[15] + e[30]*clogk[9]))
+    r9 = rss[9] * (
+        1.0 + (e[27] * clogk[16] + e[28] * clogk[7]) +
+            (e[29] * clogk[15] + e[30] * clogk[9])
+    )
 
     # ND1_a (r10)
-    r10 = rss[10] * (1.0 + ((e[31]*clogk[9]  + e[32]*clogk[19]) + e[33]*clogk[20]) +
-                            ((e[34]*clogk[7]  + e[35]*clogk[17]) + e[36]*clogk[18]))
+    r10 = rss[10] * (
+        1.0 + ((e[31] * clogk[9] + e[32] * clogk[19]) + e[33] * clogk[20]) +
+            ((e[34] * clogk[7] + e[35] * clogk[17]) + e[36] * clogk[18])
+    )
 
     # Pklr (r11)
-    r11 = rss[11] * (1.0 + ((e[37]*clogk[22] + e[38]*clogk[11]) +
-                             (e[39]*clogk[21] + e[40]*clogk[13])) +
-                             e[41]*clogk[13])
+    r11 = rss[11] * (
+        1.0 + (
+            (e[37] * clogk[22] + e[38] * clogk[11]) +
+                (e[39] * clogk[21] + e[40] * clogk[13])
+        ) +
+            e[41] * clogk[13]
+    )
 
     # Subset0 (r12)
-    r12 = rss[12] * (1.0 + ((((e[42]*clogk[15] + e[43]*clogk[7]) + e[44]*clogk[21]) +
-                              (e[45]*clogk[8]  + e[46]*clogk[9])) + e[47]*clogk[32]) +
-                             e[48]*clogk[9] + e[49]*clogk[30])
+    r12 = rss[12] * (
+        1.0 + (
+            (
+                ((e[42] * clogk[15] + e[43] * clogk[7]) + e[44] * clogk[21]) +
+                    (e[45] * clogk[8] + e[46] * clogk[9])
+            ) + e[47] * clogk[32]
+        ) +
+            e[48] * clogk[9] + e[49] * clogk[30]
+    )
 
     # Subset1 (r13)
-    r13 = rss[13] * (1.0 + ((((e[50]*clogk[25] + e[51]*clogk[26]) +
-                              (e[52]*clogk[23] + e[53]*clogk[24])) + e[54]*clogk[11]) +
-                             e[55]*clogk[11]) + e[56]*clogk[13] + e[57]*clogk[22])
+    r13 = rss[13] * (
+        1.0 + (
+            (
+                (
+                    (e[50] * clogk[25] + e[51] * clogk[26]) +
+                        (e[52] * clogk[23] + e[53] * clogk[24])
+                ) + e[54] * clogk[11]
+            ) +
+                e[55] * clogk[11]
+        ) + e[56] * clogk[13] + e[57] * clogk[22]
+    )
 
     # Subset2 (r14)
-    r14 = rss[14] * (1.0 + (((e[58]*clogk[28] + e[59]*clogk[29]) + e[60]*clogk[23]) +
-                             ((e[61]*clogk[12] + e[62]*clogk[27]) + e[63]*clogk[25])) +
-                             e[64]*clogk[27] + e[65]*clogk[10])
+    r14 = rss[14] * (
+        1.0 + (
+            ((e[58] * clogk[28] + e[59] * clogk[29]) + e[60] * clogk[23]) +
+                ((e[61] * clogk[12] + e[62] * clogk[27]) + e[63] * clogk[25])
+        ) +
+            e[64] * clogk[27] + e[65] * clogk[10]
+    )
 
     # Subset26 (r15)
-    r15 = rss[15] * (1.0 + ((e[66]*clogk[32] + e[67]*clogk[22]) + e[68]*clogk[16]) +
-                            ((e[69]*clogk[15] + e[70]*clogk[30]) + e[71]*clogk[27]))
+    r15 = rss[15] * (
+        1.0 + ((e[66] * clogk[32] + e[67] * clogk[22]) + e[68] * clogk[16]) +
+            ((e[69] * clogk[15] + e[70] * clogk[30]) + e[71] * clogk[27])
+    )
 
     # Subset3 (r16)
-    r16 = rss[16] * (1.0 + (e[72]*clogk[21] + e[73]*clogk[23]) +
-                             (e[74]*clogk[2]  + e[75]*clogk[25]))
+    r16 = rss[16] * (
+        1.0 + (e[72] * clogk[21] + e[73] * clogk[23]) +
+            (e[74] * clogk[2] + e[75] * clogk[25])
+    )
 
     # Subset35 (r17)
-    r17 = rss[17] * (1.0 + e[76]*clogk[24] + e[77]*clogk[22])
+    r17 = rss[17] * (1.0 + e[76] * clogk[24] + e[77] * clogk[22])
 
     # Subset37 (r18)
-    r18 = rss[18] * (1.0 + (e[78]*clogk[20] + e[79]*clogk[17]) +
-                             (e[80]*clogk[18] + e[81]*clogk[19]))
+    r18 = rss[18] * (
+        1.0 + (e[78] * clogk[20] + e[79] * clogk[17]) +
+            (e[80] * clogk[18] + e[81] * clogk[19])
+    )
 
     # Subset4 (r19) -- Michaelis-Menten multi-substrate kinetics
     # Reference saturation (at steady state concentrations css)
@@ -456,67 +496,89 @@ function biopredyn_b4!(du, u, p, t)
     # Numerator     = prod(c[sub_idx[k]] * css[sub_idx[k]] / Km[k])
     # Denom         = prod(1 + c[sub_idx[k]] * css[sub_idx[k]] / Km[k])
     # r19 = rss[19] / (Numerator_ss / Denom_ss) * (Numerator / Denom)
-    num_ss  = one(eltype(u))
-    den_ss  = one(eltype(u))
+    num_ss = one(eltype(u))
+    den_ss = one(eltype(u))
     num_cur = one(eltype(u))
     den_cur = one(eltype(u))
     @inbounds for k in 1:8
         si = sub_idx[k]
-        ratio_ss  = css[si] / Km[k]
+        ratio_ss = css[si] / Km[k]
         ratio_cur = c[si] * css[si] / Km[k]
-        num_ss  *= ratio_ss
-        den_ss  *= (1.0 + ratio_ss)
+        num_ss *= ratio_ss
+        den_ss *= (1.0 + ratio_ss)
         num_cur *= ratio_cur
         den_cur *= (1.0 + ratio_cur)
     end
     r19 = rss[19] / (num_ss / den_ss) * (num_cur / den_cur)
 
     # Subset5 (r20)
-    r20 = rss[20] * (1.0 + (((((((e[82]*clogk[8]  + e[83]*clogk[7]) + e[84]*clogk[19]) +
-                                  e[85]*clogk[31]) + e[86]*clogk[32]) +
-                                (((e[87]*clogk[16] + e[88]*clogk[9]) + e[89]*clogk[17]) +
-                                  e[90]*clogk[30])) + e[91]*clogk[31]) +
-                             e[92]*clogk[9]) + e[93]*clogk[15])
+    r20 = rss[20] * (
+        1.0 + (
+            (
+                (
+                    (
+                        (
+                            ((e[82] * clogk[8] + e[83] * clogk[7]) + e[84] * clogk[19]) +
+                                e[85] * clogk[31]
+                        ) + e[86] * clogk[32]
+                    ) +
+                        (
+                        ((e[87] * clogk[16] + e[88] * clogk[9]) + e[89] * clogk[17]) +
+                            e[90] * clogk[30]
+                    )
+                ) + e[91] * clogk[31]
+            ) +
+                e[92] * clogk[9]
+        ) + e[93] * clogk[15]
+    )
 
     # Ucp (r21) -- rss[21] = 0, so r21 = 0 always
-    r21 = rss[21] * (1.0 + e[94]*clogk[18] + e[95]*clogk[20])
+    r21 = rss[21] * (1.0 + e[94] * clogk[18] + e[95] * clogk[20])
 
     # adencarr (r22)
-    r22 = rss[22] * (1.0 + (e[96]*clogk[11]  + e[97]*clogk[30]) +
-                             (e[98]*clogk[32]  + e[99]*clogk[13]))
+    r22 = rss[22] * (
+        1.0 + (e[96] * clogk[11] + e[97] * clogk[30]) +
+            (e[98] * clogk[32] + e[99] * clogk[13])
+    )
 
     # akgcarr (r23)
-    r23 = rss[23] * (1.0 + (e[100]*clogk[8]  + e[101]*clogk[27]) +
-                             (e[102]*clogk[28] + e[103]*clogk[16]))
+    r23 = rss[23] * (
+        1.0 + (e[100] * clogk[8] + e[101] * clogk[27]) +
+            (e[102] * clogk[28] + e[103] * clogk[16])
+    )
 
     # aspglucarr (r24)
-    r24 = rss[24] * (1.0 + (e[104]*clogk[14] + e[105]*clogk[12]) +
-                             (e[106]*clogk[29] + e[107]*clogk[6]))
+    r24 = rss[24] * (
+        1.0 + (e[104] * clogk[14] + e[105] * clogk[12]) +
+            (e[106] * clogk[29] + e[107] * clogk[6])
+    )
 
     # atpase (r25)
-    r25 = rss[25] * (1.0 + e[108]*clogk[13] + e[109]*clogk[11])
+    r25 = rss[25] * (1.0 + e[108] * clogk[13] + e[109] * clogk[11])
 
     # atpase1 (r26)
-    r26 = rss[26] * (1.0 + ((e[110]*clogk[32] + e[111]*clogk[31]) + e[112]*clogk[18]) +
-                             (e[113]*clogk[30] + e[114]*clogk[20]))
+    r26 = rss[26] * (
+        1.0 + ((e[110] * clogk[32] + e[111] * clogk[31]) + e[112] * clogk[18]) +
+            (e[113] * clogk[30] + e[114] * clogk[20])
+    )
 
     # dicarr (r27)
-    r27 = rss[27] * (1.0 + (e[115]*clogk[27] + e[116]*clogk[31]) + e[117]*clogk[16])
+    r27 = rss[27] * (1.0 + (e[115] * clogk[27] + e[116] * clogk[31]) + e[117] * clogk[16])
 
     # feed_glc (r28)
-    r28 = rss[28] * (1.0 + e[118]*clogk[1]  + e[119]*clogk[26])
+    r28 = rss[28] * (1.0 + e[118] * clogk[1] + e[119] * clogk[26])
 
     # feed_leu (r29)
-    r29 = rss[29] * (1.0 + e[120]*clogk[3]  + e[121]*clogk[33])
+    r29 = rss[29] * (1.0 + e[120] * clogk[3] + e[121] * clogk[33])
 
     # feed_met (r30)
-    r30 = rss[30] * (1.0 + e[122]*clogk[4]  + e[123]*clogk[34])
+    r30 = rss[30] * (1.0 + e[122] * clogk[4] + e[123] * clogk[34])
 
     # glucarr (r31)
-    r31 = rss[31] * (1.0 + e[124]*clogk[6]  + e[125]*clogk[12])
+    r31 = rss[31] * (1.0 + e[124] * clogk[6] + e[125] * clogk[12])
 
     # mitphocarr (r32)
-    r32 = rss[32] * (1.0 + e[126]*clogk[18] + (e[127]*clogk[31] + e[128]*clogk[20]))
+    r32 = rss[32] * (1.0 + e[126] * clogk[18] + (e[127] * clogk[31] + e[128] * clogk[20]))
 
     # ---- ODEs ----
     # Fermenter volume (state 35)
@@ -524,37 +586,37 @@ function biopredyn_b4!(du, u, p, t)
     dV = du[35]
 
     # beta-D-Glucose_f
-    du[1]  = (r1  - r28 * inv_rho - c[1]  * css[1]  / c[35] * dV) / css[1]
+    du[1] = (r1 - r28 * inv_rho - c[1] * css[1] / c[35] * dV) / css[1]
     # L-Lactate_f
-    du[2]  = (-r2  + r16 * inv_rho - c[2]  * css[2]  / c[35] * dV) / css[2]
+    du[2] = (-r2 + r16 * inv_rho - c[2] * css[2] / c[35] * dV) / css[2]
     # L-Leucine_f
-    du[3]  = (r3  - r29 * inv_rho - c[3]  * css[3]  / c[35] * dV) / css[3]
+    du[3] = (r3 - r29 * inv_rho - c[3] * css[3] / c[35] * dV) / css[3]
     # L-Methionine_f
-    du[4]  = (r4  - r30 * inv_rho - c[4]  * css[4]  / c[35] * dV) / css[4]
+    du[4] = (r4 - r30 * inv_rho - c[4] * css[4] / c[35] * dV) / css[4]
     # Productprotein_f
-    du[5]  = (-r5  + r19 * inv_rho - c[5]  * css[5]  / c[35] * dV) / css[5]
+    du[5] = (-r5 + r19 * inv_rho - c[5] * css[5] / c[35] * dV) / css[5]
     # L-Glutamate_m
-    du[6]  = (r6  - r8  + r24 * vr - r31 * vr) / css[6]
+    du[6] = (r6 - r8 + r24 * vr - r31 * vr) / css[6]
     # NAD_m
-    du[7]  = (r6  - r9  + r10 - 2.0 * r12 * vr - r20) / css[7]
+    du[7] = (r6 - r9 + r10 - 2.0 * r12 * vr - r20) / css[7]
     # 2-Oxoglutarate_m
-    du[8]  = (-r6  + r8  + r12 * vr - r20 - r23 * vr) / css[8]
+    du[8] = (-r6 + r8 + r12 * vr - r20 - r23 * vr) / css[8]
     # NADH_m
-    du[9]  = (-r6  + r9  - r10 + 2.0 * r12 * vr + r20) / css[9]
+    du[9] = (-r6 + r9 - r10 + 2.0 * r12 * vr + r20) / css[9]
     # L-Glutamine_c
-    du[10] = (r7  - 120.0 * r19) / css[10]
+    du[10] = (r7 - 120.0 * r19) / css[10]
     # ADP_c
-    du[11] = (r7  - r11 + 1260.0 * r19 - r22 + r25) / css[11]
+    du[11] = (r7 - r11 + 1260.0 * r19 - r22 + r25) / css[11]
     # L-Glutamate_c
-    du[12] = (-r7  + r14 - 240.0 * r19 - r24 + r31) / css[12]
+    du[12] = (-r7 + r14 - 240.0 * r19 - r24 + r31) / css[12]
     # ATP_c
-    du[13] = (-r7  + r11 - 1260.0 * r19 + r22 - r25) / css[13]
+    du[13] = (-r7 + r11 - 1260.0 * r19 + r22 - r25) / css[13]
     # L-Aspartate_m
-    du[14] = (r8  - r24 * vr) / css[14]
+    du[14] = (r8 - r24 * vr) / css[14]
     # Oxaloacetate_m
-    du[15] = (-r8  + r9  - r12 * vr + r15 * vr) / css[15]
+    du[15] = (-r8 + r9 - r12 * vr + r15 * vr) / css[15]
     # L-Malate_m
-    du[16] = (-r9  - r15 * vr + r20 + r23 * vr + r27 * vr) / css[16]
+    du[16] = (-r9 - r15 * vr + r20 + r23 * vr + r27 * vr) / css[16]
     # CoQH_radical_m
     du[17] = (2.0 * r10 - 2.0 * r18 + 2.0 * r20) / css[17]
     # H_out_m

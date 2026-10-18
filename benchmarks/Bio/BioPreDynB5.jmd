@@ -15,7 +15,13 @@ activations, and rate constants) plus 34 logic gate weights. The ODE system
 is translated from the original C implementation in the BioPreDyn-bench files.
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots,
+using OrdinaryDiffEqBDF: FBDF, QNDF
+using OrdinaryDiffEqFIRK: RadauIIA5
+using OrdinaryDiffEqRosenbrock: Rosenbrock23, Rodas4, Rodas5, Rodas5P
+using OrdinaryDiffEqSDIRK: TRBDF2, KenCarp3, KenCarp4, KenCarp5, KenCarp47,
+    Kvaerno3, Kvaerno4, Kvaerno5
+using SciMLBase: ODEProblem, FullSpecialize, solve
+using DiffEqDevTools, Sundials, Plots,
       LSODA, LinearAlgebra, BenchmarkTools,
       SciMLBenchmarks
 
@@ -315,7 +321,7 @@ u0 = zeros(26)
 
 tspan = (0.0, 120.0)  # 2 hours in minutes
 
-prob = ODEProblem{true, SciMLBase.FullSpecialize}(biopredyn_b5!, u0, tspan, p)
+prob = ODEProblem{true, FullSpecialize}(biopredyn_b5!, u0, tspan, p)
 ```
 
 ## Picture of the solution

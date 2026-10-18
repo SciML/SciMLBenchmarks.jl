@@ -9,21 +9,24 @@ for handling large systems, since the system is both large enough that array
 handling matters, but `f` is cheap enough that it is not simply a game of
 calculating `f` as few times as possible. We will be mostly looking at the
 efficiency of the work-horse Dormand-Prince Order 4/5 Pairs: one from
-DifferentialEquations.jl (`DP5`), one from ODE.jl `rk45`, one from
-ODEInterface (Hairer's famous `dopri5`, and one from SUNDIALS' ARKODE suite.
+DifferentialEquations.jl (`DP5`), one from
+ODEInterface (Hairer's famous `dopri5`), and one from SUNDIALS' ARKODE suite.
 
 Also included is `Tsit5`. While all other ODE programs have gone with the
 traditional choice of using the Dormand-Prince 4/5 pair as the default,
-DifferentialEquations.jl uses `Tsit5` as one of the default algorithms. It's a
-very new (2011) and not widely known, but the theory and the implementation
-shows it's more efficient than DP5. Thus we include it just to show off how
+DifferentialEquations.jl uses `Tsit5` as one of the default algorithms. It is a
+relatively recent (2011) and not widely known method, but the theory and the implementation
+show it's more efficient than DP5. Thus we include it just to show off how
 re-designing a library from the ground up in a language for rapid code and
 rapid development has its advantages.
 
 ## Setup
 
 ```julia
-using OrdinaryDiffEq, Sundials, DiffEqDevTools, Plots, ODEInterfaceDiffEq, LSODA, OrdinaryDiffEqSIMDRK
+using OrdinaryDiffEq, OrdinaryDiffEqCore, Sundials, DiffEqDevTools, Plots, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqHighOrderRK, OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqVerner
+using Polyester
+using SciMLLogging
 using Random
 Random.seed!(123)
 gr()
@@ -46,22 +49,18 @@ reltols = 1.0 ./ 10.0 .^ (0:10);
 ### Speed Baseline
 
 First a baseline. These are all testing the same Dormand-Prince order 5/4
-algorithm of each package. While all the same Runge-Kutta tableau, they exhibit
+algorithm of each package. While they all use the same Runge-Kutta tableau, they exhibit
 different behavior due to different choices of adaptive timestepping algorithms
-and tuning. First we will test with all extra saving features are turned off to
+and tuning. First we will test with all extra saving features turned off to
 put DifferentialEquations.jl in "speed mode".
 
 ```julia
 setups = [Dict(:alg=>DP5())
-          Dict(:alg=>ode45())
           Dict(:alg=>dopri5())
           Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5))
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>MER5v2())
-          Dict(:alg=>MER6v2())
-          Dict(:alg=>RK6v4())]
-solnames = ["OrdinaryDiffEq"; "ODE"; "ODEInterface"; "Sundials ARKODE";
-            "OrdinaryDiffEq Tsit5"; "MER5v2"; "MER6v2"; "RK6v4"]
+          Dict(:alg=>Tsit5())]
+solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
+            "OrdinaryDiffEq Tsit5"]
 wp = WorkPrecisionSet(
     prob, abstols, reltols, setups; names = solnames, save_everystep = false, numruns = 100)
 plot(wp)
@@ -71,11 +70,10 @@ plot(wp)
 
 ```julia
 setups = [Dict(:alg=>DP5(), :dense=>false)
-          Dict(:alg=>ode45(), :dense=>false)
           Dict(:alg=>dopri5()) # dense=false by default: no nonlinear interpolation
           Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5), :dense=>false)
           Dict(:alg=>Tsit5(), :dense=>false)]
-solnames = ["OrdinaryDiffEq"; "ODE"; "ODEInterface"; "Sundials ARKODE";
+solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames, numruns = 100)
 plot(wp)
@@ -88,11 +86,10 @@ timepoint the matrix of rates `k` has to be deep copied.
 
 ```julia
 setups = [Dict(:alg=>DP5())
-          Dict(:alg=>ode45())
           Dict(:alg=>dopri5())
           Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5))
           Dict(:alg=>Tsit5())]
-solnames = ["OrdinaryDiffEq"; "ODE"; "ODEInterface"; "Sundials ARKODE";
+solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames, numruns = 100)
 plot(wp)
@@ -115,7 +112,7 @@ plot(wp)
 
 ## Higher Order
 
-Now let's see how OrdinaryDiffEq.jl fairs with some higher order algorithms:
+Now let's see how OrdinaryDiffEq.jl fares with some higher order algorithms:
 
 ```julia
 setups = [Dict(:alg=>DP5())
@@ -137,7 +134,6 @@ Now we test OrdinaryDiffEq against the high order methods of the other packages:
 setups = [Dict(:alg=>DP5())
           Dict(:alg=>Vern7())
           Dict(:alg=>dop853())
-          Dict(:alg=>ode78())
           Dict(:alg=>odex())
           Dict(:alg=>lsoda())
           Dict(:alg=>ddeabm())
@@ -150,9 +146,9 @@ plot(wp)
 ## Interpolation Error
 
 Now we will look at the error using an interpolation measurement instead of at
-the timestepping points. Since the DifferentialEquations.jl algorithms have
-higher order interpolants than the ODE.jl algorithms, one would expect this
-would magnify the difference. First the order 4/5 comparison:
+the timestepping points. ODE.jl, whose methods use lower order interpolants, is
+not part of this benchmark's environment, so only the DifferentialEquations.jl
+methods are compared. First the order 4/5 comparison:
 
 ```julia
 setups = [Dict(:alg=>DP5())
@@ -164,10 +160,10 @@ plot(wp)
 ```
 
 Note that all of ODE.jl uses a 3rd order Hermite interpolation, while the
-DifferentialEquations algorithms interpolations which are specialized to the
+DifferentialEquations.jl algorithms use interpolations which are specialized to the
 algorithm. For example, `DP5` and `Tsit5` both use "free" order 4
-interpolations, which are both as fast as the Hermite interpolation while
-achieving far less error. At higher order:
+interpolations, which are as fast as a Hermite interpolation while
+being of higher order. At higher order:
 
 ```julia
 setups = [Dict(:alg=>DP5())
@@ -189,14 +185,13 @@ abstols = 1.0 ./ 10.0 .^ (3:13)
 reltols = 1.0 ./ 10.0 .^ (0:10);
 dts = [1, 1/2, 1/4, 1/10, 1/20, 1/40, 1/60, 1/80, 1/100, 1/140, 1/240]
 setups = [Dict(:alg=>DP5())
-          Dict(:alg=>ode45())
           Dict(:alg=>dopri5())
           Dict(:alg=>RK4(), :dts=>dts)
           Dict(:alg=>Tsit5())]
-solnames = ["DifferentialEquations"; "ODE"; "ODEInterface"; "DifferentialEquations RK4";
+solnames = ["DifferentialEquations"; "ODEInterface"; "DifferentialEquations RK4";
             "DifferentialEquations Tsit5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
-    save_everystep = false, verbose = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -217,7 +212,7 @@ setups = [Dict(:alg=>Tsit5())
 solnames = ["Tsit5", "Vern9", "VCABM", "AitkenNeville",
     "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
-    save_everystep = false, verbose = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -236,7 +231,7 @@ setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
               sequence = :bulirsch, threading = true))]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
-    save_everystep = false, verbose = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -253,7 +248,7 @@ setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 5, max_order = 7, init_order = 6, threading = true))]
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
-    save_everystep = false, verbose = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -264,15 +259,15 @@ reltols = 1.0 ./ 10.0 .^ (9:12)
 setups = [Dict(:alg=>Tsit5())
           Dict(:alg=>Vern9())
           Dict(:alg=>VCABM())
-          #Dict(:alg=>AitkenNeville(threading = OrdinaryDiffEq.PolyesterThreads()))
-          Dict(:alg=>ExtrapolationMidpointDeuflhard(threading = OrdinaryDiffEq.PolyesterThreads()))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(threading = OrdinaryDiffEq.PolyesterThreads()))
+          #Dict(:alg=>AitkenNeville(threading = OrdinaryDiffEqCore.PolyesterThreads()))
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(threading = OrdinaryDiffEqCore.PolyesterThreads()))
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(threading = OrdinaryDiffEqCore.PolyesterThreads()))
           Dict(:alg=>odex())
           Dict(:alg=>dop853())
           Dict(:alg=>CVODE_Adams())]
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups;
-    save_everystep = false, verbose = false, numruns = 100)
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
 
@@ -292,3 +287,4 @@ Benchmarks generated with GitHub Actions CI.
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
+

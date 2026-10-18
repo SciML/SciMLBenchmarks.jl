@@ -1,10 +1,10 @@
 ---
-title: Berger's Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks
+title: Burgers' Equation Physics-Informed Neural Network (PINN) Optimizer Benchmarks
 author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Pagliarino, Simone Azeglio, Luca Bottero, Emmanuel Luján, Valentin Sulzer, Ashutosh Bharambe, Nand Vinchhi, Kaushik Balakrishnan, Devesh Upadhyay, Chris Rackauckas
 ---
 
 Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
-Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+Uses the [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) library from the
 [SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
 for the implementation of physics-informed neural networks (PINNs) and other
 science-guided AI techniques.
@@ -14,7 +14,12 @@ science-guided AI techniques.
 ```julia
 using NeuralPDE, ModelingToolkit, Optimization, OptimizationOptimJL
 using Lux, Plots, OptimizationOptimisers
-import ModelingToolkit: Interval, infimum, supremum
+import DomainSets: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
 ```
 
 ```julia
@@ -56,7 +61,9 @@ function burgers(strategy, minimizer)
         t ∈ Interval(0.0, t_max)]
 
     chain = Lux.Chain(Lux.Dense(2, 16, tanh), Lux.Dense(16, 16, tanh), Lux.Dense(16, 1))
-    discretization = PhysicsInformedNN(chain, strategy)
+    # NeuralPDE trains on the device of init_params
+    ps = Lux.setup(Random.default_rng(), chain)[1] |> ComponentArray |> gpud .|> Float64
+    discretization = PhysicsInformedNN(chain, strategy; init_params = ps)
 
     indvars = [x, t]   # physically independent variables
     depvars = [u]      # dependent (target) variable
@@ -71,7 +78,7 @@ function burgers(strategy, minimizer)
 
     error_strategy = GridTraining(dx_err)
 
-    discretization_ = PhysicsInformedNN(chain, error_strategy)
+    discretization_ = PhysicsInformedNN(chain, error_strategy; init_params = ps)
     @named pde_system_ = PDESystem(eq, bcs, domains, indvars, depvars)
     prob_ = discretize(pde_system_, discretization_)
 
@@ -167,7 +174,7 @@ end
 ## Results
 
 ```julia
-#PLOT ERROR VS ITER: to compare to compare between minimizers, keeping the same strategy (easily adjustable to compare between strategies)
+#PLOT ERROR VS ITER: to compare between minimizers, keeping the same strategy (easily adjustable to compare between strategies)
 error_iter = Plots.plot(1:length(error_res["11"]), error_res["11"], yaxis = :log10,
     title = string("Burger error vs iter"), ylabel = "Error",
     label = string(minimizers_short_name[1]), ylims = (0.0001, 1))
@@ -201,7 +208,7 @@ Plots.plot(error_iter)
 ```
 
 ```julia
-#PLOT ERROR VS TIME: to compare to compare between minimizers, keeping the same strategy
+#PLOT ERROR VS TIME: to compare between minimizers, keeping the same strategy
 error_time = plot(
     times["11"], error_res["11"], yaxis = :log10, label = string(minimizers_short_name[1]),
     title = string("Burger error vs time"), ylabel = "Error", size = (1500, 500))

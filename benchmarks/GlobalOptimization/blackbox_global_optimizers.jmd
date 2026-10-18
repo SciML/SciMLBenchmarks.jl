@@ -3,7 +3,7 @@ title: Black-Box Global Optimizer Benchmarks
 author: Jonathan Bieler, Chris Rackauckas
 ---
 
-In this benchmark we will run the [BlackboxGlobalOptimization.jl](https://github.com/jonathanBieler/BlackBoxOptimizationBenchmarking.jl)
+In this benchmark we will run the [BlackBoxOptimizationBenchmarking.jl](https://github.com/jonathanBieler/BlackBoxOptimizationBenchmarking.jl)
 benchmarks, a set of global optimization benchmarks on the [Optimization.jl](https://github.com/SciML/Optimization.jl)
 interface that test a wide variety of behaviors. This tests both iterations and wall-clock
 time vs accuracy, i.e. for a given budget (in iterations or time), what percentage of
@@ -51,7 +51,7 @@ function solve_problem_timed(optimizer::BenchmarkSetup, tracked_f, D::Int, run_l
     else
         prob = OptimizationProblem(optf, u0)
     end
-    sol = solve(prob, method; maxiters = run_length)
+    sol = Optimization.solve(prob, method; maxiters = run_length)
     sol
 end
 
@@ -69,7 +69,7 @@ function benchmark_time_to_success(
 )
     times = Float64[]
     for i in 1:Ntrials
-        tracked_f, t0_ref, tts_ref = make_success_tracker(f.f, f.f_opt, Δf)
+        tracked_f, t0_ref, tts_ref = make_success_tracker(f, f.f_opt, Δf)
         try
             t0_ref[] = time()
             sol = solve_problem_timed(optimizer, tracked_f, dimension, max_run_length)
@@ -114,12 +114,12 @@ chain = (t;
     0.9
 )
 
-test_functions = BBOB.list_functions()
 dimension = 3
+test_functions = BBOB.bbob_suite(Val(dimension))
 run_length = round.(Int, 10 .^ LinRange(1, 5, 30))
 
 @memoize run_bench(algo) = BBOB.benchmark(
-    setup[algo], test_functions, run_length, Ntrials = 40, dimension = dimension)
+    setup[algo], test_functions, run_length, Ntrials = 40)
 @memoize run_tts(algo) = benchmark_time_to_success(
     setup[algo], test_functions, Ntrials = 40, dimension = dimension)
 ```
@@ -167,7 +167,7 @@ setup = Dict(
 ```julia
 @time b = BBOB.benchmark(
     chain(OptimizationMetaheuristics.CGSA(), isboxed = true),
-    test_functions[1:10], 100:500:10_000, Ntrials = 10, dimension = 3
+    test_functions[1:10], 100:500:10_000, Ntrials = 10
 )
 
 plot(b)
@@ -177,11 +177,12 @@ plot(b)
 
 ```julia
 Δf = 1e-6
-f = test_functions[3]
+# The BBOBFunction contour recipe is 2-D, so use the 2-D instance of F3 (Rastrigin).
+f = BBOB.bbob_suite(Val(2))[3]
 
 single_setup = BenchmarkSetup(NLopt.GN_CRS2_LM(), isboxed = true)
 
-sol = [BBOB.solve_problem(single_setup, f, 3, 5_000) for in in 1:10]
+sol = [BBOB.solve_problem(single_setup, f, 2, 5_000) for in in 1:10]
 @info [sol.objective < Δf + f.f_opt for sol in sol]
 
 p = plot(f, size = (600, 600), zoom = 1.5)
@@ -196,9 +197,20 @@ p
 
 ```julia
 results = Array{BBOB.BenchmarkResults}(undef, length(setup))
+algorithms = collect(keys(setup))
 
-Threads.@threads for (i, algo) in collect(enumerate(keys(setup)))
-    results[i] = run_bench(algo)
+Threads.@threads for i in eachindex(algorithms)
+    algo = algorithms[i]
+    if !startswith(algo, "Scipy")
+        results[i] = run_bench(algo)
+    end
+end
+
+# PythonCall can segfault when these SciPy solves run on different Julia threads.
+for (i, algo) in enumerate(algorithms)
+    if startswith(algo, "Scipy")
+        results[i] = run_bench(algo)
+    end
 end
 
 results
@@ -327,4 +339,9 @@ bar(
     yscale = :log10, yticks = [0.1, 1, 10, 100],
     legend = false, margin = 25Plots.px
 )
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```

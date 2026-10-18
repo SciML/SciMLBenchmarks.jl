@@ -4,7 +4,7 @@ author: Kirill Zubov, Zoe McCarthy, Yingbo Ma, Francesco Calisto, Valerio Paglia
 ---
 
 Adapted from [NeuralPDE: Automating Physics-Informed Neural Networks (PINNs) with Error Approximations](https://arxiv.org/abs/2107.09443).
-Uses the [NeuralPDE.jl](https://neuralpde.sciml.ai/dev/) library from the
+Uses the [NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/) library from the
 [SciML Scientific Machine Learning Open Source Organization](https://sciml.ai/)
 for the implementation of physics-informed neural networks (PINNs) and other
 science-guided AI techniques.
@@ -14,7 +14,12 @@ science-guided AI techniques.
 ```julia
 using NeuralPDE, ModelingToolkit, Optimization, OptimizationOptimJL
 using Lux, Plots, OptimizationOptimisers
-import ModelingToolkit: Interval, infimum, supremum
+import DomainSets: Interval, infimum, supremum
+using CUDA, LuxCUDA, ComponentArrays, Random
+
+@assert CUDA.functional() "This benchmark requires a functional CUDA GPU"
+println("GPU: ", CUDA.name(CUDA.device()))
+const gpud = gpu_device()
 ```
 
 ```julia
@@ -87,8 +92,10 @@ function solve(opt)
     n = 20   #neuron number
 
     chain = Lux.Chain(Lux.Dense(5, n, tanh), Lux.Dense(n, n, tanh), Lux.Dense(n, 1))   #Neural network from OptimizationFlux library
+    # NeuralPDE trains on the device of init_params
+    ps = Lux.setup(Random.default_rng(), chain)[1] |> ComponentArray |> gpud .|> Float64
 
-    discretization = PhysicsInformedNN(chain, strategy)
+    discretization = PhysicsInformedNN(chain, strategy; init_params = ps)
 
     indvars = [t, x1, x2, x3, x4]   #physically independent variables
     depvars = [u]       #dependent (target) variable

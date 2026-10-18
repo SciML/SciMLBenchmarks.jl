@@ -5,31 +5,38 @@ on:
     branches: [master]
     paths:
       - 'src/**/*.jl'
+      - 'test/**'
       - '*.toml'
+      - '.github/workflows/test.yml'
   pull_request:
     paths:
       - 'src/**/*.jl'
+      - 'test/**'
       - '*.toml'
+      - '.github/workflows/test.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     name: Julia Tests
-    runs-on: [self-hosted, benchmark]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1.10'
 
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
 
       - uses: julia-actions/julia-runtest@v1
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: |
