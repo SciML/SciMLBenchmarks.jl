@@ -6,7 +6,12 @@ BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_benchmark.sh}"
 FIXTURE="$(mktemp -d)"
 trap 'rm -rf "${FIXTURE}"' EXIT
 
-mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/bin"
+mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" "${FIXTURE}/bin"
+mkdir -p "${FIXTURE}/.github/scripts"
+cp "${SCRIPT_DIR}/read-benchmark-config.sh" "${FIXTURE}/.github/scripts/"
+printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
+    > "${FIXTURE}/.github/benchmark_defaults.toml"
+printf 'threads = 128\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
 printf 'julia_version = "1.11.9"\n[[deps.StyledStrings]]\n' > "${FIXTURE}/Manifest.toml"
 printf '%s\n' \
     '#!/bin/bash' \
@@ -24,6 +29,8 @@ chmod +x "${FIXTURE}/bin/julia"
 (
     cd "${FIXTURE}"
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Default
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
         "${BUILD_SCRIPT}" benchmarks/Example
 )
 
@@ -31,10 +38,12 @@ grep -Fq 'julia_version = "1.10.11"' "${FIXTURE}/Manifest.toml"
 if grep -Fq 'StyledStrings' "${FIXTURE}/Manifest.toml"; then
     exit 1
 fi
-test "$(wc -l < "${FIXTURE}/julia.log")" -eq 2
+test "$(wc -l < "${FIXTURE}/julia.log")" -eq 4
 grep -Fq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' \
     "${FIXTURE}/julia.log"
-grep -Fq -- '--threads=auto --project=. benchmark.jl benchmarks/Example' \
+grep -Fq -- '--threads=32 --project=. benchmark.jl benchmarks/Default' \
+    "${FIXTURE}/julia.log"
+grep -Fq -- '--threads=128 --project=. benchmark.jl benchmarks/Example' \
     "${FIXTURE}/julia.log"
 
 echo "build_benchmark.sh tests passed"

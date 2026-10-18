@@ -2,6 +2,7 @@
 set -euo pipefail
 
 TARGET="${1}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Determine the benchmark directory
 if [[ -d "${TARGET}" ]]; then
@@ -32,5 +33,9 @@ echo "--- Instantiate"
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.build()'
 
 # Run benchmark
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/read-benchmark-config.sh"
+config=$(get_benchmark_config "${TARGET}")
+threads=$(echo "${config}" | cut -d'|' -f4)
 echo "+++ Run benchmark for ${TARGET}"
-julia --threads=auto --project=. benchmark.jl "${TARGET}"
+julia --threads="${threads}" --project=. benchmark.jl "${TARGET}"
