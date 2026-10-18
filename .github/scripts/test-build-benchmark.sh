@@ -12,6 +12,14 @@ cp "${SCRIPT_DIR}/read-benchmark-config.sh" "${FIXTURE}/.github/scripts/"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
 printf 'threads = 128\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
+(
+    cd "${FIXTURE}"
+    source .github/scripts/read-benchmark-config.sh
+    if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
+        echo "get_runner_config should return runner and timeout only" >&2
+        exit 1
+    fi
+)
 printf 'julia_version = "1.11.9"\n[[deps.StyledStrings]]\n' > "${FIXTURE}/Manifest.toml"
 printf '%s\n' \
     '#!/bin/bash' \

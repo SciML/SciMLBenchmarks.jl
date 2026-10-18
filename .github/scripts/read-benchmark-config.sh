@@ -106,5 +106,5 @@ get_runner_config() {
     local config
     config=$(get_benchmark_config "$1")
     # Return just runner|timeout for existing callers
-    echo "${config%|*}"
+    echo "${config}" | cut -d'|' -f1-2
 }
