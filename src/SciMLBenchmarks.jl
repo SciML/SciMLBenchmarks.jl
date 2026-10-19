@@ -14,7 +14,7 @@ macro subprocess(ex, wait = true)
         local ex_str = $(string(ex))
         local threads = string(Threads.nthreads())
         local command = `$(Base.julia_cmd()) --project=$(project) -e "$(ex_str)"`
-        run(setenv(command, "JULIA_NUM_THREADS" => threads); wait = $(wait))
+        run(addenv(command, "JULIA_NUM_THREADS" => threads); wait = $(wait))
     end
 end
 
