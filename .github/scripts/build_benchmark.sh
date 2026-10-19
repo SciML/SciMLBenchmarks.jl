@@ -38,4 +38,4 @@ source "${SCRIPT_DIR}/read-benchmark-config.sh"
 config=$(get_benchmark_config "${TARGET}")
 threads=$(echo "${config}" | cut -d'|' -f4)
 echo "+++ Run benchmark for ${TARGET}"
-julia --threads="${threads}" --project=. benchmark.jl "${TARGET}"
+JULIA_NUM_THREADS="${threads}" julia --threads="${threads}" --project=. benchmark.jl "${TARGET}"

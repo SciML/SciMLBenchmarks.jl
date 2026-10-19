@@ -25,6 +25,7 @@ printf '%s\n' \
     '#!/bin/bash' \
     'set -euo pipefail' \
     "printf \"%s\\n\" \"\$*\" >> \"\${FAKE_JULIA_LOG}\"" \
+    'printf "%s|%s\n" "$JULIA_NUM_THREADS" "$SCIMLBENCHMARKS_BUILD_SENTINEL" >> "$FAKE_JULIA_ENV_LOG"' \
     "if [[ \"\$*\" == *\"Pkg.instantiate\"* && -f Manifest.toml ]]; then" \
     '    echo "ERROR: Could not locate the source code for the StyledStrings package." >&2' \
     '    exit 1' \
@@ -36,6 +37,8 @@ chmod +x "${FIXTURE}/bin/julia"
 
 (
     cd "${FIXTURE}"
+    export JULIA_NUM_THREADS=3 SCIMLBENCHMARKS_BUILD_SENTINEL=kept
+    export FAKE_JULIA_ENV_LOG="${FIXTURE}/environment.log"
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
         "${BUILD_SCRIPT}" benchmarks/Default
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
@@ -53,6 +56,8 @@ grep -Fq -- '--threads=32 --project=. benchmark.jl benchmarks/Default' \
     "${FIXTURE}/julia.log"
 grep -Fq -- '--threads=128 --project=. benchmark.jl benchmarks/Example' \
     "${FIXTURE}/julia.log"
+printf '%s\n' '3|kept' '32|kept' '3|kept' '128|kept' > "${FIXTURE}/expected-environment.log"
+diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
 
 (
     cd "${SCRIPT_DIR}/../.."
