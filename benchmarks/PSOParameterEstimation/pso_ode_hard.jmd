@@ -47,14 +47,14 @@ const BACKEND = CUDABackend()
 const NTRIALS = 10
 const DELTA = 1.0e-6            # success: cost below f_opt + DELTA
 const NUM_PARTICLES = 50_000    # GPU swarm
-const HYBRID_PARTICLES = 25_000 # HybridPSO's swarm
+const HYBRID_PARTICLES = 1_024  # HybridPSO's swarm
 const SERIAL_PARTICLES = 512       # CPU swarm
 const TIME_BUDGET = 20.0        # seconds per trial, restarts included
 const MAX_TTS_ITERS = 100_000   # iterations per restart
 const TTS_CHUNK = 20        # GPU: read back the best cost every this many iterations
 const HYBRID_SWARM_ITERS = 100   # swarm iterations before L-BFGS
 # L-BFGS iterations of each HybridPSO entry
-const LOCAL_MAXITERS = Dict("HybridPSO_LBFGS" => 100)
+const LOCAL_MAXITERS = Dict("HybridPSO_LBFGS" => 1_000)
 ```
 
 ## Problems
@@ -127,10 +127,11 @@ instance would start each trial from the previous trial's population.
 
 The baselines use library defaults.
 
-`HybridPSO` is the released version in ParallelParticleSwarms 1.6.4, with a 25,000-particle swarm
-(`HYBRID_PARTICLES`) and 100 L-BFGS iterations (`LOCAL_MAXITERS`), the values the BBOB benchmark
-chose from its grid. Any error in its L-BFGS phase is shown with the results, and its runs then
-count as failures.
+`HybridPSO` is the released version in ParallelParticleSwarms 1.6.4, with a 1,024-particle swarm
+(`HYBRID_PARTICLES`) and 1,000 L-BFGS iterations (`LOCAL_MAXITERS`). Its L-BFGS stops at the first
+rejected line search, so on this problem 100 iterations leave most starts short of the minimum;
+the smaller swarm keeps the longer L-BFGS phase within the time budget. Any error in its L-BFGS
+phase is shown with the results, and its runs then count as failures.
 
 ```julia
 chain(t; isboxed = false) =
