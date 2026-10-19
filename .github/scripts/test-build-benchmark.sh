@@ -54,4 +54,27 @@ grep -Fq -- '--threads=32 --project=. benchmark.jl benchmarks/Default' \
 grep -Fq -- '--threads=128 --project=. benchmark.jl benchmarks/Example' \
     "${FIXTURE}/julia.log"
 
+(
+    cd "${SCRIPT_DIR}/../.."
+    source .github/scripts/read-benchmark-config.sh
+    failed=0
+    for page in benchmarks/AstroChem/{astrochem,nelson}.jmd \
+        benchmarks/Bio/Bidkhori2012.jmd \
+        benchmarks/BayesianInference/DiffEqBayesLorenz.jmd \
+        benchmarks/ComplicatedPDE/Filament.jmd \
+        benchmarks/MethodOfLinesPDE/{MOL_fdm,MOLxPDESystemLibrary}.jmd \
+        benchmarks/NonStiffBVP/{linear_wpd,nonlinear_wpd}.jmd \
+        benchmarks/ParameterEstimation/BioPreDynB{1..6}ParameterEstimation.jmd; do
+        test -f "${page}"
+        for target in "${page%/*}" "${page}"; do
+            config=$(get_benchmark_config "${target}")
+            if [[ "${config##*|}" != 128 ]]; then
+                echo "${target}: expected 128 threads, got ${config##*|}" >&2
+                failed=1
+            fi
+        done
+    done
+    test "${failed}" -eq 0
+)
+
 echo "build_benchmark.sh tests passed"

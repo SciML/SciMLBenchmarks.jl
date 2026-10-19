@@ -7,6 +7,7 @@
         values = (
             Threads.nthreads(),
             ENV["SCIMLBENCHMARKS_REVIEW_SENTINEL"],
+            ENV["SCIMLBENCHMARKS_OUTER_SENTINEL"],
             ENV["TMPDIR"],
             ENV["OPENBLAS_NUM_THREADS"],
             ENV["PATH"],
@@ -30,9 +31,11 @@
         )
 
         try
-            run(addenv(command, inherited_environment...))
+            withenv("SCIMLBENCHMARKS_OUTER_SENTINEL" => "outer") do
+                run(addenv(command, inherited_environment...))
+            end
             @test read(probe, String) == join(
-                ("2", "kept", inherited_tmpdir, inherited_blas_threads, ENV["PATH"]),
+                ("2", "kept", "outer", inherited_tmpdir, inherited_blas_threads, ENV["PATH"]),
                 "\n",
             )
         finally
