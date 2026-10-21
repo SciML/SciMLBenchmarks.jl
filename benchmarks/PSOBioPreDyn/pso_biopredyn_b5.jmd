@@ -544,27 +544,32 @@ function advance!(cache, h, t0)
     return record!(h, t0, sol.objective)
 end
 
+# At least one chunk always runs, so the warm-up compiles the update kernel even when `init`
+# alone outlasts its budget.
 function run_swarm(opt, h, t0, budget)
     cache = SciMLBase.init(pso_problem(b5_cost), opt)
-    while time() - t0 < budget
+    while true
         advance!(cache, h, t0)
+        time() - t0 < budget || return nothing
     end
-    return nothing
 end
 
 const LBFGS_PHASE_TIMES = Float64[]   # seconds per timed HybridPSO L-BFGS phase
 
+# The warm-up runs one full swarm phase and one L-BFGS phase whatever its budget, so that the
+# Enzyme gradient kernel compiles there rather than in the first timed run.
 function run_hybrid(h, t0, budget; local_maxiters = LOCAL_MAXITERS, warmup = false)
     opt = HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
     cache = SciMLBase.init(pso_problem(b5_cost), opt)
-    while time() - t0 < budget
+    while warmup || time() - t0 < budget
         for _ in 1:cld(HYBRID_SWARM_ITERS, CHUNK)
             advance!(cache.pso_cache, h, t0)
-            time() - t0 > budget && return nothing
+            !warmup && time() - t0 > budget && return nothing
         end
         tl = time()
         sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters)
-        warmup || push!(LBFGS_PHASE_TIMES, time() - tl)
+        warmup && return nothing
+        push!(LBFGS_PHASE_TIMES, time() - tl)
         time() - t0 <= budget && record!(h, t0, sol.objective)
     end
     return nothing
