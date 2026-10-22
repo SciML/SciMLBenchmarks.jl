@@ -1,0 +1,153 @@
+---
+title: PETScDiffEq HIRES Work-Precision Diagrams
+author: Harsh Singh
+---
+
+The eight-state HIRES problem, solved with PETSc's Rosenbrock-W (`TSRosW`), BDF
+(`TSImplicit("bdf")`) and additive Runge-Kutta IMEX (`TSARKIMEX`) integrators through
+PETScDiffEq, next to OrdinaryDiffEq and Sundials. Each point is the mean absolute error at the
+final time against a reference solution and the fastest of up to 20 solves, as
+`WorkPrecisionSet` measures them.
+
+Solid lines with circles are PETScDiffEq with PETSc's default linear solver, GMRES with an
+ILU(0) preconditioner. Dashed lines with squares are OrdinaryDiffEq or Sundials. Lines of one
+color are the same method or its nearest counterpart. Three pairs share their coefficients:
+`TSRosW("ra34pw2")` with `ROS34PW2`, `TSRosW("rodas3")` with `Rodas3`, and `TSARKIMEX("4")`
+with `KenCarp4`, run here fully implicit. PETSc's Rosenbrock-W leaves out the time derivative
+of ``f``, so the two `TSRosW` pairs match only because ``f`` does not depend on ``t`` here.
+
+```julia
+using OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, Sundials
+using OrdinaryDiffEqNonlinearSolve: NLNewton
+using SciMLLogging
+include(joinpath(@__DIR__, "wpd_common.jl"))
+gr()
+
+function hires!(du, u, p, t)
+    y1, y2, y3, y4, y5, y6, y7, y8 = u
+    du[1] = -1.71 * y1 + 0.43 * y2 + 8.32 * y3 + 0.0007
+    du[2] = 1.71 * y1 - 8.75 * y2
+    du[3] = -10.03 * y3 + 0.43 * y4 + 0.035 * y5
+    du[4] = 8.32 * y2 + 1.71 * y3 - 1.12 * y4
+    du[5] = -1.745 * y5 + 0.43 * y6 + 0.43 * y7
+    du[6] = -280.0 * y6 * y8 + 0.69 * y4 + 1.71 * y5 - 0.43 * y6 + 0.69 * y7
+    du[7] = 280.0 * y6 * y8 - 1.81 * y7
+    du[8] = -280.0 * y6 * y8 + 1.81 * y7
+    return nothing
+end
+
+prob = ODEProblem(hires!, [1.0, 0, 0, 0, 0, 0, 0, 0.0057], (0.0, 321.8122))
+```
+
+## Reference solution
+
+`Rodas5P` at a tolerance of 1e-14, checked against `FBDF` at the same tolerance.
+
+```julia
+ref = reference(prob, Rodas5P(); tol = 1.0e-14)
+check = reference(prob, FBDF(); tol = 1.0e-14)
+reference_gap = maximum(abs, ref.u[end] - check.u[end])
+```
+
+## Matched coefficients
+
+With a fixed step of 0.05 each pair takes the same steps. The ARKIMEX pair runs its
+Newton iterations to 1e-14 so that both solve the stage equations to rounding.
+
+```julia; wrap = false
+tight_newton = ["-snes_rtol", "1e-14", "-snes_atol", "1e-14"]
+for (pair, a, b) in (
+        ("TSRosW(\"ra34pw2\"), ROS34PW2", TSRosW("ra34pw2"), ROS34PW2()),
+        ("TSRosW(\"rodas3\"), Rodas3", TSRosW("rodas3"), Rodas3()),
+        ("TSARKIMEX(\"4\"), KenCarp4", TSARKIMEX("4", tight_newton),
+            KenCarp4(; nlsolve = NLNewton(; κ = 1.0e-10, max_iter = 50))),
+    )
+    @printf("%-30s %.2e\n", pair, fixed_step_gap(prob, a, b; dt = 0.05))
+end
+```
+
+## Work-precision diagram
+
+`abstol` runs from 1e-5 to 1e-10 and `reltol` from 1e-2 to 1e-7.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (5:10)
+reltols = 1.0 ./ 10.0 .^ (2:7)
+setups = [
+    Dict(:alg => TSRosW("ra34pw2")), Dict(:alg => ROS34PW2()),
+    Dict(:alg => TSRosW("rodas3")), Dict(:alg => Rodas3()),
+    Dict(:alg => TSImplicit("bdf"; order = 5)), Dict(:alg => FBDF()),
+    Dict(:alg => TSARKIMEX("4")), Dict(:alg => KenCarp4()),
+    Dict(:alg => Rodas5P()), Dict(:alg => CVODE_BDF()),
+]
+names = [
+    "TSRosW(\"ra34pw2\")", "ROS34PW2", "TSRosW(\"rodas3\")", "Rodas3",
+    "TSImplicit(\"bdf\"; order = 5)", "FBDF", "TSARKIMEX(\"4\")", "KenCarp4",
+    "Rodas5P", "CVODE_BDF",
+]
+colors = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6]
+wp = WorkPrecisionSet(
+    prob, abstols, reltols, setups; names, appxsol = ref, save_everystep = false,
+    maxiters = 10^7, numruns = 20, verbose = SciMLLogging.None(),
+)
+wpd_plot(wp, colors; title = "HIRES, stiff, 8 states")
+```
+
+```julia; wrap = false
+pairs = [
+    ("TSRosW(\"ra34pw2\")", "ROS34PW2"), ("TSRosW(\"rodas3\")", "Rodas3"),
+    ("TSARKIMEX(\"4\")", "KenCarp4"),
+]
+summarize(wp, 1.0e-7, pairs)
+```
+
+The two references agree to within 1e-12 at the final time, more than 50 times below the
+smallest error plotted:
+
+```julia
+reference_margin(wp, reference_gap)
+```
+
+Every PETScDiffEq point includes a cost per solve that does not depend on the method or the
+tolerance. A solve of a single step measures it:
+
+```julia; wrap = false
+one_step_table(
+    [prob],
+    [
+        ("TSRosW(\"ra34pw2\")", TSRosW("ra34pw2"), 1), ("ROS34PW2", ROS34PW2(), 1),
+        ("TSImplicit(\"bdf\"; order = 5)", TSImplicit("bdf"; order = 5), 1),
+        ("TSARKIMEX(\"4\")", TSARKIMEX("4"), 1), ("KenCarp4", KenCarp4(), 1),
+    ],
+)
+```
+
+Time to an error of 1e-7, interpolated in log-log between the measured points of each solver
+that no other point of the same solver beats on both error and time:
+
+```julia; wrap = false
+time_to_error(wp, 1.0e-7)
+```
+
+The matched pairs at the tightest tolerance, with the time per step attempt taken as the
+whole solve time over the number of attempts:
+
+```julia; wrap = false
+compare_pairs(wp, pairs)
+```
+
+Every point, with its Jacobian and Newton iteration counts. PETSc's nonlinear solver forms a
+new Jacobian at every Newton iteration unless told to lag it, and PETScDiffEq keeps that
+default, so `TSImplicit` and `TSARKIMEX` count one Jacobian per iteration: at
+`abstol = 1e-7`, 244 for `TSImplicit("bdf"; order = 5)` against 8 for `FBDF`, and 574 for
+`TSARKIMEX("4")` against 21 for `KenCarp4`. `TSRosW` counts its one linear solve per stage as
+a Newton iteration.
+
+```julia; wrap = false
+print_points(wp)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
