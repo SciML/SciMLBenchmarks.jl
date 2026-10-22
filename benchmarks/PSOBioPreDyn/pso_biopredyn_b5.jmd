@@ -601,21 +601,25 @@ end
 
 ## Best cost vs. wall-clock time
 
-One line per run, coloured by optimizer; lower is better. The dashed line is the eSS
+One line per optimizer: its median run. Lower is better; the dashed line is the eSS
 reference.
 
 ```julia
+const YTICKS = [3000, 4000, 5000, 7000, 10_000, 20_000]
 function plot_histories()
     fig = Figure(size = (1100, 500))
     ax = Axis(
         fig[1, 1]; yscale = log10, xlabel = "Wall time (s)", ylabel = "Best cost so far",
-        title = "BioPreDyn-bench B5", limits = ((0, BUDGET), nothing)
+        title = "BioPreDyn-bench B5", limits = ((0, BUDGET), nothing),
+        yticks = (YTICKS, string.(YTICKS))
     )
-    colors = Makie.wong_colors()
-    for (i, l) in enumerate(LABELS), (r, h) in enumerate(histories[l])
-        isempty(h) && continue
+    colors = Makie.wong_colors()[[1, 2, 3, 4, 6]]
+    for (i, l) in enumerate(LABELS)
+        hs = filter(!isempty, histories[l])
+        isempty(hs) && continue
+        h = hs[sortperm(best_at.(hs, BUDGET))[cld(end, 2)]]   # median run
         ts, vs = [first.(h); BUDGET], [last.(h); last(h)[2]]
-        stairs!(ax, ts, vs; step = :post, color = colors[mod1(i, end)], label = r == 1 ? l : nothing)
+        stairs!(ax, ts, vs; step = :post, color = colors[mod1(i, end)], label = l)
     end
     hlines!(ax, [J_REF]; color = :black, linestyle = :dash, label = "eSS reference (J = 3072.5)")
     Legend(fig[1, 2], ax; framevisible = false, merge = true)
