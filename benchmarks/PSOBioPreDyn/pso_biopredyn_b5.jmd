@@ -31,7 +31,8 @@ B5 benchmark, which documents their source.
 - **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle on the
   GPU. With 86 parameters, forward-mode AD carries 86 partials through every RK4 step, so the
   gradient uses Enzyme's reverse mode (`AutoEnzyme`), which ParallelParticleSwarms runs
-  inside its kernels. The setup enlarges the device heap to hold its tapes.
+  inside its kernels. Its tape is allocated per thread from the device heap, which limits
+  `HybridPSO` to 64 particles.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
   runs, and its best cost is recorded at every improvement. One untimed warm-up per
   optimizer keeps compilation out of the times.
@@ -59,13 +60,12 @@ const J_REF = 3072.5            # cost reached by eSS in the BioPreDyn-bench pap
 const NSUB = 20                 # RK4 steps per 2 h sampling interval (dt = 0.1 h)
 const NUM_PARTICLES = 10_000    # GPU swarms
 const SERIAL_PARTICLES = 64     # CPU swarm
-const HYBRID_PARTICLES = 256    # HybridPSO's swarm: one L-BFGS start per particle
+const HYBRID_PARTICLES = 64     # one L-BFGS start per particle; larger swarms run out of device memory
 const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
 const LOCAL_MAXITERS = 20       # L-BFGS iterations per start
 const CHUNK = 5                 # GPU swarm iterations between clock checks
 
-# Enzyme's tape (~19.3 MB per gradient) comes from the device heap (default 8 MiB).
-CUDA.limit!(CUDA.CU_LIMIT_MALLOC_HEAP_SIZE, HYBRID_PARTICLES * 24 * 2^20)
+CUDA.limit!(CUDA.CU_LIMIT_MALLOC_HEAP_SIZE, 8 * 2^30)   # Enzyme's GPU tape
 ```
 
 ## Model
