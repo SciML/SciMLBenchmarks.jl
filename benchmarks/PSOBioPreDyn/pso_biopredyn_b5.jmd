@@ -31,7 +31,7 @@ B5 benchmark, which documents their source.
 - **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle on the
   GPU. With 86 parameters, forward-mode AD carries 86 partials through every RK4 step, so the
   gradient uses Enzyme's reverse mode (`AutoEnzyme`), which ParallelParticleSwarms runs
-  inside its kernels.
+  inside its kernels. The setup enlarges the device heap to hold its tapes.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
   runs, and its best cost is recorded at every improvement. One untimed warm-up per
   optimizer keeps compilation out of the times.
@@ -63,6 +63,9 @@ const HYBRID_PARTICLES = 1_024  # HybridPSO's swarm: one L-BFGS start per partic
 const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
 const LOCAL_MAXITERS = 20       # L-BFGS iterations per start
 const CHUNK = 5                 # GPU swarm iterations between clock checks
+
+# Enzyme's tape (~2.5 MiB per gradient) comes from the device heap (default 8 MiB).
+CUDA.limit!(CUDA.CU_LIMIT_MALLOC_HEAP_SIZE, HYBRID_PARTICLES * 4 * 2^20)
 ```
 
 ## Model
@@ -544,8 +547,7 @@ function advance!(cache, h, t0)
     return record!(h, t0, sol.objective)
 end
 
-# At least one chunk always runs, so the warm-up compiles the update kernel even when `init`
-# alone outlasts its budget.
+# Always runs one chunk, so the warm-up compiles the update kernel.
 function run_swarm(opt, h, t0, budget)
     cache = SciMLBase.init(pso_problem(b5_cost), opt)
     while true
@@ -556,8 +558,7 @@ end
 
 const LBFGS_PHASE_TIMES = Float64[]   # seconds per timed HybridPSO L-BFGS phase
 
-# The warm-up runs one full swarm phase and one L-BFGS phase whatever its budget, so that the
-# Enzyme gradient kernel compiles there rather than in the first timed run.
+# The warm-up runs one swarm and one L-BFGS phase, so both kernels compile there.
 function run_hybrid(h, t0, budget; local_maxiters = LOCAL_MAXITERS, warmup = false)
     opt = HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
     cache = SciMLBase.init(pso_problem(b5_cost), opt)
