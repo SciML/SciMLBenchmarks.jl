@@ -28,11 +28,6 @@ B5 benchmark, which documents their source.
   `Σ ((simulated - data) / 0.05)²` over all experiments, observables and samples. The
   original study reached `J ≈ 3072.5` with its eSS optimizer after about 16 hours; that
   value is drawn on the plot as a reference.
-- **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle on the
-  GPU. With 86 parameters, forward-mode AD carries 86 partials through every RK4 step, so the
-  gradient uses Enzyme's reverse mode (`AutoEnzyme`), which ParallelParticleSwarms runs
-  inside its kernels. Its tape is allocated per thread from the device heap, which limits
-  `HybridPSO` to 64 particles.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
   runs, and its best cost is recorded at every improvement. One untimed warm-up per
   optimizer keeps compilation out of the times.
@@ -50,7 +45,6 @@ const SciMLBase = Optimization.SciMLBase
 const PSOKernel = ParallelParticleSwarms.ParallelPSOKernel
 const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
 const SerialPSO = ParallelParticleSwarms.SerialPSO
-const HybridPSO = ParallelParticleSwarms.HybridPSO
 const BACKEND = CUDABackend()
 
 const BUDGET = 300.0            # wall-clock seconds per run
@@ -58,14 +52,10 @@ const NRUNS = 3                 # runs per optimizer
 const WARMUP = 1.0              # budget of the untimed warm-up run
 const J_REF = 3072.5            # cost reached by eSS in the BioPreDyn-bench paper
 const NSUB = 20                 # RK4 steps per 2 h sampling interval (dt = 0.1 h)
-const NUM_PARTICLES = 10_000    # GPU swarms
+const NUM_PARTICLES = 50_000    # GPU swarms
 const SERIAL_PARTICLES = 64     # CPU swarm
-const HYBRID_PARTICLES = 64     # one L-BFGS start per particle; larger swarms run out of device memory
-const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
-const LOCAL_MAXITERS = 20       # L-BFGS iterations per start
 const CHUNK = 5                 # GPU swarm iterations between clock checks
 
-CUDA.limit!(CUDA.CU_LIMIT_MALLOC_HEAP_SIZE, 8 * 2^30)   # Enzyme's GPU tape
 ```
 
 ## Model
@@ -425,7 +415,7 @@ end for i in 1:10]
 `experiment_cost` integrates one experiment with RK4 and sums its weighted squared residuals
 at the 15 samples after `t = 0` (at `t = 0` the observed states equal the data). `B5Cost`
 holds the data, so GPU kernels receive them as an argument, and sums the experiments in an
-unrolled loop, which keeps Enzyme's compile time down.
+unrolled loop.
 
 ```julia
 # The observed states (raf1, erk, ap1, gsk3, p38, nfkb).
@@ -495,10 +485,8 @@ end
 The baselines are the global optimizers of the CPU B5 benchmark, `BBO_adaptive_de_rand_1_bin`
 and `GN_CRS2_LM`, stopped by their own `maxtime`. The swarms use the same box and start from
 uniform samples in it. The GPU swarms advance `CHUNK` iterations at a time, with the clock
-read in between. `HybridPSO` alternates `HYBRID_SWARM_ITERS` swarm iterations with an L-BFGS
-phase of `LOCAL_MAXITERS` iterations from every particle's best point, on the same swarm; an
-L-BFGS phase that ends after the budget does not count. Any error in a
-run is shown with the results, and the run then has no result.
+read in between. Any error in a run is shown with the results, and the run then has no
+result.
 
 ```julia
 # A run's history: (seconds since its start, best cost so far) at every improvement.
@@ -519,7 +507,7 @@ function tracked(f, h, t0, budget; stop)
 end
 
 pso_problem(f) = OptimizationProblem{false}(
-    OptimizationFunction{false}(f, Optimization.AutoEnzyme()), SVector{86}(p_start), nothing;
+    OptimizationFunction{false}(f, SciMLBase.NoAD()), SVector{86}(p_start), nothing;
     lb = LB, ub = UB
 )
 
@@ -556,34 +544,13 @@ function run_swarm(opt, h, t0, budget)
     end
 end
 
-const LBFGS_PHASE_TIMES = Float64[]   # seconds per timed HybridPSO L-BFGS phase
-
-# The warm-up runs one swarm and one L-BFGS phase, so both kernels compile there.
-function run_hybrid(h, t0, budget; local_maxiters = LOCAL_MAXITERS, warmup = false)
-    opt = HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
-    cache = SciMLBase.init(pso_problem(b5_cost), opt)
-    while warmup || time() - t0 < budget
-        for _ in 1:cld(HYBRID_SWARM_ITERS, CHUNK)
-            advance!(cache.pso_cache, h, t0)
-            !warmup && time() - t0 > budget && return nothing
-        end
-        tl = time()
-        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters)
-        warmup && return nothing
-        push!(LBFGS_PHASE_TIMES, time() - tl)
-        time() - t0 <= budget && record!(h, t0, sol.objective)
-    end
-    return nothing
-end
-
-# label => runner(history, start time, budget, is_warmup)
+# label => runner(history, start time, budget)
 const METHODS = [
-    "PSOKernel" => (h, t0, b, _) -> run_swarm(PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true), h, t0, b),
-    "SyncPSOKernel" => (h, t0, b, _) -> run_swarm(SyncPSOKernel(NUM_PARTICLES; backend = BACKEND), h, t0, b),
-    "HybridPSO_LBFGS" => (h, t0, b, warmup) -> run_hybrid(h, t0, b; local_maxiters = warmup ? 1 : LOCAL_MAXITERS, warmup),
-    "SerialPSO" => (h, t0, b, _) -> run_serial(h, t0, b),
-    "BBO_adaptive_de_rand_1_bin" => (h, t0, b, _) -> run_baseline(BBO_adaptive_de_rand_1_bin(), h, t0, b),
-    "NLopt.GN_CRS2_LM()" => (h, t0, b, _) -> run_baseline(NLopt.GN_CRS2_LM(), h, t0, b),
+    "PSOKernel" => (h, t0, b) -> run_swarm(PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true), h, t0, b),
+    "SyncPSOKernel" => (h, t0, b) -> run_swarm(SyncPSOKernel(NUM_PARTICLES; backend = BACKEND), h, t0, b),
+    "SerialPSO" => (h, t0, b) -> run_serial(h, t0, b),
+    "BBO_adaptive_de_rand_1_bin" => (h, t0, b) -> run_baseline(BBO_adaptive_de_rand_1_bin(), h, t0, b),
+    "NLopt.GN_CRS2_LM()" => (h, t0, b) -> run_baseline(NLopt.GN_CRS2_LM(), h, t0, b),
 ]
 const LABELS = first.(METHODS)
 ```
@@ -593,10 +560,10 @@ const LABELS = first.(METHODS)
 ```julia
 const ERRORS = Dict{String, String}()   # optimizer => first line of its first error
 
-function timed_run(label, runner, budget, warmup)
+function timed_run(label, runner, budget)
     h, t0 = History(), time()
     try
-        runner(h, t0, budget, warmup)
+        runner(h, t0, budget)
     catch e
         get!(ERRORS, label, first(split(sprint(showerror, e), '\n')))
     end
@@ -608,8 +575,8 @@ time_to(h, J) = (i = findfirst(x -> x[2] <= J, h); i === nothing ? Inf : h[i][1]
 
 histories = Dict{String, Vector{History}}()
 for (label, runner) in METHODS
-    timed_run(label, runner, WARMUP, true)                    # compile; discarded
-    histories[label] = [(Random.seed!(r); timed_run(label, runner, BUDGET, false)) for r in 1:NRUNS]
+    timed_run(label, runner, WARMUP)                          # compile; discarded
+    histories[label] = [(Random.seed!(r); timed_run(label, runner, BUDGET)) for r in 1:NRUNS]
     @info label best = [best_at(h, BUDGET) for h in histories[label]]
 end
 ```
@@ -617,8 +584,8 @@ end
 ## Results
 
 Per optimizer: the best cost after `BUDGET` seconds in each run (median and best), how many
-runs reached the eSS reference `J_REF`, and their median time to reach it. The duration of
-`HybridPSO`'s L-BFGS phases and any error follow the table.
+runs reached the eSS reference `J_REF`, and their median time to reach it. Any error follows
+the table.
 
 ```julia
 @printf "%-28s %14s %14s %10s %14s\n" "optimizer" "median best" "best" "≤ J_REF" "median time"
@@ -627,7 +594,6 @@ for l in sort(LABELS; by = l -> median(best_at.(histories[l], BUDGET)))
     t = filter(isfinite, time_to.(histories[l], J_REF))
     @printf "%-28s %14.1f %14.1f %7d/%-2d %14s\n" l median(b) minimum(b) length(t) NRUNS (isempty(t) ? "never" : @sprintf("%.1f s", median(t)))
 end
-isempty(LBFGS_PHASE_TIMES) || @printf "\nHybridPSO L-BFGS phases: %d, median %.1f s, longest %.1f s\n" length(LBFGS_PHASE_TIMES) median(LBFGS_PHASE_TIMES) maximum(LBFGS_PHASE_TIMES)
 for (l, msg) in sort(collect(ERRORS))
     println(l, ": ", msg)
 end
