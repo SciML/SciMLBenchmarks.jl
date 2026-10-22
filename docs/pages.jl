@@ -45,6 +45,7 @@ end
 
 section_titles = [
     "MultiLanguage" => "Multi-Language Wrapper Benchmarks",
+    "PETScDiffEq" => "PETSc Time Integrators (PETScDiffEq.jl)",
     "LinearSolve" => "Linear Solvers",
     "LinearSolveGPU" => "Linear Solvers (GPU)",
     "LinearSolveDistributed" => "Distributed Linear Solvers (MPI)",

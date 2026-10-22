@@ -1,0 +1,135 @@
+---
+title: PETScDiffEq Lotka-Volterra Work-Precision Diagrams
+author: Harsh Singh
+---
+
+These pages put the time integrators of [PETSc's TS](https://petsc.org/release/manual/ts/),
+called through [PETScDiffEq.jl](https://github.com/SciML/PETScDiffEq.jl), next to
+OrdinaryDiffEq and Sundials on four problems: this non-stiff ODE, the stiff HIRES problem,
+the Robertson DAE and a 1-D Brusselator with a sparse Jacobian. Each point is one pair of
+tolerances, with the mean absolute error at the final time against a reference solution and
+the fastest of up to 20 solves, as `WorkPrecisionSet` measures them.
+
+Solid lines with circles are PETScDiffEq, dashed lines with squares are OrdinaryDiffEq or
+Sundials, and lines of one color are the same method or its nearest counterpart. Two pairs
+here share their coefficients: `TSRK("3bs")` with `BS3` and `TSRK("5dp")` with `DP5`.
+`TSRK("7vr")` and `TSRK("8vr")` are Verner pairs, but not the ones in `Vern7` and `Vern8`.
+
+```julia
+using OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqTsit5, OrdinaryDiffEqVerner, Sundials
+using SciMLLogging
+include(joinpath(@__DIR__, "wpd_common.jl"))
+gr()
+
+function lotka_volterra!(du, u, p, t)
+    du[1] = 1.5 * u[1] - u[1] * u[2]
+    du[2] = -3.0 * u[2] + u[1] * u[2]
+    return nothing
+end
+
+prob = ODEProblem(lotka_volterra!, [1.0, 1.0], (0.0, 10.0))
+```
+
+## Reference solution
+
+`Vern9` at a tolerance of 1e-14, checked against `Vern8` at the same tolerance.
+
+```julia
+ref = reference(prob, Vern9(); tol = 1.0e-14)
+check = reference(prob, Vern8(); tol = 1.0e-14)
+reference_gap = maximum(abs, ref.u[end] - check.u[end])
+```
+
+## Matched coefficients
+
+With a fixed step of 0.01 each pair takes the same 1000 steps, so if the coefficients match
+the final states agree to rounding:
+
+```julia
+for (pair, a, b) in (
+        ("TSRK(\"3bs\"), BS3", TSRK("3bs"), BS3()), ("TSRK(\"5dp\"), DP5", TSRK("5dp"), DP5()),
+    )
+    @printf("%-18s %.2e\n", pair, fixed_step_gap(prob, a, b; dt = 0.01))
+end
+```
+
+## Work-precision diagram
+
+`abstol` runs from 1e-6 to 1e-13 and `reltol` from 1e-3 to 1e-10.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:13)
+reltols = 1.0 ./ 10.0 .^ (3:10)
+setups = [
+    Dict(:alg => TSRK("3bs")), Dict(:alg => BS3()),
+    Dict(:alg => TSRK("5dp")), Dict(:alg => DP5()),
+    Dict(:alg => TSRK("7vr")), Dict(:alg => Vern7()),
+    Dict(:alg => TSRK("8vr")), Dict(:alg => Vern8()),
+    Dict(:alg => Tsit5()), Dict(:alg => CVODE_Adams()),
+]
+names = [
+    "TSRK(\"3bs\")", "BS3", "TSRK(\"5dp\")", "DP5", "TSRK(\"7vr\")", "Vern7",
+    "TSRK(\"8vr\")", "Vern8", "Tsit5", "CVODE_Adams",
+]
+colors = [1, 1, 2, 2, 3, 3, 4, 4, 5, 6]
+wp = WorkPrecisionSet(
+    prob, abstols, reltols, setups; names, appxsol = ref, save_everystep = false,
+    maxiters = 10^7, numruns = 20, verbose = SciMLLogging.None(),
+)
+wpd_plot(wp, colors; title = "Lotka-Volterra, non-stiff, 2 states")
+```
+
+```julia; wrap = false
+pairs = [("TSRK(\"3bs\")", "BS3"), ("TSRK(\"5dp\")", "DP5")]
+summarize(wp, 1.0e-8, pairs)
+```
+
+The two references agree to within 1e-13 at the final time, more than 100 times below the
+smallest error plotted:
+
+```julia
+reference_margin(wp, reference_gap)
+```
+
+Every PETScDiffEq point includes a cost per solve that does not depend on the method or the
+tolerance. A solve of a single step measures it, and at loose tolerances the PETScDiffEq times
+level off a little above it:
+
+```julia; wrap = false
+one_step_table(
+    [prob],
+    [
+        ("TSRK(\"3bs\")", TSRK("3bs"), 1), ("BS3", BS3(), 1),
+        ("TSRK(\"5dp\")", TSRK("5dp"), 1), ("DP5", DP5(), 1),
+        ("TSRK(\"8vr\")", TSRK("8vr"), 1), ("Vern8", Vern8(), 1),
+    ],
+)
+```
+
+Time to an error of 1e-8, interpolated in log-log between the measured points of each solver
+that no other point of the same solver beats on both error and time. "At most" means the
+solver's cheapest run was already below 1e-8.
+
+```julia; wrap = false
+time_to_error(wp, 1.0e-8)
+```
+
+`TSRK("5dp")` and `DP5` take nearly the same number of steps and end at nearly the same error,
+so the gap between them is the cost per solve above and the cost of each step. The matched
+pairs at the tightest tolerance, with the time per step attempt taken as the whole solve time
+over the number of attempts:
+
+```julia; wrap = false
+compare_pairs(wp, pairs)
+```
+
+Every point:
+
+```julia; wrap = false
+print_points(wp)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
