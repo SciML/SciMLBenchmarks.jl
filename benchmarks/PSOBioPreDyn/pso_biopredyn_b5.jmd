@@ -1,0 +1,679 @@
+---
+title: PSO BioPreDyn-bench B5 Parameter Estimation Benchmark
+author: Aditya Pandey
+---
+
+This benchmark fits problem **B5** of the
+[BioPreDyn-bench suite](https://bmcsystbiol.biomedcentral.com/articles/10.1186/s12918-015-0144-4)
+(Villaverde et al. 2015) with the particle swarm optimizers of ParallelParticleSwarms.jl, and
+compares them with the global optimizers of the
+[CPU B5 benchmark](https://github.com/SciML/SciMLBenchmarks.jl/blob/master/benchmarks/ParameterEstimation/BioPreDynB5ParameterEstimation.jmd)
+under the same wall-clock budget.
+
+B5 is a logic-based ODE model of EGF/TNFα signal transduction: 26 states, each a normalized
+(0-1) protein activity, with **86 unknown parameters** (Hill coefficients `n ∈ [1, 5]`,
+half-activation constants `k ∈ [0.09, 0.95]` and rates `τ ∈ [0.1, 10]` per hour), fitted
+against 10 simulated experiments (6 observed states, 16 samples over 30 h, noise standard
+deviation `0.05`). The model, bounds, starting point and data below are copied from the CPU
+B5 benchmark, which documents their source.
+
+## How it works
+
+- **Integration:** every particle solves the model inside a GPU thread, so the cost uses
+  fixed-step RK4 with `dt = 0.1` h (20 steps per sampling interval) instead of the CPU
+  benchmark's adaptive `Rodas5P`. The rates are at most `10` per hour, so the step is stable,
+  and the check below shows the cost within about 0.1% of `Rodas5P` (`dt = 0.2` h was off by
+  up to 3%).
+- **Cost:** the weighted least squares of the CPU benchmark,
+  `Σ ((simulated - data) / 0.05)²` over all experiments, observables and samples. The
+  original study reached `J ≈ 3072.5` with its eSS optimizer after about 16 hours; that
+  value is drawn on the plot as a reference.
+- **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle on the
+  GPU. The gradient uses forward-mode AD inside each GPU thread, with ForwardDiff dual numbers
+  carried through the RK4 steps, so it needs no tape or device heap. It runs in passes of
+  `FD_CHUNK` partials (`AutoForwardDiff(; chunksize = FD_CHUNK)`): a single pass over all 86
+  needs about 760 KB of stack per thread in the L-BFGS kernel, over CUDA's 512 KB limit,
+  while 8-wide passes need about 140 KB.
+- **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
+  runs, and its best cost is recorded at every improvement. One untimed warm-up per
+  optimizer keeps compilation out of the times.
+
+## Setup
+
+```julia
+using Random, Statistics, Printf, LinearAlgebra
+using StaticArrays, KernelAbstractions, CUDA, CairoMakie
+using Optimization, OptimizationBBO, OptimizationNLopt, ParallelParticleSwarms
+using OrdinaryDiffEqRosenbrock
+CairoMakie.activate!()
+const SciMLBase = Optimization.SciMLBase
+
+const PSOKernel = ParallelParticleSwarms.ParallelPSOKernel
+const SyncPSOKernel = ParallelParticleSwarms.ParallelSyncPSOKernel
+const SerialPSO = ParallelParticleSwarms.SerialPSO
+const HybridPSO = ParallelParticleSwarms.HybridPSO
+const BACKEND = CUDABackend()
+
+const BUDGET = 300.0            # wall-clock seconds per run
+const NRUNS = 3                 # runs per optimizer
+const WARMUP = 1.0              # budget of the untimed warm-up run
+const J_REF = 3072.5            # cost reached by eSS in the BioPreDyn-bench paper
+const NSUB = 20                 # RK4 steps per 2 h sampling interval (dt = 0.1 h)
+const NUM_PARTICLES = 50_000    # GPU swarms
+const SERIAL_PARTICLES = 64     # CPU swarm
+const HYBRID_PARTICLES = 10_000 # one L-BFGS start per particle
+const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
+const LOCAL_MAXITERS = 5        # L-BFGS iterations per start
+const FD_CHUNK = 8              # partials per forward-mode gradient pass
+const CHUNK = 5                 # GPU swarm iterations between clock checks
+
+```
+
+## Model
+
+Each state `X` relaxes toward a combination of Hill-function inputs from its upstream nodes,
+`dX/dt = (input combination - X) τ_X`; the CPU benchmark explains the AND/OR combinations.
+`b5_rhs` is that benchmark's right-hand side returning an `SVector`, with the parameters in
+the same order and the controls (`egf`, `tnfa`, `pi3k_inhib`, `raf1_inhib`) passed separately.
+
+```julia
+@inline or3(x1, x2, x3) = (
+    (1 - x1) * (1 - x2) * (x3) +
+    (1 - x1) * (x2) * (1 - x3) +
+    (1 - x1) * (x2) * (x3) +
+    (x1) * (1 - x2) * (1 - x3) +
+    (x1) * (1 - x2) * (x3) +
+    (x1) * (x2) * (1 - x3) +
+    (x1) * (x2) * (x3)
+)
+# 34 fixed 0/1 edge weights, in the order the reference C source declares them
+const B5_W = (1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0)
+# The reference's max(x, 0)^n. Written as exp(n log(max(x, 1e-300))) so that, where most
+# states start (x = 0), its derivative in n is 0 rather than 0 * log(0) = NaN.
+@inline fhill(x, n, k) = (xp = exp(n * log(max(x, 1.0e-300))); kp = k^n; (xp / (kp + xp)) * (1 + kp))
+@noinline function b5_rhs(u, p, c)
+    nik, mkk4, ask1, map3k7, mkk7, tnfr, egfr, ph, ex, mek, ras, traf2, ikk, akt, pi3k,
+    ikb, nfkb, cjun, jnk, map3k1, erk, raf1, sos, p38, gsk3, ap1 = u
+
+    egf, tnfa, pi3k_inhib, raf1_inhib = c
+
+    (map3k7_n_nik, map3k7_k_nik, tau_nik, map3k7_n_mkk4, map3k7_k_mkk4, map3k1_n_mkk4,
+    map3k1_k_mkk4, tau_mkk4, traf2_n_ask1, traf2_k_ask1, tau_ask1, traf2_n_map3k7,
+    traf2_k_map3k7, tau_map3k7, ask1_n_mkk7, ask1_k_mkk7, map3k1_n_mkk7, map3k1_k_mkk7,
+    tau_mkk7, tnfa_n_tnfr, tnfa_k_tnfr, tau_tnfr, egf_n_egfr, egf_k_egfr, tau_egfr,
+    erk_n_ph, erk_k_ph, tau_ph, nfkb_n_ex, nfkb_k_ex, tau_ex, raf1_n_mek, raf1_k_mek,
+    tau_mek, sos_n_ras, sos_k_ras, tau_ras, tnfr_n_traf2, tnfr_k_traf2, tau_traf2,
+    nik_n_ikk, nik_k_ikk, tau_ikk, pi3k_n_akt, pi3k_k_akt, tau_akt, egfr_n_pi3k,
+    egfr_k_pi3k, tau_pi3k, ex_n_ikb, ex_k_ikb, ikk_n_ikb, ikk_k_ikb, tau_ikb, ikb_n_nfkb,
+    ikb_k_nfkb, tau_nfkb, jnk_n_cjun, jnk_k_cjun, tau_cjun, mkk7_n_jnk, mkk7_k_jnk,
+    tau_jnk, ras_n_map3k1, ras_k_map3k1, tau_map3k1, mek_n_erk, mek_k_erk, tau_erk,
+    ras_n_raf1, ras_k_raf1, tau_raf1, egfr_n_sos, egfr_k_sos, ph_n_sos, ph_k_sos, tau_sos,
+    mkk4_n_p38, mkk4_k_p38, tau_p38, akt_n_gsk3, akt_k_gsk3, tau_gsk3, cjun_n_ap1,
+    cjun_k_ap1, tau_ap1) = p
+
+    (map3k7_nik_w, map3k7_mkk4_w, map3k1_mkk4_w, map3k7_map3k1_mkk4_and_w, traf2_ask1_w,
+    traf2_map3k7_w, ask1_mkk7_w, map3k1_mkk7_w, ask1_map3k1_mkk7_and_w, tnfa_tnfr_w,
+    egf_egfr_w, erk_ph_w, nfkb_ex_w, raf1_mek_w, sos_ras_w, tnfr_traf2_w, nik_ikk_w,
+    pi3k_akt_w, egfr_pi3k_w, ex_ikb_w, ikk_ikb_w, ex_ikk_ikb_and_w, ikb_nfkb_w,
+    jnk_cjun_w, mkk7_jnk_w, ras_map3k1_w, mek_erk_w, ras_raf1_w, egfr_sos_w, ph_sos_w,
+    egfr_ph_sos_and_w, mkk4_p38_w, akt_gsk3_w, cjun_ap1_w) = B5_W
+
+    d1 = (map3k7_nik_w * fhill(map3k7, map3k7_n_nik, map3k7_k_nik) - nik) * tau_nik
+
+    f_map3k7_mkk4 = fhill(map3k7, map3k7_n_mkk4, map3k7_k_mkk4)
+    f_map3k1_mkk4 = fhill(map3k1, map3k1_n_mkk4, map3k1_k_mkk4)
+    d2 = (map3k1_mkk4_w * (1 - f_map3k7_mkk4) * f_map3k1_mkk4 +
+             map3k7_mkk4_w * f_map3k7_mkk4 * (1 - f_map3k1_mkk4) +
+             or3(map3k7_mkk4_w, map3k1_mkk4_w, map3k7_map3k1_mkk4_and_w) * f_map3k7_mkk4 *
+             f_map3k1_mkk4 - mkk4) * tau_mkk4
+
+    d3 = (traf2_ask1_w * fhill(traf2, traf2_n_ask1, traf2_k_ask1) - ask1) * tau_ask1
+    d4 = (traf2_map3k7_w * fhill(traf2, traf2_n_map3k7, traf2_k_map3k7) - map3k7) *
+            tau_map3k7
+
+    f_ask1_mkk7 = fhill(ask1, ask1_n_mkk7, ask1_k_mkk7)
+    f_map3k1_mkk7 = fhill(map3k1, map3k1_n_mkk7, map3k1_k_mkk7)
+    d5 = (map3k1_mkk7_w * (1 - f_ask1_mkk7) * f_map3k1_mkk7 +
+             ask1_mkk7_w * f_ask1_mkk7 * (1 - f_map3k1_mkk7) +
+             or3(ask1_mkk7_w, map3k1_mkk7_w, ask1_map3k1_mkk7_and_w) * f_ask1_mkk7 *
+             f_map3k1_mkk7 - mkk7) * tau_mkk7
+
+    d6 = (tnfa_tnfr_w * fhill(tnfa, tnfa_n_tnfr, tnfa_k_tnfr) - tnfr) * tau_tnfr
+    d7 = (egf_egfr_w * fhill(egf, egf_n_egfr, egf_k_egfr) - egfr) * tau_egfr
+    d8 = (erk_ph_w * fhill(erk, erk_n_ph, erk_k_ph) - ph) * tau_ph
+    d9 = (nfkb_ex_w * fhill(nfkb, nfkb_n_ex, nfkb_k_ex) - ex) * tau_ex
+    d10 = (raf1_mek_w * fhill(raf1, raf1_n_mek, raf1_k_mek) - mek) * tau_mek
+    d11 = (sos_ras_w * fhill(sos, sos_n_ras, sos_k_ras) - ras) * tau_ras
+    d12 = (tnfr_traf2_w * fhill(tnfr, tnfr_n_traf2, tnfr_k_traf2) - traf2) * tau_traf2
+    d13 = (nik_ikk_w * fhill(nik, nik_n_ikk, nik_k_ikk) - ikk) * tau_ikk
+    d14 = (pi3k_akt_w * fhill(pi3k, pi3k_n_akt, pi3k_k_akt) - akt) * tau_akt
+    d15 = (egfr_pi3k_w * fhill(egfr, egfr_n_pi3k, egfr_k_pi3k) - pi3k) * tau_pi3k *
+             (1 - pi3k_inhib)
+
+    f_ex_ikb = fhill(ex, ex_n_ikb, ex_k_ikb)
+    f_ikk_ikb = fhill(ikk, ikk_n_ikb, ikk_k_ikb)
+    d16 = (ikk_ikb_w * (1 - f_ex_ikb) * (1 - f_ikk_ikb) +
+              or3(ex_ikb_w, ikk_ikb_w, ex_ikk_ikb_and_w) * f_ex_ikb * (1 - f_ikk_ikb) +
+              ex_ikb_w * f_ex_ikb * f_ikk_ikb - ikb) * tau_ikb
+
+    d17 = (ikb_nfkb_w * (1 - fhill(ikb, ikb_n_nfkb, ikb_k_nfkb)) - nfkb) * tau_nfkb
+    d18 = (jnk_cjun_w * fhill(jnk, jnk_n_cjun, jnk_k_cjun) - cjun) * tau_cjun
+    d19 = (mkk7_jnk_w * fhill(mkk7, mkk7_n_jnk, mkk7_k_jnk) - jnk) * tau_jnk
+    d20 = (ras_map3k1_w * fhill(ras, ras_n_map3k1, ras_k_map3k1) - map3k1) * tau_map3k1
+    d21 = (mek_erk_w * fhill(mek, mek_n_erk, mek_k_erk) - erk) * tau_erk
+    d22 = (ras_raf1_w * fhill(ras, ras_n_raf1, ras_k_raf1) - raf1) * tau_raf1 *
+             (1 - raf1_inhib)
+
+    f_egfr_sos = fhill(egfr, egfr_n_sos, egfr_k_sos)
+    f_ph_sos = fhill(ph, ph_n_sos, ph_k_sos)
+    d23 = (ph_sos_w * (1 - f_egfr_sos) * (1 - f_ph_sos) +
+              or3(egfr_sos_w, ph_sos_w, egfr_ph_sos_and_w) * f_egfr_sos * (1 - f_ph_sos) +
+              egfr_sos_w * f_egfr_sos * f_ph_sos - sos) * tau_sos
+
+    d24 = (mkk4_p38_w * fhill(mkk4, mkk4_n_p38, mkk4_k_p38) - p38) * tau_p38
+    d25 = (akt_gsk3_w * (1 - fhill(akt, akt_n_gsk3, akt_k_gsk3)) - gsk3) * tau_gsk3
+    d26 = (cjun_ap1_w * fhill(cjun, cjun_n_ap1, cjun_k_ap1) - ap1) * tau_ap1
+    return SVector(d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19, d20, d21, d22, d23, d24, d25, d26)
+end
+```
+
+## Parameters, bounds and starting point
+
+```julia
+p_nom = [
+    1.0, 0.0905, 7.1398, 1.09, 0.95, 3.1526, 0.4721, 5.4167, 3.4873, 0.15, 5.2731, 1.0,
+    0.0918, 0.1, 3.5966, 0.7772, 3.9788, 0.4026, 10.0, 1.0188, 0.1173, 9.1369, 4.892,
+    0.0905, 1.0937, 4.611, 0.1027, 0.106, 4.9909, 0.4268, 0.6146, 1.4875, 0.5195, 9.5228,
+    1.454, 0.7119, 2.8385, 4.1622, 0.5476, 9.9362, 4.997, 0.1029, 5.7463, 1.0726, 0.9486,
+    9.5917, 4.4151, 0.0944, 7.7292, 4.9991, 0.6852, 1.5451, 0.95, 0.6778, 4.9997, 0.2329,
+    0.9984, 1.0759, 0.9496, 9.6513, 4.8747, 0.0913, 1.3215, 1.1997, 0.8298, 9.995, 2.5354,
+    0.7099, 10.0, 1.0, 0.2725, 0.8552, 1.0012, 0.9375, 1.4651, 0.72, 9.3196, 1.0032,
+    0.9329, 0.1, 1.0608, 0.09, 0.2602, 4.7985, 0.2653, 0.2045]
+
+# Each of the 26 states above has its own Hill coefficient(s) `n`, half-activation
+# constant(s) `k`, and time constant `τ`, in that order -- except the 4 states driven by
+# *two* upstream inputs (mkk4, mkk7, ikb, sos), which have two (n, k) pairs before their
+# single shared `τ` (22*3 + 4*5 = 86 parameters total, matching `p_nom` above). Bounds are
+# `n ∈ [1, 5]`, `k ∈ [0.09, 0.95]`, `τ ∈ [0.1, 10]` throughout.
+p_group_sizes = [3, 5, 3, 3, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3, 3, 3, 3, 5, 3, 3, 3]
+p_kind = Symbol[]
+for s in p_group_sizes
+    append!(p_kind, s == 3 ? [:n, :k, :tau] : [:n, :k, :n, :k, :tau])
+end
+
+p_bound(kind) = kind == :n ? (1.0, 5.0) : kind == :k ? (0.09, 0.95) : (0.1, 10.0)
+p_lower = [p_bound(k)[1] for k in p_kind]
+p_upper = [p_bound(k)[2] for k in p_kind]
+
+# a fixed starting guess distinct from the reference nominal parameters, taken directly
+# from the benchmark's own `b5_bounds.mat` (its reference implementation instead draws a
+# fresh random point on every run, and explicitly warns against starting from `p_nom`).
+p_start = [
+    1.184759262504215, 0.21459526213964114, 0.10809675459912715, 1.6087933663141603,
+    0.22442269369853485, 1.019018881887606, 0.24562113186152565, 1.6386831960653867,
+    1.6601979847270953, 0.12698536389878953, 0.8726694828555555, 1.4380416332737789,
+    0.24450593528121173, 1.4973541296563362, 1.0281802502122304, 0.1465067088805043,
+    1.668424789067315, 0.15472186789284803, 1.5800852385647437, 1.1365014776441786,
+    0.16738454052863982, 0.6960904852634554, 1.1933207695986574, 0.12122999565205861,
+    1.5897189652907575, 1.6916372384011373, 0.12029528657665965, 0.16593017503091972,
+    1.5304276348688823, 0.16396528247241732, 1.7845946178128782, 1.7470582389009048,
+    0.14068101171134623, 0.8502236697061625, 1.3125734528021464, 0.1779957815743794,
+    2.0384987365033926, 1.4924780101762498, 0.2336057169741878, 0.24262607206563602,
+    1.4131367766257956, 0.1753544567467018, 0.884204079803919, 1.0115079753833303,
+    0.2327450142121817, 1.3530328090725565, 1.1007169158996126, 0.11536043167535977,
+    1.132835638273184, 1.2000239851886938, 0.15544822737696648, 1.1685461184870811,
+    0.23349343692989427, 0.5366886492920943, 1.3085144088248555, 0.16489424979614795,
+    1.1011323545609621, 1.170089828707995, 0.20885756201586309, 1.6589054956445395,
+    1.060994893088602, 0.11106923645820793, 1.146829818287243, 1.3904947922005968,
+    0.11180998657080976, 1.684108192301219, 1.2855285514404726, 0.2535098060289728,
+    0.7974092835369448, 1.5507152895412024, 0.23813580961053765, 1.3088000450509263,
+    1.2813449574659153, 0.24859774428717346, 1.6017989822517902, 0.19119011092231275,
+    1.8264245140186641, 1.352446601974608, 0.11886281837067784, 1.9061463162128867,
+    1.182809556202296, 0.13619634602572558, 0.5419638194069124, 1.3066363835999548,
+    0.10757536015432018, 0.8643218724224818]
+```
+
+## Experiments
+
+```julia
+# columns: egf, tnfa, pi3k_inhib, raf1_inhib
+b5_controls = [
+    0 0 0 0
+    1 0 0 0
+    0 1 0 0
+    1 1 0 0
+    1 0 1 0
+    0 1 1 0
+    1 1 1 0
+    1 0 0 1
+    0 1 0 1
+    1 1 0 1]
+
+b5_obs_idx = [22, 21, 26, 25, 24, 17] # raf1, erk, ap1, gsk3, p38, nfkb
+b5_times = collect(0.0:2.0:30.0)
+
+b5_data = Matrix{Float64}[
+    [0.11327346 0.15762948 0.16568655 0.9004708 0.10767257 0.1355827
+     0.19829967 0.14064558 0.17512615 0.9041830 0.09441348 0.2145996
+     0.09299877 0.06633699 0.10856162 0.9375022 0.14480097 0.1825351
+     0.12164888 0.11327575 0.15403017 0.9622286 0.10224031 0.1371931
+     0.21959824 0.17236626 0.22072767 0.8919632 0.13063334 0.1498756
+     0.15472042 0.12708298 0.11575208 0.8979801 0.22518701 0.1550437
+     0.11013992 0.11169585 0.16922386 0.8078341 0.10325274 0.1670639
+     0.18678235 0.05988388 0.12707947 0.8855724 0.11136211 0.1085992
+     0.11089965 0.14960227 0.00000000 0.9211519 0.09265214 0.1506382
+     0.13010459 0.05472079 0.14316334 0.8873765 0.15153122 0.1567842
+     0.12903695 0.12898450 0.13989877 0.8459586 0.06496903 0.1988740
+     0.12996955 0.18797274 0.11880129 0.8869094 0.24472758 0.1612959
+     0.17110675 0.24895319 0.08181443 0.9426594 0.17549157 0.1795871
+     0.07539216 0.08494266 0.13547178 0.9059816 0.22607564 0.1557416
+     0.08757456 0.07813579 0.11815741 0.8782907 0.22484167 0.1848494
+     0.09236308 0.14698945 0.15508290 0.8925849 0.22967481 0.1172746],
+    [0.1612526 0.1361274 0.1321657 0.97346347 0.1260189 0.13759391
+     0.6024987 0.7634884 0.3054694 0.64127482 0.1526805 0.18244736
+     0.8575352 0.8334763 0.6127695 0.46434514 0.1657532 0.14044900
+     0.7839275 0.8719813 0.5913194 0.25160181 0.2118012 0.16972103
+     0.7449103 0.8196278 0.7289923 0.24798320 0.1734451 0.13354375
+     0.7449549 0.8004981 0.8416676 0.25242939 0.1880558 0.09318322
+     0.5856446 0.8208235 0.8224108 0.11910233 0.1511175 0.15746581
+     0.6331345 0.7379835 0.8530437 0.15276035 0.1375105 0.12900267
+     0.4925625 0.5589710 0.8763375 0.21345420 0.1274942 0.16265159
+     0.4620047 0.4529328 0.7517932 0.12449379 0.1184203 0.15001744
+     0.3258993 0.3197356 0.5493157 0.15283422 0.1177744 0.20602413
+     0.2970832 0.2839845 0.3524049 0.08166205 0.1476658 0.14856343
+     0.3005535 0.2521285 0.2718919 0.14782207 0.1112168 0.10489052
+     0.3343035 0.3342455 0.2880437 0.15568811 0.1604730 0.06995111
+     0.3066627 0.2807513 0.1494398 0.10650691 0.1370616 0.16258725
+     0.2664826 0.2633140 0.1673342 0.12844107 0.1598561 0.16246321],
+    [0.18118642 0.17117280 0.06921689 0.8339389 0.14309483 0.1119495
+     0.15518812 0.14788162 0.38040487 0.9407151 0.18475791 0.7401733
+     0.07325944 0.15237751 0.51660454 0.8499420 0.09395697 0.4317109
+     0.13222423 0.14991635 0.69041908 0.9354031 0.11712634 0.4181825
+     0.18434317 0.14962431 0.73298859 0.8944123 0.16154832 0.6943575
+     0.13304805 0.12409090 0.84772786 0.9201726 0.21501215 0.2775180
+     0.19558078 0.19270293 0.85919428 0.9246611 0.14410335 0.6985422
+     0.16396667 0.18013749 0.81041944 0.8500798 0.15463602 0.4295047
+     0.17767855 0.14559861 0.87204866 0.8830280 0.11152793 0.4746399
+     0.12395204 0.12303433 0.92005853 0.9140457 0.15484416 0.5899543
+     0.13706945 0.14579029 0.88166818 0.8935196 0.12884708 0.2104536
+     0.13988815 0.09348882 0.84190569 0.8914391 0.07749091 0.7426955
+     0.14811925 0.18067282 0.88561034 0.8828426 0.09152347 0.3317286
+     0.13156674 0.18688392 0.86305399 0.9098012 0.06958192 0.5660655
+     0.12220401 0.18730333 0.97629456 0.9202038 0.12613095 0.4910410
+     0.14079056 0.12002588 0.88504812 0.8968963 0.20351941 0.3722563],
+    [0.2045321 0.07560955 0.1640204 0.83166228 0.1457592 0.1879649
+     0.6578856 0.72030634 0.3646157 0.62228680 0.1876390 0.7058527
+     0.8727382 0.79903886 0.5831697 0.41246990 0.1924099 0.4796261
+     0.8357646 0.88777519 0.7167020 0.29225199 0.3088524 0.3884216
+     0.8144559 0.95385610 0.7399531 0.17231105 0.3646233 0.6760588
+     0.7649645 0.85875447 0.7680542 0.18718742 0.4595235 0.2653407
+     0.5937823 0.86985076 0.7847596 0.21682469 0.3860255 0.6389745
+     0.6001083 0.71034331 0.8807288 0.17989607 0.4195041 0.4381725
+     0.4909272 0.63099174 0.9054081 0.09502676 0.3755705 0.4303849
+     0.4749780 0.56237922 0.9112906 0.15147265 0.3648891 0.6101374
+     0.3513356 0.40745559 0.8654636 0.14254442 0.3041814 0.3246464
+     0.2982424 0.32028891 0.8658242 0.09342384 0.3263700 0.6839370
+     0.3013577 0.19068113 0.9092837 0.13758429 0.2392856 0.3283795
+     0.3283447 0.20039130 0.9133164 0.11450109 0.2445276 0.5369872
+     0.3221149 0.21700544 0.8690936 0.12761391 0.1700123 0.4998911
+     0.3019580 0.28636982 0.8917507 0.09286719 0.1725707 0.3296038],
+    [0.1632498 0.1479455 0.1575628 0.9343391 0.08689617 0.15362957
+     0.6925302 0.8013656 0.2802410 0.8876928 0.11203316 0.19829660
+     0.8492191 0.8804583 0.5279675 0.8020234 0.11350368 0.20716668
+     0.8188087 0.8688254 0.6454666 0.8741729 0.15546884 0.13780278
+     0.8075662 0.8962010 0.7192598 0.9433491 0.18198862 0.09098634
+     0.6614125 0.8820678 0.8177839 0.8981930 0.15336392 0.13563796
+     0.6122748 0.8159479 0.8128435 0.8540048 0.07683437 0.17942562
+     0.5964614 0.7098129 0.8749133 0.8629443 0.19523545 0.10890770
+     0.5203115 0.5989083 0.8561587 0.9122973 0.14203854 0.10378591
+     0.4331483 0.5558090 0.7114718 0.8984247 0.11465383 0.13402169
+     0.3735722 0.3486884 0.4803307 0.9206924 0.17063293 0.13564133
+     0.3634435 0.3074528 0.3005396 0.9178086 0.16141023 0.16299146
+     0.3163770 0.3145380 0.3053195 0.8925241 0.08437900 0.17649316
+     0.2930702 0.2892375 0.2499740 0.9039381 0.15319574 0.12526669
+     0.2859582 0.2580623 0.2360070 0.8561468 0.08830313 0.20297739
+     0.2200915 0.2229491 0.1758068 0.8373987 0.14032307 0.08313549],
+    [0.15802671 0.13643473 0.1800329 0.8484118 0.22663557 0.1555659
+     0.14336998 0.13145709 0.3929189 0.8808722 0.19777232 0.7454059
+     0.18040992 0.08567089 0.5400904 0.9302308 0.16982338 0.3367212
+     0.12041775 0.14740326 0.6220083 0.8866694 0.13147906 0.3815005
+     0.12697941 0.15359188 0.7508724 0.9446024 0.16607244 0.7251059
+     0.13832002 0.20628729 0.7590274 0.9066425 0.17741022 0.2850733
+     0.18236697 0.12795380 0.8237026 0.9295232 0.17331314 0.6564013
+     0.10057642 0.07194705 0.9210295 0.9272505 0.14652365 0.3927551
+     0.12600534 0.15459701 0.8368109 0.8935577 0.18190515 0.4273038
+     0.17452037 0.09683811 0.9128952 0.9162230 0.15486223 0.5992842
+     0.10454429 0.07742254 0.9598469 0.9137868 0.15418466 0.1964070
+     0.13628964 0.21740637 0.8654660 0.8658182 0.20764707 0.6918639
+     0.18508856 0.14711354 0.8812982 0.9109762 0.10824175 0.3930698
+     0.11983420 0.20690178 0.8581597 0.9138032 0.03048901 0.5666084
+     0.14001439 0.17982412 0.8702952 0.8788573 0.15310629 0.5137792
+     0.05726728 0.11618360 0.8797293 0.8586403 0.13886133 0.2637185],
+    [0.1354519 0.1535002 0.1355211 0.8948132 0.05830718 0.1331813
+     0.6696247 0.8374504 0.3266970 0.9018727 0.04859938 0.6248577
+     0.8569923 0.8792971 0.4591545 0.9034149 0.20142266 0.3991535
+     0.8287373 0.8393217 0.6234086 0.8585909 0.35106319 0.3648269
+     0.7883968 0.8529204 0.7264467 0.8813599 0.40183800 0.7142400
+     0.7106160 0.8354582 0.7831088 0.9132600 0.37992788 0.2572520
+     0.6793047 0.7827865 0.7864942 0.8869663 0.43525690 0.6229508
+     0.5044554 0.7824801 0.8501095 0.9805354 0.42573238 0.3850916
+     0.5465676 0.6065365 0.8549203 0.9267285 0.40746038 0.4725017
+     0.4031440 0.5911519 0.8816015 0.8863326 0.35919635 0.5369462
+     0.3644277 0.4043009 0.9506253 0.8743855 0.32692712 0.1892632
+     0.3276202 0.2798091 0.8623968 0.8997609 0.27628588 0.7264940
+     0.3531709 0.2515343 0.9306097 0.9151878 0.28073590 0.3068947
+     0.3453740 0.2769636 0.9113310 0.8514286 0.23346398 0.5366783
+     0.3526800 0.2103236 0.8655962 0.9037883 0.13719210 0.5167739
+     0.3257124 0.2308489 0.9047394 0.8544476 0.15136109 0.2935793],
+    [0.08280700 0.11553075 0.1472974 0.96285576 0.14497049 0.18884840
+     0.17564872 0.12929936 0.3626649 0.62717539 0.13108944 0.19785061
+     0.16561309 0.15084021 0.4754983 0.47963178 0.08875446 0.14219738
+     0.11666629 0.16074090 0.6622509 0.34121863 0.11914046 0.19826344
+     0.12026731 0.15630946 0.6436222 0.20653517 0.11793904 0.17812851
+     0.15091108 0.18346866 0.8237203 0.22889624 0.09307591 0.20138569
+     0.14032278 0.09836929 0.8282504 0.13764524 0.16710616 0.14555492
+     0.11880250 0.16241808 0.8311246 0.24406630 0.14445627 0.14565816
+     0.05929761 0.17015820 0.9341332 0.21564537 0.13859589 0.20944482
+     0.17287625 0.21674687 0.8137794 0.08416098 0.13446667 0.16291694
+     0.12925025 0.16079128 0.7916966 0.11918044 0.10265952 0.16558225
+     0.21270642 0.12977357 0.8335809 0.09960676 0.16082558 0.17337739
+     0.09927376 0.09580599 0.8863700 0.14684710 0.17718708 0.09018017
+     0.10254795 0.15509262 0.8679626 0.11784491 0.13631146 0.16965269
+     0.16297569 0.14581646 0.8885110 0.12995027 0.12279929 0.14879447
+     0.06804257 0.17723955 0.9094174 0.14786865 0.14194530 0.17307476],
+    [0.13316034 0.15323908 0.09803815 0.8527693 0.17100665 0.1257115
+     0.11959537 0.16325565 0.34708573 0.9031208 0.08860702 0.6912611
+     0.20986003 0.16529962 0.48657019 0.9013271 0.15110145 0.3889245
+     0.10873692 0.14019480 0.65575738 0.8708600 0.09199577 0.3780692
+     0.13048005 0.19814509 0.72354039 0.8910663 0.18477512 0.7900423
+     0.16394083 0.11428609 0.76811811 0.8928696 0.16779222 0.3259523
+     0.15878162 0.16321965 0.84381844 0.8870642 0.14254790 0.7397550
+     0.10244079 0.08543513 0.84295148 0.9538362 0.17321911 0.4320170
+     0.09371060 0.04413576 0.87647326 0.8901926 0.12877208 0.4130873
+     0.12798497 0.13065782 0.88852442 0.9170711 0.08769015 0.6298504
+     0.14273451 0.18143339 0.92679726 0.8408848 0.11502268 0.3149545
+     0.13483210 0.14871571 0.91859347 0.9902228 0.15710659 0.8019711
+     0.06203655 0.13298927 0.92963258 0.9329484 0.07242813 0.3026445
+     0.15474661 0.13459618 0.92927695 0.9095623 0.13194513 0.5360921
+     0.09798871 0.11136110 0.84310235 0.8947490 0.13654565 0.5563650
+     0.09306310 0.14968652 0.86909037 0.9170778 0.13169712 0.3049163],
+    [0.1143198 0.09963248 0.1555124 0.96880657 0.1055840 0.08355081
+     0.1649738 0.17021499 0.2421683 0.55584174 0.1664282 0.70274948
+     0.1545644 0.13505070 0.5307636 0.42850606 0.1760750 0.46763301
+     0.1670297 0.06929900 0.6656633 0.25492390 0.3854150 0.39518933
+     0.1719490 0.17362567 0.7707491 0.24598043 0.4247821 0.72558668
+     0.1148706 0.16640169 0.8469331 0.22317895 0.5100184 0.28460000
+     0.2386801 0.15844185 0.7899374 0.08670365 0.4730653 0.70365240
+     0.1553100 0.13738471 0.8347681 0.19159311 0.5020870 0.41292336
+     0.1882625 0.11955981 0.8743367 0.14719250 0.6386966 0.46428686
+     0.1121880 0.09501891 0.8910863 0.14278949 0.7027587 0.57945952
+     0.1456679 0.14302850 0.8442043 0.13812999 0.6978150 0.21135991
+     0.1908594 0.14472561 0.8706587 0.07114821 0.7407568 0.72920072
+     0.1033229 0.10535095 0.8787824 0.15172278 0.7779155 0.32307083
+     0.1088544 0.18511048 0.8948015 0.12611032 0.7400662 0.56968804
+     0.1689166 0.17694590 0.8542110 0.15519797 0.7646248 0.55091026
+     0.1303701 0.11296231 0.8472156 0.19074312 0.8217805 0.34955475]]
+
+b5_y0 = [begin
+    y0 = zeros(26)
+    y0[b5_obs_idx] = b5_data[i][1, :]
+    y0
+end for i in 1:10]
+```
+
+## Objective
+
+`experiment_cost` integrates one experiment with RK4 and sums its weighted squared residuals
+at the 15 samples after `t = 0` (at `t = 0` the observed states equal the data). `B5Cost`
+holds the data, so GPU kernels receive them as an argument, and sums the experiments in an
+unrolled loop.
+
+```julia
+# The observed states (raf1, erk, ap1, gsk3, p38, nfkb).
+@assert b5_obs_idx == [22, 21, 26, 25, 24, 17]
+observed(u) = SVector(u[22], u[21], u[26], u[25], u[24], u[17])
+
+@noinline function experiment_cost(p, y0, c, obs)
+    dt = 2.0 / NSUB
+    u, s = y0 .* one(eltype(p)), zero(eltype(p))
+    for k in 1:15
+        for _ in 1:NSUB
+            k1 = b5_rhs(u, p, c); k2 = b5_rhs(u + dt / 2 * k1, p, c)
+            k3 = b5_rhs(u + dt / 2 * k2, p, c); k4 = b5_rhs(u + dt * k3, p, c)
+            u = u + dt / 6 * (k1 + 2k2 + 2k3 + k4)
+        end
+        s += sum(abs2, (observed(u) - obs[k]) / 0.05)
+    end
+    return s
+end
+
+struct B5Cost{E}
+    exps::E     # per experiment: (initial state, controls, the 15 observations after t = 0)
+end
+function (f::B5Cost)(p, _ = nothing)
+    s = sum(ntuple(e -> experiment_cost(p, f.exps[e]...), Val(10)))
+    return isfinite(s) ? s : 1.0e20 + zero(s)
+end
+
+const b5_cost = B5Cost(
+    ntuple(
+        e -> (
+            SVector{26}(b5_y0[e]), Tuple(Float64.(b5_controls[e, :])),
+            SVector{15}(ntuple(k -> SVector{6}(b5_data[e][k + 1, :]), 15)),
+        ), 10
+    )
+)
+const LB, UB = SVector{86}(p_lower), SVector{86}(p_upper)
+```
+
+Check: the RK4 cost against the same right-hand side under `Rodas5P` at tight tolerances, at
+the nominal and starting parameters and at five random points in the bounds.
+
+```julia
+function rodas_cost(p)
+    s = 0.0
+    for (y0, c, obs) in b5_cost.exps
+        prob = SciMLBase.ODEProblem{false}((u, q, t) -> b5_rhs(u, q, c), y0, (0.0, 30.0), SVector{86}(p))
+        sol = solve(prob, OrdinaryDiffEqRosenbrock.Rodas5P(); reltol = 1.0e-10, abstol = 1.0e-12, saveat = 2.0)
+        s += sum(k -> sum(abs2, (observed(sol.u[k + 1]) - obs[k]) / 0.05), 1:15)
+    end
+    return s
+end
+
+Random.seed!(1)
+checkpoints = vcat(
+    ["p_nom" => p_nom, "p_start" => p_start],
+    ["random $i" => p_lower .+ rand(86) .* (p_upper .- p_lower) for i in 1:5]
+)
+for (name, p) in checkpoints
+    a, b = b5_cost(SVector{86}(p)), rodas_cost(p)
+    @printf "%-10s RK4 %12.2f   Rodas5P %12.2f   relative difference %.1e\n" name a b abs(a - b) / b
+end
+```
+
+## Optimizers
+
+The baselines are the global optimizers of the CPU B5 benchmark, `BBO_adaptive_de_rand_1_bin`
+and `GN_CRS2_LM`, stopped by their own `maxtime`. The swarms use the same box and start from
+uniform samples in it. The GPU swarms advance `CHUNK` iterations at a time, with the clock
+read in between. `HybridPSO` alternates `HYBRID_SWARM_ITERS` swarm iterations with an L-BFGS
+phase of `LOCAL_MAXITERS` iterations from every particle's best point, on the same swarm; an
+L-BFGS phase that ends after the budget does not count. Any error in a run is shown with the
+results, and the run then has no result.
+
+```julia
+# A run's history: (seconds since its start, best cost so far) at every improvement.
+const History = Vector{Tuple{Float64, Float64}}
+record!(h, t0, v) = (isempty(h) || v < h[end][2]) && push!(h, (time() - t0, Float64(v)))
+
+struct Stop <: Exception end
+
+# Wrap the cost for a CPU optimizer: record every improvement and, with `stop`, end the run once
+# the budget has passed.
+function tracked(f, h, t0, budget; stop)
+    return function (x, _ = nothing)
+        stop && time() - t0 > budget && throw(Stop())
+        v = f(SVector{86}(x))
+        record!(h, t0, v)
+        return v
+    end
+end
+
+pso_problem(f) = OptimizationProblem{false}(
+    OptimizationFunction{false}(f, Optimization.AutoForwardDiff(; chunksize = FD_CHUNK)), SVector{86}(p_start), nothing;
+    lb = LB, ub = UB
+)
+
+function run_baseline(alg, h, t0, budget)
+    g = tracked(b5_cost, h, t0, budget; stop = false)
+    prob = OptimizationProblem(OptimizationFunction(g), copy(p_start); lb = p_lower, ub = p_upper)
+    return solve(prob, alg; maxiters = 10^6, maxtime = budget)
+end
+
+function run_serial(h, t0, budget)
+    g = tracked(b5_cost, h, t0, budget; stop = true)
+    try
+        solve(pso_problem(g), SerialPSO(SERIAL_PARTICLES); maxiters = 10^8)
+    catch e
+        e isa Stop || rethrow()
+    end
+    return nothing
+end
+
+function advance!(cache, h, t0)
+    sol = SciMLBase.solve!(cache; maxiters = CHUNK)
+    if cache.alg isa SyncPSOKernel                  # the sync kernel does not store its best back
+        cache.gbest = ParallelParticleSwarms.SPSOGBest(sol.u, sol.objective)
+    end
+    return record!(h, t0, sol.objective)
+end
+
+# Always runs one chunk, so the warm-up compiles the update kernel.
+function run_swarm(opt, h, t0, budget)
+    cache = SciMLBase.init(pso_problem(b5_cost), opt)
+    while true
+        advance!(cache, h, t0)
+        time() - t0 < budget || return nothing
+    end
+end
+
+const LBFGS_PHASE_TIMES = Float64[]   # seconds per timed HybridPSO L-BFGS phase
+
+# The warm-up runs one swarm and one L-BFGS phase, so both kernels compile there.
+function run_hybrid(h, t0, budget; local_maxiters = LOCAL_MAXITERS, warmup = false)
+    opt = HybridPSO(pso = SyncPSOKernel(HYBRID_PARTICLES; backend = BACKEND); backend = BACKEND)
+    cache = SciMLBase.init(pso_problem(b5_cost), opt)
+    while warmup || time() - t0 < budget
+        for _ in 1:cld(HYBRID_SWARM_ITERS, CHUNK)
+            advance!(cache.pso_cache, h, t0)
+            !warmup && time() - t0 > budget && return nothing
+        end
+        tl = time()
+        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters)
+        warmup && return nothing
+        push!(LBFGS_PHASE_TIMES, time() - tl)
+        time() - t0 <= budget && record!(h, t0, sol.objective)
+    end
+    return nothing
+end
+
+# label => runner(history, start time, budget, is_warmup)
+const METHODS = [
+    "PSOKernel" => (h, t0, b, _) -> run_swarm(PSOKernel(NUM_PARTICLES; backend = BACKEND, global_update = true), h, t0, b),
+    "SyncPSOKernel" => (h, t0, b, _) -> run_swarm(SyncPSOKernel(NUM_PARTICLES; backend = BACKEND), h, t0, b),
+    "HybridPSO_LBFGS" => (h, t0, b, warmup) -> run_hybrid(h, t0, b; local_maxiters = warmup ? 1 : LOCAL_MAXITERS, warmup),
+    "SerialPSO" => (h, t0, b, _) -> run_serial(h, t0, b),
+    "BBO_adaptive_de_rand_1_bin" => (h, t0, b, _) -> run_baseline(BBO_adaptive_de_rand_1_bin(), h, t0, b),
+    "NLopt.GN_CRS2_LM()" => (h, t0, b, _) -> run_baseline(NLopt.GN_CRS2_LM(), h, t0, b),
+]
+const LABELS = first.(METHODS)
+```
+
+## Runs
+
+```julia
+const ERRORS = Dict{String, String}()   # optimizer => first line of its first error
+
+function timed_run(label, runner, budget, warmup)
+    h, t0 = History(), time()
+    try
+        runner(h, t0, budget, warmup)
+    catch e
+        get!(ERRORS, label, first(split(sprint(showerror, e), '\n')))
+    end
+    return h
+end
+
+best_at(h, t) = (i = findlast(x -> x[1] <= t, h); i === nothing ? Inf : h[i][2])
+time_to(h, J) = (i = findfirst(x -> x[2] <= J, h); i === nothing ? Inf : h[i][1])
+
+histories = Dict{String, Vector{History}}()
+for (label, runner) in METHODS
+    timed_run(label, runner, WARMUP, true)                    # compile; discarded
+    histories[label] = [(Random.seed!(r); timed_run(label, runner, BUDGET, false)) for r in 1:NRUNS]
+    @info label best = [best_at(h, BUDGET) for h in histories[label]]
+end
+```
+
+## Results
+
+Per optimizer: the best cost after `BUDGET` seconds in each run (median and best), how many
+runs reached the eSS reference `J_REF`, and their median time to reach it. The duration of
+`HybridPSO`'s L-BFGS phases and any error follow the table.
+
+```julia
+@printf "%-28s %14s %14s %10s %14s\n" "optimizer" "median best" "best" "≤ J_REF" "median time"
+for l in sort(LABELS; by = l -> median(best_at.(histories[l], BUDGET)))
+    b = best_at.(histories[l], BUDGET)
+    t = filter(isfinite, time_to.(histories[l], J_REF))
+    @printf "%-28s %14.1f %14.1f %7d/%-2d %14s\n" l median(b) minimum(b) length(t) NRUNS (isempty(t) ? "never" : @sprintf("%.1f s", median(t)))
+end
+isempty(LBFGS_PHASE_TIMES) || @printf "\nHybridPSO L-BFGS phases: %d, median %.1f s, longest %.1f s\n" length(LBFGS_PHASE_TIMES) median(LBFGS_PHASE_TIMES) maximum(LBFGS_PHASE_TIMES)
+for (l, msg) in sort(collect(ERRORS))
+    println(l, ": ", msg)
+end
+```
+
+## Best cost vs. wall-clock time
+
+One line per optimizer: its median run. Lower is better; the dashed line is the eSS
+reference.
+
+```julia
+const YTICKS = [3000, 4000, 5000, 7000, 10_000, 20_000]
+function plot_histories()
+    fig = Figure(size = (1100, 500))
+    ax = Axis(
+        fig[1, 1]; yscale = log10, xlabel = "Wall time (s)", ylabel = "Best cost so far",
+        title = "BioPreDyn-bench B5", limits = ((0, BUDGET), nothing),
+        yticks = (YTICKS, string.(YTICKS))
+    )
+    colors = Makie.wong_colors()[[1, 2, 3, 4, 5, 6]]
+    for (i, l) in enumerate(LABELS)
+        hs = filter(!isempty, histories[l])
+        isempty(hs) && continue
+        h = hs[sortperm(best_at.(hs, BUDGET))[cld(end, 2)]]   # median run
+        ts, vs = [first.(h); BUDGET], [last.(h); last(h)[2]]
+        stairs!(ax, ts, vs; step = :post, color = colors[mod1(i, end)], label = l)
+    end
+    hlines!(ax, [J_REF]; color = :black, linestyle = :dash, label = "eSS reference (J = 3072.5)")
+    Legend(fig[1, 2], ax; framevisible = false, merge = true)
+    return fig
+end
+plot_histories()
+```
+
+## References
+
+- A. F. Villaverde, D. Henriques, K. Smallbone, S. Bongard, J. Schmid, D. Cicin-Sain,
+  A. Crombach, J. Saez-Rodriguez, K. Mauch, E. Balsa-Canto, P. Mendes, J. Jaeger and
+  J. R. Banga, "BioPreDyn-bench: a suite of benchmark problems for dynamic modelling in
+  systems biology," *BMC Systems Biology* 9, 8 (2015).
+- Utkarsh, V. Dixit, J. Samaroo, A. Pal, A. Edelman, and C. Rackauckas, "Efficient
+  GPU-Accelerated Global Optimization for Inverse Problems," ICLR 2024 Workshop on
+  AI4DiffEqtnsInSci (2024).
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
