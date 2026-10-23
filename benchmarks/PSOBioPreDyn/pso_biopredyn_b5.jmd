@@ -29,9 +29,11 @@ B5 benchmark, which documents their source.
   original study reached `J ≈ 3072.5` with its eSS optimizer after about 16 hours; that
   value is drawn on the plot as a reference.
 - **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle on the
-  GPU. The gradient uses forward-mode AD (`AutoForwardDiff`): each GPU thread carries the 86
-  partials as ForwardDiff dual numbers through the RK4 steps, so a gradient costs about one
-  dual-number solve and needs no tape or device heap.
+  GPU. The gradient uses forward-mode AD inside each GPU thread, with ForwardDiff dual numbers
+  carried through the RK4 steps, so it needs no tape or device heap. It runs in passes of
+  `FD_CHUNK` partials (`AutoForwardDiff(; chunksize = FD_CHUNK)`): a single pass over all 86
+  needs about 760 KB of stack per thread in the L-BFGS kernel, over CUDA's 512 KB limit,
+  while 8-wide passes need about 140 KB.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
   runs, and its best cost is recorded at every improvement. One untimed warm-up per
   optimizer keeps compilation out of the times.
@@ -62,6 +64,7 @@ const SERIAL_PARTICLES = 64     # CPU swarm
 const HYBRID_PARTICLES = 10_000 # one L-BFGS start per particle
 const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
 const LOCAL_MAXITERS = 5        # L-BFGS iterations per start
+const FD_CHUNK = 8              # partials per forward-mode gradient pass
 const CHUNK = 5                 # GPU swarm iterations between clock checks
 
 ```
@@ -517,7 +520,7 @@ function tracked(f, h, t0, budget; stop)
 end
 
 pso_problem(f) = OptimizationProblem{false}(
-    OptimizationFunction{false}(f, Optimization.AutoForwardDiff()), SVector{86}(p_start), nothing;
+    OptimizationFunction{false}(f, Optimization.AutoForwardDiff(; chunksize = FD_CHUNK)), SVector{86}(p_start), nothing;
     lb = LB, ub = UB
 )
 
