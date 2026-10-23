@@ -1,0 +1,161 @@
+---
+title: PETScDiffEq 1-D Brusselator Work-Precision Diagrams
+author: Harsh Singh
+---
+
+The Brusselator of Hairer and Wanner,
+``u_t = 1 + u^2 v - 4u + \alpha u_{xx}``, ``v_t = 3u - u^2 v + \alpha v_{xx}``,
+``\alpha = 1/50``, on 500 interior points of ``[0, 1]`` with ``u = 1`` and ``v = 3`` at the
+ends and ``u(x, 0) = 1 + \sin(2\pi x)``, ``v(x, 0) = 3``, over ``t \in [0, 10]``. That is 1000
+states, with ``u`` and ``v`` interleaved so that the Jacobian has bandwidth 2. Every method but
+CVODE gets the sparsity pattern as a `jac_prototype` and builds the Jacobian with ForwardDiff
+and coloring; CVODE uses its banded difference quotients. Each point is the mean absolute
+error at the final time against a reference solution and the fastest of up to 20 solves, as
+`WorkPrecisionSet` measures them.
+
+Solid lines with circles are PETScDiffEq with PETSc's default linear solver, GMRES with an
+ILU(0) preconditioner. Dotted lines with triangles are PETScDiffEq with a direct LU solve,
+`petsc_options = ["-ksp_type", "preonly", "-pc_type", "lu"]`. Dashed lines with squares are
+OrdinaryDiffEq or Sundials. Lines of one color are the same method or its nearest
+counterpart. `TSRosW("ra34pw2")` shares its coefficients with `ROS34PW2`, and `TSARKIMEX("4")`
+with `KenCarp4`; the HIRES page checks both with fixed steps.
+
+```julia
+using OrdinaryDiffEqBDF, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, Sundials
+using SciMLLogging, SparseArrays
+include(joinpath(@__DIR__, "wpd_common.jl"))
+gr()
+
+function brusselator!(du, x, p, t)
+    n, a = p
+    for i in 1:n
+        u, v = x[2i - 1], x[2i]
+        ul, vl = i == 1 ? (1.0, 3.0) : (x[2i - 3], x[2i - 2])
+        ur, vr = i == n ? (1.0, 3.0) : (x[2i + 1], x[2i + 2])
+        du[2i - 1] = 1.0 + u^2 * v - 4.0 * u + a * (ul - 2u + ur)
+        du[2i] = 3.0 * u - u^2 * v + a * (vl - 2v + vr)
+    end
+    return nothing
+end
+
+function brusselator_pattern(n)
+    rows, cols = Int[], Int[]
+    for i in 1:n, (r, c) in ((2i - 1, 2i - 1), (2i - 1, 2i), (2i, 2i - 1), (2i, 2i))
+        push!(rows, r)
+        push!(cols, c)
+    end
+    for k in 1:(2n - 2)
+        append!(rows, (k, k + 2))
+        append!(cols, (k + 2, k))
+    end
+    return sparse(rows, cols, ones(length(rows)), 2n, 2n)
+end
+
+n = 500
+x = range(0, 1; length = n + 2)[2:(end - 1)]
+u0 = vec(permutedims([1.0 .+ sin.(2pi .* x) fill(3.0, n)]))
+f = ODEFunction(brusselator!; jac_prototype = brusselator_pattern(n))
+prob = ODEProblem(f, u0, (0.0, 10.0), (n, (1 / 50) * (n + 1)^2));
+```
+
+## Reference solution
+
+`Rodas5P` at a tolerance of 1e-12, checked against banded `CVODE_BDF` at the same tolerance.
+
+```julia
+band = CVODE_BDF(; linear_solver = :Band, jac_upper = 2, jac_lower = 2)
+ref = reference(prob, Rodas5P(); tol = 1.0e-12)
+check = reference(prob, band; tol = 1.0e-12)
+reference_gap = maximum(abs, ref.u[end] - check.u[end])
+```
+
+## Work-precision diagram
+
+`abstol` runs from 1e-5 to 1e-9 and `reltol` from 1e-3 to 1e-7.
+
+```julia
+lu_options = ["-ksp_type", "preonly", "-pc_type", "lu"]
+abstols = 1.0 ./ 10.0 .^ (5:9)
+reltols = 1.0 ./ 10.0 .^ (3:7)
+setups = [
+    Dict(:alg => TSRosW("ra34pw2")), Dict(:alg => TSRosW("ra34pw2", lu_options)),
+    Dict(:alg => ROS34PW2()),
+    Dict(:alg => TSImplicit("bdf"; order = 5)),
+    Dict(:alg => TSImplicit("bdf", lu_options; order = 5)), Dict(:alg => FBDF()),
+    Dict(:alg => TSARKIMEX("4")), Dict(:alg => TSARKIMEX("4", lu_options)),
+    Dict(:alg => KenCarp4()),
+    Dict(:alg => Rodas5P()), Dict(:alg => band),
+]
+names = [
+    "TSRosW(\"ra34pw2\")", "TSRosW(\"ra34pw2\"), LU", "ROS34PW2",
+    "TSImplicit(\"bdf\"; order = 5)", "TSImplicit(\"bdf\"; order = 5), LU", "FBDF",
+    "TSARKIMEX(\"4\")", "TSARKIMEX(\"4\"), LU", "KenCarp4", "Rodas5P", "CVODE_BDF, banded",
+]
+colors = [1, 1, 1, 2, 2, 2, 3, 3, 3, 5, 6]
+wp = WorkPrecisionSet(
+    prob, abstols, reltols, setups; names, appxsol = ref, save_everystep = false,
+    maxiters = 10^7, numruns = 20, verbose = SciMLLogging.None(),
+)
+wpd_plot(wp, colors; title = "1-D Brusselator, 1000 states, sparse Jacobian")
+```
+
+```julia; wrap = false
+pairs = [("TSRosW(\"ra34pw2\"), LU", "ROS34PW2"), ("TSARKIMEX(\"4\"), LU", "KenCarp4")]
+summarize(wp, 1.0e-5, pairs)
+```
+
+With LU in place of GMRES, each PETScDiffEq method takes the same steps and reaches nearly
+the same errors. LU takes less time for every method, by less at tighter tolerances for
+`TSImplicit` and `TSARKIMEX`. `TSRosW("ra34pw2")` and
+`ROS34PW2` share coefficients but choose different steps, and `ROS34PW2` ends with the smaller
+error at every tolerance; the table of matched pairs below gives the time per step attempt of
+each.
+
+The two references agree to within 1e-9 at the final time, more than 100 times below the
+smallest error plotted:
+
+```julia
+reference_margin(wp, reference_gap)
+```
+
+Every PETScDiffEq point includes a cost per solve that does not depend on the method or the
+tolerance. A solve of a single step measures it, here including the coloring of the
+sparsity pattern and one Jacobian:
+
+```julia; wrap = false
+one_step_table(
+    [prob],
+    [
+        ("TSRosW(\"ra34pw2\")", TSRosW("ra34pw2"), 1),
+        ("TSRosW(\"ra34pw2\"), LU", TSRosW("ra34pw2", lu_options), 1),
+        ("ROS34PW2", ROS34PW2(), 1),
+        ("TSImplicit(\"bdf\"; order = 5), LU", TSImplicit("bdf", lu_options; order = 5), 1),
+        ("TSARKIMEX(\"4\"), LU", TSARKIMEX("4", lu_options), 1), ("KenCarp4", KenCarp4(), 1),
+    ],
+)
+```
+
+Time to an error of 1e-5, interpolated in log-log between the measured points of each solver
+that no other point of the same solver beats on both error and time:
+
+```julia; wrap = false
+time_to_error(wp, 1.0e-5)
+```
+
+The matched pairs at the tightest tolerance, with the time per step attempt taken as the
+whole solve time over the number of attempts:
+
+```julia; wrap = false
+compare_pairs(wp, pairs)
+```
+
+Every point, with its Jacobian and Newton iteration counts:
+
+```julia; wrap = false
+print_points(wp)
+```
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```
