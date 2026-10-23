@@ -9,8 +9,8 @@ PETScDiffEq, next to OrdinaryDiffEq and Sundials. Each point is the mean absolut
 final time against a reference solution and the fastest of up to 20 solves, as
 `WorkPrecisionSet` measures them.
 
-Solid lines with circles are PETScDiffEq with PETSc's default linear solver, GMRES with an
-ILU(0) preconditioner. Dashed lines with squares are OrdinaryDiffEq or Sundials. Lines of one
+Solid lines with circles are PETScDiffEq with its default linear solver, which for a dense
+Jacobian is a direct LU solve. Dashed lines with squares are OrdinaryDiffEq or Sundials. Lines of one
 color are the same method or its nearest counterpart. Three pairs share their coefficients:
 `TSRosW("ra34pw2")` with `ROS34PW2`, `TSRosW("rodas3")` with `Rodas3`, and `TSARKIMEX("4")`
 with `KenCarp4`, run here fully implicit. PETSc's Rosenbrock-W leaves out the time derivative
@@ -137,11 +137,11 @@ compare_pairs(wp, pairs)
 ```
 
 Every point, with its Jacobian and Newton iteration counts. PETSc's nonlinear solver forms a
-new Jacobian at every Newton iteration unless told to lag it, and PETScDiffEq keeps that
-default, so `TSImplicit` and `TSARKIMEX` count one Jacobian per iteration: at
-`abstol = 1e-7`, 244 for `TSImplicit("bdf"; order = 5)` against 8 for `FBDF`, and 574 for
-`TSARKIMEX("4")` against 21 for `KenCarp4`. `TSRosW` counts its one linear solve per stage as
-a Newton iteration.
+new Jacobian at every Newton iteration unless told to lag it. PETScDiffEq lags it for adaptive
+BDF but not for `TSARKIMEX`: at `abstol = 1e-7`, `TSImplicit("bdf"; order = 5)` forms 139
+Jacobians in 262 Newton iterations against 8 for `FBDF`, and `TSARKIMEX("4")` forms 574
+against 21 for `KenCarp4`. `TSRosW` counts its one linear solve per stage as a Newton
+iteration.
 
 ```julia; wrap = false
 print_points(wp)
