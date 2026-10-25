@@ -13,8 +13,9 @@ and coloring; CVODE uses its banded difference quotients. Each point is the mean
 error at the final time against a reference solution and the fastest of up to 20 solves, as
 `WorkPrecisionSet` measures them.
 
-Solid lines with circles are PETScDiffEq with PETSc's default linear solver, GMRES with an
-ILU(0) preconditioner. Dotted lines with triangles are PETScDiffEq with a direct LU solve,
+Solid lines with circles are PETScDiffEq with its default linear solver. For a sparse
+Jacobian of bandwidth at most 4, as here, that is LU in natural order, wrapped in a Richardson
+iteration for `TSRosW`. Dotted lines with triangles are PETScDiffEq with LU set explicitly,
 `petsc_options = ["-ksp_type", "preonly", "-pc_type", "lu"]`. Dashed lines with squares are
 OrdinaryDiffEq or Sundials. Lines of one color are the same method or its nearest
 counterpart. `TSRosW("ra34pw2")` shares its coefficients with `ROS34PW2`, and `TSARKIMEX("4")`
@@ -104,9 +105,9 @@ pairs = [("TSRosW(\"ra34pw2\"), LU", "ROS34PW2"), ("TSARKIMEX(\"4\"), LU", "KenC
 summarize(wp, 1.0e-5, pairs)
 ```
 
-With LU in place of GMRES, each PETScDiffEq method takes the same steps and reaches nearly
-the same errors. LU takes less time for every method, by less at tighter tolerances for
-`TSImplicit` and `TSARKIMEX`. `TSRosW("ra34pw2")` and
+Both are direct solves, so each PETScDiffEq method takes the same steps and reaches the
+same errors with either. The explicit LU is faster for `TSRosW("ra34pw2")`, which skips the
+Richardson wrapper, and slower for `TSImplicit` and `TSARKIMEX`. `TSRosW("ra34pw2")` and
 `ROS34PW2` share coefficients but choose different steps, and `ROS34PW2` ends with the smaller
 error at every tolerance; the table of matched pairs below gives the time per step attempt of
 each.
