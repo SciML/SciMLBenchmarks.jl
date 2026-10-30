@@ -11,6 +11,68 @@ RADAR5 test suite by Guglielmi and Hairer. The problem is given by
 ```math
 u_1'(t) = k_1 A u_2(t) - k_2 u_1(t) u_2(t - \tau) + k_3 B u_1(t) - 2 k_4 u_1(t)^2
 ```
+
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
+```
 ```math
 u_2'(t) = -k_1 A u_2(t) - k_2 u_1(t) u_2(t - \tau) + f k_3 B u_1(t)
 ```
@@ -70,16 +132,28 @@ wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
 plot(wp; title = "Oregonator: Rosenbrock Methods (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp; title = "Oregonator: Rosenbrock Methods (L2 error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L∞)
 plot(wp; title = "Oregonator: Rosenbrock Methods (L∞ error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ### SDIRK methods
@@ -103,10 +177,18 @@ wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
 plot(wp; title = "Oregonator: SDIRK Methods (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp; title = "Oregonator: SDIRK Methods (L2 error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -115,15 +197,14 @@ wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
 plot(wp; title = "Oregonator: SDIRK Methods (L∞ error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ### Stiff vs Non-Stiff Comparison
 
-In the latest run, `Tsit5` and `DP5` are more expensive than `Rosenbrock23` and `Rodas5P` at
-every error they reach. `BS3` costs about as much as `Rosenbrock23` at the smallest errors. At
-the loosest high-tolerance pair, `Tsit5` and `BS3` return `Unstable` (near $t \approx 68$ and
-$t \approx 28$), and `TRBDF2` fails the same way as in the SDIRK diagram; those points are
-omitted. `DP5` finishes but with a final error of about $1.5\times 10^{-7}$, roughly 40% of
-$u_2$ at $t_{\mathrm{end}}$ ($\approx 3.6\times 10^{-7}$), making it the least accurate point
-in the diagram.
+This diagram runs explicit methods next to Rosenbrock and SDIRK methods at the same
+tolerances; its summary lists the tolerances at which a method produced no usable run.
 
 ```julia
 setups = [Dict(:alg => MethodOfSteps(Rosenbrock23())),
@@ -137,6 +218,10 @@ names = ["Rosenbrock23", "Rodas5P", "TRBDF2", "KenCarp4", "Tsit5", "BS3", "DP5"]
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e6), error_estimate = :final)
 plot(wp; title = "Oregonator: Stiff vs Non-Stiff (final error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ## Low Tolerances
@@ -161,10 +246,18 @@ wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
 plot(wp; title = "Oregonator: Low Tolerances (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob_dde_RADAR5_oregonator, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e7), error_estimate = :L2)
 plot(wp; title = "Oregonator: Low Tolerances (L2 error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia, echo = false

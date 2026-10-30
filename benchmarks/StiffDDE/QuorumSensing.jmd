@@ -21,6 +21,68 @@ sol = solve(prob_dde_qs, MethodOfSteps(Vern9()); reltol = 1e-14, abstol = 1e-14)
 plot(sol)
 ```
 
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
+```
+
 Particularly, we are interested in the third, low-level component of the system:
 
 ```julia
@@ -32,7 +94,7 @@ plot(sol)
 
 ## Qualitative comparisons
 
-First we compare the quality of the solution's third component for different algorithms, using the default tolerances.
+First we compare the quality of the solution's third component for different algorithms.
 
 ### RK methods
 
@@ -174,6 +236,10 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 We also compare interpolation errors:
 
 ```julia
@@ -190,6 +256,10 @@ setups = [Dict(:alg=>MethodOfSteps(BS3())),
 wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
     save_idxs = 3, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 And the maximal interpolation error:
@@ -210,9 +280,26 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-Since the correct solution is in the range of 1e-7, we see that most solutions, even at the lower end of tested tolerances, always lead to relative maximal interpolation errors of at least 1e-1 (and usually worse). `RK4` performs slightly better with relative maximal errors of at least 1e-2. This matches our qualitative analysis above.
+```julia, wrap = false
+wp_verdict(wp)
+```
 
-The `Tsit5` point at an error of about $10^{10}$, present in all three work-precision diagrams above, is a genuine divergence rather than a plotting artifact. At the loosest tolerance pair an accepted step perturbs the third component slightly below zero near $t \approx 35.5$; the model guards only against negative $u_1$ and $u_4$, and once $u_4$ exceeds the receptor level $R$ the coupling between the third and fourth components amplifies the perturbation until the trajectory blows up. The solve still reports success because the relative error test scales with the exploding components. `MethodOfSteps(Tsit5(); constrained = true)` does not diverge at the same tolerance.
+The errors in these diagrams are absolute errors of the third component, so they are best read against its scale in the reference solution, printed below. The model guards only against negative $u_1$ and $u_4$. The chunk below solves the problem with `Tsit5` at the loosest tolerance pair of the diagrams above, with and without `constrained = true`, and prints each solve's return code, the smallest value of the third component and when it occurs, and the largest magnitude of the third component.
+
+```julia, wrap = false
+println("Largest |u₃| in the reference solution: ", round(maximum(u -> maximum(abs, u), test_sol.interp.u); sigdigits = 3))
+for (label, alg) in (("Tsit5", MethodOfSteps(Tsit5())), ("Tsit5, constrained", MethodOfSteps(Tsit5(); constrained = true)))
+    dsol = solve(prob_dde_qs, alg; abstol = abstols[1], reltol = reltols[1], maxiters = Int(1.0e5))
+    u3 = dsol[3, :]
+    k = argmin(u3)
+    largest = maximum(abs, u3)
+    println(
+        "$label at abstol = $(abstols[1]), reltol = $(reltols[1]): retcode $(dsol.retcode), ",
+        "smallest u₃ = $(round(u3[k]; sigdigits = 3)) at t = $(round(dsol.t[k]; sigdigits = 4)), ",
+        "largest |u₃| = $(round(largest; sigdigits = 3))"
+    )
+end
+```
 
 #### Rosenbrock methods
 
@@ -231,6 +318,10 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
@@ -242,6 +333,10 @@ setups = [Dict(:alg=>MethodOfSteps(Rosenbrock23())),
 wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
     save_idxs = 3, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -257,7 +352,9 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-Out of the tested Rosenbrock methods `Rodas4` and `Rosenbrock23` perform best at high tolerances.
+```julia, wrap = false
+wp_verdict(wp)
+```
 
 #### Lazy interpolants
 
@@ -277,6 +374,10 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (4:7)
 reltols = 1.0 ./ 10.0 .^ (1:4)
@@ -289,6 +390,10 @@ setups = [Dict(:alg=>MethodOfSteps(Vern6())),
 wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
     save_idxs = 3, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -305,7 +410,9 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-All in all, at high tolerances `Rodas4` and `Rosenbrock23` are the best of the tested methods for solving this stiff DDE; in the latest run `Rosenbrock23` is cheaper than all Verner methods while reaching smaller errors.
+```julia, wrap = false
+wp_verdict(wp)
+```
 
 ### Low tolerances
 
@@ -325,6 +432,10 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 abstols = 1.0 ./ 10.0 .^ (8:11)
 reltols = 1.0 ./ 10.0 .^ (5:8)
@@ -335,6 +446,10 @@ setups = [Dict(:alg=>MethodOfSteps(Rosenbrock23())),
 wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
     save_idxs = 3, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -349,7 +464,9 @@ wp = WorkPrecisionSet(prob_dde_qs, abstols, reltols, setups;
 plot(wp)
 ```
 
-Thus at low tolerances `Rodas5` is the most efficient method, followed by `Rodas4`, and in the latest run both outperform `Rosenbrock23` by roughly an order of magnitude or more.
+```julia, wrap = false
+wp_verdict(wp)
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
