@@ -65,11 +65,20 @@ function validate_solution(sol, tolerance)
         error("boundary residual $residual_norm exceeds tolerance $tolerance")
     return sol
 end
+
+timings = NamedTuple[]
+function record!(name, bench)
+    sol = bench.value
+    push!(timings, (; name, time = bench.time, bytes = bench.bytes, points = length(sol.t)))
+    mib = round(bench.bytes / 2^20; sigdigits = 3)
+    println("$name: $(round(bench.time; sigdigits = 3)) s, $mib MiB, $(length(sol.t)) time points")
+    return sol
+end
 ```
 
 ```julia
 tolerance = 1.0e-6
-sol = @btime solve(
+bench = @btimed solve(
     bvp,
     Shooting(DP5());
     force_dtmin = true,
@@ -83,61 +92,77 @@ sol = @btime solve(
         dt = 10000,
     ),
 )
+sol = record!("Shooting(DP5())", bench)
 validate_solution(sol, tolerance)
 ```
 
 ```julia
 dt = (t1 - t0) / 100
-sol = @btime solve(
+bench = @btimed solve(
     bvp, MIRK2(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
 )
+sol = record!("MIRK2", bench)
 validate_solution(sol, tolerance)
 ```
 
 ```julia
-sol = @btime solve(
+bench = @btimed solve(
     bvp, MIRK3(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
 )
+sol = record!("MIRK3", bench)
 validate_solution(sol, tolerance)
 ```
 
 ```julia
-sol = @btime solve(
+bench = @btimed solve(
     bvp, MIRK4(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
 )
+sol = record!("MIRK4", bench)
 validate_solution(sol, tolerance)
 ```
 
 ```julia
-sol = @btime solve(
+bench = @btimed solve(
     bvp, MIRK5(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
 )
+sol = record!("MIRK5", bench)
 validate_solution(sol, tolerance)
 ```
 
 ```julia
-sol = @btime solve(
+bench = @btimed solve(
     bvp, MIRK6(); dt = $dt, abstol = $tolerance, reltol = $tolerance, verbose = false
 )
+sol = record!("MIRK6", bench)
 validate_solution(sol, tolerance)
 ```
 
-## MIRK runtimes include an upstream initial-guess bug
+## Summary
 
-The MIRK2 and MIRK4 timings are inflated by a BoundaryValueDiffEq bug rather
-than by the cost of the solves themselves. After each adaptive mesh
-redistribution, MIRK seeds the next nonlinear solve by interpolating the
-previous solution at every new mesh point. The interpolation loop overwrites
-the old-mesh values that later interpolation points still read, so a
-refinement step produces a corrupted initial guess and the Newton solver
-restarts almost from scratch. On this problem MIRK4's refinement iteration
-begins from a residual norm of about 9e6 instead of about 8e-3 and takes
-~1200 Newton iterations where 2 suffice, which shows up above as gigabytes of
-allocations. [BoundaryValueDiffEq.jl#648](https://github.com/SciML/BoundaryValueDiffEq.jl/pull/648)
-fixes the interpolation; with the fix, MIRK4 runs in ~0.6 s / 83 MB instead
-of ~46 s / 8.6 GB and MIRK2 in ~34 s instead of ~480 s. The remaining MIRK2
-cost is genuine: its low order needs a mesh of ~2900 points to reach this
-tolerance.
+`validate_solution` stops the page when a solve fails or its boundary residual
+exceeds the tolerance, so the summary below is printed only when every solve
+above passed that check. It orders the solves by their minimum time over the
+BenchmarkTools samples, fastest first; neighbours within a factor of 1.2 are
+joined by ≈.
+[BoundaryValueDiffEq.jl#648](https://github.com/SciML/BoundaryValueDiffEq.jl/pull/648)
+changed how MIRK seeds the nonlinear solve after mesh refinement;
+the timings here use the BoundaryValueDiffEq version in this folder's Manifest.
+
+```julia, wrap = false
+sorted = sort(timings; by = r -> r.time)
+parts = String[]
+for (i, r) in enumerate(sorted)
+    i > 1 && push!(parts, r.time <= 1.2 * sorted[i - 1].time ? "≈" : "<")
+    push!(parts, "$(r.name) ($(round(r.time; sigdigits = 3)) s)")
+end
+println("Summary computed from the timings above, fastest first:")
+println("  ", join(parts, " "))
+for r in sorted
+    ratio = round(r.time / sorted[1].time; sigdigits = 3)
+    mib = round(r.bytes / 2^20; sigdigits = 3)
+    println("  $(r.name): $(ratio)x the fastest, $mib MiB, $(r.points) time points")
+end
+```
 
 ## Appendix
 
