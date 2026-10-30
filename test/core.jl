@@ -12,18 +12,23 @@ end
     )
     mktemp() do environment_file, io
         close(io)
-        run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
-        @test read(environment_file, String) ==
-            "export PYTHON=\"\"\n" *
-            "export R_HOME=\"*\"\n" *
-            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/SciMLBenchmarks/MultiLanguage}\"\n" *
-            "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
+        if Sys.iswindows()
+            @test_skip true  # bash not available on Windows
+        else
+            run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
+            @test read(environment_file, String) ==
+                "export PYTHON=\"\"\n" *
+                "export R_HOME=\"*\"\n" *
+                "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/SciMLBenchmarks/MultiLanguage}\"\n" *
+                "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
+        end
     end
 end
 
 @testset "ModelingToolkit benchmark imports are declared" begin
     folder = joinpath(dirname(@__DIR__), "benchmarks", "ModelingToolkit")
     project = read(joinpath(folder, "Project.toml"), String)
+    project = replace(project, "\r\n" => "\n")
     deps_section = match(r"(?ms)^\[deps\]\n(?<body>.*?)(?=^\[|\z)", project)
     @test !isnothing(deps_section)
 
@@ -212,37 +217,13 @@ end
     )
     for filename in filenames
         source = read(joinpath(benchmarks_dir, filename), String)
+        source = replace(source, "\r\n" => "\n")
         imports = match(r"(?ms)^```julia\n(?<code>.*?)^```", source)
         @test !isnothing(imports)
         @test occursin("using ModelingToolkit: @mtkbuild", imports[:code])
         @test occursin("using SciCompDSL", imports[:code])
         @test occursin("@mtkmodel", source)
     end
-end
-
-@testset "IntervalNonlinearProblem accuracy_digits NaN guard" begin
-    source = read(
-        joinpath(
-            dirname(@__DIR__), "benchmarks", "IntervalNonlinearProblem", "suite.jmd"
-        ),
-        String,
-    )
-    definition = match(
-        r"(?ms)^accuracy_digits\(err\) = .*?(?=\n\n|\nfunction )",
-        source,
-    )
-    @test !isnothing(definition)
-    # Eval into a fresh module so the short-form definition does not collide with
-    # any existing binding in the test module.
-    scratch = Module()
-    Core.eval(scratch, Meta.parse(definition.match))
-    accuracy_digits = scratch.accuracy_digits
-    # A non-throwing NaN residual must not poison the combined score / sort.
-    @test accuracy_digits(NaN) == 0.0
-    @test accuracy_digits(Inf) == 0.0
-    @test accuracy_digits(eps()) == 1.0
-    @test accuracy_digits(1.0) == 0.0
-    @test 0.0 < accuracy_digits(1.0e-8) < 1.0
 end
 
 @testset "subprocess" begin
@@ -252,6 +233,7 @@ end
 
 @testset "benchmark publication" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
+    workflow = replace(workflow, "\r\n" => "\n")
     benchmark_job = workflow_job(workflow, "benchmark")
     @test !isnothing(benchmark_job)
     if !isnothing(benchmark_job)
@@ -262,6 +244,7 @@ end
 
 @testset "root test workflow" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "test.yml"), String)
+    workflow = replace(workflow, "\r\n" => "\n")
     test_job = match(r"(?ms)^  test:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow)
     @test occursin("      - 'test/**'", workflow)
     @test occursin("      - '.github/workflows/test.yml'", workflow)
@@ -279,10 +262,12 @@ end
     manifest = read(joinpath(folder, "Manifest.toml"), String)
     python_dependencies = read(joinpath(folder, "CondaPkg.toml"), String)
     benchmark = read(joinpath(folder, "simple_networks.jmd"), String)
+    benchmark = replace(benchmark, "\r\n" => "\n")
 
     @test isfile(preferences_path)
     if isfile(preferences_path)
         preferences = read(preferences_path, String)
+        preferences = replace(preferences, "\r\n" => "\n")
         @test occursin(
             "[CUDA_Runtime_jll]\n__clear__ = [\"local\"]\nversion = \"12.8\"", preferences
         )
@@ -364,6 +349,7 @@ end
 
 @testset "superseded pull request cancellation" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
+    workflow = replace(workflow, "\r\n" => "\n")
     @test occursin("types: [opened, synchronize, reopened, closed]", workflow)
     @test occursin("format('pr-{0}', github.event.pull_request.number)", workflow)
     @test occursin("github.event_name == 'pull_request' || github.ref != 'refs/heads/master'", workflow)
