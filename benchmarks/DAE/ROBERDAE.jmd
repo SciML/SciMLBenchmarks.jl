@@ -139,16 +139,17 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
-Each PETScDiffEq solve also has a cost that does not depend on the method or the tolerance,
-for setting up PETSc's objects. A solve of a single step measures it:
+A solve over a very short span shows the part of each solve's time that does not grow with
+the number of steps, mostly setting up PETSc's objects for PETScDiffEq. Each method still picks
+its own first steps, so the number of steps taken is printed next to the time:
 
 ```julia
 for (name, alg, prob) in [("TSDAE", TSDAE("bdf"; order = 5), daeprob), ("DFBDF", DFBDF(), daeprob),
         ("TSRosW", TSRosW("ra34pw2"), mmprob), ("ROS34PW2", ROS34PW2(), mmprob)]
     short = remake(prob, tspan = (0.0, 1e-6))
-    solve(short, alg, save_everystep = false)
+    sol = solve(short, alg, save_everystep = false)
     tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:100)
-    println(rpad(name, 10), round(1e6 * tmin, sigdigits = 3), " µs")
+    println(rpad(name, 10), round(1e6 * tmin, sigdigits = 3), " µs, ", sol.stats.naccept, " steps")
 end
 ```
 
