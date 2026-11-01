@@ -6,6 +6,8 @@ set -eo pipefail
 #   - A changed .jmd file triggers a rebuild of just that file
 #   - Any other changed file triggers a rebuild of its entire benchmark directory
 #   - If a directory is already being rebuilt, individual .jmd files in it are suppressed
+#   - Directories with split = true emit one target per .jmd file
+# An optional file or directory argument selects a target without diffing Git.
 #
 # Reads runner configuration from:
 #   1. benchmarks/<name>/benchmark_config.toml (per-benchmark override)
@@ -17,7 +19,17 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/read-benchmark-config.sh"
 
-if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+if [[ $# -gt 0 ]]; then
+    target="${1%/}"
+    if [[ -d "${target}" && -f "${target}/Project.toml" ]]; then
+        CHANGED_FILES="${target}/Project.toml"
+    elif [[ -f "${target}" && "${target}" == *.jmd ]]; then
+        CHANGED_FILES="${target}"
+    else
+        echo "Invalid benchmark target: ${target}" >&2
+        exit 1
+    fi
+elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
     BASE_SHA="${GITHUB_BASE_REF}"
     git fetch origin "${BASE_SHA}" --depth=1 2>/dev/null || true
     CHANGED_FILES=$(git diff --name-only "origin/${BASE_SHA}...HEAD" -- 'benchmarks/' 2>/dev/null || true)
@@ -80,7 +92,17 @@ BUILD_TARGETS=()
 
 if [[ ${#PROJECTS[@]} -gt 0 ]]; then
     for proj in "${!PROJECTS[@]}"; do
-        BUILD_TARGETS+=("${proj}")
+        split=$(read_toml_key "${proj}/benchmark_config.toml" "split")
+        split=${split%%#*}
+        if [[ "${split//[[:space:]]/}" == true ]]; then
+            shopt -s nullglob dotglob
+            for f in "${proj}"/*.jmd; do
+                [[ -f "${f}" ]] || continue
+                BUILD_TARGETS+=("${f}")
+            done
+        else
+            BUILD_TARGETS+=("${proj}")
+        fi
     done
 fi
 
