@@ -28,10 +28,18 @@ def require_torch_cuda():
     return torch.device("cuda")
 
 
+def _jax_array(values):
+    return jax.device_put(np.asarray(values, dtype=np.float32), require_jax_gpu())
+
+
+def _torch_array(values):
+    return torch.tensor(values, dtype=torch.float32, device=require_torch_cuda())
+
+
 def _lorenz(t, y, k1):
     f0 = 10.0 * (y[1] - y[0])
     f1 = k1 * y[0] - y[1] - y[0] * y[2]
-    f2 = y[0] * y[1] - (8.0 / 3.0) * y[2]
+    f2 = y[0] * y[1] - 2.666 * y[2]
     return jnp.stack([f0, f1, f2])
 
 
@@ -47,7 +55,7 @@ def _solve_diffrax(k1, adaptive):
         np.float32(0.001),
         jnp.array([1.0, 0.0, 0.0], dtype=jnp.float32),
         args=k1,
-        saveat=diffrax.SaveAt(t1=True),
+        saveat=diffrax.SaveAt(t0=True, t1=True),
         max_steps=100_000,
         **kwargs,
     )
@@ -69,9 +77,8 @@ def _min_seconds(fn, warmup, repeats):
     return float(min(times))
 
 
-def time_diffrax(n, adaptive=False, warmup=3, repeats=10):
-    require_jax_gpu()
-    rhos = jnp.linspace(0.0, 21.0, int(n), dtype=jnp.float32)
+def time_diffrax(rhos, adaptive=False, warmup=3, repeats=5):
+    rhos = _jax_array(rhos)
     solve = _solve_adaptive if adaptive else _solve_fixed
 
     def run():
@@ -86,7 +93,7 @@ def _lorenz_rhs_torch(u, rho):
     z = u[:, 2]
     du1 = 10.0 * (y - x)
     du2 = rho * x - y - x * z
-    du3 = x * y - (8.0 / 3.0) * z
+    du3 = x * y - 2.666 * z
     return torch.stack((du1, du2, du3), dim=1)
 
 
@@ -97,6 +104,7 @@ def _rk4_batch(rho, dt=0.001, t1=1.0):
     steps = int(round(t1 / dt))
     u = torch.zeros(rho.shape[0], 3, device=rho.device, dtype=rho.dtype)
     u[:, 0] = 1.0
+    u0 = u
     dt_t = torch.as_tensor(dt, device=rho.device, dtype=rho.dtype)
     for _ in range(steps):
         k1 = _lorenz_rhs_torch(u, rho)
@@ -104,15 +112,47 @@ def _rk4_batch(rho, dt=0.001, t1=1.0):
         k3 = _lorenz_rhs_torch(u + 0.5 * dt_t * k2, rho)
         k4 = _lorenz_rhs_torch(u + dt_t * k3, rho)
         u = u + (dt_t / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-    return u
+    return torch.stack((u0, u), dim=1)
 
 
-def time_torch_rk4(n, warmup=2, repeats=5):
-    device = require_torch_cuda()
-    rho = torch.linspace(0.0, 21.0, int(n), device=device)
+def time_torch_rk4(rhos, warmup=2, repeats=5):
+    rho = _torch_array(rhos)
 
     def run():
         _rk4_batch(rho)
         torch.cuda.synchronize()
 
     return _min_seconds(run, warmup, repeats)
+
+
+def _checked_host(value, shape):
+    if isinstance(value, torch.Tensor):
+        if not value.is_cuda:
+            raise AssertionError("PyTorch output is not on CUDA")
+        host = value.detach().cpu().numpy()
+    else:
+        if not all(device.platform == "gpu" for device in value.devices()):
+            raise AssertionError("JAX output is not on a GPU")
+        host = np.asarray(value)
+    if host.shape != shape or host.dtype != np.float32:
+        raise AssertionError(f"Unexpected shape/dtype: {host.shape}, {host.dtype}")
+    if not np.isfinite(host).all():
+        raise AssertionError("Non-finite output")
+    return host
+
+
+def checked_outputs(rhos, state, rho):
+    """Return untimed GPU input, RHS, and solution checks as host Float32 arrays."""
+    jax_rhos, torch_rhos = _jax_array(rhos), _torch_array(rhos)
+    jax_rhs = _lorenz(np.float32(0), _jax_array(state), np.float32(rho))
+    torch_rhs = _lorenz_rhs_torch(_torch_array(state)[None, :], _torch_array([rho]))[0]
+    n = len(rhos)
+    return {
+        "JAX parameters": _checked_host(jax_rhos, (n,)),
+        "PyTorch parameters": _checked_host(torch_rhos, (n,)),
+        "JAX RHS": _checked_host(jax_rhs, (3,)),
+        "PyTorch RHS": _checked_host(torch_rhs, (3,)),
+        "Diffrax fixed": _checked_host(_solve_fixed(jax_rhos), (n, 2, 3)),
+        "Diffrax adaptive": _checked_host(_solve_adaptive(jax_rhos), (n, 2, 3)),
+        "PyTorch RK4": _checked_host(_rk4_batch(torch_rhos), (n, 2, 3)),
+    }
