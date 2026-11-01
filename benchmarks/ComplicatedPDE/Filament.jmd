@@ -294,21 +294,89 @@ sol = run(SolverDiffEq())
 plot(sol, vars = (0, 25))
 ```
 
-The model quickly falls into a highly oscillatory mode which then dominates throughout the rest of the solution.
-
 # Work-Precision Diagrams
 
-Now let's build the problem and solve it once at high accuracy to get a reference solution:
+Now let's build the problem and solve it once at high accuracy to get a
+reference solution. The `ODEFunction` is given the approximate Jacobian
+`J = P*A`, the same one the `run` helper passes; the implicit solvers in the
+diagrams below pick it up from the problem. `J = P*A` is approximate because
+the projection `P` is recomputed from the state `r` on every RHS evaluation,
+so the true Jacobian contains additional `dP/dr` terms that `P*A` omits.
 
 ```julia
 N=20
 f = FilamentCache(N, Solver = SolverDiffEq)
 r0 = initialize!(:StraightX, f)
 stiffness_matrix!(f)
-prob = ODEProblem(f, r0, (0.0, 0.01))
+filament_jac! = let f = f
+    (J, u, p, t) -> (mul!(J, f.P.P, f.A); nothing)
+end
+prob = ODEProblem(ODEFunction(f, jac = filament_jac!), r0, (0.0, 0.01))
 
 sol = solve(prob, Vern9(), reltol = 1e-14, abstol = 1e-14)
 test_sol = TestSolution(sol);
+```
+
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
 ```
 
 ## Omissions
@@ -333,19 +401,13 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
-This cell is not evaluated in the current build. When it was last run,
-`Rosenbrock23`, `Rodas4`, `Exprb32`, `Exprb43`, the extrapolation methods, and
-`Rodas5` did not perform well at all, so they are dropped from the remaining
-tests. For reference, their most accurate runs took around 10^2.5 s
-(`ImplicitEulerExtrapolation` took over a day and had to be stopped early),
-about 500x slower than `CVODE_BDF`, which would make the benchmarks take far too
-long. `radau` appeared to fail on this problem at high tolerances, exiting
-early, so its values there should be ignored; it is thus removed from the
+This cell is not evaluated in the current build. It keeps the setups for
+`Rosenbrock23`, `Rodas4`, `Exprb32`, `Exprb43` and the extrapolation methods,
+which are left out of the diagrams below; `radau` is also left out of the
 high-tolerance sections.
 
-The EPIRK methods have not worked on this problem in the past, so they are not
-part of the diagrams. The fixed-step `EPIRK4s3B` solve below is kept to track
-this; in the latest run it returned `Success`.
+The EPIRK methods are not part of the diagrams. The fixed-step `EPIRK4s3B`
+solve below is kept to track them and prints its result.
 
 ```julia
 try
@@ -401,6 +463,10 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 abstols=1 ./ 10 .^ (3:8)
 reltols=1 ./ 10 .^ (3:8)
@@ -421,6 +487,10 @@ setups = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     maxiters = Int(1e6), verbose = SciMLLogging.None())
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -449,6 +519,10 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = names, appxsol = t
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ### Timeseries Error
 
 ```julia
@@ -472,14 +546,18 @@ setups = [
 ];
 
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
-    maxiters = Int(1e6), verbose = SciMLLogging.None())
+    maxiters = Int(1e6), verbose = SciMLLogging.None(), error_estimate = :l2)
 plot(wp)
 ```
 
-Note that this cell does not set `error_estimate = :l2`, so despite the heading
-it measures the final-point error again (the x-axis of the plot reads
-"Error (final)") and says nothing about timeseries errors. Timeseries errors are
-not computed in the benchmarks below.
+```julia, wrap = false
+wp_verdict(wp)
+```
+
+With `error_estimate = :l2` this cell measures the L2 error over the saved time
+series rather than the error at the final point. That is a different error
+metric than the endpoint diagrams above use, so the x-axes are not directly
+comparable; this diagram shows how the methods order under trajectory error.
 
 ### Dense Error
 
@@ -505,9 +583,9 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
-In the latest run the dense (L2) errors are of the same order as the
-final-point errors in the endpoint diagrams above, with a similar ordering of
-the methods, so dense errors are turned off in the benchmarks below.
+```julia, wrap = false
+wp_verdict(wp)
+```
 
 ## Low Tolerance (High Accuracy)
 
@@ -526,6 +604,10 @@ setups = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     maxiters = Int(1e6), verbose = SciMLLogging.None())
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -548,6 +630,10 @@ setups = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     maxiters = Int(1e6), verbose = SciMLLogging.None())
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ### Timeseries Error
@@ -600,12 +686,11 @@ plot(wp)
 
 # No Jacobian Work-Precision Diagrams
 
-Here the problem is built with `jac = nothing`, so no analytical Jacobian is
-available to the solvers. Note that the problem in the previous sections,
-`ODEProblem(f, r0, (0.0, 0.01))`, was also built without one (only the `run`
-helper above passes an analytical Jacobian), so this section solves the same
-problem as before, and in the latest run its diagrams match the corresponding
-ones above.
+Here the problem is built with `jac = nothing`, so no Jacobian is supplied
+to the solvers and methods that need one compute it by finite differences.
+The problem in the previous sections passes the approximate Jacobian
+`J = P*A` (the same one the `run` helper uses), so this section repeats the
+diagrams without it for comparison.
 
 Note that the pre-caching means that the model is not compatible with automatic differentiation by ForwardDiff. Thus all of the native Julia solvers are set to `autodiff=AutoFiniteDiff()` to use FiniteDiff.jl's numerical differentiation backend.
 
@@ -642,6 +727,10 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 abstols=1 ./ 10 .^ (3:8)
 reltols=1 ./ 10 .^ (3:8)
@@ -665,6 +754,10 @@ setups = [
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     maxiters = Int(1e6), verbose = SciMLLogging.None())
 plot(wp)
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia
@@ -693,6 +786,10 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = names, appxsol = t
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ## Low Tolerance (High Accuracy)
 
 ```julia
@@ -716,16 +813,18 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
 plot(wp)
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ## Conclusion
 
-In the latest run, Sundials' `CVODE_BDF` is the fastest implicit method in every
-diagram, and in the low-tolerance (high-accuracy) diagrams it is at least about
-2x faster than every other method tested. The ESDIRK methods (`TRBDF2`,
-`KenCarp3`, `KenCarp4`) take roughly twice as long as `CVODE_BDF` at matched
-error. At the high tolerances, the stabilized explicit methods `RKC` and `ROCK2`
-are faster than `CVODE_BDF` for errors of about `1e-4` and larger. As noted
-above, the "Work-Precision Diagrams" and "No Jacobian Work-Precision Diagrams"
-sections solve the same problem, and their results agree.
+The summary after each diagram reports, for that diagram only, the tolerances
+without a usable run, the smallest error each method reached and the runs that
+no other run beats. Several of the "No Jacobian Work-Precision Diagrams" run
+the same methods as a diagram above without the supplied approximate Jacobian
+`J = P*A`; reading those summaries side by side shows where `J = P*A` helps a
+method and where it does not.
 
 ```julia, echo = false
 using SciMLBenchmarks
