@@ -1,53 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
-# CUTEst.jl requires a Fortran compiler: __init__ errors when `gfortran` is not
-# on PATH and decoded SIF problems are compiled with `gfortran -O3 -fPIC` then
-# linked with `gfortran -shared`. The self-hosted runners have no system
-# gfortran, so install a user-local conda-forge toolchain and export it for the
-# benchmark Julia process.
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PREFIX="${BENCH_DIR}/.gfortran"
+MICROMAMBA="${BENCH_DIR}/.micromamba"
 
-CACHE_DIR="${HOME}/.cache/sciml-benchmarks"
-PREFIX="${CACHE_DIR}/cutest-gfortran"
-MICROMAMBA="${CACHE_DIR}/micromamba"
+if ! command -v gfortran >/dev/null 2>&1; then
+    if [[ -x "${PREFIX}/bin/gfortran" ]]; then
+        export PATH="${PREFIX}/bin:${PATH}"
+    else
+        case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) platform=linux-64 ;;
+            Linux-aarch64) platform=linux-aarch64 ;;
+            *)
+                echo "ERROR: gfortran is required for OptimizationCUTEst; no conda-forge installer is configured for $(uname -s) $(uname -m)." >&2
+                exit 1
+                ;;
+        esac
 
-micromamba_platform() {
-    case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo linux-64 ;;
-        Linux-aarch64) echo linux-aarch64 ;;
-        *)
-            echo "unsupported $(uname -s) $(uname -m) for conda-forge gfortran" >&2
-            return 1
-            ;;
-    esac
-}
+        mkdir -p "${BENCH_DIR}/.mamba-root"
+        if [[ ! -x "${MICROMAMBA}" ]]; then
+            echo "--- Bootstrapping micromamba for the CUTEst Fortran compiler"
+            curl -fsSL "https://micro.mamba.pm/api/micromamba/${platform}/latest" |
+                tar -xj -C "${BENCH_DIR}" bin/micromamba
+            mv "${BENCH_DIR}/bin/micromamba" "${MICROMAMBA}"
+            rmdir "${BENCH_DIR}/bin"
+            chmod +x "${MICROMAMBA}"
+        fi
 
-if [[ ! -x "${MICROMAMBA}" ]]; then
-    mkdir -p "${CACHE_DIR}"
-    plat="$(micromamba_platform)"
-    curl -fsSL "https://micro.mamba.pm/api/micromamba/${plat}/latest" |
-        tar -xj -C "${CACHE_DIR}" bin/micromamba
-    mv "${CACHE_DIR}/bin/micromamba" "${MICROMAMBA}"
-    rmdir "${CACHE_DIR}/bin" 2>/dev/null || true
-    chmod +x "${MICROMAMBA}"
+        echo "--- Installing gfortran from conda-forge into ${PREFIX}"
+        export MAMBA_ROOT_PREFIX="${BENCH_DIR}/.mamba-root"
+        "${MICROMAMBA}" create -y -p "${PREFIX}" -c conda-forge --override-channels gfortran
+        export PATH="${PREFIX}/bin:${PATH}"
+    fi
 fi
 
-if [[ ! -x "${PREFIX}/bin/gfortran" ]]; then
-    echo "--- Installing gfortran into ${PREFIX}"
-    export MAMBA_ROOT_PREFIX="${CACHE_DIR}/mamba-root"
-    mkdir -p "${MAMBA_ROOT_PREFIX}"
-    "${MICROMAMBA}" create -y -p "${PREFIX}" -c conda-forge --override-channels \
-        gfortran
+if ! command -v gfortran >/dev/null 2>&1; then
+    echo "ERROR: gfortran is not on PATH after OptimizationCUTEst setup" >&2
+    exit 1
 fi
+echo "--- gfortran: $(command -v gfortran) ($(gfortran -dumpmachine))"
 
-"${PREFIX}/bin/gfortran" --version | head -1
-echo "gfortran target: $("${PREFIX}/bin/gfortran" -dumpmachine)"
-
-if [[ -n "${BENCHMARK_ENV_FILE:-}" ]]; then
-    {
-        echo "export PATH=\"${PREFIX}/bin:\${PATH}\""
-        # Libraries produced by `gfortran -shared` record NEEDED libgfortran
-        # without an rpath; make the conda's runtime lib dir visible to dlopen.
-        echo "export LD_LIBRARY_PATH=\"${PREFIX}/lib:\${LD_LIBRARY_PATH:-}\""
-    } >> "${BENCHMARK_ENV_FILE}"
+if [[ -n "${BENCHMARK_ENV_FILE:-}" && -x "${PREFIX}/bin/gfortran" ]]; then
+    echo "export PATH=\"${PREFIX}/bin:\${PATH}\"" >> "${BENCHMARK_ENV_FILE}"
 fi
