@@ -33,8 +33,9 @@ B5 benchmark, which documents their source.
 - **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle, each in
   its own GPU thread. The gradient is forward-mode AD: ForwardDiff dual numbers carried
   through the `GPUTsit5` solve, in passes of `FD_CHUNK` partials
-  (`AutoForwardDiff(; chunksize = FD_CHUNK)`) to keep the kernel within CUDA's 512 KB
-  per-thread stack.
+  (`AutoForwardDiff(; chunksize = FD_CHUNK)`). CUDA reserves a thread's local memory for
+  every thread the GPU can hold at once, so the per-thread memory has to stay small: with
+  `FD_CHUNK = 8` the L-BFGS kernel failed at launch with "Out of GPU memory" on a V100.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
   runs, and its best cost is recorded at every improvement. One untimed warm-up per
   optimizer keeps compilation out of the times.
@@ -69,8 +70,10 @@ const SERIAL_PARTICLES = 64     # CPU swarm
 const HYBRID_PARTICLES = 1_024  # HybridPSO swarm; one L-BFGS start per particle
 const HYBRID_SWARM_ITERS = 50   # swarm iterations before each L-BFGS phase
 const LOCAL_MAXITERS = 5        # L-BFGS iterations per start
-const FD_CHUNK = 8              # partials per forward-mode gradient pass
+const FD_CHUNK = 1              # partials per forward-mode gradient pass
 const CHUNK = 1                # GPU swarm iterations between clock checks
+
+@printf "GPU: %s, %.0f GiB\n" CUDA.name(CUDA.device()) CUDA.totalmem(CUDA.device()) / 2^30
 
 ```
 
@@ -485,7 +488,7 @@ const b5_cost = B5Cost(
         ), 10
     )
 )
-const LB, UB = SVector{86}(p_lower), SVector{86}(p_upper)
+const LB, UB = SVector{86}(p_lower), SVector{86}(p_upper);
 ```
 
 Check: the `GPUTsit5` cost against the CPU `Rodas5P` at tight tolerances
@@ -626,6 +629,7 @@ function timed_run(label, runner, budget, warmup)
         runner(h, t0, budget, warmup)
     catch e
         get!(ERRORS, label, first(split(sprint(showerror, e), '\n')))
+        empty!(h)                       # a run that errored has no result
     end
     return h
 end
