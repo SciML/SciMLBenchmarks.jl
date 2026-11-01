@@ -22,8 +22,18 @@ using OptimizationMadNLP
 using MadNLP
 
 const MAX_PROBLEMS_PER_CATEGORY = 50
+# Size cap rationale: OptimizationNLPModels uses CUTEst's analytic derivatives, so larger
+# problems are numerically feasible, but every page runs up to MAX_PROBLEMS_PER_CATEGORY
+# problems x solvers with a SOLVE_TIMEOUT_SECONDS budget each, and the derivative-free
+# unconstrained solvers (NelderMead, ParticleSwarm, SimulatedAnnealing) scale poorly past a
+# few hundred variables. Raising MAX_NVAR requires adding a coarser entry to
+# NVAR_BUCKET_EDGES (so the new large bucket does not crowd out small problems) and
+# re-checking page wall time against the CI budget.
 const MAX_NVAR = 1_000
 const MAX_NCON = 1_000
+# Upper edges of the nvar strata used by select_safe_problems; the final bucket runs from
+# the last edge + 1 up to max_var.
+const NVAR_BUCKET_EDGES = [10, 100]
 const SOLVE_MAXITERS = 1_000
 const SOLVE_TIMEOUT_SECONDS = 90.0
 
@@ -47,15 +57,9 @@ const FEAS_TOL = 1.0e-6
 const OPT_TOL = 1.0e-5
 const GAP_TOL = 1.0e-6
 
-const KNOWN_BAD_PROBLEMS = Set(
-    lowercase.(
-        String[
-            "BLOWEYA", "CHARDIS1", "CLEUVEN4", "CMPC3", "CMPC10", "CVXQP2",
-            "DITTERT", "HIER13", "LUKVLE8", "LUKVLI7", "MPC2", "PATTERNNE",
-            "READING2", "READING6", "NINENEW", "MSS1",
-        ],
-    ),
-)
+# lowercase problem name => measured reason for skipping. Problems that merely exceed
+# MAX_NVAR / MAX_NCON are excluded by the size filter and do not belong here.
+const KNOWN_BAD_PROBLEMS = Dict{String, String}()
 
 const UNCONSTRAINED_SOLVERS = [
     "LBFGS",
@@ -196,52 +200,100 @@ function solver_skip_reason(solver_name, meta)
     return nothing
 end
 
-function problem_metadata(name)
-    nlp = nothing
-    try
-        nlp = CUTEstModel(name)
-        return (; ok = true, nvar = nlp.meta.nvar, ncon = nlp.meta.ncon)
-    catch err
-        @warn "Unable to load CUTEst problem metadata" problem = name exception = (
-            err, catch_backtrace(),
+nvar_bucket(nvar, edges) = something(findfirst(edge -> nvar <= edge, edges), length(edges) + 1)
+
+function classification_buckets(max_var, max_con, bucket_edges)
+    edges = filter(<(max_var), sort(unique(bucket_edges)))
+    bounds = [1; edges .+ 1], [edges; max_var]
+    buckets = Dict{String, Int}()
+    for (bucket, (min_var, upper_var)) in enumerate(zip(bounds...))
+        problems = CUTEst.select_sif_problems(
+            min_var = min_var, max_var = upper_var, max_con = max_con,
         )
-        return (; ok = false, nvar = -1, ncon = -1)
-    finally
-        if nlp !== nothing
-            try
-                finalize(nlp)
-            catch err
-                @warn "Unable to finalize CUTEst problem metadata" problem = name exception = (
-                    err, catch_backtrace(),
-                )
-            end
+        for name in problems
+            buckets[uppercase(name)] = bucket
         end
     end
+    return edges, buckets
 end
 
+function bucket_labels(edges, max_var)
+    lower = [1; edges .+ 1]
+    upper = [edges; max_var]
+    return ["$(lo)-$(hi) vars" for (lo, hi) in zip(lower, upper)]
+end
+
+# Stratified, deterministic selection: candidates are sorted by name, filtered by size and
+# the skip list, and grouped into nvar buckets. The `max_problems` quota is split
+# round-robin across buckets (buckets that run out yield their share to the others), and
+# each bucket contributes evenly spaced entries of its sorted list so that neighbouring
+# variants of one problem family do not crowd out the rest of the alphabet.
 function select_safe_problems(
         candidates;
         max_problems = MAX_PROBLEMS_PER_CATEGORY,
         max_var = MAX_NVAR,
         max_con = MAX_NCON,
+        bucket_edges = NVAR_BUCKET_EDGES,
     )
-    selected = String[]
+    edges, size_buckets = classification_buckets(max_var, max_con, bucket_edges)
+    nbuckets = length(edges) + 1
+    buckets = [String[] for _ in 1:nbuckets]
 
-    for name in candidates
-        lowercase(name) in KNOWN_BAD_PROBLEMS && continue
+    for name in sort(unique(String.(candidates)))
+        reason = get(KNOWN_BAD_PROBLEMS, lowercase(name), nothing)
+        if reason !== nothing
+            println("Skipping $name: $reason")
+            continue
+        end
 
-        meta = problem_metadata(name)
-
-        meta.ok || continue
-        meta.nvar <= max_var || continue
-        meta.ncon <= max_con || continue
-
-        push!(selected, name)
-
-        length(selected) >= max_problems && break
+        bucket = get(size_buckets, uppercase(name), nothing)
+        bucket === nothing && continue
+        push!(buckets[bucket], name)
     end
 
+    taken = zeros(Int, nbuckets)
+
+    while sum(taken) < max_problems
+        progressed = false
+        for b in 1:nbuckets
+            sum(taken) < max_problems || break
+            taken[b] < length(buckets[b]) || continue
+            taken[b] += 1
+            progressed = true
+        end
+        progressed || break
+    end
+
+    selected = String[]
+    for b in 1:nbuckets
+        taken[b] == 0 && continue
+        picks = taken[b] == 1 ? [1] :
+            round.(Int, range(1, length(buckets[b]); length = taken[b]))
+        append!(selected, buckets[b][picks])
+    end
+
+    labels = bucket_labels(edges, max_var)
+    println(
+        "Selected $(length(selected)) of $(sum(length, buckets)) eligible problems ",
+        "(selected/eligible per bucket): ",
+        join(["$(labels[b]): $(taken[b])/$(length(buckets[b]))" for b in 1:nbuckets], ", "),
+    )
+
     return selected
+end
+
+function assert_bounded_pool_coverage(all_candidates, bounded_candidates, free_candidates, label)
+    eligible(names) = Set(filter(name -> !haskey(KNOWN_BAD_PROBLEMS, lowercase(name)), names))
+    all = eligible(all_candidates)
+    bounded = eligible(bounded_candidates)
+    free = eligible(free_candidates)
+    @assert isempty(intersect(bounded, free)) "$label bounded and free pools overlap"
+    @assert union(bounded, free) == all "$label bounded and free pools do not cover all candidates"
+    println(
+        "$label eligible candidates: all=$(length(all)), bounded=$(length(bounded)), ",
+        "free=$(length(free))",
+    )
+    return nothing
 end
 
 # Solver-reported time (`sol.stats.time`). Its definition differs between backends

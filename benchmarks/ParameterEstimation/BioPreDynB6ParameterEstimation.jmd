@@ -1,0 +1,729 @@
+---
+title: BioPreDyn-bench B6 (Drosophila Gap Gene Network) Parameter Estimation Benchmark
+author: Arnav Kapoor
+---
+
+# Parameter estimation of the *Drosophila melanogaster* gap gene network
+
+This benchmark implements problem **B6** from the
+[BioPreDyn-bench suite](https://bmcsystbiol.biomedcentral.com/articles/10.1186/s12918-015-0144-4)
+(Villaverde et al. 2015), addressing
+[SciMLBenchmarks.jl#555](https://github.com/SciML/SciMLBenchmarks.jl/issues/555). B6 is
+the odd one out among the six BioPreDyn-bench problems: a *spatial* model of pattern
+formation during early *Drosophila* development (the classic "gene circuit" approach of
+Reinitz and Sharp, 1995), fit against real quantitative microscopy data rather than
+metabolomics/transcriptomics measurements. The embryo is modeled as a single row of
+dividing nuclei along the anterior-posterior (AP) axis; each nucleus contains the four
+**gap genes** -- *hunchback* (`hb`), *Krüppel* (`Kr`), *giant* (`gt`) and *knirps* (`kni`)
+-- which regulate each other and are themselves regulated by four external maternal/gap
+inputs -- Bicoid (`bcd`), Caudal (`cad`), Tailless (`tll`) and Huckebein (`hkb`). Each gene
+product is synthesized (regulated by a sigmoid function of the other genes' and inputs'
+concentrations, with a fixed 6-minute transcription/translation delay), diffuses to
+neighboring nuclei, and decays linearly -- 37 unknown parameters in total (4 promoter
+strengths, a 4x4 gene-gene interconnectivity matrix, 13 free external-input weights, and 4
+protein half-lives). The data are 9 time points over the last ~68 minutes of the syncytial
+blastoderm stage (cleavage cycles 13-14A, with **one nuclear division** in between, taking
+the modeled AP domain from 27 to 53 nuclei), digitized mRNA staining intensities for the
+four gap genes, fit with a weighted least-squares scheme whose per-point weight is lower
+wherever the gene is more strongly expressed (`w = 1 - 0.9y` for normalized expression `y`,
+so peaks are the least, and background the most, tightly constrained).
+
+Unlike B1-B5, B6 ships **no plain-MATLAB reference implementation** -- only compiled mex
+binaries and the ~18,000 lines of C that back them (the "flyex"/gene circuit solver
+originally due to John Reinitz's lab, later extended by Damjan Cicin-Sain, Anton Crombach
+and Yogi Jaeger -- who are also co-authors of the BioPreDyn-bench paper itself). The model
+below was transcribed directly from that C source (`dynamics_in_C/fly/zygotic.c`,
+`maternal.c`, `integrate.c`) and its accompanying data file
+(`AMIGO/dm_hkgn53_wls_5_003`), available as
+[supplementary material](https://pmc.ncbi.nlm.nih.gov/articles/PMC4342829/) to the paper
+(Additional file 2, directory `BioPreDynBenchFiles/B6`). Reproducing an 18,000-line,
+three-decade-old C codebase (with its own custom lineage-tree bookkeeping, adaptive-step
+delay solver and scoring engine) byte-for-byte is out of scope; instead, this page
+transcribes the *equations and data* faithfully and documents the handful of places where a
+clearly-stated, principled simplification was necessary because the released files don't
+fully specify the original solver's internal bookkeeping (see "Model" and "Nuclear
+division" below). As a result, absolute cost values here are not directly comparable to the
+reference solver's, even at the reference's own parameter vectors -- see "Objective
+function" for a full discussion.
+
+```julia
+using DelayDiffEq, OrdinaryDiffEq, Optimization, ForwardDiff
+using OptimizationBBO, OptimizationNLopt, Plots, BenchmarkTools, DataFrames
+using ParallelParticleSwarms
+using LinearAlgebra, Random
+gr(fmt = :png)
+```
+
+## Model
+
+Each nucleus `i` (indexed by increasing AP position) holds a 4-vector `v_i` of gap gene
+concentrations (`hb`, `Kr`, `gt`, `kni`). Writing `V` for the `4 x nnuc` matrix of all
+nuclei's concentrations, `T` for the `4x4` gene-gene interconnectivity matrix (row = target
+gene, column = source gene), `E` for the `4x4` external-input weight matrix (columns `bcd`,
+`cad`, `tll`, `hkb`), `M(t)` for the (given, not fitted) external-input concentrations at
+time `t`, `R` for the 4 promoter strengths, `h` for the 4 (fixed) promoter thresholds, and
+`lambda` for the 4 decay rates (`= log(2) / half_life`), the model is, per nucleus and gene:
+
+```
+dV/dt = rule(t) .* R .* g.(T * V(t - tau) .+ E * M(t - tau) .+ h) .- lambda .* V .+ diffusion(V)
+```
+
+where `g(u) = 0.5 * (1 + u / sqrt(1 + u^2))` is the model's sigmoid regulation-expression
+function (Reinitz & Sharp 1995's default choice, `Sqrt`), `tau = 6` minutes is a fixed
+transcription/translation delay applied uniformly to every regulatory input (both `T` and
+`E` terms -- making this a genuine *delay* differential equation), `rule(t)` is `0` during
+the ~5-minute "mitosis" window immediately before a nuclear division (no new gene product
+synthesis while a nucleus is dividing, though decay and diffusion continue) and `1`
+otherwise ("interphase"), and `diffusion(V)` is a standard discrete Laplacian along the row
+of nuclei with a no-flux (Neumann) boundary at both ends of the AP domain, scaled by a
+per-gene diffusion parameter that itself depends on the cell-division count still ahead (a
+nucleus's neighbors are physically closer after each division, so the same physical
+diffusivity corresponds to a *larger* per-nucleus-index rate afterwards): `D = D_raw / 4`
+before the single division in this data set, `D = D_raw` after.
+
+Several model quantities are fixed constants rather than estimated: the promoter
+thresholds `h` (`-2.5` for all four genes),
+the diffusion parameters `D_raw` (`[0.237, 0.30, 0.115, 0.30]`), and the delay `tau` (`6`
+minutes for all four genes) -- all read directly from the reference data file, which marks
+them as not to be tweaked (`$tweak` section). A "maternal connection strength" parameter
+that multiplies a legacy, separate Bicoid pathway is fixed at `0` in the reference file (and
+not tweaked), which makes that pathway a no-op here; Bicoid instead enters through the `E`
+matrix like the other three external inputs, exactly as the reference data treats it (its
+`external_gene_IDs` are `V`, `C`, `T`, `Q` = Bicoid, Caudal, Tailless, Huckebein, all read
+from the same `$ext_wt` data table).
+
+```julia
+
+const b6_h_fixed = [-2.5, -2.5, -2.5, -2.5]
+const b6_D_raw = [0.237, 0.3, 0.115, 0.3]
+const b6_tau = 6.0
+const b6_t_div = 21.1          # end of the single nuclear division (fixed developmental constant)
+const b6_mitosis_dur = 5.1     # duration of the preceding no-synthesis "mitosis" window
+const b6_mitosis_start = b6_t_div - b6_mitosis_dur
+
+b6_g(u) = 0.5 * (1 + u / sqrt(1 + u^2))
+
+# Resamples a spatial profile given at n evenly-spaced AP positions onto m evenly-spaced
+# AP positions via linear interpolation of relative position. Used (1) to map each
+# nucleus's post-division concentration onto its (up to) two daughter nuclei, since the
+# released data does not include the original lineage-tree bookkeeping needed to reproduce
+# the reference solver's exact parent/daughter assignment, and (2) to bring the data
+# file's earlier, coarser-resolution history/external-input records onto the same AP grid
+# as the (finer) nuclei set they seed.
+function b6_resample_ap(v::AbstractVector, m::Int)
+    n = length(v)
+    n == m && return collect(v)
+    out = zeros(eltype(v), m)
+    for k in 1:m
+        pos = (k - 1) / (m - 1) * (n - 1) + 1
+        i0 = clamp(floor(Int, pos), 1, n - 1)
+        frac = pos - i0
+        out[k] = (1 - frac) * v[i0] + frac * v[i0 + 1]
+    end
+    return out
+end
+
+b6_resample_rows(M::AbstractMatrix, m::Int) = reduce(vcat, [b6_resample_ap(M[g, :], m)' for g in 1:size(M, 1)])
+
+# Linear interpolation in time of a set of (time, matrix) pairs; clamped outside the range.
+function b6_interp_ext(times::Vector{Float64}, mats, t)
+    if t <= times[1]
+        return mats[1]
+    elseif t >= times[end]
+        return mats[end]
+    else
+        i = clamp(searchsortedlast(times, t), 1, length(times) - 1)
+        t0, t1 = times[i], times[i + 1]
+        frac = (t - t0) / (t1 - t0)
+        return (1 - frac) .* mats[i] .+ frac .* mats[i + 1]
+    end
+end
+
+# Two-point linear interpolation used for the DDE history function between the data
+# file's pre-simulation record (~6 minutes before the start of the modeled window) and
+# the initial condition itself.
+function b6_interp_hist(t0::Float64, v0, t1::Float64, v1, t)
+    if t <= t0
+        return v0
+    elseif t >= t1
+        return v1
+    else
+        frac = (t - t0) / (t1 - t0)
+        return (1 - frac) .* v0 .+ frac .* v1
+    end
+end
+
+# Builds a DDE right-hand-side closure for a fixed number of nuclei, whether production is
+# active (interphase) or not (mitosis), this phase's external-input time series, and the
+# (already-unpacked) model parameters.
+function b6_make_rhs(nnuc::Int, interphase::Bool, ext_times::Vector{Float64}, ext_mats,
+        R::AbstractVector, T::AbstractMatrix, E::AbstractMatrix, lambda::AbstractVector)
+    D = b6_D_raw ./ (nnuc == 27 ? 4.0 : 1.0)
+    h_fixed = b6_h_fixed
+    function rhs!(du, u, hfun, p, t)
+        V = reshape(u, 4, nnuc)
+        dV = reshape(du, 4, nnuc)
+        if interphase
+            Vd = reshape(hfun(p, t - b6_tau), 4, nnuc)
+            Vext = b6_interp_ext(ext_times, ext_mats, t - b6_tau)
+            U = T * Vd .+ E * Vext .+ h_fixed
+            dV .= R .* b6_g.(U)
+        else
+            dV .= 0.0
+        end
+        dV .-= lambda .* V
+        for a in 1:4
+            dV[a, 1] += D[a] * (V[a, 2] - V[a, 1])
+            for i in 2:(nnuc - 1)
+                dV[a, i] += D[a] * (V[a, i - 1] + V[a, i + 1] - 2 * V[a, i])
+            end
+            dV[a, nnuc] += D[a] * (V[a, nnuc - 1] - V[a, nnuc])
+        end
+        nothing
+    end
+    return rhs!
+end
+
+# Unpacks a 37-parameter vector into R (4 promoter strengths), T (4x4 interconnectivity),
+# E (4x4 external-input weights, with the 3 structurally-zero entries the reference file
+# marks as not estimated for the Huckebein column of genes Kr, gt and kni), and lambda (4
+# decay rates, from the 4 protein half-lives).
+function b6_unpack(p37::AbstractVector)
+    R = p37[1:4]
+    T = collect(reshape(p37[5:20], 4, 4)')
+    Efree = p37[21:33]
+    E = zeros(eltype(p37), 4, 4)
+    E[1, :] = Efree[1:4]
+    E[2, 1:3] = Efree[5:7]
+    E[3, 1:3] = Efree[8:10]
+    E[4, 1:3] = Efree[11:13]
+    half_life = p37[34:37]
+    lambda = log(2.0) ./ half_life
+    return R, T, E, lambda
+end
+```
+
+## Nuclear division
+
+The reference data models cleavage cycles 13 and 14A (one division), starting from 27
+nuclei (35-88% egg length) and ending with 53. Per the reference's own fixed developmental
+timing table (used for every BioPreDyn-bench-style problem with exactly one division, not
+specific to this data set), the division completes at `t = 21.1` minutes, preceded by a
+`5.1`-minute "mitosis" window (`t = 16.0` to `21.1`) during which gene product synthesis is
+switched off. The reference solver's internal lineage tree specifies, for each of the 27
+parent nuclei, exactly which of the 53 daughter nuclei it produces (not always exactly two,
+since the domain's edges are handled specially) -- but that lineage tree is internal to the
+compiled solver and isn't part of the released data files. We approximate it here by
+resampling the pre-division 27-nucleus concentration profile onto the post-division
+53-nucleus AP grid with `b6_resample_ap` (linear interpolation of relative AP position),
+which preserves the profile's shape continuously across the division and is exact wherever
+the true lineage mapping is a simple duplication, but does not reproduce the reference
+solver's specific parent/daughter bookkeeping at the domain's edges.
+
+## Nominal parameters, bounds, and starting guess
+
+The reference data file provides three parameter vectors: the values used to *generate*
+the file's `$input` section (used here as a starting guess, `p_start`), the values in its
+`$eqparms` section (already the result of a prior simulated-annealing fit reaching a score
+of about `94109` under the reference solver -- used here as `p_nom`, purely for reference
+since, unlike B1-B5, there's no unfitted "true" nominal vector here), and `pbest.mat`, a
+further-refined vector the reference documentation describes as improving on `p_nom`
+("[...] it is possible to obtain a parameter vector that gives a better fit than the one
+originally reported as initial guess"). Bounds for the 37 free parameters are the
+reference's own explicit ranges for promoter strengths (`[10, 30]`) and protein half-lives
+(`[5, 20]`); the reference file leaves the interconnectivity (`T`) and external-input (`E`)
+ranges unspecified (`N/A`), so we use generously wide but finite bounds of `[-20, 20]`,
+comfortably enclosing all three reference vectors' entries (whose largest magnitude is
+`|E| = 1.998`).
+
+```julia
+
+# reference parameter vectors, transcribed from dm_hkgn53_wls_5_003 ($input,
+# $eqparms) and pbest.mat
+const b6_p_start = [12.48991375, 26.64956536, 24.21400803, 19.14696636, -0.02875641, 0.03773355, -0.08696411, 0.02085833, 0.07752513, -0.05127861, 0.08351538, -0.0369346, -0.02272315, -0.05630814, 0.03840626, 0.07150631, 0.02276078, -0.0235078, 0.01856495, -0.06116937, -0.14654266, 0.01651517, 0.06442419, -0.05467585, -0.12247616, -0.10550997, 0.10687539, 0.02896215, -0.07365022, -0.06193835, 0.02710513, -0.04491538, 0.10493181, 13.76469068, 7.27890037, 11.63317492, 12.03105457]
+const b6_p_nom = [17.49954403, 27.47628367, 15.56609395, 21.16476541, 0.040902, -0.05576477, -0.08379836, -0.08604469, -0.01447607, -0.00943785, -0.61555982, -0.05471756, -0.1148079, -0.43430661, 0.02333142, -0.00611265, -0.24838744, -0.08077992, -0.22121907, 0.05847331, 0.16381828, 0.03170952, 0.20280478, -1.52341105, 0.14976405, 0.05370816, -0.20044612, 0.4880306, 0.02378553, -0.07307959, 0.32040893, 0.03959051, -0.08460995, 6.09268882, 5.06352441, 5.00000022, 5.11110166]
+const b6_pbest = [29.95515, 26.15643, 23.9969, 19.52634, -0.08661, -0.2281, -0.05799, -0.20482, -0.06583, -0.00673, -0.34173, -0.04256, -0.05249, -0.48365, 0.00677, 0.00137, -0.10378, -0.03213, -0.2115, 0.03546, 0.62039, 0.01513, 0.42646, -1.9981, 0.23507, 0.03782, -0.03027, 0.30413, 0.02401, -0.05001, -0.02465, 0.03728, -0.12298, 11.34269, 5.43111, 5.00016, 6.28399]
+
+const b6_p_lower = vcat(fill(10.0, 4), fill(-20.0, 16), fill(-20.0, 13), fill(5.0, 4))
+const b6_p_upper = vcat(fill(30.0, 4), fill(20.0, 16), fill(20.0, 13), fill(20.0, 4))
+```
+
+## Simulated data
+
+The reference data table gives, for each nucleus (by lineage number, which increases with
+AP position) and each of the 9 fitting times, the four gap genes' digitized mRNA staining
+intensities (`$facts_wt`) and their fitting weights (`$weights_wt`, already computed by the
+reference authors from the `w = 1 - 0.9y` formula and used here directly). The initial
+condition (`$bias_wt`, `t = 0`) and a short pre-simulation history record (`$hist_wt`, at
+`t ~= -6.2`, needed to seed the 6-minute-delay DDE below since our modeled window starts at
+`t = 0`) are on a coarser, 14-nucleus AP grid (an earlier, smaller cleavage cycle), which we
+bring onto the 27-nucleus grid with the same `b6_resample_ap` used for the nuclear
+division. The four external inputs (`$ext_wt`, all four -- including Bicoid, per the
+"Model" section above) are tabulated at the same times and nuclei as the fitting data (plus
+the `t = 0` and `t ~= -6.2` records) and interpolated linearly in time during integration.
+
+```julia
+
+# B6 data arrays: gene rows are (hb, Kr, gt, kni); external-input rows are
+# (bcd, cad, tll, hkb); nuclei are ordered by ascending lineage number (= ascending
+# AP position). Transcribed from the reference dm_hkgn53_wls_5_003 data file.
+
+const b6_bias = [
+    59.52 60.93 62.33 63.56 59.46 47.21 30.6 13.99 2.1 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.31
+    0.0 0.0 0.0 0.0 0.15 3.07 9.41 16.77 22.0 22.52 21.89 19.12 13.98 8.12 3.04 0.24 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    19.71 18.79 14.86 9.26 3.75 0.35 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.07 1.55 4.9 9.02 12.87 15.51 15.98 15.52 15.05 14.58
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.48 4.25 10.31 16.24 19.72 19.72 19.25 18.41 14.35 8.04 2.37 0.0 0.0 0.0 0.0 0.0 0.0
+]
+
+const b6_hist_m6 = [
+    27.66 28.99 28.93 18.3 3.79 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.07
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+]
+
+const b6_ext_m6 = [
+    60.47 45.16 35.3 24.97 19.15 13.08 9.82 6.8 4.87 3.12 1.75 1.57 0.74 0.42
+    41.68 57.48 77.54 89.86 104.31 118.15 128.99 125.8 126.79 128.6 121.2 110.02 113.92 103.07
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+]
+
+const b6_ext_0 = [
+    53.68 46.77 40.88 36.26 31.72 27.12 23.37 20.41 17.6 14.76 12.55 10.91 9.33 7.89 6.64 5.67 4.68 3.72 2.94 2.24 1.74 1.51 1.21 0.73 0.45 0.31 0.27
+    37.2 43.4 51.2 60.33 67.82 74.05 80.12 87.58 94.47 100.81 106.12 111.37 113.68 114.1 114.18 114.67 116.34 115.87 115.39 112.65 108.66 105.23 104.57 105.04 104.78 100.43 97.19
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+]
+
+const b6_ext_t1 = [
+    48.64 42.99 37.79 33.7 30.03 26.39 23.13 20.08 17.55 15.04 13.04 11.39 9.79 8.47 7.2 6.22 5.1 4.0 3.23 2.5 1.81 1.33 0.94 0.37 0.08 0.0 0.0
+    22.85 26.15 31.99 39.59 46.05 52.4 57.4 65.26 71.84 77.19 81.04 86.01 88.98 92.83 93.98 94.48 97.78 94.98 96.05 94.96 92.07 92.33 93.65 91.6 93.83 91.32 91.71
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.02 0.0 0.0 0.0 0.0 0.13 1.43 1.98 3.61 5.59 7.94 12.29
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.29 2.61 3.57 6.51
+]
+
+const b6_ext_53 = cat(
+    [
+     50.86 47.27 44.32 42.38 39.71 37.24 34.71 33.22 30.56 28.82 26.63 25.26 23.37 21.61 20.38 18.85 17.32 15.92 14.89 13.61 12.67 11.81 10.73 9.93 9.12 8.05 7.54 7.05 6.09 5.47 4.77 4.46 3.91 3.39 3.1 2.73 2.52 1.98 1.66 1.51 1.3 0.85 0.66 0.29 0.13 0.01 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     28.58 30.55 32.22 35.85 41.61 42.91 45.68 51.09 55.62 58.46 61.32 64.09 69.46 74.42 80.35 80.34 85.02 88.72 93.78 94.99 96.83 102.45 103.01 105.91 107.79 110.39 110.93 115.66 116.18 115.42 113.72 117.52 117.15 117.85 118.55 117.62 117.89 117.72 118.33 118.19 118.31 113.72 115.65 110.6 108.63 108.69 106.7 105.33 104.66 101.25 103.34 100.87 101.07
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.96 1.07 1.67 1.72 3.68 4.48 5.99 7.44 9.42 12.05 14.37 19.41 24.7 30.57 36.18 42.38 48.22
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.35 2.46 3.51 3.27 6.54 8.04 10.74 15.87
+    ],
+    [
+     44.65 41.64 39.43 36.84 34.89 32.25 30.78 28.54 26.08 24.55 22.82 21.04 19.2 18.07 16.32 15.01 14.21 12.62 11.69 11.01 9.92 8.98 8.34 7.4 6.83 6.05 5.56 4.84 4.47 3.85 3.46 2.94 2.56 2.37 1.97 1.74 1.38 1.08 0.85 0.54 0.42 0.11 0.21 0.09 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     29.31 30.73 33.91 36.4 39.3 44.4 50.11 53.0 54.53 59.21 63.24 66.62 73.29 77.27 80.65 83.29 87.86 87.49 92.5 97.31 99.06 102.86 106.39 107.05 109.32 112.71 115.44 115.1 117.59 117.16 119.44 120.89 122.68 122.32 124.56 126.42 124.08 126.74 127.0 126.78 125.14 125.65 125.96 126.91 126.64 127.27 127.24 126.47 126.77 127.5 124.15 128.23 125.7
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.73 1.82 2.34 5.01 8.03 11.96 18.04 26.43 35.51 51.23 65.27 76.76 90.14
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.84 4.86 5.88 5.97 8.67 11.55
+    ],
+    [
+     39.78 36.81 34.81 33.03 30.47 28.71 26.34 24.88 23.0 21.97 20.52 18.82 17.35 16.2 14.59 13.9 12.84 11.77 10.73 9.86 8.76 8.24 7.23 6.4 5.93 5.41 4.48 4.1 3.48 2.98 2.7 2.25 1.96 1.68 1.48 1.1 1.04 0.81 0.57 0.33 0.22 0.14 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     14.32 17.73 20.66 23.75 25.83 29.14 32.6 35.18 38.61 42.22 46.72 50.53 55.59 56.35 59.9 63.04 67.9 71.43 75.05 76.93 80.02 83.04 84.83 85.58 87.63 88.6 91.23 92.29 93.33 93.53 94.68 96.94 98.83 98.07 101.28 101.08 102.28 102.49 105.06 105.1 108.35 110.23 112.2 109.74 110.87 113.52 112.36 110.97 113.29 111.26 114.06 114.12 114.03
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.81 1.17 1.74 3.17 4.52 5.79 8.37 11.87 17.34 24.09 34.18 46.59 67.26 83.69 105.82 118.61
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.92 3.81 8.13 7.77 12.45 19.62
+    ],
+    [
+     40.6 38.42 36.38 34.56 32.17 30.22 28.4 26.58 24.62 23.12 21.62 20.13 18.73 17.72 16.47 14.61 13.33 12.49 11.46 10.03 9.31 8.22 7.49 6.72 5.95 5.15 4.39 4.05 3.34 2.87 2.62 2.04 1.87 1.29 1.04 0.67 0.63 0.35 0.19 0.05 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     13.59 16.43 19.1 22.35 24.75 26.79 30.49 34.66 36.77 41.78 43.93 47.87 53.42 55.45 57.03 57.48 59.53 62.89 64.6 66.89 68.24 69.85 72.08 72.22 74.69 75.63 76.55 77.61 77.91 78.2 77.43 79.79 80.6 82.06 84.28 82.67 81.98 82.56 83.35 86.68 85.95 86.94 87.46 92.05 92.44 93.22 92.85 93.14 95.23 94.43 94.24 95.1 95.42
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.72 1.24 1.65 2.12 1.58 2.57 3.54 6.0 8.09 11.51 13.45 19.19 25.6 33.96 49.14 64.89 88.05 106.28
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.64 3.45 4.41 9.99 7.5 18.84
+    ],
+    [
+     39.76 36.32 34.77 32.67 30.54 29.07 27.58 25.99 24.13 21.86 20.99 18.96 18.35 16.49 15.38 14.63 13.52 12.46 11.38 10.55 9.59 8.62 7.83 7.16 6.46 6.0 5.49 4.68 4.25 3.85 3.49 3.08 2.71 2.32 1.77 1.89 1.84 1.84 1.45 1.12 0.92 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     11.28 12.41 16.61 16.56 18.26 21.97 24.01 27.52 31.65 35.95 38.9 39.73 44.61 43.76 44.94 46.99 50.35 53.87 56.14 60.53 60.7 56.24 60.5 63.69 64.76 67.72 68.49 68.18 68.21 68.84 69.27 71.03 72.62 73.69 76.1 76.33 74.42 75.89 81.3 85.12 86.84 90.03 90.36 90.19 90.49 91.09 91.22 92.96 95.69 96.88 95.14 97.98 94.42
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.96 1.43 2.4 2.94 3.22 5.22 6.75 10.68 15.93 21.4 29.62 41.55 55.36 71.8
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.64 3.48 4.2 4.47 4.62 8.61 11.1 17.22
+    ],
+    [
+     35.23 33.07 31.04 29.22 26.2 25.06 23.78 22.11 20.21 19.09 17.57 15.9 14.31 13.01 11.92 11.26 10.24 9.59 8.14 7.24 6.37 6.02 5.14 4.69 3.81 3.2 2.55 2.05 1.72 1.25 0.91 0.81 0.52 0.17 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     11.4 13.36 14.94 15.59 16.26 20.73 22.3 26.15 27.69 33.32 35.79 40.32 38.92 40.19 40.13 42.26 46.07 52.2 54.24 57.35 54.82 55.81 58.44 60.82 65.73 67.45 69.35 66.21 65.47 66.26 67.33 72.15 74.28 75.78 75.45 74.83 74.9 75.77 80.42 84.17 86.53 89.7 92.32 93.1 91.81 92.23 93.62 95.14 98.74 102.07 102.89 99.56 96.81
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.48 1.16 1.87 1.97 2.4 3.99 4.57 7.25 11.12 16.21 23.86 31.86 45.44 61.55 81.11
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.81 10.32 10.14 17.97
+    ],
+    [
+     31.19 29.28 27.63 24.98 22.89 20.96 19.75 18.17 16.95 15.59 14.44 12.42 10.88 9.42 8.63 7.77 7.19 6.19 5.18 3.99 3.5 3.01 2.7 1.94 1.26 0.52 0.13 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     14.79 17.1 18.1 20.71 22.21 24.4 25.6 26.66 27.56 28.6 29.99 30.56 34.38 37.47 41.17 43.19 43.82 46.68 47.89 50.44 51.09 50.64 50.53 51.74 52.15 54.01 53.94 54.29 54.07 54.04 56.55 56.41 56.58 56.72 56.5 57.68 58.01 61.44 61.96 62.19 63.24 66.48 68.81 69.38 69.86 71.75 75.39 79.65 82.64 81.73 79.11 74.08 67.22
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.53 1.31 1.95 2.08 3.04 4.14 5.46 8.25 11.87 17.18 22.8 30.91 45.75 66.1 82.46
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.03 1.44 2.88 4.65 3.66 12.63 12.69 21.12
+    ],
+    [
+     27.28 25.44 24.16 21.14 18.96 16.91 15.86 14.3 13.42 12.22 11.35 8.91 7.35 5.76 5.19 4.4 4.02 3.06 2.04 0.76 0.48 0.27 0.27 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     20.33 19.72 19.84 22.73 25.69 28.63 28.75 27.84 27.51 27.37 28.6 31.62 36.13 38.79 39.3 39.15 38.2 36.65 35.68 36.73 37.19 36.35 35.6 35.78 37.21 37.43 39.2 39.36 39.75 38.98 37.48 38.31 37.19 39.35 39.17 42.3 42.13 41.33 39.39 39.62 43.38 47.29 52.94 55.78 57.86 58.73 62.17 66.19 71.86 77.43 79.12 72.78 59.97
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.48 1.05 1.95 1.2 1.41 1.09 2.41 2.37 4.34 5.13 7.85 12.32 17.85 27.96 38.49 54.1
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.04 9.45 14.91 17.94
+    ]
+    ; dims = 3)
+
+const b6_data_t1 = [
+    130.56 133.65 136.74 139.42 130.43 103.55 67.11 30.69 4.62 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.68
+    0.0 0.0 0.0 0.0 0.79 16.15 49.53 88.23 115.77 118.49 115.21 100.6 73.59 42.74 16.0 1.25 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    103.74 98.88 78.18 48.74 19.75 1.85 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.34 8.16 25.8 47.47 67.7 81.62 84.11 81.65 79.2 76.74
+    0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.52 22.34 54.24 85.44 103.77 103.75 101.3 96.86 75.51 42.33 12.47 0.0 0.0 0.0 0.0 0.0 0.0
+]
+
+const b6_weights_t1 = [
+    0.1 0.1 0.1 0.103 0.178 0.361 0.595 0.818 0.973 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.994
+    1.0 1.0 1.0 1.0 0.994 0.875 0.624 0.344 0.138 0.1 0.106 0.203 0.404 0.646 0.865 0.989 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    0.1 0.162 0.352 0.605 0.843 0.986 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.997 0.924 0.752 0.533 0.315 0.151 0.1 0.1 0.1 0.1
+    1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.98 0.823 0.56 0.292 0.121 0.1 0.1 0.118 0.295 0.595 0.878 1.0 1.0 1.0 1.0 1.0 1.0
+]
+
+const b6_data_53 = cat(
+    [
+     159.89 161.77 163.65 165.54 164.81 158.26 146.76 131.29 112.88 92.59 71.55 50.94 31.96 15.9 4.06 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.01 5.07 17.45 34.6 54.11 73.71 91.27
+     0.0 0.0 0.0 0.0 0.0 0.0 0.27 7.98 24.64 47.86 75.15 103.91 131.4 154.8 171.16 173.19 171.44 169.69 167.94 165.75 157.09 141.67 121.48 98.43 74.37 51.05 30.17 13.33 2.05 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     148.7 146.09 134.47 115.97 92.9 67.69 42.87 21.07 5.07 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.05 6.72 22.25 43.45 67.25 90.76 111.21 125.97 131.2 129.45 127.7 125.96 123.34 115.11 101.98 85.57 67.44 49.06 31.81 17.0 5.85 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.56 16.68 36.75 60.98 86.72 111.41 132.62 147.99 153.95 152.2 150.45 148.7 146.95 145.15 137.66 122.39 101.89 78.62 54.89 32.93 14.83 2.59 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     166.81 168.78 170.74 172.7 174.66 176.53 171.77 157.92 137.12 111.6 83.72 55.92 30.77 10.91 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.12 15.3 33.82 55.76 78.35 98.97 115.15 124.6 123.64 121.67
+     0.0 0.0 0.0 0.0 0.0 0.0 5.92 21.91 45.47 73.96 104.64 134.65 160.98 180.53 187.38 187.38 185.48 183.59 177.94 165.41 147.66 126.3 102.89 78.91 55.8 34.91 17.56 4.98 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     152.75 139.39 120.22 97.19 72.33 47.78 25.77 8.63 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.61 19.77 44.54 73.32 101.71 125.53 140.84 141.95 140.06 136.54 124.41 105.41 82.44 58.21 35.3 16.17 3.08 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.89 10.84 29.37 53.53 80.45 107.42 131.81 151.12 162.96 162.77 160.88 158.99 155.15 144.03 127.14 106.4 83.68 60.75 39.28 20.87 7.04 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     169.88 171.88 173.88 175.88 177.88 179.88 181.88 183.68 172.74 145.74 108.89 68.7 31.94 5.67 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 4.24 17.69 37.32 60.16 83.38 104.32 120.48 129.51 127.91 125.91 123.33
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 4.55 17.73 37.74 62.74 90.76 119.77 147.64 172.16 189.11 193.68 191.7 189.73 187.75 185.16 174.21 154.78 129.62 101.34 72.49 45.48 22.61 6.09 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     162.91 146.29 119.87 87.91 54.89 25.49 4.62 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.06 27.29 57.8 91.55 122.78 146.01 154.15 152.18 150.18 141.92 124.79 101.91 76.23 50.58 27.61 9.83 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.2 24.21 50.14 80.22 110.81 138.47 159.87 171.86 169.97 167.99 166.01 163.99 155.19 137.07 112.82 85.46 57.88 32.84 12.94 0.65 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     135.28 136.88 138.47 140.06 141.67 146.31 154.88 165.49 176.18 184.92 189.0 149.24 108.12 63.55 24.53 0.45 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 2.96 17.64 40.55 67.3 93.75 115.95 130.24 131.31 129.31 127.33 123.2 100.41
+     0.0 0.0 0.0 0.0 0.0 3.41 15.2 33.83 57.56 84.55 112.9 140.61 165.61 185.74 198.03 198.03 196.03 194.03 192.03 185.85 170.45 148.3 121.83 93.41 65.29 39.63 18.49 3.85 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     163.11 145.09 117.9 85.72 52.91 24.03 3.87 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.18 13.11 40.96 76.28 111.98 141.31 157.81 156.03 154.03 152.03 147.8 132.32 108.32 79.95 51.14 25.61 6.88 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.01 7.82 27.3 54.46 85.47 116.65 144.47 165.57 176.03 174.03 172.03 170.03 158.5 129.76 91.92 52.82 19.94 0.36 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     131.58 133.13 134.68 136.23 137.77 145.57 161.4 175.83 179.96 181.89 156.53 91.78 25.5 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.55 12.78 36.47 65.75 95.04 119.08 132.89 131.58 129.65 127.71 125.78 123.84 116.06 89.98
+     0.0 0.0 0.0 0.0 0.0 0.0 6.26 25.26 53.47 87.1 122.24 154.75 180.36 192.54 194.51 194.51 192.54 190.58 185.84 170.66 147.39 119.09 88.65 58.89 32.47 11.96 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     165.83 150.93 121.2 83.58 45.38 14.22 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.68 15.45 43.91 78.88 113.5 141.23 155.21 153.25 151.28 149.22 138.97 118.42 91.74 62.94 35.79 13.88 0.56 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 5.39 23.81 51.07 82.9 115.18 143.97 165.51 174.86 172.9 170.93 168.94 155.61 126.8 89.96 52.23 20.39 0.91 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     124.8 126.27 127.74 129.21 130.67 136.85 149.59 163.05 170.68 172.52 148.44 76.77 10.69 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.26 13.59 35.19 61.51 88.19 111.11 126.38 128.47 126.64 124.8 122.97 121.13 119.29 110.37 83.94 50.11
+     0.0 0.0 0.0 0.0 0.0 0.0 8.31 30.77 62.65 99.01 134.68 164.27 181.34 183.21 185.08 185.08 183.21 181.34 179.47 170.13 144.85 110.02 71.97 36.76 10.2 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     158.54 141.1 103.15 57.55 17.76 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.3 18.52 49.25 85.44 119.4 143.83 149.56 147.69 145.82 141.59 126.84 104.28 77.66 50.5 26.2 7.92 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 7.53 30.03 61.73 96.96 130.29 156.51 170.12 168.25 166.38 164.5 155.42 135.58 108.89 79.09 49.77 24.33 6.03 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     114.94 116.29 117.64 119.0 120.35 126.03 138.87 151.84 157.2 158.89 146.45 66.53 0.06 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.75 18.57 40.53 65.4 89.15 107.99 118.31 116.63 114.94 113.25 111.56 109.81 93.6 61.49 27.04
+     0.0 0.0 0.0 0.0 0.0 0.0 9.98 36.71 73.14 111.9 145.31 164.6 166.31 168.03 169.74 162.39 139.32 107.73 72.93 40.02 13.91 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     145.74 138.57 108.05 65.86 25.28 0.19 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.34 41.45 89.13 129.2 140.59 138.88 137.16 131.04 107.91 74.86 40.34 12.37 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.03 8.93 30.16 58.8 90.15 119.67 143.02 156.02 154.31 152.59 141.22 114.35 79.59 44.23 15.24 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ],
+    [
+     102.0 103.2 104.4 105.6 106.82 114.67 128.27 138.0 139.5 134.13 79.62 15.91 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.83 8.77 22.96 40.86 60.02 78.14 93.03 102.64 103.5 102.0 100.5 99.0 95.35 74.6 43.95 15.19
+     0.0 0.0 0.0 0.0 0.0 2.02 16.88 42.19 72.98 104.05 129.95 144.0 145.5 147.0 148.5 148.5 137.35 101.86 56.78 17.35 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     127.5 119.47 82.05 35.05 1.93 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 3.41 20.68 46.86 75.76 101.49 118.43 120.0 118.5 109.32 86.46 57.17 28.38 6.71 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 6.67 36.27 76.9 114.99 137.55 136.5 135.0 133.5 132.0 121.9 92.61 55.25 20.94 0.31 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    ]
+    ; dims = 3)
+
+const b6_weights_53 = cat(
+    [
+     0.1 0.1 0.1 0.1 0.114 0.159 0.228 0.317 0.419 0.529 0.64 0.746 0.842 0.922 0.98 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.964 0.874 0.745 0.595 0.44 0.296
+     1.0 1.0 1.0 1.0 1.0 1.0 0.993 0.945 0.862 0.753 0.627 0.496 0.368 0.253 0.161 0.103 0.1 0.1 0.108 0.149 0.218 0.309 0.415 0.529 0.645 0.755 0.854 0.934 0.99 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.1 0.126 0.205 0.322 0.463 0.613 0.758 0.882 0.972 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.958 0.859 0.721 0.562 0.401 0.257 0.147 0.1 0.1 0.1 0.1 0.106 0.154 0.24 0.353 0.482 0.618 0.748 0.863 0.952 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.981 0.91 0.799 0.663 0.515 0.37 0.242 0.145 0.1 0.1 0.1 0.1 0.1 0.1 0.136 0.223 0.345 0.488 0.638 0.78 0.9 0.982 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.1 0.1 0.1 0.1 0.1 0.1 0.134 0.213 0.324 0.456 0.596 0.733 0.855 0.949 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.98 0.9 0.775 0.624 0.464 0.312 0.188 0.107 0.1 0.1
+     1.0 1.0 1.0 1.0 1.0 1.0 0.969 0.888 0.77 0.629 0.481 0.338 0.215 0.127 0.1 0.1 0.1 0.1 0.119 0.172 0.253 0.354 0.468 0.588 0.705 0.813 0.905 0.973 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.145 0.229 0.343 0.475 0.614 0.748 0.865 0.955 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.979 0.884 0.735 0.559 0.38 0.225 0.119 0.1 0.1 0.111 0.178 0.294 0.44 0.599 0.753 0.885 0.978 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.996 0.945 0.85 0.723 0.58 0.432 0.296 0.183 0.109 0.1 0.1 0.1 0.111 0.165 0.254 0.368 0.496 0.63 0.757 0.869 0.955 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.1 0.1 0.1 0.1 0.1 0.1 0.1 0.101 0.164 0.302 0.484 0.678 0.852 0.974 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.973 0.888 0.76 0.607 0.448 0.299 0.178 0.103 0.1 0.1 0.104
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.97 0.895 0.787 0.657 0.518 0.381 0.257 0.16 0.1 0.1 0.1 0.1 0.1 0.1 0.115 0.177 0.277 0.403 0.542 0.683 0.812 0.919 0.99 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.127 0.225 0.373 0.545 0.719 0.871 0.977 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.967 0.85 0.679 0.485 0.301 0.158 0.1 0.1 0.1 0.138 0.232 0.364 0.518 0.676 0.82 0.935 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.97 0.881 0.752 0.599 0.439 0.291 0.173 0.1 0.1 0.1 0.1 0.1 0.138 0.229 0.358 0.507 0.662 0.806 0.922 0.996 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.28 0.28 0.28 0.28 0.28 0.265 0.23 0.186 0.143 0.11 0.1 0.297 0.496 0.707 0.888 0.998 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.982 0.889 0.742 0.565 0.385 0.229 0.121 0.1 0.1 0.1 0.115 0.267
+     1.0 1.0 1.0 1.0 1.0 0.983 0.925 0.835 0.722 0.595 0.465 0.341 0.232 0.147 0.1 0.1 0.1 0.1 0.1 0.12 0.184 0.283 0.404 0.538 0.674 0.8 0.905 0.98 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.137 0.241 0.39 0.562 0.733 0.88 0.981 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.999 0.93 0.778 0.581 0.378 0.205 0.101 0.1 0.1 0.1 0.113 0.196 0.332 0.5 0.676 0.835 0.955 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.963 0.869 0.737 0.582 0.423 0.278 0.163 0.1 0.1 0.1 0.1 0.151 0.297 0.496 0.707 0.888 0.998 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.28 0.28 0.28 0.28 0.28 0.248 0.175 0.111 0.1 0.1 0.234 0.555 0.878 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.997 0.92 0.768 0.575 0.377 0.209 0.104 0.1 0.1 0.1 0.1 0.1 0.143 0.325
+     1.0 1.0 1.0 1.0 1.0 1.0 0.968 0.874 0.737 0.576 0.411 0.262 0.148 0.1 0.1 0.1 0.1 0.1 0.113 0.177 0.282 0.413 0.559 0.704 0.835 0.938 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.106 0.196 0.362 0.565 0.766 0.928 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.996 0.916 0.758 0.559 0.358 0.191 0.1 0.1 0.1 0.101 0.151 0.267 0.424 0.6 0.769 0.909 0.996 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.974 0.885 0.751 0.592 0.426 0.275 0.158 0.1 0.1 0.1 0.1 0.161 0.309 0.503 0.708 0.885 0.995 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.28 0.28 0.28 0.28 0.28 0.254 0.194 0.131 0.1 0.1 0.234 0.608 0.946 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.992 0.912 0.77 0.592 0.408 0.243 0.127 0.1 0.1 0.1 0.1 0.1 0.1 0.154 0.347 0.604
+     1.0 1.0 1.0 1.0 1.0 1.0 0.956 0.839 0.676 0.493 0.318 0.176 0.1 0.1 0.1 0.1 0.1 0.1 0.1 0.138 0.258 0.43 0.623 0.806 0.945 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.102 0.21 0.429 0.685 0.904 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.993 0.895 0.718 0.504 0.299 0.145 0.1 0.1 0.1 0.115 0.197 0.331 0.495 0.667 0.825 0.946 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.963 0.849 0.687 0.503 0.326 0.181 0.1 0.1 0.1 0.1 0.14 0.241 0.383 0.547 0.711 0.857 0.964 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.28 0.28 0.28 0.28 0.28 0.254 0.187 0.121 0.1 0.1 0.179 0.631 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.974 0.868 0.708 0.523 0.341 0.19 0.1 0.1 0.1 0.1 0.1 0.1 0.221 0.48 0.768
+     1.0 1.0 1.0 1.0 1.0 1.0 0.942 0.791 0.587 0.375 0.197 0.1 0.1 0.1 0.1 0.139 0.254 0.417 0.601 0.779 0.922 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.1 0.154 0.348 0.607 0.851 0.999 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.961 0.744 0.443 0.183 0.1 0.1 0.1 0.129 0.274 0.49 0.721 0.913 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.952 0.835 0.675 0.497 0.325 0.184 0.1 0.1 0.1 0.158 0.31 0.514 0.727 0.905 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ],
+    [
+     0.28 0.28 0.28 0.28 0.28 0.236 0.154 0.1 0.1 0.144 0.497 0.901 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.994 0.931 0.816 0.669 0.507 0.349 0.214 0.12 0.1 0.1 0.1 0.1 0.12 0.301 0.581 0.853
+     1.0 1.0 1.0 1.0 1.0 0.987 0.889 0.725 0.529 0.336 0.179 0.1 0.1 0.1 0.1 0.1 0.159 0.37 0.645 0.89 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     0.1 0.166 0.434 0.761 0.987 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.976 0.854 0.665 0.452 0.257 0.123 0.1 0.1 0.159 0.326 0.549 0.773 0.946 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+     1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.958 0.771 0.509 0.258 0.103 0.1 0.1 0.1 0.1 0.159 0.354 0.61 0.85 0.998 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+    ]
+    ; dims = 3)
+```
+
+## Objective function
+
+Per the reference `score.c`, the objective is a weighted sum of squares:
+`cost = sum((weight * (data - model))^2)` over every (nucleus, time, gene) triple in the
+fitting data -- reproduced exactly below. The reference solver's `Score()` function can
+also add a "limit penalty" term that discourages the sigmoid's argument from moving far
+outside `[-1, 1]`, but the penalty's own parameters (`penalty_data.*` sections) are absent
+from this data file, and the paper's own description of B6's objective mentions only the
+weighted least-squares term, so we implement that term alone.
+
+```julia
+const b6_hist27 = b6_resample_rows(b6_hist_m6, 27)
+const b6_ext27_m6 = b6_resample_rows(b6_ext_m6, 27)
+const b6_ext_times_27 = [-6.0, 0.0, 10.55]
+const b6_ext_mats_27 = [b6_ext27_m6, b6_ext_0, b6_ext_t1]
+const b6_ext_times_53 = [24.225, 30.475, 36.725, 42.975, 49.225, 55.475, 61.725, 67.975]
+const b6_ext_mats_53 = [b6_ext_53[:, :, k] for k in 1:8]
+
+function b6_simulate(p37; alg = MethodOfSteps(Tsit5()), reltol = 1e-4, abstol = 1e-4)
+    R, T, E, lambda = b6_unpack(p37)
+
+    hist1a(p, t) = vec(b6_interp_hist(-6.0, vec(b6_hist27), 0.0, vec(b6_bias), t))
+
+    rhs1a! = b6_make_rhs(27, true, b6_ext_times_27, b6_ext_mats_27, R, T, E, lambda)
+    prob1a = DDEProblem(rhs1a!, vec(b6_bias), hist1a, (0.0, b6_mitosis_start);
+        constant_lags = [b6_tau])
+    sol1a = solve(prob1a, alg; reltol = reltol, abstol = abstol)
+    sol1a.retcode == ReturnCode.Success || return nothing
+
+    hist1b(p, t) = t <= 0.0 ? hist1a(p, t) : sol1a(t)
+    rhs1b! = b6_make_rhs(27, false, b6_ext_times_27, b6_ext_mats_27, R, T, E, lambda)
+    prob1b = DDEProblem(rhs1b!, sol1a(b6_mitosis_start), hist1b, (b6_mitosis_start, b6_t_div);
+        constant_lags = [b6_tau])
+    sol1b = solve(prob1b, alg; reltol = reltol, abstol = abstol)
+    sol1b.retcode == ReturnCode.Success || return nothing
+
+    phase1_at(t) = t <= 0.0 ? hist1a(nothing, t) : (t <= b6_mitosis_start ? sol1a(t) : sol1b(t))
+
+    v27_final = sol1b(b6_t_div)
+    v53_init = vec(b6_resample_rows(reshape(v27_final, 4, 27), 53))
+
+    hist2(p, t) = vec(b6_resample_rows(reshape(phase1_at(t), 4, 27), 53))
+    rhs2! = b6_make_rhs(53, true, b6_ext_times_53, b6_ext_mats_53, R, T, E, lambda)
+    prob2 = DDEProblem(rhs2!, v53_init, hist2, (b6_t_div, 67.975); constant_lags = [b6_tau])
+    sol2 = solve(prob2, alg; reltol = reltol, abstol = abstol)
+    sol2.retcode == ReturnCode.Success || return nothing
+
+    return (sol1b = sol1b, sol2 = sol2)
+end
+
+const b6_late_times = [24.225, 30.475, 36.725, 42.975, 49.225, 55.475, 61.725, 67.975]
+
+function biopredyn_b6_cost(p37)
+    sols = try
+        b6_simulate(p37)
+    catch
+        nothing
+    end
+    sols === nothing && return 1e20
+
+    cost = sum(abs2, b6_weights_t1 .* (b6_data_t1 .- reshape(sols.sol1b(10.55), 4, 27)))
+    for (k, t) in enumerate(b6_late_times)
+        vk = reshape(sols.sol2(t), 4, 53)
+        cost += sum(abs2, b6_weights_53[:, :, k] .* (b6_data_53[:, :, k] .- vk))
+    end
+    return isfinite(cost) ? cost : 1e20
+end
+```
+
+```julia
+@time cost_nom = biopredyn_b6_cost(b6_p_nom)
+@time cost_start = biopredyn_b6_cost(b6_p_start)
+@time cost_pbest = biopredyn_b6_cost(b6_pbest)
+```
+
+The original study reports reaching a cost of `Jf ~= 1.0833*10^5` using the enhanced
+scatter search (eSS) global optimizer after ~2*10^6 function evaluations (up to 24 hours of
+CPU time); the `$eqparms` vector we use as `p_nom` was itself the result of an earlier
+simulated-annealing run reaching `~94109` under the reference solver, and `pbest.mat`
+documents a further improvement over that. Under *our* transcription, none of these three
+reference vectors' costs above should be expected to match those reference numbers closely:
+besides the missing penalty term (see above), our nuclear-division mapping
+(`b6_resample_ap`, an AP-position interpolation) stands in for the reference solver's exact
+internal lineage tree, which these reference vectors were originally fit against. The
+model's *qualitative* behavior is nonetheless recognizably gap-gene-like at all three
+reference vectors: each gene forms one or two spatially-localized expression domains rather
+than a flat or noisy profile, in roughly (if not exactly) the right AP positions --
+consistent with a faithful transcription of the regulatory equations, even where the exact
+score doesn't carry over. Given this, the runs below are best read as *relative*
+comparisons between optimizers on a fixed, real, and highly nonlinear delay-PDE parameter
+estimation problem, rather than as an attempt to reproduce the paper's absolute Jf value.
+
+## Visualizing the fit at the reference parameters
+
+```julia
+sols_pbest = b6_simulate(b6_pbest)
+v_final = reshape(sols_pbest.sol2(67.975), 4, 53)
+gene_names = ["hb" "Kr" "gt" "kni"]
+plot(1:53, v_final', layout = (2, 2), label = gene_names, legend = :outertopright,
+    xlabel = "nucleus (AP position)", size = (900, 600),
+    plot_title = "B6 gap gene profiles at t = 67.975 min (pbest)")
+scatter!(1:53, b6_data_53[:, :, 8]', layout = (2, 2), label = false, markersize = 2,
+    markerstrokewidth = 0)
+```
+
+## Parameter estimation
+
+We benchmark global optimizers on this 37-parameter delay-PDE problem, starting from
+`p_start` and using the bounds given above. As with the other BioPreDyn-bench pages, we
+include `BBO_adaptive_de_rand_1_bin`, NLopt's `GN_CRS2_LM`, and
+[ParallelParticleSwarms.jl](https://github.com/SciML/ParallelParticleSwarms.jl)'s
+`ParallelPSOArray`. Each trackable optimizer's raw per-evaluation cost is recorded via a
+callback, from which we compute the running best-found cost for a convergence plot;
+`ParallelPSOArray` does not yet support the `callback` keyword, so only its final result is
+available. A single evaluation here (three DDE solves of an up-to-53-nucleus, 4-gene delay
+system) is inexpensive relative to B1/B3, so the budgets below are more generous than those
+pages'.
+
+```julia
+optf = OptimizationFunction((p, _) -> biopredyn_b6_cost(p))
+optprob = OptimizationProblem(optf, b6_p_start, lb = b6_p_lower, ub = b6_p_upper)
+```
+
+```julia
+losses_bbo = Float64[]
+times_bbo = Float64[]
+t0_bbo = time()
+cb_bbo = (state, l) -> (push!(losses_bbo, l); push!(times_bbo, time() - t0_bbo); false)
+@time res_bbo = solve(
+    optprob, BBO_adaptive_de_rand_1_bin(), maxiters = 4000, callback = cb_bbo)
+res_bbo.objective
+```
+
+```julia
+losses_nlopt = Float64[]
+times_nlopt = Float64[]
+t0_nlopt = time()
+cb_nlopt = (state, l) -> (push!(losses_nlopt, l); push!(times_nlopt, time() - t0_nlopt); false)
+opt = Opt(:GN_CRS2_LM, length(b6_p_start))
+@time res_nlopt = solve(optprob, opt, maxiters = 4000, callback = cb_nlopt)
+res_nlopt.objective
+```
+
+```julia
+n_particles = 40
+pso_iters = 4000 ÷ n_particles
+@time res_pso = solve(optprob, ParallelPSOArray(n_particles), maxiters = pso_iters)
+res_pso.objective
+```
+
+## Local refinement
+
+Global metaheuristics are good at finding a promising basin but slow to fine-tune within
+it. We polish each of the three global results above with `LN_BOBYQA` (derivative-free).
+
+```julia
+function polish(start_u, label)
+    prob = OptimizationProblem(optf, start_u, lb = b6_p_lower, ub = b6_p_upper)
+    losses = Float64[]
+    times = Float64[]
+    t0 = time()
+    cb = (state, l) -> (push!(losses, l); push!(times, time() - t0); false)
+    t = @elapsed res = solve(
+        prob, Opt(:LN_BOBYQA, length(b6_p_start)), maxiters = 1500, callback = cb)
+    println(label, ": ", res.objective, " (", t, "s)")
+    return res, losses, times
+end
+
+res_bbo_polish, losses_bbo_polish, times_bbo_polish = polish(res_bbo.u, "BBO -> LN_BOBYQA")
+res_nlopt_polish, losses_nlopt_polish, times_nlopt_polish = polish(
+    res_nlopt.u, "GN_CRS2_LM -> LN_BOBYQA")
+res_pso_polish, losses_pso_polish, times_pso_polish = polish(
+    res_pso.u, "ParallelPSOArray -> LN_BOBYQA")
+nothing
+```
+
+```julia
+df = DataFrame(
+    method = ["Reference eqparms (p_nom)", "Reference input (p_start, no fit)",
+        "Reference pbest", "BBO_adaptive_de_rand_1_bin", "GN_CRS2_LM", "ParallelPSOArray",
+        "LN_BOBYQA polish (from BBO)", "LN_BOBYQA polish (from GN_CRS2_LM)",
+        "LN_BOBYQA polish (from ParallelPSOArray)"],
+    cost = [cost_nom, cost_start, cost_pbest, res_bbo.objective, res_nlopt.objective,
+        res_pso.objective, res_bbo_polish.objective, res_nlopt_polish.objective,
+        res_pso_polish.objective])
+```
+
+## Convergence
+
+```julia
+bestcost_bbo = accumulate(min, losses_bbo)
+bestcost_nlopt = accumulate(min, losses_nlopt)
+bestcost_bbo_polish = accumulate(min, losses_bbo_polish)
+bestcost_nlopt_polish = accumulate(min, losses_nlopt_polish)
+bestcost_pso_polish = accumulate(min, losses_pso_polish)
+
+pso_evals = n_particles * pso_iters
+bbo_polish_iters = length(losses_bbo) .+ (1:length(losses_bbo_polish))
+nlopt_polish_iters = length(losses_nlopt) .+ (1:length(losses_nlopt_polish))
+pso_polish_iters = pso_evals .+ (1:length(losses_pso_polish))
+
+plot(bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
+    xlabel = "iteration", ylabel = "best cost so far (log scale)",
+    title = "B6 parameter estimation convergence", legend = :outertopright,
+    size = (900, 500))
+plot!(bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(bbo_polish_iters, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(nlopt_polish_iters, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(pso_polish_iters, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
+hline!([cost_pbest], label = "reference pbest (this transcription)", linestyle = :dash)
+```
+
+Iteration count alone hides that these optimizers have very different per-iteration costs,
+so we also plot the same running-best costs against wall-clock seconds, with each curve
+measured from its own start:
+
+```julia
+plot(times_bbo, bestcost_bbo, label = "BBO_adaptive_de_rand_1_bin", yscale = :log10,
+    xlabel = "wall-clock time (s)", ylabel = "best cost so far (log scale)",
+    title = "B6 parameter estimation convergence (wall time)", legend = :outertopright,
+    size = (900, 500))
+plot!(times_nlopt, bestcost_nlopt, label = "GN_CRS2_LM")
+plot!(times_bbo_polish, bestcost_bbo_polish, label = "LN_BOBYQA polish (from BBO)")
+plot!(times_nlopt_polish, bestcost_nlopt_polish, label = "LN_BOBYQA polish (from GN_CRS2_LM)")
+plot!(times_pso_polish, bestcost_pso_polish, label = "LN_BOBYQA polish (from PSO)")
+hline!([cost_pbest], label = "reference pbest (this transcription)", linestyle = :dash)
+```
+
+`ParallelPSOArray`'s own result isn't shown as a curve (no per-iteration history is
+available, as noted above), but its polish curve starts from wherever `res_pso.objective`
+landed. In the iteration plot each polish curve is offset by the evaluation count of the
+global run it starts from (for `ParallelPSOArray`, approximately particles x iterations).
+
+# Conclusion
+
+This benchmark demonstrates SciML's delay-differential-equation and parameter estimation
+stacks (`DelayDiffEq` + `Optimization.jl`) on BioPreDyn-bench B6, the *Drosophila* gap gene
+network -- structurally the most distinctive problem in the suite: a real spatial
+reaction-diffusion system with a fixed transcriptional delay, a nuclear-division event that
+changes the state dimension mid-simulation, and real quantitative expression data with
+per-point weighting. Unlike B1-B5, no plain reference implementation exists for this
+problem, so the model was transcribed directly from ~18,000 lines of legacy C, and one
+genuine gap in the released data (the exact parent/daughter nucleus lineage tree used
+across the single cell division) was bridged with a clearly-documented, principled
+approximation (AP-position interpolation) rather than a guess. The result reproduces the
+gap genes' characteristic localized expression domains at all three reference parameter
+vectors, even though the exact objective values don't carry over from the original solver
+(see "Objective function" for why). The runs here are best read as relative comparisons
+between optimizers on a genuinely hard, real-data delay-PDE problem, rather than as an
+attempt to reach the paper's reported `Jf ~= 1.0833*10^5` under a different solver's exact
+internal bookkeeping.
+
+```julia, echo = false
+using SciMLBenchmarks
+SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
+```

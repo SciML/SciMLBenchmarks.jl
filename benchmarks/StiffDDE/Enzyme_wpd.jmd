@@ -15,6 +15,68 @@ through a delayed feedback on the fourth component:
 ```math
 U(t) = \frac{1}{1 + K_1 \, u_4(t - \tau)^3}
 ```
+
+Each diagram is followed by a summary computed from its runs. It lists the tolerances at which a method produced no finite error and time (the solve failed, timed out or diverged), the smallest error each method reached, and each method's unbeaten runs with their errors and times. A run is beaten when another run on the same diagram is at least as accurate, comparing errors as printed to 3 significant digits, and more than 1.2× faster; the factor keeps timing noise from deciding a comparison, so two methods within it of each other both keep their runs. In the smallest-error list, ≈ marks an error within 1.2× of the one listed before it and < one further away.
+
+```julia
+function wp_verdict(wp; estimate = wp.error_estimate, margin = 1.2)
+    fmt(x) = string(round(x; sigdigits = 3))
+    println("Summary computed from the $estimate errors and times above:")
+    if !all(w -> hasproperty(w.errors, estimate), wp.wps)
+        println("  No $estimate errors were recorded, so nothing is compared.")
+        return nothing
+    end
+    runs = map(wp.wps) do w
+        errors = getproperty(w.errors, estimate)
+        bad = [i for i in eachindex(w.times) if !(isfinite(errors[i]) && isfinite(w.times[i]))]
+        good = setdiff(eachindex(w.times), bad)
+        steps = w.dts === nothing ? ("abstol", w.abstols) : ("dt", w.dts)
+        (; name = w.name, errors = errors[good], times = w.times[good], bad = steps[2][bad], label = steps[1])
+    end
+    allunique(r.name for r in runs) ||
+        println("  Note: several setups share a legend name, so their lines below cannot be told apart.")
+    failed = [r for r in runs if !isempty(r.bad)]
+    println(
+        "  Runs without a finite error and time (failed, timed out or diverged): ",
+        isempty(failed) ? "none" :
+            join(("$(r.name) at $(r.label) $(join(fmt.(r.bad), ", "))" for r in failed), "; ")
+    )
+    ok = [r for r in runs if !isempty(r.errors)]
+    if length(ok) < 2
+        who = isempty(ok) ? "No method" : "Only $(only(ok).name)"
+        println("  $who produced a usable run, so nothing is compared.")
+        return nothing
+    end
+    best = sort!([(r.name, minimum(r.errors)) for r in ok]; by = last)
+    parts = String[]
+    for (i, (name, e)) in enumerate(best)
+        i > 1 && push!(parts, e <= margin * best[i - 1][2] ? "≈" : "<")
+        push!(parts, "$name ($(fmt(e)))")
+    end
+    println("  Smallest error reached, most accurate first: ", join(parts, " "))
+    points = [(e, t) for r in ok for (e, t) in zip(r.errors, r.times)]
+    shown(x) = round(x; sigdigits = 3)
+    beaten(e, t) = any(p -> shown(p[1]) <= shown(e) && margin * p[2] < t, points)
+    front = map(ok) do r
+        kept = sort!([(e, t) for (e, t) in zip(r.errors, r.times) if !beaten(e, t)]; by = first)
+        (; r.name, kept, n = length(r.errors))
+    end
+    sort!(front; by = f -> isempty(f.kept) ? Inf : first(f.kept[1]))
+    println(
+        "  Unbeaten runs by method, as error (time); a run is beaten when another run",
+        " is at least as accurate (as printed) and more than $(margin)x faster:"
+    )
+    for f in front
+        runs_of = "of $(f.n) usable $(f.n == 1 ? "run" : "runs")"
+        println(
+            "    $(f.name): ",
+            isempty(f.kept) ? "none $runs_of (every run is beaten)" :
+                "$(length(f.kept)) $runs_of: " * join(("$(fmt(e)) ($(fmt(t)) s)" for (e, t) in f.kept), ", ")
+        )
+    end
+    return nothing
+end
+```
 ```math
 u_1'(t) = 10.5 - u_1(t) \, U(t)
 ```
@@ -103,10 +165,18 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp; title = "Enzyme: Rosenbrock Methods (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp; title = "Enzyme: Rosenbrock Methods (L2 error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ### SDIRK methods
@@ -123,10 +193,18 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp; title = "Enzyme: SDIRK Methods (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp; title = "Enzyme: SDIRK Methods (L2 error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ### Stiff vs Non-Stiff Comparison
@@ -142,6 +220,10 @@ names = ["Rodas5P", "TRBDF2", "KenCarp4", "Tsit5", "DP5", "OwrenZen5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e6), error_estimate = :final)
 plot(wp; title = "Enzyme: Stiff vs Non-Stiff (final error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ## Low Tolerances
@@ -162,10 +244,18 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups;
 plot(wp; title = "Enzyme: Low Tolerances (final error)")
 ```
 
+```julia, wrap = false
+wp_verdict(wp)
+```
+
 ```julia
 wp = WorkPrecisionSet(prob, abstols, reltols, setups;
     names = names, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :L2)
 plot(wp; title = "Enzyme: Low Tolerances (L2 error)")
+```
+
+```julia, wrap = false
+wp_verdict(wp)
 ```
 
 ```julia, echo = false

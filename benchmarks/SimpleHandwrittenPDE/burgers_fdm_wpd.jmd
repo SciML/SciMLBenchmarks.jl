@@ -5,11 +5,11 @@ author: Arjit Seth
 
 ## Problem Description
 
-The Burgers' partial differential equation is solved on the domain $[0, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 1,~T = 1$, with the following initial and boundary conditions:
+The Burgers' partial differential equation is solved on the domain $[-L, L] \times [0, T] \in \mathbb R \times \mathbb R,~L = 1,~T = 1$, with the following initial and boundary conditions:
 ```math
 \begin{aligned}
     \partial_t u(t,x) & = -\partial_x u^2(t,x) + \nu \partial_x^2 u(t,x), \\
-    u(0,x) & = \exp\left[-\frac{(x - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(0,x) & = \exp\left[-\frac{x^2}{2 \times 0.1^2}\right], \\
     u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
@@ -17,7 +17,7 @@ The spatial derivative operators are represented via finite difference approxima
 ```math
 \begin{aligned}
     \frac{du}{dt} & = -D_x u^2(t,x) + \nu D_x^2 u(t,x), \\
-    u(0,x_s) & = \exp\left[-\frac{(x_s - 0.5)^2}{2 \times 0.05^2}\right], \\
+    u(0,x_s) & = \exp\left[-\frac{x_s^2}{2 \times 0.1^2}\right], \\
     u(t,-L) & = u(t,L) = 0.
 \end{aligned}
 ```
@@ -52,8 +52,8 @@ function burgers(N, L)
                              derivative_order = 2, accuracy_order = 2, 
                              xmin = -L, xmax = L, N = N)
     
-    x = LinRange(0, L, N) # Domain discretization
-    u0 = @. exp(-(x - 0.5)^2 / (2 * 0.05^2)) # Initial condition
+    x = SBP.grid(D1) # Domain discretization
+    u0 = @. exp(-x^2 / (2 * 0.1^2)) # Initial condition
     nu = 1e-2 # Diffusion coefficient
     alpha = 1.0 # Convection coefficient
     p = (; D1, alpha)
