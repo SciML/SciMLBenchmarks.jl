@@ -9,6 +9,7 @@ using OrdinaryDiffEq, ParameterizedFunctions, Plots, ODEInterfaceDiffEq, LSODA,
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExponentialRK, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using SciMLLogging
 using LinearAlgebra, StaticArrays, RecursiveFactorization, Polyester, OrdinaryDiffEqCore
+using PETScDiffEq
 
 gr() #gr(fmt=:png)
 
@@ -181,6 +182,44 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = SciMLLogging.No
 plot(wp)
 ```
 
+The next diagram adds [PETScDiffEq.jl](https://github.com/SciML/PETScDiffEq.jl), which calls
+the time integrators of [PETSc's TS](https://petsc.org/release/manual/ts/): Rosenbrock-W
+(`TSRosW`), BDF at order 5 (`TSImplicit("bdf"; order = 5)`) and additive Runge-Kutta
+(`TSARKIMEX`, run fully implicit). `TSRosW("ra34pw2")` shares its coefficients with
+`ROS34PW2`, `TSRosW("rodas3")` with `Rodas3`, and `TSARKIMEX("4")` with `KenCarp4`. They run on
+`prob` only, not on the static-array `probstatic`.
+
+```julia
+setups = [Dict(:alg=>TSRosW("ra34pw2")),
+    Dict(:alg=>ROS34PW2()),
+    Dict(:alg=>TSRosW("rodas3")),
+    Dict(:alg=>Rodas3()),
+    Dict(:alg=>TSImplicit("bdf"; order = 5)),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>TSARKIMEX("4")),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>Rosenbrock23()),
+    Dict(:alg=>CVODE_BDF())]
+names = ["TSRosW ra34pw2" "ROS34PW2" "TSRosW rodas3" "Rodas3" "TSImplicit bdf5" "FBDF" "TSARKIMEX 4" "KenCarp4" "Rosenbrock23" "CVODE_BDF"]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = SciMLLogging.None(), dense = false,
+    names = names, save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
+plot(wp)
+```
+
+A solve over a very short span shows the part of each solve's time that does not grow with
+the number of steps, mostly setting up PETSc's objects for PETScDiffEq. Each method still picks
+its own first steps, so the number of steps taken is printed next to the time:
+
+```julia
+short = remake(prob, tspan = (0.0, 1e-6))
+for (name, alg) in [("TSRosW ra34pw2", TSRosW("ra34pw2")), ("ROS34PW2", ROS34PW2()),
+        ("TSImplicit bdf5", TSImplicit("bdf"; order = 5)), ("FBDF", FBDF())]
+    sol = solve(short, alg, save_everystep = false)
+    tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:100)
+    println(rpad(name, 16), round(1e6 * tmin, sigdigits = 3), " µs, ", sol.stats.naccept, " steps")
+end
+```
+
 ### Low Tolerances
 
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
@@ -273,6 +312,25 @@ plot(wp)
 ```julia
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = SciMLLogging.None(),
     dense = false, appxsol = test_sol, maxiters = Int(1e5), error_estimate = :l2)
+plot(wp)
+```
+
+The PETScDiffEq methods at these tolerances:
+
+```julia
+setups = [Dict(:alg=>TSRosW("ra34pw2")),
+    Dict(:alg=>ROS34PW2()),
+    Dict(:alg=>TSRosW("rodas3")),
+    Dict(:alg=>Rodas3()),
+    Dict(:alg=>TSImplicit("bdf"; order = 5)),
+    Dict(:alg=>FBDF()),
+    Dict(:alg=>TSARKIMEX("4")),
+    Dict(:alg=>KenCarp4()),
+    Dict(:alg=>Rodas5P()),
+    Dict(:alg=>CVODE_BDF())]
+names = ["TSRosW ra34pw2" "ROS34PW2" "TSRosW rodas3" "Rodas3" "TSImplicit bdf5" "FBDF" "TSARKIMEX 4" "KenCarp4" "Rodas5P" "CVODE_BDF"]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; verbose = SciMLLogging.None(), dense = false,
+    names = names, save_everystep = false, appxsol = test_sol, maxiters = Int(1e5))
 plot(wp)
 ```
 

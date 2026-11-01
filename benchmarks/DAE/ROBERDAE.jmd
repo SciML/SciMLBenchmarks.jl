@@ -7,7 +7,7 @@ author: Chris Rackauckas
 using OrdinaryDiffEq, DiffEqDevTools, Sundials, ModelingToolkit, ODEInterfaceDiffEq,
       Plots, DASSL, DASKR
 using OrdinaryDiffEqBDF, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK
-using LinearAlgebra
+using LinearAlgebra, PETScDiffEq
 using ModelingToolkit: t_nounits as t, D_nounits as D
 
 @variables y₁(t)=1.0 y₂(t)=0.0 y₃(t)=0.0
@@ -115,6 +115,44 @@ the looser pairs complete in fewer than 500 steps.
 [SciML/DASKR.jl#122](https://github.com/SciML/DASKR.jl/pull/122) is a
 draft fix.
 
+The next diagram adds [PETScDiffEq.jl](https://github.com/SciML/PETScDiffEq.jl), which calls
+the time integrators of [PETSc's TS](https://petsc.org/release/manual/ts/). `TSDAE` is PETSc's
+BDF at order 5 on the residual form, `TSImplicit` the same BDF on the mass-matrix form, and
+`TSRosW` PETSc's Rosenbrock-W `"ra34pw2"`, which shares its coefficients with `ROS34PW2`.
+At `abstol = 1e-5`, `reltol = 1e-1` both PETSc BDF solves stop with `Unstable` before
+``t = 0.01``, so this diagram starts one step tighter.
+
+```julia
+abstols = 1.0 ./ 10.0 .^ (6:8)
+reltols = 1.0 ./ 10.0 .^ (2:4);
+setups = [Dict(:prob_choice => 2, :alg=>TSDAE("bdf"; order = 5)),
+    Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 4, :alg=>TSImplicit("bdf"; order = 5)),
+    Dict(:prob_choice => 4, :alg=>FBDF()),
+    Dict(:prob_choice => 4, :alg=>TSRosW("ra34pw2")),
+    Dict(:prob_choice => 4, :alg=>ROS34PW2()),
+    Dict(:prob_choice => 4, :alg=>Rodas5P())
+]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
+    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 10)
+plot(wp)
+```
+
+A solve over a very short span shows the part of each solve's time that does not grow with
+the number of steps, mostly setting up PETSc's objects for PETScDiffEq. Each method still picks
+its own first steps, so the number of steps taken is printed next to the time:
+
+```julia
+for (name, alg, prob) in [("TSDAE", TSDAE("bdf"; order = 5), daeprob), ("DFBDF", DFBDF(), daeprob),
+        ("TSRosW", TSRosW("ra34pw2"), mmprob), ("ROS34PW2", ROS34PW2(), mmprob)]
+    short = remake(prob, tspan = (0.0, 1e-6))
+    sol = solve(short, alg, save_everystep = false)
+    tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:100)
+    println(rpad(name, 10), round(1e6 * tmin, sigdigits = 3), " µs, ", sol.stats.naccept, " steps")
+end
+```
+
 ### Timeseries Errors
 
 ```julia
@@ -187,6 +225,23 @@ plot(wp)
 
 ```julia
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
+    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 10)
+plot(wp)
+```
+
+The PETScDiffEq methods at these tolerances:
+
+```julia
+setups = [Dict(:prob_choice => 2, :alg=>TSDAE("bdf"; order = 5)),
+    Dict(:prob_choice => 2, :alg=>DFBDF()),
+    Dict(:prob_choice => 2, :alg=>IDA()),
+    Dict(:prob_choice => 4, :alg=>TSImplicit("bdf"; order = 5)),
+    Dict(:prob_choice => 4, :alg=>FBDF()),
+    Dict(:prob_choice => 4, :alg=>TSRosW("ra34pw2")),
+    Dict(:prob_choice => 4, :alg=>ROS34PW2()),
+    Dict(:prob_choice => 4, :alg=>Rodas5P())
+]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
