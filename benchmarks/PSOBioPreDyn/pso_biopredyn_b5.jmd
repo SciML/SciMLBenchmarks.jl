@@ -19,18 +19,20 @@ B5 benchmark, which documents their source.
 
 ## How it works
 
-- **Integration:** each experiment is solved with DiffEqGPU's `GPURodas5P`, the GPU-kernel
-  version of `Rodas5P`, at the CPU benchmark's tolerances (`reltol = 1e-6`,
-  `abstol = 1e-3`). The GPU swarms call the cost inside their kernels, one particle per
-  thread. The CPU optimizers call the same function, so all optimizers minimize the same
-  cost. The check below compares it with `Rodas5P` at tight tolerances.
+- **Integration:** each experiment is solved with DiffEqGPU's adaptive `GPUTsit5` at the CPU
+  benchmark's tolerances (`reltol = 1e-6`, `abstol = 1e-3`). The GPU optimizers call the
+  cost inside their kernels, one particle per thread. The CPU optimizers call the same
+  function, so all optimizers minimize the same cost. The check below compares it with the
+  CPU benchmark's `Rodas5P` at tight tolerances. `GPURodas5P` is not used: with 26 states,
+  each thread builds a 26×26 Jacobian and factorizes it at every stage, and every GPU kernel
+  failed at launch with "Out of GPU memory".
 - **Cost:** the weighted least squares of the CPU benchmark,
   `Σ ((simulated - data) / 0.05)²` over all experiments, observables and samples. The
   original study reached `J ≈ 3072.5` with its eSS optimizer after about 16 hours; that
   value is drawn on the plot as a reference.
 - **Gradients:** `HybridPSO` polishes its swarm with L-BFGS, one start per particle, each in
   its own GPU thread. The gradient is forward-mode AD: ForwardDiff dual numbers carried
-  through the `GPURodas5P` solve, in passes of `FD_CHUNK` partials
+  through the `GPUTsit5` solve, in passes of `FD_CHUNK` partials
   (`AutoForwardDiff(; chunksize = FD_CHUNK)`) to keep the kernel within CUDA's 512 KB
   per-thread stack.
 - **Protocol:** each optimizer gets `BUDGET` seconds of wall-clock time per run, for `NRUNS`
@@ -58,7 +60,7 @@ const BUDGET = 300.0            # wall-clock seconds per run
 const NRUNS = 3                 # runs per optimizer
 const WARMUP = 1.0              # budget of the untimed warm-up run
 const J_REF = 3072.5            # cost reached by eSS in the BioPreDyn-bench paper
-const RELTOL, ABSTOL = 1.0e-6, 1.0e-3   # GPURodas5P tolerances, as in the CPU benchmark
+const RELTOL, ABSTOL = 1.0e-6, 1.0e-3   # GPUTsit5 tolerances, as in the CPU benchmark
 const DT0 = 0.01                # initial step (h)
 const DTMIN = 1.0e-10           # a solve whose step falls below this gets cost Inf
 const MAXSTEPS = 10_000         # a solve not done after this many steps gets cost Inf
@@ -91,8 +93,9 @@ the same order and the controls (`egf`, `tnfa`, `pi3k_inhib`, `raf1_inhib`) pass
 )
 # 34 fixed 0/1 edge weights, in the order the reference C source declares them
 const B5_W = (1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0)
-# The reference's max(x, 0)^n, written as exp(n log(max(x, 1e-300))) so that ForwardDiff
-# derivatives stay finite at x = 0, where most states start.
+# The reference's max(x, 0)^n, written as exp(n log(max(x, 1e-300))) so that at x = 0,
+# where most states start, its derivative in n (used by HybridPSO's gradient) is 0 rather
+# than 0 * log(0) = NaN.
 @inline fhill(x, n, k) = (xp = exp(n * log(max(x, 1.0e-300))); kp = k^n; (xp / (kp + xp)) * (1 + kp))
 @noinline function b5_rhs(u, p, c)
     nik, mkk4, ask1, map3k7, mkk7, tnfr, egfr, ph, ex, mek, ras, traf2, ikk, akt, pi3k,
@@ -426,7 +429,7 @@ end for i in 1:10]
 
 ## Objective
 
-`experiment_cost` solves one experiment with `GPURodas5P` and sums its weighted squared
+`experiment_cost` solves one experiment with `GPUTsit5` and sums its weighted squared
 residuals at the 15 samples after `t = 0` (at `t = 0` the observed states equal the data).
 It creates and steps the integrator with `DiffEqGPU.init` and `DiffEqGPU.step!`, the same
 calls DiffEqGPU's ensemble kernel makes for each trajectory, and reads the samples from the
@@ -449,7 +452,7 @@ end
 @noinline function experiment_cost(p, y0, c, obs)
     T = eltype(p)
     integ = DiffEqGPU.init(
-        GPURodas5P(), SciMLBase.ODEFunction{false}(ExperimentRHS(c)), false,
+        GPUTsit5(), SciMLBase.ODEFunction{false}(ExperimentRHS(c)), false,
         y0 .* one(T), zero(T), T(30), T(DT0), p, T(ABSTOL), T(RELTOL),
         DiffEqBase.ODE_DEFAULT_NORM, nothing, SciMLBase.CallbackSet(), nothing
     )
@@ -485,7 +488,7 @@ const b5_cost = B5Cost(
 const LB, UB = SVector{86}(p_lower), SVector{86}(p_upper)
 ```
 
-Check: the `GPURodas5P` cost against the CPU `Rodas5P` at tight tolerances
+Check: the `GPUTsit5` cost against the CPU `Rodas5P` at tight tolerances
 (`reltol = 1e-10`, `abstol = 1e-12`), at the nominal and starting parameters and at five
 random points in the bounds.
 
@@ -507,7 +510,7 @@ checkpoints = vcat(
 )
 for (name, p) in checkpoints
     a, b = b5_cost(SVector{86}(p)), rodas_cost(p)
-    @printf "%-10s GPURodas5P %12.2f   Rodas5P (tight) %12.2f   relative difference %.1e\n" name a b abs(a - b) / b
+    @printf "%-10s GPUTsit5 %12.2f   Rodas5P (tight) %12.2f   relative difference %.1e\n" name a b abs(a - b) / b
 end
 ```
 
