@@ -11,6 +11,7 @@ The purpose of this problem is to test the performance on easy problems. Since i
 using OrdinaryDiffEq, ParameterizedFunctions, ODEInterfaceDiffEq, LSODA,
       Sundials, DiffEqDevTools, StaticArrays, OrdinaryDiffEqSIMDRK, IRKGaussLegendre
 using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqHighOrderRK, OrdinaryDiffEqLowOrderRK
+using PETScDiffEq
 using SciMLLogging
 
 f = @ode_def LotkaVolterra begin
@@ -142,6 +143,42 @@ plot(wp)
 ```
 
 Again, `IRKGL16` suffers when measuring the interpolations because its `sol(t)` is only a linear interpolation between steps, while the Verner methods, which have algorithm-specific interpolations of matching order, keep their accuracy between the timesteps.
+
+## PETScDiffEq
+
+[PETScDiffEq.jl](https://github.com/SciML/PETScDiffEq.jl) calls the time integrators of
+[PETSc's TS](https://petsc.org/release/manual/ts/). `TSRK("3bs")` and `TSRK("5dp")` use the
+same coefficients as `BS3` and `DP5`. `TSRK("7vr")` and `TSRK("8vr")` are Verner pairs, but not
+the ones in `Vern7` and `Vern8`. PETSc keeps the state in its own vectors, so these run on
+`prob` only, not on the static-array `probstatic`.
+
+```julia
+setups = [Dict(:alg=>TSRK("3bs"))
+          Dict(:alg=>BS3())
+          Dict(:alg=>TSRK("5dp"))
+          Dict(:alg=>DP5())
+          Dict(:alg=>TSRK("7vr"))
+          Dict(:alg=>Vern7())
+          Dict(:alg=>TSRK("8vr"))
+          Dict(:alg=>Vern8())
+          Dict(:alg=>Tsit5())]
+solnames = ["TSRK 3bs", "BS3", "TSRK 5dp", "DP5", "TSRK 7vr", "Vern7", "TSRK 8vr", "Vern8", "Tsit5"]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    save_everystep = false, verbose = SciMLLogging.None(), maxiters = 100000, numruns = 100)
+plot(wp)
+```
+
+Each PETScDiffEq solve also has a cost that does not depend on the method or the tolerance,
+for setting up PETSc's objects. A solve of a single step measures it:
+
+```julia
+short = remake(prob, tspan = (0.0, 1e-6))
+for (name, alg) in [("TSRK 5dp", TSRK("5dp")), ("DP5", DP5())]
+    solve(short, alg, save_everystep = false)
+    tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:100)
+    println(rpad(name, 10), round(1e6 * tmin, sigdigits = 3), " µs")
+end
+```
 
 ## Comparison with Non-RK methods
 

@@ -9,6 +9,7 @@ using OrdinaryDiffEq, DiffEqDevTools, Sundials, ParameterizedFunctions, Plots,
       LinearAlgebra, IncompleteLU, AlgebraicMultigrid, Symbolics, ModelingToolkit,
       RecursiveFactorization
 using OrdinaryDiffEqBDF, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
+using OrdinaryDiffEqRosenbrock, PETScDiffEq
 gr()
 
 const N = 8
@@ -478,6 +479,54 @@ plot(wp)
 Although the stabilized methods do not use the Jacobian,
 they are competitive with the implicit methods on this test; in the latest run `NordsieckBDF` with KLU is generally the fastest.
 
+The next diagram adds [PETScDiffEq.jl](https://github.com/SciML/PETScDiffEq.jl), which calls
+the time integrators of [PETSc's TS](https://petsc.org/release/manual/ts/): Rosenbrock-W
+(`TSRosW`), BDF at order 5 (`TSImplicit("bdf"; order = 5)`) and additive Runge-Kutta
+(`TSARKIMEX`, run fully implicit). `TSRosW("ra34pw2")` shares its coefficients with
+`ROS34PW2`, and `TSARKIMEX("4")` with `KenCarp4`. All of them run on the MTK problem with its
+sparse Jacobian. For a sparse Jacobian of this pattern PETScDiffEq's default linear solver is
+GMRES with ILU(0); the "LU" lines set a direct solve with
+`petsc_options = ["-ksp_type", "preonly", "-pc_type", "lu"]`.
+
+```julia
+petsc_lu = ["-ksp_type", "preonly", "-pc_type", "lu"]
+setups = [
+    Dict(:alg=>TSRosW("ra34pw2"), :prob_choice => 2),
+    Dict(:alg=>TSRosW("ra34pw2", petsc_lu), :prob_choice => 2),
+    Dict(:alg=>ROS34PW2(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>TSImplicit("bdf"; order = 5), :prob_choice => 2),
+    Dict(:alg=>TSImplicit("bdf", petsc_lu; order = 5), :prob_choice => 2),
+    Dict(:alg=>FBDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>TSARKIMEX("4"), :prob_choice => 2),
+    Dict(:alg=>TSARKIMEX("4", petsc_lu), :prob_choice => 2),
+    Dict(:alg=>KenCarp4(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2)
+]
+names = ["TSRosW ra34pw2 MTK", "TSRosW ra34pw2 LU MTK", "ROS34PW2 KLU MTK",
+    "TSImplicit bdf5 MTK", "TSImplicit bdf5 LU MTK", "FBDF KLU MTK",
+    "TSARKIMEX 4 MTK", "TSARKIMEX 4 LU MTK", "KenCarp4 KLU MTK",
+    "NordsieckBDF KLU MTK", "CVODE MTK KLU"];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+plot(wp)
+```
+
+A solve of a single step measures the part of each solve's time that does not depend on the
+tolerance, which here is similar for PETScDiffEq and OrdinaryDiffEq:
+
+```julia
+short = remake(prob_mtk, tspan = (0.0, 1e-6))
+for (name, alg) in [("TSRosW ra34pw2 LU", TSRosW("ra34pw2", petsc_lu)),
+        ("ROS34PW2 KLU", ROS34PW2(linsolve = KLUFactorization())),
+        ("TSImplicit bdf5", TSImplicit("bdf"; order = 5)),
+        ("FBDF KLU", FBDF(linsolve = KLUFactorization()))]
+    solve(short, alg, save_everystep = false)
+    tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:20)
+    println(rpad(name, 19), round(1e6 * tmin, sigdigits = 3), " µs")
+end
+```
+
 ### Low Tolerances
 
 This is the speed at lower tolerances, measuring what's good when accuracy is needed.
@@ -536,6 +585,31 @@ plot(wp)
 
 In the latest run, `ROCK4` and `NordsieckBDF` with KLU are the fastest methods at moderate tolerances,
 while `TSRKC3` reaches the smallest errors of all the methods in this comparison.
+
+The PETScDiffEq methods at these tolerances:
+
+```julia
+setups = [
+    Dict(:alg=>TSRosW("ra34pw2"), :prob_choice => 2),
+    Dict(:alg=>TSRosW("ra34pw2", petsc_lu), :prob_choice => 2),
+    Dict(:alg=>ROS34PW2(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>TSImplicit("bdf"; order = 5), :prob_choice => 2),
+    Dict(:alg=>TSImplicit("bdf", petsc_lu; order = 5), :prob_choice => 2),
+    Dict(:alg=>FBDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>TSARKIMEX("4"), :prob_choice => 2),
+    Dict(:alg=>TSARKIMEX("4", petsc_lu), :prob_choice => 2),
+    Dict(:alg=>KenCarp4(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>NordsieckBDF(linsolve = KLUFactorization()), :prob_choice => 2),
+    Dict(:alg=>CVODE_BDF(linear_solver = :KLU), :prob_choice => 2)
+]
+names = ["TSRosW ra34pw2 MTK", "TSRosW ra34pw2 LU MTK", "ROS34PW2 KLU MTK",
+    "TSImplicit bdf5 MTK", "TSImplicit bdf5 LU MTK", "FBDF KLU MTK",
+    "TSARKIMEX 4 MTK", "TSARKIMEX 4 LU MTK", "KenCarp4 KLU MTK",
+    "NordsieckBDF KLU MTK", "CVODE MTK KLU"];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; names = names,
+    save_everystep = false, appxsol = test_sol, maxiters = Int(1e5), numruns = 10)
+plot(wp)
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
