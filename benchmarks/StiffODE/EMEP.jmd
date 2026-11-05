@@ -4,7 +4,7 @@ author: Chris Rackauckas
 ---
 
 ```julia
-using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEq, DiffEqDevTools, Sundials, Plots, ODEInterfaceDiffEq
 using OrdinaryDiffEqBDF, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqFIRK, OrdinaryDiffEqRosenbrock, OrdinaryDiffEqSDIRK, OrdinaryDiffEqStabilizedRK
 using SciMLLogging
 using LinearAlgebra, RecursiveFactorization, Polyester, StaticArrays, OrdinaryDiffEqCore
@@ -411,12 +411,11 @@ end
 ```
 
 ```julia
-# lsoda does not accept callbacks, and the ODEInterfaceDiffEq version in this
-# environment (4.x) errors on any callback (SciML/ODEInterfaceDiffEq.jl#8 tracks
-# callback support upstream), so rodas, radau, seulex and lsoda use
-# `:prob_choice => 2`: the same ODE with the switch evaluated from t. ODEInterfaceDiffEq
-# ignores `tstops` (it warns on each solve), so rodas, radau and seulex also run
-# unguarded at the discontinuities; lsoda honors them.
+# The ODEInterfaceDiffEq version in this environment (4.x) errors on any callback
+# (SciML/ODEInterfaceDiffEq.jl#8 tracks callback support upstream), so rodas, radau and
+# seulex use `:prob_choice => 2`: the same ODE with the switch evaluated from t.
+# ODEInterfaceDiffEq ignores `tstops` (it warns on each solve), so they also run
+# unguarded at the discontinuities.
 prob_tstops = ODEProblem{true, SciMLBase.FullSpecialize}(emep!, u0, tspan, nothing)
 probs = [prob, prob_tstops]
 
@@ -447,10 +446,11 @@ depend on time through the solar zenith angle and day/night cycling, creating
 discontinuities at dawn (4:00) and dusk (20:00) transitions. The OrdinaryDiffEq and
 Sundials solvers get `tstops` at the 8 discontinuity times and also switch the day/night
 regime and restart at those times through `daylight_cb`, like the test set driver.
-`rodas`, `radau`, `seulex` and `lsoda` cannot take the callback in this environment, so
-they integrate the right-hand side that switches on `t`. `lsoda` still honors the
-`tstops`, but ODEInterfaceDiffEq ignores them, so `rodas`, `radau` and `seulex` step
-through the discontinuities unguarded.
+`rodas`, `radau` and `seulex` cannot take the callback in this environment, so they
+integrate the right-hand side that switches on `t`, and ODEInterfaceDiffEq ignores the
+`tstops`, so they step through the discontinuities unguarded. `lsoda` is not included:
+it fails its error test at the discontinuities, and liblsoda's message for that failure
+has a format-string bug that crashes the Julia process on Windows.
 
 O(¹D) (y(38)) has a lifetime of about 1e-9 s. Resolving its initial transient at
 t = 14400 needs steps near `eps(14400) ≈ 1.8e-12` at the tightest tolerances. This is
@@ -489,7 +489,6 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>CVODE_BDF()),
           Dict(:alg=>rodas(), :prob_choice=>2),
           Dict(:alg=>radau(), :prob_choice=>2),
-          Dict(:alg=>lsoda(), :prob_choice=>2),
           Dict(:alg=>RadauIIA5()),
           ]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=SciMLLogging.None(),
@@ -506,7 +505,6 @@ setups = [Dict(:alg=>Rosenbrock23()),
           Dict(:alg=>TRBDF2()),
           Dict(:alg=>KenCarp3()),
           Dict(:alg=>Rodas4()),
-          Dict(:alg=>lsoda(), :prob_choice=>2),
           Dict(:alg=>radau(), :prob_choice=>2)]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
@@ -554,7 +552,6 @@ setups = [Dict(:alg=>FBDF()),
           Dict(:alg=>Rodas5P()),
           Dict(:alg=>rodas(), :prob_choice=>2),
           Dict(:alg=>radau(), :prob_choice=>2),
-          Dict(:alg=>lsoda(), :prob_choice=>2),
 ]
 wp = WorkPrecisionSet(probs,abstols,reltols,setups;verbose=SciMLLogging.None(),
                       save_everystep=false,appxsol=[test_sol, test_sol],maxiters=Int(1e5),numruns=10,
@@ -597,7 +594,6 @@ setups = [
             Dict(:alg=>Rodas5P()),
             Dict(:alg=>QNDF()),
             Dict(:alg=>NordsieckBDF()),
-            Dict(:alg=>lsoda(), :prob_choice=>2),
             Dict(:alg=>radau(), :prob_choice=>2),
             Dict(:alg=>seulex(), :prob_choice=>2),
             Dict(:alg=>ImplicitEulerExtrapolation(min_order = 5, init_order = 3,threading = OrdinaryDiffEqCore.PolyesterThreads())),
@@ -608,7 +604,7 @@ setups = [
             Dict(:alg=>ImplicitHairerWannerExtrapolation(threading = false)),
             ]
 
-solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","NordsieckBDF","lsoda","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
+solnames = ["CVODE_BDF","KenCarp4","Rodas4","Rodas5P","QNDF","NordsieckBDF","radau","seulex","ImplEulerExtpl (threaded)", "ImplEulerExtpl (non-threaded)",
             "ImplEulerBaryExtpl (threaded)","ImplEulerBaryExtpl (non-threaded)","ImplHWExtpl (threaded)","ImplHWExtpl (non-threaded)"]
 
 wp = WorkPrecisionSet(probs,abstols,reltols,setups; verbose=SciMLLogging.None(),
@@ -623,7 +619,7 @@ plot(wp, title = "Implicit Methods: EMEP",legend=:outertopleft,size = (1000,500)
 
 ### Conclusion
 
-The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients and day/night discontinuities. At high tolerances, `NordsieckBDF` is the fastest, followed by `TRBDF2`, `QNDF` and `FBDF`, and `CVODE_BDF` is slower than these. At low tolerances, `Rodas5P` and `Rodas4` complete every tolerance, `CVODE_BDF` and `NordsieckBDF` complete most of them, and `Rodas5P` and `Rodas4` reach the smallest errors, down to the reference limit described below. `FBDF` and `QNDF` complete only the loosest low tolerance. Tighter than that, they abort at t = 14400 because their first step falls below `eps(t)` ([OrdinaryDiffEq.jl#4606](https://github.com/SciML/OrdinaryDiffEq.jl/issues/4606)). `rodas`, `radau`, `seulex` and `lsoda` integrate without the restart callback, and the ODEInterface solvers also run without `tstops` because ODEInterfaceDiffEq ignores them. At low tolerances `rodas`, `radau` and `lsoda` give two points, one point or none: `rodas` and `radau` exit with `step size too small` at an unguarded discontinuity (mostly t = 100800), while `lsoda` fails its error test at and after the discontinuities, and also hits `maxiters`. The reference bounds how small a plotted error is meaningful: the independent `RadauIIA5` check above differs from the reference endpoint by about 4e-2 in the same mean-absolute measure the plots use, so displayed errors at or below about 5e-2 cannot separate methods against this reference. In the multithreading comparison, each threaded extrapolation method reaches the same errors as its non-threaded version.
+The EMEP problem is a 66-dimensional atmospheric chemistry model with time-varying photolysis and reaction rate coefficients and day/night discontinuities. At high tolerances, `NordsieckBDF` is the fastest, followed by `TRBDF2`, `QNDF` and `FBDF`, and `CVODE_BDF` is slower than these. At low tolerances, `Rodas5P` and `Rodas4` complete every tolerance, `CVODE_BDF` and `NordsieckBDF` complete most of them, and `Rodas5P` and `Rodas4` reach the smallest errors, down to the reference limit described below. `FBDF` and `QNDF` complete only the loosest low tolerance. Tighter than that, they abort at t = 14400 because their first step falls below `eps(t)` ([OrdinaryDiffEq.jl#4606](https://github.com/SciML/OrdinaryDiffEq.jl/issues/4606)). `rodas`, `radau` and `seulex` integrate without the restart callback and without `tstops`, because ODEInterfaceDiffEq ignores them. At low tolerances `rodas` and `radau` give at most two points: they exit with `step size too small` at an unguarded discontinuity (mostly t = 100800). The reference bounds how small a plotted error is meaningful: the independent `RadauIIA5` check above differs from the reference endpoint by about 4e-2 in the same mean-absolute measure the plots use, so displayed errors at or below about 5e-2 cannot separate methods against this reference. In the multithreading comparison, each threaded extrapolation method reaches the same errors as its non-threaded version.
 
 ```julia, echo = false
 using SciMLBenchmarks
