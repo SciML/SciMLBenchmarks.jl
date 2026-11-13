@@ -19,8 +19,10 @@ B5 benchmark, which documents their source.
 
 ## How it works
 
-- **Integration:** each experiment is solved with DiffEqGPU's adaptive `GPUTsit5` at the CPU
-  benchmark's tolerances (`reltol = 1e-6`, `abstol = 1e-3`). The GPU optimizers call the
+- **Integration:** each experiment is solved with DiffEqGPU's adaptive `GPUTsit5` at
+  `reltol = abstol = 1e-6`. At the CPU benchmark's `abstol = 1e-3`, `GPUTsit5` misses the
+  tight-tolerance solution by up to 0.17 at some samples, more than the noise of the data, so
+  the check below fails there. The GPU optimizers call the
   cost inside their kernels, one particle per thread. The CPU optimizers call the same
   function, so all optimizers minimize the same cost. The check below compares it with the
   CPU benchmark's `Rodas5P` at tight tolerances. `GPURodas5P` is not used: with 26 states,
@@ -54,7 +56,7 @@ const BUDGET = 300.0            # wall-clock seconds per run
 const NRUNS = 3                 # runs per optimizer
 const WARMUP = 1.0              # budget of the untimed warm-up run
 const J_REF = 3072.5            # cost reached by eSS in the BioPreDyn-bench paper
-const RELTOL, ABSTOL = 1.0e-6, 1.0e-3   # GPUTsit5 tolerances, as in the CPU benchmark
+const RELTOL, ABSTOL = 1.0e-6, 1.0e-6   # GPUTsit5 tolerances
 const DT0 = 0.01                # initial step (h)
 const DTMIN = 1.0e-10           # a solve whose step falls below this gets cost Inf
 const MAXSTEPS = 10_000         # a solve not done after this many steps gets cost Inf
@@ -480,7 +482,11 @@ const LB, UB = SVector{86}(p_lower), SVector{86}(p_upper);
 
 Check: the `GPUTsit5` cost against the CPU `Rodas5P` at tight tolerances
 (`reltol = 1e-10`, `abstol = 1e-12`), at the nominal and starting parameters and at five
-random points in the bounds.
+random points in the bounds. The cost sums `N = 900` squared residuals scaled by the noise
+standard deviation, so at the true parameters it follows a χ² distribution with `N` degrees
+of freedom, whose standard deviation is `√(2N) ≈ 42`. Cost differences below that are within
+the data's statistical resolution. The check fails the build if any cost is not finite, hits
+the `1e20` failed-solve penalty, or differs from the reference by more than `√(2N)`.
 
 ```julia
 function rodas_cost(p)
@@ -488,6 +494,7 @@ function rodas_cost(p)
     for (y0, c, obs) in b5_cost.exps
         prob = SciMLBase.ODEProblem{false}((u, q, t) -> b5_rhs(u, q, c), y0, (0.0, 30.0), SVector{86}(p))
         sol = solve(prob, OrdinaryDiffEqRosenbrock.Rodas5P(); reltol = 1.0e-10, abstol = 1.0e-12, saveat = 2.0)
+        SciMLBase.successful_retcode(sol) || error("reference Rodas5P solve failed: $(sol.retcode)")
         s += sum(k -> sum(abs2, (observed(sol.u[k + 1]) - obs[k]) / 0.05), 1:15)
     end
     return s
@@ -498,9 +505,13 @@ checkpoints = vcat(
     ["p_nom" => p_nom, "p_start" => p_start],
     ["random $i" => p_lower .+ rand(86) .* (p_upper .- p_lower) for i in 1:5]
 )
+const N_RESIDUALS = 10 * 15 * 6                # experiments × samples × observables
+const COST_TOL = sqrt(2 * N_RESIDUALS)          # standard deviation of χ²(N)
 for (name, p) in checkpoints
     a, b = b5_cost(SVector{86}(p)), rodas_cost(p)
-    @printf "%-10s GPUTsit5 %12.2f   Rodas5P (tight) %12.2f   relative difference %.1e\n" name a b abs(a - b) / b
+    @printf "%-10s GPUTsit5 %12.2f   Rodas5P (tight) %12.2f   difference %.2e\n" name a b abs(a - b)
+    isfinite(a) && a < 1.0e20 || error("$name: GPUTsit5 cost $a is a failed solve")
+    abs(a - b) <= COST_TOL || error("$name: |$a - $b| exceeds the tolerance $COST_TOL")
 end
 ```
 
@@ -509,8 +520,8 @@ end
 The baselines are the global optimizers of the CPU B5 benchmark, `BBO_adaptive_de_rand_1_bin`
 and `GN_CRS2_LM`, stopped by their own `maxtime`. The swarms use the same box and start from
 uniform samples in it. The GPU swarms advance `CHUNK` iterations at a time, with the clock
-read in between. Any error in a run is shown with the results, and the run then has no
-result.
+read in between. An error in any run, other than the deadline stop of `SerialPSO`, fails
+the build.
 
 ```julia
 # A run's history: (seconds since its start, best cost so far) at every improvement.
@@ -581,18 +592,15 @@ const LABELS = first.(METHODS)
 
 ## Runs
 
-```julia
-const ERRORS = Dict{String, String}()   # optimizer => first line of its first error
+A GPU chunk or a closing evaluation can end after the deadline, so each history keeps only
+the improvements recorded within `BUDGET`: every statistic and plot below is budget-limited.
 
-function timed_run(label, runner, budget)
+```julia
+# Run once; errors propagate and fail the build.
+function timed_run(runner, budget)
     h, t0 = History(), time()
-    try
-        runner(h, t0, budget)
-    catch e
-        get!(ERRORS, label, first(split(sprint(showerror, e), '\n')))
-        empty!(h)                       # a run that errored has no result
-    end
-    return h
+    runner(h, t0, budget)
+    return filter(x -> x[1] <= budget, h)
 end
 
 best_at(h, t) = (i = findlast(x -> x[1] <= t, h); i === nothing ? Inf : h[i][2])
@@ -600,8 +608,8 @@ time_to(h, J) = (i = findfirst(x -> x[2] <= J, h); i === nothing ? Inf : h[i][1]
 
 histories = Dict{String, Vector{History}}()
 for (label, runner) in METHODS
-    timed_run(label, runner, WARMUP)                          # compile; discarded
-    histories[label] = [(Random.seed!(r); timed_run(label, runner, BUDGET)) for r in 1:NRUNS]
+    timed_run(runner, WARMUP)                                 # compile; discarded
+    histories[label] = [(Random.seed!(r); timed_run(runner, BUDGET)) for r in 1:NRUNS]
     @info label best = [best_at(h, BUDGET) for h in histories[label]]
 end
 ```
@@ -609,8 +617,7 @@ end
 ## Results
 
 Per optimizer: the best cost after `BUDGET` seconds in each run (median and best), how many
-runs reached the eSS reference `J_REF`, and their median time to reach it. Any error follows
-the table.
+runs reached the eSS reference `J_REF` within `BUDGET`, and their median time to reach it.
 
 ```julia
 @printf "%-28s %14s %14s %10s %14s\n" "optimizer" "median best" "best" "≤ J_REF" "median time"
@@ -618,9 +625,6 @@ for l in sort(LABELS; by = l -> median(best_at.(histories[l], BUDGET)))
     b = best_at.(histories[l], BUDGET)
     t = filter(isfinite, time_to.(histories[l], J_REF))
     @printf "%-28s %14.1f %14.1f %7d/%-2d %14s\n" l median(b) minimum(b) length(t) NRUNS (isempty(t) ? "never" : @sprintf("%.1f s", median(t)))
-end
-for (l, msg) in sort(collect(ERRORS))
-    println(l, ": ", msg)
 end
 ```
 
