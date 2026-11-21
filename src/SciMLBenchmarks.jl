@@ -3,6 +3,7 @@ module SciMLBenchmarks
 using InteractiveUtils: InteractiveUtils
 using Markdown: Markdown, @md_str
 using Pkg: Pkg
+using TOML: TOML
 using Weave: Weave, tangle, weave
 using PrecompileTools: @compile_workload, @setup_workload
 
@@ -31,6 +32,28 @@ function _benchmark_priority(path)
     end
 end
 
+function _build_conda(folder)
+    minor = "$(VERSION.major).$(VERSION.minor)"
+    manifests = if VERSION >= v"1.10.8"
+        ("JuliaManifest-v$minor.toml", "Manifest-v$minor.toml", "JuliaManifest.toml", "Manifest.toml")
+    else
+        ("JuliaManifest.toml", "Manifest.toml")
+    end
+    conda_uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
+    for name in manifests
+        path = joinpath(folder, name)
+        isfile(path) || continue
+        # Pkg.dependencies() requires a source path even for unrelated manifest entries.
+        manifest = TOML.parsefile(path)
+        dependencies = get(manifest, "deps", manifest)
+        if any(dep -> dep["uuid"] == conda_uuid, get(dependencies, "Conda", ()))
+            Pkg.build(Pkg.PackageSpec(; uuid = conda_uuid))
+        end
+        break
+    end
+    return
+end
+
 function weave_file(folder, file, build_list = (:script, :github))
     Weave.set_chunk_defaults!(:error => false)
     target = joinpath(folder, file)
@@ -41,23 +64,7 @@ function weave_file(folder, file, build_list = (:script, :github))
         Pkg.activate(folder)
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
             Pkg.instantiate()
-            # Conda.jl's module body validates its env dir at load time; on
-            # runners with a persistent depot a deleted env breaks precompile.
-            # Building first recreates it (build_benchmark.sh does the same
-            # for the root env). Only build entries with an installed source:
-            # manifests resolved under older Julia versions can list former
-            # stdlibs that no longer ship with Julia and have no path, which
-            # makes plain Pkg.build() error.
-            ctx = Pkg.Types.Context()
-            buildable = Pkg.PackageSpec[]
-            for (uuid, entry) in ctx.env.manifest.deps
-                Pkg.Types.is_stdlib(uuid) && continue
-                path = Pkg.Operations.source_path(ctx.env.manifest_file, entry)
-                path === nothing && continue
-                isfile(joinpath(path, "deps", "build.jl")) &&
-                    push!(buildable, Pkg.PackageSpec(; uuid = uuid))
-            end
-            isempty(buildable) || Pkg.build(buildable)
+            _build_conda(folder)
         end
         Pkg.precompile()
     end
