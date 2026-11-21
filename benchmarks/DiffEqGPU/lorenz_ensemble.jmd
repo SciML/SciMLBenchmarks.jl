@@ -18,7 +18,8 @@ in the artifacts. Fixed-step runs use $dt = 0.001$; adaptive runs use
 
 Compared:
 
-* `GPUTsit5` + `EnsembleGPUKernel` — specialized kernel (paper's Julia GPU line)
+* `GPUTsit5` + `EnsembleGPUKernel` — full high-level solve (the `Kernel` table column)
+* `GPUTsit5` + `vectorized_solve`/`vectorized_asolve` — device-resident inputs and outputs
 * `RK4`/`Tsit5` + `EnsembleGPUArray` — fused array ensemble
 * `Tsit5` + `EnsembleThreads` — CPU
 * [Diffrax](https://github.com/patrick-kidger/diffrax) Tsit5 via `jax.vmap`
@@ -26,18 +27,28 @@ Compared:
   (official [torchdiffeq](https://github.com/rtqichen/torchdiffeq) does not
   `vmap`; the paper used a fork)
 
-`cpu_offload` is `0` so the GPU numbers are GPU-only.
+`cpu_offload` is `0`, so no GPU trajectory is offloaded to the CPU. The
+high-level Julia timings include host problem construction, transfers, and
+solution assembly. The `Kernel-only` line times the synchronized public
+`vectorized_solve`/`vectorized_asolve` call, including device output allocation
+and initialization, with problems already on the device. It excludes problem
+construction, upload, download, and host solution assembly, matching the timed
+boundary of JAX and PyTorch. Every GPU implementation uses the same Float32
+parameter array and retains the initial and final states. The CPU line uses
+Float64. Timings are minima of five synchronized samples after warmup.
 
 The [work-precision comparison](lorenz_workprecision.md) adds
 `GPUTsit5IController` and GRADSOLVE, explicit Float32/Float64 comparisons, and
-scaling at common achieved-error ceilings. The Julia code below uses
-`beta=2.666` while the Python definitions use `8/3`; the work-precision
-comparison uses `8/3` in every implementation.
+scaling at common achieved-error ceilings. This ensemble comparison uses
+`beta=2.666` in every implementation; the work-precision comparison uses `8/3`.
+Equal adaptive tolerances do not imply equal achieved error.
 
 ```julia
 using Printf
 using CUDA
 using DiffEqGPU, OrdinaryDiffEq, OrdinaryDiffEqLowOrderRK, StaticArrays
+using SciMLBase: successful_retcode
+using LinearAlgebra: norm
 using Plots
 using PythonCall, CondaPkg
 
@@ -60,11 +71,13 @@ function lorenz(u, p, t)
     return SVector{3, T}(du1, du2, du3)
 end
 
+lorenz_parameters(n, T) = range(zero(T), T(21); length = max(n, 2))[1:n]
+
 function make_ensemble(n; T::Type = Float32)
     u0 = SVector{3, T}(1, 0, 0)
     tspan = (zero(T), one(T))
     p = SVector{1, T}(21)
-    plist = range(zero(T), T(21); length = max(n, 2))[1:n]
+    plist = lorenz_parameters(n, T)
     prob = ODEProblem{false}(lorenz, u0, tspan, p)
     prob_func = (prob, ctx) -> remake(prob, p = SVector{1, T}(plist[ctx.sim_id]))
     return EnsembleProblem(prob, prob_func = prob_func, safetycopy = false)
@@ -100,35 +113,45 @@ function time_julia(n, ensemblealg, alg; adaptive, T = Float32, dt = T(0.001))
     end
     return min_seconds(run)
 end
+
+function kernel_runner(n; adaptive, T = Float32)
+    ens = make_ensemble(n; T)
+    probs = CuArray([
+        DiffEqGPU.make_prob_compatible(remake(ens.prob; p = SVector(rho)))
+        for rho in lorenz_parameters(n, T)
+    ])
+    return if adaptive
+        () -> CUDA.@sync DiffEqGPU.vectorized_asolve(
+            probs, ens.prob, GPUTsit5(); dt = T(0.001),
+            save_everystep = false, reltol = T(1e-8), abstol = T(1e-8)
+        )
+    else
+        () -> CUDA.@sync DiffEqGPU.vectorized_solve(
+            probs, ens.prob, GPUTsit5(); dt = T(0.001), save_everystep = false
+        )
+    end
+end
+
+time_kernel(n; adaptive) = min_seconds(kernel_runner(n; adaptive))
 ```
 
 ```julia
-# Hosted V100s reject some CUDA 13 / generic PyTorch wheels (`no kernel image
-# is available for execution on the device`). Probe once and skip Python GPU
-# timings rather than aborting the Julia ensemble series.
-python_gpu = try
-    sys = pyimport("sys")
-    sys.path.insert(0, @__DIR__)
-    eu = pyimport("ensemble_utils")
-    jax = pyimport("jax")
-    torch = pyimport("torch")
-    jax_devs = jax.devices("gpu")
-    @assert pyconvert(Int, pyimport("builtins").len(jax_devs)) > 0 "JAX did not see a GPU"
-    println("JAX devices: ", jax.devices())
-    @assert pyconvert(Bool, torch.cuda.is_available()) "PyTorch did not see a CUDA GPU"
-    println("PyTorch CUDA: ", torch.cuda.get_device_name(0))
-    torch.zeros(1).cuda()
-    jax.numpy.zeros((1,))
-    (; eu, jax, torch)
-catch e
-    @warn "Python GPU backends unavailable; skipping JAX/PyTorch timings" exception = (e, catch_backtrace())
-    nothing
-end
+sys = pyimport("sys")
+sys.path.insert(0, @__DIR__)
+eu = pyimport("ensemble_utils")
+jax = pyimport("jax")
+torch = pyimport("torch")
+jax_devs = jax.devices("gpu")
+@assert pyconvert(Int, pyimport("builtins").len(jax_devs)) > 0 "JAX did not see a GPU"
+println("JAX ", jax.__version__, " devices: ", jax_devs)
+@assert pyconvert(Bool, torch.cuda.is_available()) "PyTorch did not see a CUDA GPU"
+println("PyTorch ", torch.__version__, " CUDA ", torch.version.cuda, ": ", torch.cuda.get_device_name(0))
+torch.zeros(1; device = "cuda", dtype = torch.float32)
+torch.cuda.synchronize()
+jax.device_put(jax.numpy.zeros((1,)), jax_devs[0]).block_until_ready()
 
-time_diffrax(n; adaptive) = python_gpu === nothing ? NaN :
-                            pyconvert(Float64, python_gpu.eu.time_diffrax(n, adaptive))
-time_torch(n) = python_gpu === nothing ? NaN :
-                pyconvert(Float64, python_gpu.eu.time_torch_rk4(n))
+time_diffrax(n; adaptive) = pyconvert(Float64, eu.time_diffrax(pylist(lorenz_parameters(n, Float32)), adaptive))
+time_torch(n) = pyconvert(Float64, eu.time_torch_rk4(pylist(lorenz_parameters(n, Float32))))
 ```
 
 Trajectory counts follow the paper's `8, 32, 128, …` geometric sequence.
@@ -147,8 +170,15 @@ const TRAJ_TORCH = [8, 32, 128, 512, 2048, 8192, 32768, 131072, 524288]
 
 ## Correctness
 
-Two kernel trajectories against CPU `Tsit5` references at the same `Float32`
-problems.
+The kernel checks compare two trajectories with CPU `Tsit5` and compare the
+high-level and device-resident outputs exactly. The Python checks verify GPU
+placement, Float32 input identity, finite `(N, 2, 3)` outputs, and initial states.
+An RHS check allows eight Float32 epsilons for rounding in the short arithmetic
+expressions; its nonzero third component distinguishes `beta=2.666` from `8/3`.
+Three endpoint checks use tight Float64 `Tsit5` references and a normalized
+`4000eps(Float32)` smoke-test budget, allowing accumulated roundoff over four
+RK stages and 1000 fixed steps. This budget is not a forward-error bound or a
+matched-accuracy comparison.
 
 ```julia
 let
@@ -160,6 +190,51 @@ let
     err = maximum(i -> maximum(abs.(sol_gpu.u[i].u[end] .- sol_cpu.u[i].u[end])), 1:2)
     println("kernel vs CPU |Δu|∞ at t=1: ", err)
     @assert err < 1.0f-2
+    for adaptive in (false, true)
+        ts, us = kernel_runner(2; adaptive)()
+        high = solve(ens, GPUTsit5(), KERNEL; trajectories = 2,
+            save_everystep = false, adaptive, dt = 0.001f0,
+            reltol = 1.0f-8, abstol = 1.0f-8)
+        host_ts, host_us = Array(ts), Array(us)
+        @assert size(host_ts) == size(host_us) == (2, 2)
+        for i in 1:2
+            @assert host_ts[:, i] == high.u[i].t
+            @assert host_us[:, i] == high.u[i].u
+        end
+    end
+end
+```
+
+```julia
+let
+    rhos = collect(lorenz_parameters(3, Float32))
+    state = SVector(1.5f0, -2.0f0, 3.0f0)
+    rho = 7.125f0
+    checks = eu.checked_outputs(pylist(rhos), pylist(state), rho)
+    expected_rhs = lorenz(state, SVector(rho), 0.0f0)
+    for library in ("JAX", "PyTorch")
+        @assert pyconvert(Vector{Float32}, checks["$library parameters"]) == rhos
+        rhs = pyconvert(Vector{Float32}, checks["$library RHS"])
+        @assert isapprox(rhs, expected_rhs; rtol = 8eps(Float32), atol = 8eps(Float32))
+    end
+    refs = map(rhos) do rho
+        prob = ODEProblem{false}(
+            lorenz, SVector(1.0, 0.0, 0.0), (0.0, 1.0), SVector(Float64(rho))
+        )
+        sol = solve(prob, Tsit5(); abstol = 1.0e-12, reltol = 1.0e-12, save_everystep = false)
+        @assert successful_retcode(sol) && sol.t[end] == 1.0
+        sol.u[end]
+    end
+    for method in ("Diffrax fixed", "Diffrax adaptive", "PyTorch RK4")
+        states = pyconvert(Array{Float32, 3}, checks[method])
+        @assert size(states) == (length(rhos), 2, 3)
+        @assert all(i -> states[i, 1, :] == Float32[1, 0, 0], eachindex(rhos))
+        error = maximum(eachindex(rhos)) do i
+            norm(Float64.(states[i, 2, :]) - refs[i]) / max(norm(refs[i]), 1)
+        end
+        println(method, " sampled relative endpoint error: ", error)
+        @assert error <= 4000eps(Float32)
+    end
 end
 ```
 
@@ -167,6 +242,7 @@ end
 
 ```julia
 t_kernel_fix = Float64[]
+t_device_fix = Float64[]
 t_array_fix = Float64[]
 t_cpu_fix = Float64[]
 t_jax_fix = Float64[]
@@ -175,6 +251,7 @@ t_torch_fix = Float64[]
 for n in TRAJ_KERNEL
     @info "fixed kernel" n
     push!(t_kernel_fix, time_julia(n, KERNEL, GPUTsit5(); adaptive = false))
+    push!(t_device_fix, time_kernel(n; adaptive = false))
 end
 for n in TRAJ_ARRAY
     @info "fixed array" n
@@ -197,8 +274,9 @@ end
 
 ```julia
 p_fix = plot(TRAJ_KERNEL, t_kernel_fix .* 1e3; xscale = :log10, yscale = :log10,
-    xlabel = "trajectories", ylabel = "time (ms)", label = "EnsembleGPUKernel",
+    xlabel = "trajectories", ylabel = "time (ms)", label = "EnsembleGPUKernel (high-level)",
     marker = :circle, legend = :topleft, title = "Lorenz ensemble, fixed dt = 0.001")
+plot!(p_fix, TRAJ_KERNEL, t_device_fix .* 1e3; label = "vectorized_solve (device-resident)", marker = :star5)
 plot!(p_fix, TRAJ_ARRAY, t_array_fix .* 1e3; label = "EnsembleGPUArray", marker = :square)
 plot!(p_fix, TRAJ_CPU, t_cpu_fix .* 1e3; label = "EnsembleThreads", marker = :utriangle)
 plot!(p_fix, TRAJ_JAX, t_jax_fix .* 1e3; label = "Diffrax (JAX)", marker = :diamond)
@@ -208,14 +286,15 @@ p_fix
 
 ```julia
 println("Fixed step (ms)")
-@printf("%10s %12s %12s %12s %12s %12s\n", "N", "Kernel", "Array", "CPU", "JAX", "PyTorch")
+@printf("%10s %12s %12s %12s %12s %12s %12s\n", "N", "Kernel", "Kernel-only", "Array", "CPU", "JAX", "PyTorch")
 for n in TRAJ_KERNEL
     tk = t_kernel_fix[findfirst(==(n), TRAJ_KERNEL)] * 1e3
+    td = t_device_fix[findfirst(==(n), TRAJ_KERNEL)] * 1e3
     ta = (i = findfirst(==(n), TRAJ_ARRAY); i === nothing ? NaN : t_array_fix[i] * 1e3)
     tc = (i = findfirst(==(n), TRAJ_CPU); i === nothing ? NaN : t_cpu_fix[i] * 1e3)
     tj = (i = findfirst(==(n), TRAJ_JAX); i === nothing ? NaN : t_jax_fix[i] * 1e3)
     tt = (i = findfirst(==(n), TRAJ_TORCH); i === nothing ? NaN : t_torch_fix[i] * 1e3)
-    @printf("%10d %12.3f %12.3f %12.3f %12.3f %12.3f\n", n, tk, ta, tc, tj, tt)
+    @printf("%10d %12.3f %12.3f %12.3f %12.3f %12.3f %12.3f\n", n, tk, td, ta, tc, tj, tt)
 end
 ```
 
@@ -223,6 +302,7 @@ end
 
 ```julia
 t_kernel_ad = Float64[]
+t_device_ad = Float64[]
 t_array_ad = Float64[]
 t_cpu_ad = Float64[]
 t_jax_ad = Float64[]
@@ -230,6 +310,7 @@ t_jax_ad = Float64[]
 for n in TRAJ_KERNEL
     @info "adaptive kernel" n
     push!(t_kernel_ad, time_julia(n, KERNEL, GPUTsit5(); adaptive = true))
+    push!(t_device_ad, time_kernel(n; adaptive = true))
 end
 for n in TRAJ_ARRAY
     @info "adaptive array" n
@@ -248,8 +329,9 @@ end
 
 ```julia
 p_ad = plot(TRAJ_KERNEL, t_kernel_ad .* 1e3; xscale = :log10, yscale = :log10,
-    xlabel = "trajectories", ylabel = "time (ms)", label = "EnsembleGPUKernel",
+    xlabel = "trajectories", ylabel = "time (ms)", label = "EnsembleGPUKernel (high-level)",
     marker = :circle, legend = :topleft, title = "Lorenz ensemble, adaptive 1e-8")
+plot!(p_ad, TRAJ_KERNEL, t_device_ad .* 1e3; label = "vectorized_asolve (device-resident)", marker = :star5)
 plot!(p_ad, TRAJ_ARRAY, t_array_ad .* 1e3; label = "EnsembleGPUArray", marker = :square)
 plot!(p_ad, TRAJ_CPU, t_cpu_ad .* 1e3; label = "EnsembleThreads", marker = :utriangle)
 plot!(p_ad, TRAJ_JAX, t_jax_ad .* 1e3; label = "Diffrax (JAX)", marker = :diamond)
@@ -258,13 +340,14 @@ p_ad
 
 ```julia
 println("Adaptive (ms)")
-@printf("%10s %12s %12s %12s %12s\n", "N", "Kernel", "Array", "CPU", "JAX")
+@printf("%10s %12s %12s %12s %12s %12s\n", "N", "Kernel", "Kernel-only", "Array", "CPU", "JAX")
 for n in TRAJ_KERNEL
     tk = t_kernel_ad[findfirst(==(n), TRAJ_KERNEL)] * 1e3
+    td = t_device_ad[findfirst(==(n), TRAJ_KERNEL)] * 1e3
     ta = (i = findfirst(==(n), TRAJ_ARRAY); i === nothing ? NaN : t_array_ad[i] * 1e3)
     tc = (i = findfirst(==(n), TRAJ_CPU); i === nothing ? NaN : t_cpu_ad[i] * 1e3)
     tj = (i = findfirst(==(n), TRAJ_JAX); i === nothing ? NaN : t_jax_ad[i] * 1e3)
-    @printf("%10d %12.3f %12.3f %12.3f %12.3f\n", n, tk, ta, tc, tj)
+    @printf("%10d %12.3f %12.3f %12.3f %12.3f %12.3f\n", n, tk, td, ta, tc, tj)
 end
 ```
 
