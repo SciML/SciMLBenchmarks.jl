@@ -136,8 +136,15 @@ printf '# First page\n' > "${FIXTURE}/benchmarks/Alpha/first.jmd"
 printf '# Second page\n' > "${FIXTURE}/benchmarks/Alpha/second.jmd"
 printf '# Normal page\n' > "${FIXTURE}/benchmarks/Beta/page.jmd"
 printf '\n' >> "${FIXTURE}/benchmarks/Beta/Project.toml"
-printf 'split = true\nrunner = ["split-test"]\ntimeout = 90\n' \
-    > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml"
+cat > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml" <<'TOML'
+matrix = [
+  ["self-hosted", "benchmark"],
+]
+threads = 16
+split = true
+runner = ["split-test"]
+timeout = 90
+TOML
 SPLIT_TARGETS=$'benchmarks/Alpha/first.jmd\nbenchmarks/Alpha/second.jmd'
 assert_detection "${SPLIT_TARGETS}"$'\nbenchmarks/Beta'
 if [[ $(grep -o '"runner":\["split-test"\],"timeout":90,"julia_version":"1.11"' \

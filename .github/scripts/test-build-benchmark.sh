@@ -9,13 +9,22 @@ trap 'rm -rf "${FIXTURE}"' EXIT
 
 mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" \
     "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/benchmarks/Underscore" \
-    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/bin"
+    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/benchmarks/Matrix" "${FIXTURE}/bin"
 mkdir -p "${FIXTURE}/.github"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
 printf 'threads = 128  # page and folder jobs\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
 printf 'threads = 1_6\n' > "${FIXTURE}/benchmarks/Underscore/benchmark_config.toml"
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Underscore/Project.toml"
 printf '[metadata]\n  threads = 11\n' > "${FIXTURE}/benchmarks/TableKey/benchmark_config.toml"
+cat > "${FIXTURE}/benchmarks/Matrix/benchmark_config.toml" <<'TOML'
+matrix = [
+  ["os", "julia"],
+]
+threads = 16
+split = true
+TOML
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Matrix/Project.toml"
 (
     cd "${FIXTURE}"
     if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
@@ -24,9 +33,13 @@ printf '[metadata]\n  threads = 11\n' > "${FIXTURE}/benchmarks/TableKey/benchmar
     fi
 )
 printf 'julia_version = "1.11.9"\n[[deps.StyledStrings]]\n' > "${FIXTURE}/Manifest.toml"
+export SCIML_REAL_JULIA="$(command -v julia)"
 cat > "${FIXTURE}/bin/julia" <<'JULIA'
 #!/bin/bash
 set -euo pipefail
+if [[ "$*" == *"TOML.parsefile"* ]]; then
+    exec "${SCIML_REAL_JULIA}" "$@"
+fi
 printf '%s\n' "$*" >> "${FAKE_JULIA_LOG}"
 printf '%s|%s\n' "$JULIA_NUM_THREADS" "$SCIMLBENCHMARKS_BUILD_SENTINEL" >> "$FAKE_JULIA_ENV_LOG"
 if [[ "$*" == *"Pkg.instantiate"* && -f Manifest.toml ]]; then
@@ -51,23 +64,26 @@ chmod +x "${FIXTURE}/bin/julia"
         "${BUILD_SCRIPT}" benchmarks/Underscore
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
         "${BUILD_SCRIPT}" benchmarks/TableKey
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Matrix
 )
 
 grep -Fq 'julia_version = "1.10.11"' "${FIXTURE}/Manifest.toml"
 if grep -Fq 'StyledStrings' "${FIXTURE}/Manifest.toml"; then
     exit 1
 fi
-test "$(wc -l < "${FIXTURE}/julia.log")" -eq 8
+test "$(wc -l < "${FIXTURE}/julia.log")" -eq 10
 grep -Fq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' \
     "${FIXTURE}/julia.log"
 grep -F 'benchmark.jl' "${FIXTURE}/julia.log" > "${FIXTURE}/benchmark-commands"
 printf '%s\n' '--threads=32 --project=. benchmark.jl benchmarks/Default' \
     '--threads=128 --project=. benchmark.jl benchmarks/Example' \
     '--threads=16 --project=. benchmark.jl benchmarks/Underscore' \
-    '--threads=32 --project=. benchmark.jl benchmarks/TableKey' > "${FIXTURE}/expected-commands"
+    '--threads=32 --project=. benchmark.jl benchmarks/TableKey' \
+    '--threads=16 --project=. benchmark.jl benchmarks/Matrix' > "${FIXTURE}/expected-commands"
 diff -u "${FIXTURE}/expected-commands" "${FIXTURE}/benchmark-commands"
 printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' '16|kept' '16|kept' \
-    '32|kept' '32|kept' > "${FIXTURE}/expected-environment.log"
+    '32|kept' '32|kept' '16|kept' '16|kept' > "${FIXTURE}/expected-environment.log"
 diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
 
 check_folder_allocations() {
@@ -85,12 +101,8 @@ check_folder_allocations() {
                     expected=58 ;;
                 *)
                     expected=$(read_toml_key "${folder}/benchmark_config.toml" "threads")
-                    expected=${expected%%#*}
-                    expected=${expected//[[:space:]]/}
                     if [[ -z "${expected}" ]]; then
                         expected=$(read_toml_key ".github/benchmark_defaults.toml" "threads")
-                        expected=${expected%%#*}
-                        expected=${expected//[[:space:]]/}
                     fi
                     if [[ -z "${expected}" ]]; then
                         expected=32
@@ -99,7 +111,7 @@ check_folder_allocations() {
             esac
             for target in "${folder}" "${folder}"/*.jmd; do
                 config=$(get_benchmark_config "${target}")
-                if [[ "${config##*|}" != "${expected}" ]]; then
+                if [[ "${config##*|}" -ne "${expected}" ]]; then
                     echo "${target}: expected ${expected} threads, got ${config##*|}" >&2
                     exit 1
                 fi
@@ -148,6 +160,9 @@ chmod +x "${FIXTURE}/benchmarks/Example/setup.sh"
 cat > "${FIXTURE}/bin/julia" <<'JULIA'
 #!/bin/bash
 set -euo pipefail
+if [[ "$*" == *"TOML.parsefile"* ]]; then
+    exec "${SCIML_REAL_JULIA}" "$@"
+fi
 [[ "${SHARED_SETUP}" == ready ]]
 printf '%s\n' "$*" >> "${FAKE_JULIA_LOG}"
 JULIA

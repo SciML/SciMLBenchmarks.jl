@@ -4,20 +4,27 @@
 # Returns: "runner_json|timeout|julia_version|threads"
 #   e.g. '["self-hosted", "benchmark"]|12000|1.10|32'
 
-# Read a top-level key from a TOML file (simple parser for flat keys and
-# arrays). Lines after the first [table] or [[array]] header are table-local
-# and never count as top-level overrides, whatever their indentation.
+# Read a top-level key from a TOML file with Julia's TOML parser, which keeps
+# table and array-of-table entries table-local whatever their indentation.
+# Values print in a canonical spelling — strings keep their TOML quoting,
+# integers come out in decimal (1_6, 0x10 and friends normalize), booleans as
+# true/false and arrays as a JSON-style ["a", "b"] list. A missing file or key
+# prints nothing; a malformed file fails with the parser's error.
 read_toml_key() {
     local file="$1" key="$2"
     if [[ ! -f "${file}" ]]; then
         return
     fi
-    local line
-    line=$(sed '/^[[:space:]]*\[/,$d' "${file}" \
-        | grep -E "^[[:space:]]*${key}[[:space:]]*=" 2>/dev/null | head -1) || true
-    if [[ -n "${line}" ]]; then
-        echo "${line#*=}" | sed 's/^[[:space:]]*//'
-    fi
+    julia --startup-file=no -e '
+        using TOML
+        value = get(TOML.parsefile(ARGS[1]), ARGS[2], nothing)
+        if value isa AbstractVector
+            print("[", join((sprint(show, element) for element in value), ", "), "]")
+        elseif value isa AbstractString
+            print(sprint(show, value))
+        elseif !isnothing(value)
+            print(value)
+        end' -- "${file}" "${key}"
 }
 
 # Normalize a TOML integer literal to a decimal string. Accepts the literals
@@ -68,7 +75,7 @@ get_julia_version() {
     local bench_dir="$1"
     local manifest="${bench_dir}/Manifest.toml"
     local raw
-    raw=$(read_toml_key "${manifest}" "julia_version")
+    raw=$(read_toml_key "${manifest}" "julia_version") || return 1
     if [[ -n "${raw}" ]]; then
         local version
         version=$(echo "${raw}" | tr -d '"' | cut -d. -f1,2)
@@ -96,33 +103,30 @@ get_benchmark_config() {
     local config_file="${bench_dir}/benchmark_config.toml"
     local defaults_file=".github/benchmark_defaults.toml"
 
-    runner=$(read_toml_key "${config_file}" "runner")
+    runner=$(read_toml_key "${config_file}" "runner") || return 1
     if [[ -z "${runner}" ]]; then
-        runner=$(read_toml_key "${defaults_file}" "runner")
+        runner=$(read_toml_key "${defaults_file}" "runner") || return 1
     fi
     if [[ -z "${runner}" ]]; then
         runner='["self-hosted", "benchmark"]'
     fi
 
-    timeout=$(read_toml_key "${config_file}" "timeout")
+    timeout=$(read_toml_key "${config_file}" "timeout") || return 1
     if [[ -z "${timeout}" ]]; then
-        timeout=$(read_toml_key "${defaults_file}" "timeout")
+        timeout=$(read_toml_key "${defaults_file}" "timeout") || return 1
     fi
     if [[ -z "${timeout}" ]]; then
         timeout="12000"
     fi
 
-    threads=$(read_toml_key "${config_file}" "threads")
+    threads=$(read_toml_key "${config_file}" "threads") || return 1
     if [[ -z "${threads}" ]]; then
-        threads=$(read_toml_key "${defaults_file}" "threads")
+        threads=$(read_toml_key "${defaults_file}" "threads") || return 1
     fi
     if [[ -z "${threads}" ]]; then
         threads="32"
     fi
 
-    threads=${threads%%#*}
-    threads="${threads#"${threads%%[![:space:]]*}"}"
-    threads="${threads%"${threads##*[![:space:]]}"}"
     local parsed_threads
     if parsed_threads=$(parse_toml_int "${threads}") \
         && [[ "${parsed_threads}" -ge 1 ]]; then
@@ -132,7 +136,7 @@ get_benchmark_config() {
         return 1
     fi
 
-    julia_version=$(get_julia_version "${bench_dir}")
+    julia_version=$(get_julia_version "${bench_dir}") || return 1
     if [[ -z "${julia_version}" ]]; then
         julia_version="1.10"
     fi
