@@ -22,13 +22,20 @@ export GITHUB_REPOSITORY=owner/benchmarks GITHUB_SHA=fixture
 DEPLOY_KEY=$(cat deploy_key)
 export DEPLOY_KEY
 
-# cygpath shim shared by both legs: maps the fake MSYS root onto the
-# native-looking FAKE_GIT_NATIVE prefix.
+# cygpath shim for the emulation leg: -m/-w give drive-letter forms, -u and a
+# missing flag pass the POSIX argument through, like the real tool.
 mkdir -p bin
 cat > bin/cygpath <<'EOF'
 #!/bin/sh
-[ "${1:-}" = "-m" ] && shift
-printf '%s\n' "$FAKE_GIT_NATIVE${1#"$FAKE_GIT_ROOT"}"
+mode=
+case "${1:-}" in
+    -*) mode=$1; shift ;;
+esac
+case "$mode" in
+    -m) printf '%s\n' "$FAKE_GIT_NATIVE${1#"$FAKE_GIT_ROOT"}" ;;
+    -w) printf '%s\n' "$FAKE_GIT_NATIVE${1#"$FAKE_GIT_ROOT"}" | tr '/' '\' ;;
+    *)  printf '%s\n' "$1" ;;
+esac
 EOF
 chmod +x bin/cygpath
 
@@ -90,7 +97,7 @@ unset GIT_ALLOW_PROTOCOL
 
 # --- Leg 2: real Git for Windows under Wine ---------------------------------
 wine=${WINE:-$(command -v wine || command -v wine64 || true)}
-if [[ -n "$wine" && -n "${GIT_FOR_WINDOWS:-}" && -x "$GIT_FOR_WINDOWS/cmd/git.exe" && -x "$GIT_FOR_WINDOWS/usr/bin/ssh.exe" ]]; then
+if [[ -n "$wine" && -n "${GIT_FOR_WINDOWS:-}" && -x "$GIT_FOR_WINDOWS/cmd/git.exe" && -x "$GIT_FOR_WINDOWS/usr/bin/ssh.exe" && -x "$GIT_FOR_WINDOWS/usr/bin/cygpath.exe" ]]; then
     wport=$((30000 + RANDOM % 20000))
     cat > sshd_listen <<EOC
 Port $wport
@@ -107,9 +114,27 @@ EOC
     if "$sshd" -f sshd_listen; then
         export FAKE_GIT_ROOT="$fixture/Program Files/Git-for-Windows"
         export FAKE_GIT_NATIVE="Z:$FAKE_GIT_ROOT"
+        export GIT_FOR_WINDOWS
         export TEST_WINE="$wine" TEST_GIT_EXE="$GIT_FOR_WINDOWS/cmd/git.exe"
-        mkdir -p "$FAKE_GIT_ROOT/cmd"
+        export WINEPREFIX="$fixture/wine-prefix" WINEDEBUG=-all
+        mkdir -p "$FAKE_GIT_ROOT/cmd" bin-wine
         ln -s "$GIT_FOR_WINDOWS/usr" "$FAKE_GIT_ROOT/usr"
+        cat > bin-wine/cygpath <<'EOF'
+#!/bin/bash
+# Bridge to the real cygpath.exe: /z is the host root in the msys namespace,
+# so translate in and out and let the real binary apply the requested mode.
+mode=
+case "${1:-}" in
+    -*) mode=$1; shift ;;
+esac
+out=$("$TEST_WINE" "$GIT_FOR_WINDOWS/usr/bin/cygpath.exe" ${mode:+$mode} "/z$1")
+rc=$?
+out=${out%$'\r'}
+[[ "$out" == /z/* ]] && out=${out#/z}
+printf '%s\n' "$out"
+exit "$rc"
+EOF
+        chmod +x bin-wine/cygpath
         cat > "$FAKE_GIT_ROOT/cmd/git" <<'EOF'
 #!/bin/bash
 set -e
@@ -135,7 +160,7 @@ EOF
         chmod +x "$FAKE_GIT_ROOT/cmd/git"
         git clone -q --bare seed output2.git
         printf '[127.0.0.1]:%s %s\n' "$wport" "$(cat host_key.pub)" > github_known_hosts
-        export PATH="$FAKE_GIT_ROOT/cmd:$fixture/bin:$fixture:$PATH"
+        export PATH="$FAKE_GIT_ROOT/cmd:$fixture/bin-wine:$fixture/bin:$fixture:$PATH"
         export PUBLISH_OUTPUT_REPO="ssh://$(id -un)@127.0.0.1:$wport$fixture/output2.git"
         ./publish_benchmark_output.sh
         git --git-dir=output2.git show HEAD:markdown/page.md | cmp markdown/page.md -
