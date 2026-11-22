@@ -1,8 +1,8 @@
 #!/bin/bash
 # Shared helper: read runner configuration for a benchmark target.
 # Usage: source this file, then call get_benchmark_config <target>
-# Returns: "runner_json|timeout|julia_version"
-#   e.g. '["self-hosted", "benchmark"]|12000|1.10'
+# Returns: "runner_json|timeout|julia_version|threads"
+#   e.g. '["self-hosted", "benchmark"]|12000|1.10|32'
 
 # Read a key from a TOML file (simple parser for flat keys and arrays)
 read_toml_key() {
@@ -65,7 +65,7 @@ get_benchmark_config() {
         bench_dir="$(dirname "${target}")"
     fi
 
-    local runner timeout julia_version
+    local runner timeout julia_version threads
     local config_file="${bench_dir}/benchmark_config.toml"
     local defaults_file=".github/benchmark_defaults.toml"
 
@@ -85,12 +85,20 @@ get_benchmark_config() {
         timeout="12000"
     fi
 
+    threads=$(read_toml_key "${config_file}" "threads")
+    if [[ -z "${threads}" ]]; then
+        threads=$(read_toml_key "${defaults_file}" "threads")
+    fi
+    if [[ -z "${threads}" ]]; then
+        threads="32"
+    fi
+
     julia_version=$(get_julia_version "${bench_dir}")
     if [[ -z "${julia_version}" ]]; then
         julia_version="1.10"
     fi
 
-    echo "${runner}|${timeout}|${julia_version}"
+    echo "${runner}|${timeout}|${julia_version}|${threads}"
 }
 
 # Backwards-compatible alias
@@ -98,5 +106,5 @@ get_runner_config() {
     local config
     config=$(get_benchmark_config "$1")
     # Return just runner|timeout for existing callers
-    echo "${config%|*}"
+    echo "${config}" | cut -d'|' -f1-2
 }

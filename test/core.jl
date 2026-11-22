@@ -250,6 +250,8 @@ end
     @test success(process)
 end
 
+include("threading.jl")
+
 @testset "benchmark publication" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "benchmarks.yml"), String)
     benchmark_job = workflow_job(workflow, "benchmark")
