@@ -10,14 +10,20 @@ end
     setup = joinpath(
         dirname(@__DIR__), "benchmarks", "MultiLanguage", "setup.sh"
     )
-    mktemp() do environment_file, io
-        close(io)
-        run(setenv(`bash $setup`, "BENCHMARK_ENV_FILE" => environment_file))
-        @test read(environment_file, String) ==
-            "export PYTHON=\"\"\n" *
-            "export R_HOME=\"*\"\n" *
-            "export CONDA_JL_HOME=\"\${CONDA_JL_HOME:-\${HOME}/.julia/conda/SciMLBenchmarks/MultiLanguage}\"\n" *
-            "export LD_LIBRARY_PATH=\"\${CONDA_JL_HOME}/lib\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"\n"
+    mktempdir() do dir
+        prefix = joinpath(dir, "conda")
+        libstdcxx = joinpath(prefix, "lib", "libstdc++.so.6")
+        mkpath(dirname(libstdcxx))
+        touch(libstdcxx)
+        env_file = joinpath(dir, "exports.sh")
+        env = Dict(
+            "BENCHMARK_ENV_FILE" => env_file, "CONDA_JL_HOME" => prefix,
+            "PYTHON" => "existing", "LD_LIBRARY_PATH" => "existing",
+        )
+        run(setenv(`bash -ec 'julia() { :; }; source "$1"' -- $setup`, env))
+        inspect = raw"""source "$1" && printf '%s\n' "$CONDA_JL_HOME" "$PYTHON" "$R_HOME" "$LD_PRELOAD" "$LD_LIBRARY_PATH" """
+        @test readlines(setenv(`bash -ec $inspect -- $env_file`, env)) ==
+            [prefix, "", joinpath(prefix, "lib", "R"), libstdcxx, "existing"]
     end
 end
 
