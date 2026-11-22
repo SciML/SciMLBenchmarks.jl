@@ -4,16 +4,43 @@
 # Returns: "runner_json|timeout|julia_version|threads"
 #   e.g. '["self-hosted", "benchmark"]|12000|1.10|32'
 
-# Read a key from a TOML file (simple parser for flat keys and arrays)
+# Read a top-level key from a TOML file (simple parser for flat keys and
+# arrays). Lines after the first [table] or [[array]] header are table-local
+# and never count as top-level overrides, whatever their indentation.
 read_toml_key() {
     local file="$1" key="$2"
     if [[ ! -f "${file}" ]]; then
         return
     fi
     local line
-    line=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "${file}" 2>/dev/null | head -1) || true
+    line=$(sed '/^[[:space:]]*\[/,$d' "${file}" \
+        | grep -E "^[[:space:]]*${key}[[:space:]]*=" 2>/dev/null | head -1) || true
     if [[ -n "${line}" ]]; then
         echo "${line#*=}" | sed 's/^[[:space:]]*//'
+    fi
+}
+
+# Normalize a TOML integer literal to a decimal string. Accepts the literals
+# Julia's TOML parser accepts: decimal, 0x hex, 0o octal and 0b binary forms,
+# underscores between digits, and a leading +. Returns 1 otherwise.
+parse_toml_int() {
+    local raw="${1#+}" base digits pattern
+    case "${raw}" in
+        0x*) base=16; digits="${raw:2}" ;;
+        0o*) base=8; digits="${raw:2}" ;;
+        0b*) base=2; digits="${raw:2}" ;;
+        *) base=10; digits="${raw}" ;;
+    esac
+    case "${base}" in
+        16) pattern='^[0-9a-fA-F]+(_[0-9a-fA-F]+)*$' ;;
+        8) pattern='^[0-7]+(_[0-7]+)*$' ;;
+        2) pattern='^[01]+(_[01]+)*$' ;;
+        *) pattern='^(0|[1-9][0-9]*(_[0-9]+)*)$' ;;
+    esac
+    if [[ "${digits}" =~ ${pattern} ]]; then
+        echo "$(( ${base}#${digits//_/} ))"
+    else
+        return 1
     fi
 }
 
@@ -94,8 +121,12 @@ get_benchmark_config() {
     fi
 
     threads=${threads%%#*}
-    if [[ "${threads}" =~ ^([1-9][0-9]*)[[:space:]]*$ ]]; then
-        threads=${BASH_REMATCH[1]}
+    threads="${threads#"${threads%%[![:space:]]*}"}"
+    threads="${threads%"${threads##*[![:space:]]}"}"
+    local parsed_threads
+    if parsed_threads=$(parse_toml_int "${threads}") \
+        && [[ "${parsed_threads}" -ge 1 ]]; then
+        threads=${parsed_threads}
     else
         echo "Expected a positive integer thread count for ${target}, got '${threads}'" >&2
         return 1

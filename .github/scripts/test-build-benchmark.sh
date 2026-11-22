@@ -8,11 +8,14 @@ FIXTURE="$(mktemp -d)"
 trap 'rm -rf "${FIXTURE}"' EXIT
 
 mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" \
-    "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/bin"
+    "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/benchmarks/Underscore" \
+    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/bin"
 mkdir -p "${FIXTURE}/.github"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
 printf 'threads = 128  # page and folder jobs\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
+printf 'threads = 1_6\n' > "${FIXTURE}/benchmarks/Underscore/benchmark_config.toml"
+printf '[metadata]\n  threads = 11\n' > "${FIXTURE}/benchmarks/TableKey/benchmark_config.toml"
 (
     cd "${FIXTURE}"
     if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
@@ -44,20 +47,27 @@ chmod +x "${FIXTURE}/bin/julia"
         "${BUILD_SCRIPT}" benchmarks/Default
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
         "${BUILD_SCRIPT}" benchmarks/Example
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Underscore
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/TableKey
 )
 
 grep -Fq 'julia_version = "1.10.11"' "${FIXTURE}/Manifest.toml"
 if grep -Fq 'StyledStrings' "${FIXTURE}/Manifest.toml"; then
     exit 1
 fi
-test "$(wc -l < "${FIXTURE}/julia.log")" -eq 4
+test "$(wc -l < "${FIXTURE}/julia.log")" -eq 8
 grep -Fq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' \
     "${FIXTURE}/julia.log"
 grep -F 'benchmark.jl' "${FIXTURE}/julia.log" > "${FIXTURE}/benchmark-commands"
 printf '%s\n' '--threads=32 --project=. benchmark.jl benchmarks/Default' \
-    '--threads=128 --project=. benchmark.jl benchmarks/Example' > "${FIXTURE}/expected-commands"
+    '--threads=128 --project=. benchmark.jl benchmarks/Example' \
+    '--threads=16 --project=. benchmark.jl benchmarks/Underscore' \
+    '--threads=32 --project=. benchmark.jl benchmarks/TableKey' > "${FIXTURE}/expected-commands"
 diff -u "${FIXTURE}/expected-commands" "${FIXTURE}/benchmark-commands"
-printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' > "${FIXTURE}/expected-environment.log"
+printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' '16|kept' '16|kept' \
+    '32|kept' '32|kept' > "${FIXTURE}/expected-environment.log"
 diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
 
 check_folder_allocations() {

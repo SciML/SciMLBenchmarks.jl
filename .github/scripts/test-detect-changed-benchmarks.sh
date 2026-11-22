@@ -158,6 +158,7 @@ assert_detection 'benchmarks/Alpha/first.jmd'
 
 assert_detection "${SPLIT_TARGETS}" benchmarks/Alpha
 assert_detection 'benchmarks/Alpha/first.jmd' benchmarks/Alpha/first.jmd
+printf 'threads = 1_6\n' > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml"
 assert_detection 'benchmarks/Beta' benchmarks/Beta
 
 printf 'split = false\n' > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml"
