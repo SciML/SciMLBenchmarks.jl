@@ -2,37 +2,37 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/read-benchmark-config.sh"
 BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_benchmark.sh}"
 FIXTURE="$(mktemp -d)"
 trap 'rm -rf "${FIXTURE}"' EXIT
 
 mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" "${FIXTURE}/bin"
-mkdir -p "${FIXTURE}/.github/scripts"
-cp "${SCRIPT_DIR}/read-benchmark-config.sh" "${FIXTURE}/.github/scripts/"
+mkdir -p "${FIXTURE}/.github"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
-printf 'threads = 128\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
+printf 'threads = 128  # page and folder jobs\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
 (
     cd "${FIXTURE}"
-    source .github/scripts/read-benchmark-config.sh
     if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
         echo "get_runner_config should return runner and timeout only" >&2
         exit 1
     fi
 )
 printf 'julia_version = "1.11.9"\n[[deps.StyledStrings]]\n' > "${FIXTURE}/Manifest.toml"
-printf '%s\n' \
-    '#!/bin/bash' \
-    'set -euo pipefail' \
-    "printf \"%s\\n\" \"\$*\" >> \"\${FAKE_JULIA_LOG}\"" \
-    'printf "%s|%s\n" "$JULIA_NUM_THREADS" "$SCIMLBENCHMARKS_BUILD_SENTINEL" >> "$FAKE_JULIA_ENV_LOG"' \
-    "if [[ \"\$*\" == *\"Pkg.instantiate\"* && -f Manifest.toml ]]; then" \
-    '    echo "ERROR: Could not locate the source code for the StyledStrings package." >&2' \
-    '    exit 1' \
-    'fi' \
-    "if [[ \"\$*\" == *\"Pkg.instantiate\"* ]]; then" \
-    "    printf 'julia_version = \"1.10.11\"\\n' > Manifest.toml" \
-    'fi' > "${FIXTURE}/bin/julia"
+cat > "${FIXTURE}/bin/julia" <<'JULIA'
+#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${FAKE_JULIA_LOG}"
+printf '%s|%s\n' "$JULIA_NUM_THREADS" "$SCIMLBENCHMARKS_BUILD_SENTINEL" >> "$FAKE_JULIA_ENV_LOG"
+if [[ "$*" == *"Pkg.instantiate"* && -f Manifest.toml ]]; then
+    echo "ERROR: Could not locate the source code for the StyledStrings package." >&2
+    exit 1
+fi
+if [[ "$*" == *"Pkg.instantiate"* ]]; then
+    printf 'julia_version = "1.10.11"\n' > Manifest.toml
+fi
+JULIA
 chmod +x "${FIXTURE}/bin/julia"
 
 (
@@ -52,34 +52,49 @@ fi
 test "$(wc -l < "${FIXTURE}/julia.log")" -eq 4
 grep -Fq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' \
     "${FIXTURE}/julia.log"
-grep -Fq -- '--threads=32 --project=. benchmark.jl benchmarks/Default' \
-    "${FIXTURE}/julia.log"
-grep -Fq -- '--threads=128 --project=. benchmark.jl benchmarks/Example' \
-    "${FIXTURE}/julia.log"
-printf '%s\n' '3|kept' '32|kept' '3|kept' '128|kept' > "${FIXTURE}/expected-environment.log"
+grep -F 'benchmark.jl' "${FIXTURE}/julia.log" > "${FIXTURE}/benchmark-commands"
+printf '%s\n' '--threads=32 --project=. benchmark.jl benchmarks/Default' \
+    '--threads=128 --project=. benchmark.jl benchmarks/Example' > "${FIXTURE}/expected-commands"
+diff -u "${FIXTURE}/expected-commands" "${FIXTURE}/benchmark-commands"
+printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' > "${FIXTURE}/expected-environment.log"
 diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
 
 (
     cd "${SCRIPT_DIR}/../.."
-    source .github/scripts/read-benchmark-config.sh
-    failed=0
-    for page in benchmarks/AstroChem/{astrochem,nelson}.jmd \
-        benchmarks/Bio/Bidkhori2012.jmd \
-        benchmarks/BayesianInference/DiffEqBayesLorenz.jmd \
-        benchmarks/ComplicatedPDE/Filament.jmd \
-        benchmarks/MethodOfLinesPDE/{MOL_fdm,MOLxPDESystemLibrary}.jmd \
-        benchmarks/NonStiffBVP/{linear_wpd,nonlinear_wpd}.jmd \
-        benchmarks/ParameterEstimation/BioPreDynB{1..6}ParameterEstimation.jmd; do
-        test -f "${page}"
-        for target in "${page%/*}" "${page}"; do
+    shopt -s nullglob dotglob
+    for project in benchmarks/*/Project.toml; do
+        folder=${project%/*}
+        case "${folder##*/}" in
+            AdaptiveSDE|AstroChem|BayesianInference|Bio|ComplicatedPDE|GlobalOptimization|\
+            Jumps|LinearSolve|MethodOfLinesPDE|NonStiffBVP|NonStiffODE|NonStiffSDE|\
+            NonlinearProblem|Optimization|ParameterEstimation|StiffODE|StiffSDE|Testing)
+                expected=128 ;;
+            DiffEqGPU|LinearSolveGPU)
+                expected=58 ;;
+            *) expected=32 ;;
+        esac
+        for target in "${folder}" "${folder}"/*.jmd; do
             config=$(get_benchmark_config "${target}")
-            if [[ "${config##*|}" != 128 ]]; then
-                echo "${target}: expected 128 threads, got ${config##*|}" >&2
-                failed=1
+            if [[ "${config##*|}" != "${expected}" ]]; then
+                echo "${target}: expected ${expected} threads, got ${config##*|}" >&2
+                exit 1
             fi
         done
     done
-    test "${failed}" -eq 0
+)
+
+(
+    cd "${FIXTURE}"
+    printf 'threads = 7\n' > .github/benchmark_defaults.toml
+    config=$(get_benchmark_config benchmarks/Default)
+    [[ "${config##*|}" == 7 ]]
+    for invalid in 0 -1 auto 2,2; do
+        printf 'threads = %s\n' "${invalid}" > benchmarks/Default/benchmark_config.toml
+        if get_benchmark_config benchmarks/Default; then
+            echo "Accepted invalid thread count: ${invalid}" >&2
+            exit 1
+        fi
+    done
 )
 
 echo "build_benchmark.sh tests passed"
@@ -91,6 +106,7 @@ cp "${FIXTURE}/benchmarks/Example/Manifest.toml" "${FIXTURE}/expected-manifest"
 cat > "${FIXTURE}/benchmarks/Example/setup.sh" <<'SETUP'
 #!/bin/bash
 set -euo pipefail
+[[ "${JULIA_NUM_THREADS}" == 128 ]]
 printf 'export SHARED_SETUP=ready\n' >> "${BENCHMARK_ENV_FILE}"
 printf 'setup\n' >> "${FAKE_SETUP_LOG}"
 SETUP

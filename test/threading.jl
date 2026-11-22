@@ -35,6 +35,7 @@
         try
             for (label, target) in (("folder API", nothing), ("page", benchmark), ("folder", folder))
                 @testset "$label" begin
+                    rm(probe; force = true)
                     command = if isnothing(target)
                         code = "using SciMLBenchmarks; SciMLBenchmarks.weave_folder($(repr(folder)), (:github,))"
                         `$(Base.julia_cmd()) --threads=2 --project=$(Base.active_project()) -e $code`

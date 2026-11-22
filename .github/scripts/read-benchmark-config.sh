@@ -93,6 +93,14 @@ get_benchmark_config() {
         threads="32"
     fi
 
+    threads=${threads%%#*}
+    if [[ "${threads}" =~ ^([1-9][0-9]*)[[:space:]]*$ ]]; then
+        threads=${BASH_REMATCH[1]}
+    else
+        echo "Expected a positive integer thread count for ${target}, got '${threads}'" >&2
+        return 1
+    fi
+
     julia_version=$(get_julia_version "${bench_dir}")
     if [[ -z "${julia_version}" ]]; then
         julia_version="1.10"
@@ -104,7 +112,7 @@ get_benchmark_config() {
 # Backwards-compatible alias
 get_runner_config() {
     local config
-    config=$(get_benchmark_config "$1")
+    config=$(get_benchmark_config "$1") || return 1
     # Return just runner|timeout for existing callers
     echo "${config}" | cut -d'|' -f1-2
 }
