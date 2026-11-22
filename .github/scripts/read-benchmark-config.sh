@@ -11,7 +11,7 @@ read_toml_key() {
         return
     fi
     local line
-    line=$(grep -E "^${key}\s*=" "${file}" 2>/dev/null | head -1) || true
+    line=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "${file}" 2>/dev/null | head -1) || true
     if [[ -n "${line}" ]]; then
         echo "${line#*=}" | sed 's/^[[:space:]]*//'
     fi

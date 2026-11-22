@@ -24,7 +24,6 @@
         inherited_blas_threads = get(ENV, "OPENBLAS_NUM_THREADS", "unset")
 
         inherited_environment = (
-            "JULIA_NUM_THREADS" => "3",
             "SCIMLBENCHMARKS_REVIEW_SENTINEL" => "kept",
             "SCIMLBENCHMARKS_REVIEW_PROBE" => probe,
             "TMPDIR" => inherited_tmpdir,
@@ -35,20 +34,32 @@
         try
             for (label, target) in (("folder API", nothing), ("page", benchmark), ("folder", folder))
                 @testset "$label" begin
-                    rm(probe; force = true)
                     command = if isnothing(target)
                         code = "using SciMLBenchmarks; SciMLBenchmarks.weave_folder($(repr(folder)), (:github,))"
                         `$(Base.julia_cmd()) --threads=2 --project=$(Base.active_project()) -e $code`
                     else
                         `$(Base.julia_cmd()) --threads=2 --project=$(Base.active_project()) $entrypoint $target`
                     end
-                    withenv("SCIMLBENCHMARKS_OUTER_SENTINEL" => "outer") do
-                        run(addenv(command, inherited_environment...))
+                    # A caller-set JULIA_NUM_THREADS propagates to worker
+                    # processes; without it they inherit the running pool.
+                    for (setting, worker_threads) in (("3", "3"), (nothing, "2"))
+                        rm(probe; force = true)
+                        withenv(
+                            "JULIA_NUM_THREADS" => setting,
+                            "SCIMLBENCHMARKS_OUTER_SENTINEL" => "outer",
+                        ) do
+                            run(addenv(command, inherited_environment...))
+                        end
+                        weaver_threads = label == "page" ? "2" : worker_threads
+                        @test read(probe, String) == join(
+                            (
+                                weaver_threads, worker_threads, worker_threads, "1",
+                                "kept", "outer", inherited_tmpdir, inherited_blas_threads,
+                                ENV["PATH"],
+                            ),
+                            "\n",
+                        )
                     end
-                    @test read(probe, String) == join(
-                        ("2", "2", "2", "1", "kept", "outer", inherited_tmpdir, inherited_blas_threads, ENV["PATH"]),
-                        "\n",
-                    )
                 end
             end
         finally

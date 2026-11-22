@@ -1,4 +1,4 @@
-ENV["JULIA_NUM_THREADS"] = string(Threads.nthreads())
+ENV["JULIA_NUM_THREADS"] = get(ENV, "JULIA_NUM_THREADS", string(Threads.nthreads()))
 using SciMLBenchmarks
 target = ARGS[1]
 if isdir(target)

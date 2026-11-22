@@ -7,7 +7,8 @@ BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_benchmark.sh}"
 FIXTURE="$(mktemp -d)"
 trap 'rm -rf "${FIXTURE}"' EXIT
 
-mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" "${FIXTURE}/bin"
+mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" \
+    "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/bin"
 mkdir -p "${FIXTURE}/.github"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
@@ -59,35 +60,58 @@ diff -u "${FIXTURE}/expected-commands" "${FIXTURE}/benchmark-commands"
 printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' > "${FIXTURE}/expected-environment.log"
 diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
 
-(
-    cd "${SCRIPT_DIR}/../.."
-    shopt -s nullglob dotglob
-    for project in benchmarks/*/Project.toml; do
-        folder=${project%/*}
-        case "${folder##*/}" in
-            AdaptiveSDE|AstroChem|BayesianInference|Bio|ComplicatedPDE|GlobalOptimization|\
-            Jumps|LinearSolve|MethodOfLinesPDE|NonStiffBVP|NonStiffODE|NonStiffSDE|\
-            NonlinearProblem|Optimization|ParameterEstimation|StiffODE|StiffSDE|Testing)
-                expected=128 ;;
-            DiffEqGPU|LinearSolveGPU)
-                expected=58 ;;
-            *) expected=32 ;;
-        esac
-        for target in "${folder}" "${folder}"/*.jmd; do
-            config=$(get_benchmark_config "${target}")
-            if [[ "${config##*|}" != "${expected}" ]]; then
-                echo "${target}: expected ${expected} threads, got ${config##*|}" >&2
-                exit 1
-            fi
+check_folder_allocations() {
+    (
+        cd "$1"
+        shopt -s nullglob dotglob
+        for project in benchmarks/*/Project.toml; do
+            folder=${project%/*}
+            case "${folder##*/}" in
+                AdaptiveSDE|AstroChem|BayesianInference|Bio|ComplicatedPDE|GlobalOptimization|\
+                Jumps|LinearSolve|MethodOfLinesPDE|NonStiffBVP|NonStiffODE|NonStiffSDE|\
+                NonlinearProblem|Optimization|ParameterEstimation|StiffODE|StiffSDE|Testing)
+                    expected=128 ;;
+                DiffEqGPU|LinearSolveGPU)
+                    expected=58 ;;
+                *)
+                    expected=$(read_toml_key "${folder}/benchmark_config.toml" "threads")
+                    expected=${expected%%#*}
+                    expected=${expected//[[:space:]]/}
+                    if [[ -z "${expected}" ]]; then
+                        expected=$(read_toml_key ".github/benchmark_defaults.toml" "threads")
+                        expected=${expected%%#*}
+                        expected=${expected//[[:space:]]/}
+                    fi
+                    if [[ -z "${expected}" ]]; then
+                        expected=32
+                    fi
+                    ;;
+            esac
+            for target in "${folder}" "${folder}"/*.jmd; do
+                config=$(get_benchmark_config "${target}")
+                if [[ "${config##*|}" != "${expected}" ]]; then
+                    echo "${target}: expected ${expected} threads, got ${config##*|}" >&2
+                    exit 1
+                fi
+            done
         done
-    done
-)
+    )
+}
+
+check_folder_allocations "${SCRIPT_DIR}/../.."
+
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Custom/Project.toml"
+printf 'threads = 64\n' > "${FIXTURE}/benchmarks/Custom/benchmark_config.toml"
+check_folder_allocations "${FIXTURE}"
 
 (
     cd "${FIXTURE}"
     printf 'threads = 7\n' > .github/benchmark_defaults.toml
     config=$(get_benchmark_config benchmarks/Default)
     [[ "${config##*|}" == 7 ]]
+    printf '  threads = 11\n' > benchmarks/Default/benchmark_config.toml
+    config=$(get_benchmark_config benchmarks/Default)
+    [[ "${config##*|}" == 11 ]]
     for invalid in 0 -1 auto 2,2; do
         printf 'threads = %s\n' "${invalid}" > benchmarks/Default/benchmark_config.toml
         if get_benchmark_config benchmarks/Default; then
