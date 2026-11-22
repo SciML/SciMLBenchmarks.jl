@@ -27,8 +27,29 @@ GlobalKnownHostsFile /dev/null
 UserKnownHostsFile "$script_dir/github_known_hosts"
 EOF
 
-# Use Git Bash's OpenSSH on Windows so Git and SSH resolve the same paths.
-printf -v GIT_SSH_COMMAND '/usr/bin/ssh -F %q' "$publish_dir/ssh_config"
+# Resolve Git's bundled OpenSSH ("usr/bin" under the install root): a bare
+# "/usr/bin/ssh" lands unquoted, breaking a spaced root like "C:\Program Files\Git".
+ssh_bin=
+dir=$(dirname "$(command -v git)")
+while [[ "$dir" != "/" && "$dir" != "." ]]; do
+    for candidate in "$dir/usr/bin/ssh" "$dir/usr/bin/ssh.exe"; do
+        if [[ -x "$candidate" ]]; then
+            ssh_bin="$candidate"
+            break 2
+        fi
+    done
+    dir=$(dirname "$dir")
+done
+if [[ -z "$ssh_bin" ]]; then
+    ssh_bin=$(command -v ssh)
+fi
+if command -v cygpath >/dev/null 2>&1; then
+    if [[ "$ssh_bin" != *.exe && -f "$ssh_bin.exe" ]]; then
+        ssh_bin="$ssh_bin.exe"
+    fi
+    ssh_bin=$(cygpath -m "$ssh_bin")
+fi
+printf -v GIT_SSH_COMMAND '%q -F %q' "$ssh_bin" "$publish_dir/ssh_config"
 export GIT_SSH_COMMAND
 
 # Publish jobs from different master runs are not serialized by a concurrency
