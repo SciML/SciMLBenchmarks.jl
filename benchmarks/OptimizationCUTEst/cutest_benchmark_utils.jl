@@ -638,6 +638,7 @@ end
 # ---------------------------------------------------------------------------
 
 const HARNESS_FILE = abspath(@__FILE__)
+const BENCHMARK_WORKER_STARTUP_TIMEOUT_SECONDS = 600.0
 const BENCHMARK_WORKER = Ref{Int}(0)
 # Worker PID after setpgid(0,0); used for process-group cleanup (public getpid).
 const BENCHMARK_WORKER_PGID = Ref{Int}(0)
@@ -699,73 +700,89 @@ end
 
 function proc_pgrp(pid::Integer)
     stat_path = "/proc/$pid/stat"
-    isfile(stat_path) || return -1
-    s = read(stat_path, String)
+    s = try
+        read(stat_path, String)
+    catch err
+        err isa SystemError && !isfile(stat_path) && return -1
+        rethrow()
+    end
     rparen = findlast(')', s)
     rparen === nothing && return -1
     fields = split(SubString(s, nextind(s, rparen)))
     length(fields) >= 3 || return -1
+    # A zombie cannot run and may remain until the system reaps it.
+    fields[1] in ("Z", "X") && return -1
     return parse(Int, fields[3])
 end
 
 function process_group_alive(pgid::Integer)
     pgid <= 1 && return false
-    isdir("/proc") || return false
+    if !Sys.islinux() || !isdir("/proc")
+        return ccall(:kill, Cint, (Cint, Cint), -Cint(pgid), 0) == 0
+    end
     for name in readdir("/proc")
         all(isdigit, name) || continue
-        try
-            proc_pgrp(parse(Int, name)) == pgid && return true
-        catch
-        end
+        proc_pgrp(parse(Int, name)) == pgid && return true
     end
     return false
 end
 
-function wait_process_group_exit(pgid::Integer; waitfor = 10.0)
-    deadline = time() + waitfor
-    while time() < deadline
-        process_group_alive(pgid) || return true
-        sleep(0.05)
-    end
-    return !process_group_alive(pgid)
-end
-
 function kill_process_group(pgid::Integer)
     pgid <= 1 && return false
-    return ccall(:kill, Cint, (Cint, Cint), -Int32(pgid), Int32(9)) == 0
+    sigkill = 9
+    return ccall(:kill, Cint, (Cint, Cint), -Cint(pgid), sigkill) == 0
 end
 
 function configure_worker_process_group(worker)
-    pgid = remotecall_fetch(worker) do
-        ccall(:setpgid, Cint, (Cint, Cint), 0, 0)
-        return Int(getpid())
-    end
+    pgid = remotecall_fetch(
+        Core.eval, worker, Main, quote
+            pid = getpid()
+            if ccall(:getpgrp, Cint, ()) != pid
+                rc = ccall(:setpgid, Cint, (Cint, Cint), 0, 0)
+                systemerror("setpgid", rc != 0)
+            end
+            Int(pid)
+        end
+    )
     BENCHMARK_WORKER_PGID[] = pgid
     return pgid
 end
 
 function start_benchmark_worker()
+    Sys.isunix() || error("CUTEst hard timeouts require Unix process groups")
     started = time()
     blas_threads = BLAS.get_num_threads()
     worker = only(
         addprocs(
             1;
-            exeflags = "--project=$(Base.active_project())",
+            exeflags = `--project=$(Base.active_project()) --threads=$(Threads.nthreads())`,
             enable_threaded_blas = blas_threads > 1,
         )
     )
-    remotecall_fetch(
-        Core.eval, worker, Main, quote
-            using CUTEst
-            using LinearAlgebra
-            BLAS.set_num_threads($blas_threads)
-            include($HARNESS_FILE)
+    try
+        startup = @async begin
+            configure_worker_process_group(worker)
+            remotecall_fetch(
+                Core.eval, worker, Main, quote
+                    using CUTEst
+                    using LinearAlgebra
+                    BLAS.set_num_threads($blas_threads)
+                    include($HARNESS_FILE)
+                    nothing
+                end
+            )
         end
-    )
+        deadline = BENCHMARK_WORKER_STARTUP_TIMEOUT_SECONDS
+        timedwait(() -> istaskdone(startup), deadline; pollint = 0.1) === :ok ||
+            error("Benchmark worker $worker did not initialize within $(deadline)s")
+        fetch(startup)
+    catch
+        kill_benchmark_worker(worker)
+        rethrow()
+    end
     BENCHMARK_WORKER[] = worker
     empty!(WARMED_SOLVERS)
     WARMED_ON_WORKER[] = worker
-    configure_worker_process_group(worker)
     @printf("Benchmark worker %d ready (startup %.1fs)\n", worker, time() - started)
     return worker
 end
@@ -773,27 +790,24 @@ end
 function ensure_benchmark_worker()
     worker = BENCHMARK_WORKER[]
     worker in workers() && return worker
+    worker == 0 || kill_benchmark_worker(worker)
     return start_benchmark_worker()
 end
 
 function kill_benchmark_worker(worker)
     pgid = BENCHMARK_WORKER_PGID[]
 
-    try
-        rmprocs(worker; waitfor = 10)
-    catch
-    end
-
     if pgid > 1
-        kill_process_group(pgid)
-        wait_process_group_exit(pgid; waitfor = 10) || kill_process_group(pgid)
-        wait_process_group_exit(pgid; waitfor = 5)
-    end
-
-    try
-        worker in workers() && rmprocs(worker; waitfor = 5)
-    catch err
-        print_exception("Unable to remove benchmark worker $worker", err, catch_backtrace())
+        removal = rmprocs(worker; waitfor = 0)
+        kill_process_group(pgid) || !process_group_alive(pgid) ||
+            error("Unable to kill benchmark worker $worker process group $pgid")
+        timedwait(() -> istaskdone(removal), 10.0) === :ok ||
+            error("Benchmark worker $worker did not disconnect")
+        fetch(removal)
+        timedwait(() -> !process_group_alive(pgid), 10.0; pollint = 0.05) === :ok ||
+            error("Benchmark worker $worker process group $pgid is still running")
+    elseif worker in workers()
+        rmprocs(worker; waitfor = 60)
     end
 
     BENCHMARK_WORKER[] = 0
@@ -835,7 +849,14 @@ function run_single_solve_guarded(
         :(run_single_solve($problem_name, $solver_name; maxtime = $maxtime))
     )
 
-    if timedwait(() -> istaskdone(waiter), deadline; pollint = 0.5) === :timed_out
+    wait_status = try
+        timedwait(() -> istaskdone(waiter), deadline; pollint = 0.5)
+    catch err
+        err isa InterruptException && kill_benchmark_worker(worker)
+        rethrow()
+    end
+
+    if wait_status === :timed_out
         println(
             " HARD TIMEOUT: no result after $(deadline)s, killing worker $worker " *
                 "(a fresh worker is started for the next solve)"
@@ -851,14 +872,12 @@ function run_single_solve_guarded(
     try
         return fetch(waiter)
     catch err
+        kill_benchmark_worker(worker)
+        err isa InterruptException && rethrow()
         bt = catch_backtrace()
         print_exception(
             "Benchmark worker $worker failed on $problem_name with $solver_name", err, bt
         )
-        if !(worker in workers()) || BENCHMARK_WORKER[] == worker
-            kill_benchmark_worker(worker)
-        end
-
         return synthetic_solve_row(
             problem_name, solver_name;
             secs = time() - started, retcode = "WORKER_FAILED", status = "FAILED",
