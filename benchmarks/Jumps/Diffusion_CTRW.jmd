@@ -168,6 +168,7 @@ direct_finals, direct_times = final_occupancy_ensemble(
     SSAStepper(), ensemble_seeds)
 push!(weakrows, (; method = "Direct (exact control)",
     midpoint_variance_summary(direct_finals, direct_times)...))
+GC.gc()
 
 leap_jprob = JumpProblem(rn, u0, (0.0, tf), rates; aggregator = PureLeaping())
 for eps in epsilons
@@ -176,6 +177,7 @@ for eps in epsilons
         leap_jprob, SimpleAdaptiveTauLeaping(epsilon = eps), ensemble_seeds)
     push!(weakrows, (; method = "SimpleAdaptiveTauLeaping ε = $eps",
         midpoint_variance_summary(leap_finals, leap_times)...))
+    GC.gc()
 end
 
 weakdf = DataFrame(
