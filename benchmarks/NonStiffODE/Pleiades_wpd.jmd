@@ -211,9 +211,15 @@ order is reached, so `num_sweeps` rather than a new tableau is what changes the
 accuracy. The default `SDCStepUpdate.Quadrature` step update adds one further
 order, so on the default Radau-right Legendre nodes `num_nodes = 4` —
 collocation order 7 — `num_sweeps = 4` gives an adaptive method of solution
-order 5 and `num_sweeps = 7` reaches the collocation cap of 7; the embedded
-estimates are one order lower, 4 and 6, formed from the difference between the
-step updates of the last two sweeps.
+order 5 and `num_sweeps = 7` reaches the collocation cap of 7. The error
+estimate is the difference between the last two sweep updates, so the embedded
+solution is the step update formed one sweep earlier: the 4-sweep pair is
+orders 5 and 4. At `num_sweeps = 7` the embedded update is the six-sweep
+value, which already reaches the same order-7 cap, so both updates are order
+7 — the adaptive-order value of 6 that OrdinaryDiffEqSDC reports is the
+[reported order rule](https://github.com/SciML/OrdinaryDiffEq.jl/blob/OrdinaryDiffEqSDC-v1.0.0/lib/OrdinaryDiffEqSDC/src/alg_utils.jl#L16-L35)
+(solution order minus one), not the achieved order of the
+[embedded update](https://github.com/SciML/OrdinaryDiffEq.jl/blob/OrdinaryDiffEqSDC-v1.0.0/lib/OrdinaryDiffEqSDC/src/sdc_perform_step.jl#L271-L287).
 
 ```julia
 setups = [Dict(:alg=>Tsit5())
@@ -254,9 +260,11 @@ spend roughly 2400 evaluations and about the same time, which is the one place
 the extra sweeps recover their per-step cost. Elsewhere they do not. At the
 loosest tolerance both spend about 1700 evaluations yet the 4-sweep run is
 about twenty times more accurate, and at the tight end the 7-sweep runs never
-get below a 1e-3 final error — the sweep-difference error estimate grows more
-optimistic as the order rises, landing hundreds of times above the requested
-tolerance — while the 4-sweep method continues to about 2e-5. Neither SDC
+get below a 1e-3 final error while the 4-sweep method continues to about 2e-5.
+Those are endpoint errors; the audit records no per-step local estimates, so
+this page cannot say how the sweep-difference estimate is calibrated against
+the [tolerances the step-size controller
+targets](https://docs.sciml.ai/DiffEqDocs/stable/basics/common_solver_opts/#Basic-Stepsize-Control). Neither SDC
 variant is reference-limited at any tolerance: the reference trajectory agrees
 with a tighter solve to about 5e-10 in the same mean-absolute final error, more
 than four orders of magnitude below the smallest error either reaches here. Both explicit SDC variants sit above the Tsit5 and Vern9 lines at
