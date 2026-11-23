@@ -14,7 +14,6 @@ Let's first look at how the model equilibrates to make sure we get consistent re
 
 ```julia
 tf = 12.0
-rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
 egfr_net = complete(loadrxnetwork(BNGNetwork(), joinpath(@__DIR__, "Data/egfr_net.net")))
 egfr_u0 = Catalyst.get_u0_map(egfr_net)
@@ -40,7 +39,7 @@ concentration curve for each method.
 We define a function to benchmark the model and then plot the results in a benchmark. The goal is to see how the SSAs perform relative to each other.
 
 ```julia
-function benchmark_and_bar_plot(model, end_time, algs)
+function benchmark_and_bar_plot(model, end_time, algs, rng)
     times = Vector{Float64}()
     alg_names = ["$s"[15:(end - 2)] for s in algs]
     u0 = Catalyst.get_u0_map(model)
@@ -52,10 +51,10 @@ function benchmark_and_bar_plot(model, end_time, algs)
         println("Benchmarking $alg_name")
         jprob = JumpProblem(
             model, u0, (0.0, end_time), parameters;
-            aggregator = alg, rng, save_positions = (false, false), u0_eltype = Int64
+            aggregator = alg, save_positions = (false, false), u0_eltype = Int64
         )
 
-        b = @benchmarkable solve($jprob; saveat = $end_time) samples=5 seconds=7200
+        b = @benchmarkable solve($jprob; rng = $rng, saveat = $end_time) samples=5 seconds=7200
         bm = run(b)
         push!(times, median(bm).time/1e9)
     end
@@ -72,7 +71,7 @@ tf = 12.0
 rng = StableRNG(53124)
 algs = [NRM(), CCNRM(), DirectCR(), RSSACR()]
 
-plt = benchmark_and_bar_plot(egfr_net, tf, algs)
+plt = benchmark_and_bar_plot(egfr_net, tf, algs, rng)
 plt
 ```
 
