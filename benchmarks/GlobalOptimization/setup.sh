@@ -73,9 +73,12 @@ fi
 
 if [[ ! -x "${PYTHON}" ]]; then
     echo "--- Installing python/numpy/scipy/matplotlib/cma into ${PREFIX}"
-    export MAMBA_ROOT_PREFIX="$(native_path "${CACHE_DIR}/mamba-root")"
+    # Standalone assignments so set -e aborts if a conversion fails.
+    NATIVE_MAMBA_ROOT="$(native_path "${CACHE_DIR}/mamba-root")"
+    NATIVE_PREFIX="$(native_path "${PREFIX}")"
+    export MAMBA_ROOT_PREFIX="${NATIVE_MAMBA_ROOT}"
     mkdir -p "${CACHE_DIR}/mamba-root"
-    "${MICROMAMBA}" create -y -p "$(native_path "${PREFIX}")" \
+    "${MICROMAMBA}" create -y -p "${NATIVE_PREFIX}" \
         -c conda-forge --override-channels \
         python=3.12 numpy scipy matplotlib cma
 fi
@@ -86,9 +89,10 @@ fi
 rm -rf "${BENCH_DIR}/.CondaPkg"
 
 if [[ -n "${BENCHMARK_ENV_FILE:-}" ]]; then
+    NATIVE_PYTHON="$(native_path "${PYTHON}")"
     {
         echo 'export JULIA_LOAD_PATH="@:@stdlib"'
-        echo "export JULIA_PYTHONCALL_EXE=\"$(native_path "${PYTHON}")\""
+        echo "export JULIA_PYTHONCALL_EXE=\"${NATIVE_PYTHON}\""
         echo 'export JULIA_CONDAPKG_BACKEND="Null"'
         if is_windows; then
             # python.exe resolves its DLLs from the env root and Library/bin.
