@@ -5,7 +5,7 @@ author: Chris Rackauckas
 
 ```julia
 using OrdinaryDiffEq, ODEInterfaceDiffEq, LSODA, Sundials, DiffEqDevTools, IRKGaussLegendre
-using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqHighOrderRK, OrdinaryDiffEqLowOrderRK
+using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqHighOrderRK, OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqSDC
 using SciMLLogging
 
 f = (du, u, p, t) -> begin
@@ -196,6 +196,69 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names 
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 plot(wp)
 ```
+
+## Spectral Deferred Correction
+
+`SDC` from OrdinaryDiffEqSDC iterates a cheap sweeper over the nodes of a
+collocation problem instead of applying a fixed tableau. With the explicit-Euler
+sweeper `SDCSweeper.FE`, each node update is one explicit Euler step between
+adjacent nodes plus a correction integral, so a step on `M` nodes with `K`
+sweeps costs about `K*M` right-hand-side evaluations. Each sweep raises the
+order by about one until the collocation order is reached, so `num_sweeps`
+rather than a new tableau is what changes the accuracy. On the default
+Radau-right Legendre nodes `num_nodes = 4` has collocation order 7, so
+`num_sweeps = 4` and `num_sweeps = 7` give adaptive methods of order roughly 4
+and 7 on the same nodes; the embedded estimate is the difference between the
+updates formed by the last two sweeps.
+
+```julia
+setups = [Dict(:alg=>Tsit5())
+          Dict(:alg=>Vern9())
+          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 4))
+          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 7))]
+solnames = ["Tsit5", "Vern9", "SDC-FE (4 nodes, 4 sweeps)", "SDC-FE (4 nodes, 7 sweeps)"]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+plot(wp)
+```
+
+How many right-hand-side evaluations does each sweep count spend, and are any of
+the plotted points only reporting the accuracy of the reference trajectory? The
+reference is bounded against a tighter solve first; an achieved error within an
+order of magnitude of that gap is marked reference-limited.
+
+```julia
+using Statistics
+tighter_ref = solve(prob, Vern9(), abstol = 1 / 10^14, reltol = 1 / 10^12,
+    maxiters = 1000000)
+ref_floor = mean(abs.(sol.u[end] - tighter_ref.u[end]))
+println("Final-point gap between the reference and a tighter solve: ", ref_floor)
+for (name, setup) in zip(solnames[3:4], setups[3:4])
+    for (abstol, reltol) in zip(abstols, reltols)
+        s = solve(prob, setup[:alg]; abstol = abstol, reltol = reltol)
+        err = mean(abs.(s.u[end] - test_sol(s.t[end])))
+        flag = err <= 10 * ref_floor ? " (reference-limited)" : ""
+        println("$name abstol=$abstol reltol=$reltol: nf=$(s.stats.nf), final error=$err$flag")
+    end
+end
+```
+
+The 7-sweep method takes far fewer steps at each tolerance, but each step costs
+about 1.75× more evaluations, so the two curves nearly coincide on the
+error-against-work plane: around a 2e-3–3e-3 final error both sweep counts
+spend roughly 2400 evaluations and about the same time, which is the one place
+the extra sweeps recover their per-step cost. Elsewhere they do not. At the
+loosest tolerance both spend about 1700 evaluations yet the 4-sweep run is
+about twenty times more accurate, and at the tight end the 7-sweep runs never
+get below a 1e-3 final error — the sweep-difference error estimate grows more
+optimistic as the order rises, landing hundreds of times above the requested
+tolerance — while the 4-sweep method continues to about 2e-5. No point is
+reference-limited: the reference trajectory agrees with a tighter solve to
+about 5e-10 in the same mean-absolute final error, more than four orders of
+magnitude below the smallest error any method reaches here. Both explicit SDC variants sit above the Tsit5 and Vern9 lines at
+every accuracy level — the repeated first-order sweeps spend more evaluations
+per unit of accuracy than a purpose-built high-order Runge–Kutta step on this
+smooth non-stiff problem.
 
 ## Conclusion
 
