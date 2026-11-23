@@ -745,17 +745,13 @@ println("radau with index-2 variable counts, abstol = 1e-10, reltol = 1e-7: ",
         s_idx.retcode, ", t_final = ", round(s_idx.t[end], sigdigits = 4))
 ```
 
-DASKR has no successful solve on any of these pairs, so it contributes no
-points to the diagrams below. At the loosest pairs it returns `MaxIters`
-with `t_final = 0`: DDASKR hands control back every 500 steps
-(`IDID = -1`), and the DASKR.jl version used here stops at that point
-instead of continuing;
-[SciML/DASKR.jl#122](https://github.com/SciML/DASKR.jl/pull/122) is a
-draft fix. At abstol 1e-6 it fails the error test at
-t ≈ 0.417, and at abstol 1e-9 and 1e-10 its Newton iteration fails at
-t = 0. These last two failures are in the Fortran code, which is designed
-for index-0 and index-1 systems, while this formulation is index 2. The
-DASKR messages printed during the benchmarks below come from these solves.
+DASKR reaches $t = 1000$ at (abstol, reltol) = (1e-5, 1e-4), (1e-7, 1e-6),
+(1e-8, 1e-7) and (1e-8, 1e-5). At (1e-6, 1e-5) it fails the error test, and at
+(1e-7, 1e-4), (1e-9, 1e-6) and (1e-10, 1e-7) its Newton iteration fails;
+these solves contribute no points to the diagrams below.
+The failures are in the Fortran code, which is designed for index-0 and
+index-1 systems, while this formulation is index 2. The DASKR messages
+printed during the benchmarks below come from these solves.
 
 `radau` completes every pair except the tightest one (abstol 1e-10,
 reltol 1e-7). There its step size falls below the minimum at t ≈ 1.18
