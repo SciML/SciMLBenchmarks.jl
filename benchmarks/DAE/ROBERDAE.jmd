@@ -139,15 +139,15 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
-A solve over a very short span shows the part of each solve's time that does not grow with
-the number of steps, mostly setting up PETSc's objects for PETScDiffEq. Each method still picks
-its own first steps, so the number of steps taken is printed next to the time:
+Total solve times over a very short span, which include setting up PETSc's objects for
+PETScDiffEq. The methods take different numbers of steps here, so the count is printed next to
+the time:
 
 ```julia
 for (name, alg, prob) in [("TSDAE", TSDAE("bdf"; order = 5), daeprob), ("DFBDF", DFBDF(), daeprob),
         ("TSRosW", TSRosW("ra34pw2"), mmprob), ("ROS34PW2", ROS34PW2(), mmprob)]
     short = remake(prob, tspan = (0.0, 1e-6))
-    sol = solve(short, alg, save_everystep = false)
+    local sol = solve(short, alg, save_everystep = false)
     tmin = minimum(@elapsed(solve(short, alg, save_everystep = false)) for _ in 1:100)
     println(rpad(name, 10), round(1e6 * tmin, sigdigits = 3), " µs, ", sol.stats.naccept, " steps")
 end
