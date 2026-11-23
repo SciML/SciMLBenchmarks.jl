@@ -5,8 +5,9 @@ TARGET="${1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/read-benchmark-config.sh"
-config=$(get_benchmark_config "${TARGET}")
-export JULIA_NUM_THREADS="${config##*|}"
+records=$(benchmark_config_records "${TARGET}")
+parse_benchmark_config "${records}"
+export JULIA_NUM_THREADS="${CFG_THREADS}"
 
 # Determine the benchmark directory
 if [[ -d "${TARGET}" ]]; then

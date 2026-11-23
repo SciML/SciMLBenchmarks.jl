@@ -188,4 +188,25 @@ if (cd "${FIXTURE}" && .github/scripts/detect-changed-benchmarks.sh benchmarks/M
     exit 1
 fi
 
+# The matrix JSON must round-trip runner labels byte-for-byte through jq —
+# including $, quotes and backslashes — or fromJson cannot schedule the job.
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "cost$center", "quo\"te", "back\\slash"]
+threads = 16
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+EXPECTED_LABELS=('self-hosted' 'cost$center' 'quo"te' 'back\slash')
+for index in "${!EXPECTED_LABELS[@]}"; do
+    if ! decoded=$(jq -er ".[0].runner[${index}]" <<<"${MATRIX}"); then
+        echo 'The matrix JSON must decode cleanly for jq and fromJson.' >&2
+        exit 1
+    fi
+    if [[ "${decoded}" != "${EXPECTED_LABELS[${index}]}" ]]; then
+        printf 'Runner label %s decoded to %s, expected %s.\n' \
+            "${index}" "${decoded}" "${EXPECTED_LABELS[${index}]}" >&2
+        exit 1
+    fi
+done
+
 echo 'Split and normal folders, file coalescing, config inheritance, and manual targets passed.'

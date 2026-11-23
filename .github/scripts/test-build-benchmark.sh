@@ -90,6 +90,8 @@ check_folder_allocations() {
     (
         cd "$1"
         shopt -s nullglob dotglob
+        default_threads=$(read_toml_key ".github/benchmark_defaults.toml" "threads")
+        default_threads=${default_threads:-32}
         for project in benchmarks/*/Project.toml; do
             folder=${project%/*}
             case "${folder##*/}" in
@@ -100,13 +102,11 @@ check_folder_allocations() {
                 DiffEqGPU|LinearSolveGPU)
                     expected=58 ;;
                 *)
-                    expected=$(read_toml_key "${folder}/benchmark_config.toml" "threads")
-                    if [[ -z "${expected}" ]]; then
-                        expected=$(read_toml_key ".github/benchmark_defaults.toml" "threads")
+                    expected=
+                    if [[ -f "${folder}/benchmark_config.toml" ]]; then
+                        expected=$(read_toml_key "${folder}/benchmark_config.toml" "threads")
                     fi
-                    if [[ -z "${expected}" ]]; then
-                        expected=32
-                    fi
+                    expected=${expected:-${default_threads}}
                     ;;
             esac
             for target in "${folder}" "${folder}"/*.jmd; do
