@@ -1,22 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Set up SSH for pushing to SciMLBenchmarksOutput
-mkdir -p ~/.ssh
-ssh-keyscan github.com >> ~/.ssh/known_hosts
-eval "$(ssh-agent -s)"
-
-# Write deploy key from secret
-DEPLOY_KEY_FILE=$(mktemp)
-echo "${DEPLOY_KEY}" > "${DEPLOY_KEY_FILE}"
-chmod 600 "${DEPLOY_KEY_FILE}"
-ssh-add "${DEPLOY_KEY_FILE}"
-
-git config --global user.email "github-actions@sciml.ai"
-git config --global user.name "SciML Benchmarks CI"
-
-# Nothing to do if no benchmark job uploaded artifacts (download-artifact is
-# continue-on-error, so this script still runs).
 have_output=false
 for d in docs html notebook pdf script markdown; do
     if [[ -d "${d}" ]]; then
@@ -25,9 +9,48 @@ for d in docs html notebook pdf script markdown; do
 done
 if [[ "${have_output}" != true ]]; then
     echo "No benchmark output directories found; nothing to publish."
-    rm -f "${DEPLOY_KEY_FILE}"
     exit 0
 fi
+
+publish_dir=$(mktemp -d)
+trap 'rm -rf "$publish_dir"' EXIT
+(umask 077; printf '%s\n' "$DEPLOY_KEY" > "$publish_dir/deploy_key")
+unset DEPLOY_KEY
+script_dir=$(cd "$(dirname "$0")" && pwd)
+cat > "$publish_dir/ssh_config" <<EOF
+BatchMode yes
+IdentitiesOnly yes
+IdentityAgent none
+IdentityFile "$publish_dir/deploy_key"
+StrictHostKeyChecking yes
+GlobalKnownHostsFile /dev/null
+UserKnownHostsFile "$script_dir/github_known_hosts"
+EOF
+
+# Resolve Git's bundled OpenSSH ("usr/bin" under the install root): a bare
+# "/usr/bin/ssh" lands unquoted, breaking a spaced root like "C:\Program Files\Git".
+ssh_bin=
+dir=$(dirname "$(command -v git)")
+while [[ "$dir" != "/" && "$dir" != "." ]]; do
+    for candidate in "$dir/usr/bin/ssh" "$dir/usr/bin/ssh.exe"; do
+        if [[ -x "$candidate" ]]; then
+            ssh_bin="$candidate"
+            break 2
+        fi
+    done
+    dir=$(dirname "$dir")
+done
+if [[ -z "$ssh_bin" ]]; then
+    ssh_bin=$(command -v ssh)
+fi
+if command -v cygpath >/dev/null 2>&1; then
+    if [[ "$ssh_bin" != *.exe && -f "$ssh_bin.exe" ]]; then
+        ssh_bin="$ssh_bin.exe"
+    fi
+    ssh_bin=$(cygpath -m "$ssh_bin")
+fi
+printf -v GIT_SSH_COMMAND '%q -F %q' "$ssh_bin" "$publish_dir/ssh_config"
+export GIT_SSH_COMMAND
 
 # Publish jobs from different master runs are not serialized by a concurrency
 # group (that would let a newly queued publish cancel a pending one and lose
@@ -42,7 +65,8 @@ OUTPUT_REPO=${PUBLISH_OUTPUT_REPO:-git@github.com:SciML/SciMLBenchmarksOutput}
 PUBLISH_PRE_PUSH_HOOK=${PUBLISH_PRE_PUSH_HOOK:-}
 attempt=1
 while true; do
-    temp_dir=$(mktemp -d)
+    temp_dir="$publish_dir/output"
+    mkdir "$temp_dir"
     git -C "${temp_dir}" clone --depth 1 "${OUTPUT_REPO}" .
 
     # Copy output artifacts into it
@@ -55,11 +79,10 @@ while true; do
     git -C "${temp_dir}" add .
     if git -C "${temp_dir}" diff --cached --quiet; then
         echo "No changes to publish."
-        rm -rf "${temp_dir}"
         break
     fi
 
-    git -C "${temp_dir}" commit -q -m "Automatic build
+    git -C "${temp_dir}" -c user.email=github-actions@sciml.ai -c user.name="SciML Benchmarks CI" commit -q -m "Automatic build
 Published by build of: ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
 
     if [[ -n "${PUBLISH_PRE_PUSH_HOOK}" ]]; then
@@ -68,14 +91,12 @@ Published by build of: ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
 
     if git -C "${temp_dir}" push; then
         echo "Published on attempt ${attempt}."
-        rm -rf "${temp_dir}"
         break
     fi
 
     rm -rf "${temp_dir}"
     if [[ "${attempt}" -ge "${MAX_ATTEMPTS}" ]]; then
         echo "::error::Failed to push to SciMLBenchmarksOutput after ${attempt} attempts."
-        rm -f "${DEPLOY_KEY_FILE}"
         exit 1
     fi
     # Jitter so two publishers that collided don't retry in lock-step.
@@ -83,6 +104,3 @@ Published by build of: ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
     attempt=$((attempt + 1))
     echo "Push rejected (another publish likely landed first); retrying (attempt ${attempt}/${MAX_ATTEMPTS})..."
 done
-
-# Clean up
-rm -f "${DEPLOY_KEY_FILE}"
