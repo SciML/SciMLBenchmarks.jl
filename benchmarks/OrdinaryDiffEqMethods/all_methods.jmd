@@ -9,17 +9,18 @@ author: SciMLBenchmarks contributors
 - **Robertson (ROBER)** is a stiff three-species kinetics problem on `[0, 0.1]`. This window includes the fast initial transient. IRKC uses an additive split with the fast quadratic reaction in the explicit part.
 - **Harmonic oscillator** is a separable second-order problem on `[0, 1]` for the methods that require partitioned state. It starts with unit displacement and zero velocity.
 
-Every solver for a given problem is compared with the same endpoint reference. The endpoint references use Vern9 for Lorenz, RadauIIA9 for Robertson, and the exact oscillator velocity and displacement. The error is the mean absolute component error at the endpoint. Both numerical references use absolute and relative tolerances of `2e-14`. Adaptive methods use four pairs of tolerances, and the benchmark takes the minimum of up to three warmed timings per point. Fixed-step methods halve the timestep at each level, with a finer starting step on Robertson for stability.
+Every solver for a given problem is compared with the same endpoint reference. The endpoint references use Vern9 for Lorenz, RadauIIA9 for Robertson, and the exact oscillator velocity and displacement. The error is the mean absolute component error at the endpoint. The Lorenz reference uses absolute and relative tolerances of `2e-14`. The Robertson reference uses 256-bit arithmetic and tolerances of `1e-24`. Its endpoint is rounded once to the benchmark state type and shared by the ordinary, split, and static formulations. Adaptive methods use four pairs of tolerances, and the benchmark takes the minimum of up to three warmed timings per point. Fixed-step methods halve the timestep at each level, with a finer starting step on Robertson for stability.
 
 ```julia; echo=false
 using DiffEqDevTools: TestSolution, WorkPrecisionSet, auto_tags, filter_by_tags, merge_wp_sets, unique_tags
 using OrdinaryDiffEq: ODEFunction, ODEProblem, SecondOrderODEProblem, SplitODEProblem, solve, Rodas5P, Vern9
 using Plots: gr, plot, savefig
 using Printf: @sprintf
-using SciMLBase: AbstractDAEAlgorithm, AbstractDEAlgorithm, isadaptive, successful_retcode
+using SciMLBase: AbstractDAEAlgorithm, AbstractDEAlgorithm, isadaptive, remake, successful_retcode
 using SciMLLogging: None
 using SciMLOperators: MatrixOperator
 using StaticArrays: SVector
+using TOML: parsefile
 using SciMLBenchmarks
 
 ENV["GKSwstype"] = "100"
@@ -61,8 +62,8 @@ end
 
 function robertson_rates(u)
     a, b, c = u
-    da = -0.04 * a + 1.0e4 * b * c
-    dc = 3.0e7 * b^2
+    da = -a / 25 + 10000 * b * c
+    dc = 30000000 * b^2
     return (da, -da - dc, dc)
 end
 
@@ -75,26 +76,27 @@ robertson_static(u, p, t) = SVector(robertson_rates(u))
 
 function robertson_jacobian!(J, u, p, t)
     _, b, c = u
-    J .= [-0.04 (1.0e4 * c) (1.0e4 * b); 0.04 (-6.0e7 * b - 1.0e4 * c) (-1.0e4 * b); 0 (6.0e7 * b) 0]
+    k = one(b) / 25
+    J .= [-k (10000 * c) (10000 * b); k (-60000000 * b - 10000 * c) (-10000 * b); 0 (60000000 * b) 0]
     return nothing
 end
 
 function robertson_exchange!(du, u, p, t)
     a, b, c = u
-    rate = -0.04 * a + 1.0e4 * b * c
+    rate = -a / 25 + 10000 * b * c
     du .= (rate, -rate, 0)
     return nothing
 end
 
 function robertson_quadratic!(du, u, p, t)
-    rate = 3.0e7 * u[2]^2
+    rate = 30000000 * u[2]^2
     du .= (0, -rate, rate)
     return nothing
 end
 
 function robertson_eigen_estimate!(integrator)
     # The explicit Jacobian has one potentially nonzero eigenvalue, -6e7 * b.
-    integrator.eigen_est = 6.0e7 * abs(integrator.u[2])
+    integrator.eigen_est = 60000000 * abs(integrator.u[2])
     return nothing
 end
 
@@ -120,110 +122,84 @@ oscillator = SecondOrderODEProblem(oscillator!, [0.0], [1.0], (0.0, 1.0));
 
 ## Algorithm inventory
 
-The inventory takes one configuration per public solver constructor in the OrdinaryDiffEq solver subpackages installed by this environment. It includes named variants such as QBDF and the automatic switching constructors. Custom-tableau and composite constructors have one representative configuration where applicable. The Auto switching variants use Rodas5P for their stiff branch. GeneralizedAlpha uses a high-frequency spectral radius of 0.9 and an initial step of 0.1. The SIMD methods use out-of-place static states with the same equations and reference endpoints. The tables give the disposition of each inventory entry.
+The inventory takes one configuration per public solver constructor in the OrdinaryDiffEq solver subpackages installed by this environment. It includes named variants such as QBDF and the automatic switching constructors. Custom-tableau and composite constructors have one representative configuration where applicable. The Auto switching variants use Rodas5P for their stiff branch, and AutoAlgSwitch pairs it with Tsit5. CompositeAlgorithm selects Rodas5P for steps below `0.001` and Tsit5 for larger steps. GeneralizedAlpha uses a high-frequency spectral radius of 0.9 and an initial step of 0.1. The SIMD methods use out-of-place static states with the same equations and reference endpoints. The tables give the disposition of each inventory entry.
 
 ```julia; echo=false
-import OrdinaryDiffEqAMF
-import OrdinaryDiffEqAdamsBashforthMoulton
-import OrdinaryDiffEqBDF
-import OrdinaryDiffEqDefault
-import OrdinaryDiffEqExplicitRK
-import OrdinaryDiffEqExponentialRK
-import OrdinaryDiffEqExtrapolation
-import OrdinaryDiffEqFIRK
-import OrdinaryDiffEqFeagin
-import OrdinaryDiffEqFunctionMap
-import OrdinaryDiffEqHighOrderRK
-import OrdinaryDiffEqIMEXMultistep
-import OrdinaryDiffEqLinear
-import OrdinaryDiffEqLowOrderRK
-import OrdinaryDiffEqLowStorageRK
-import OrdinaryDiffEqMultirate
-import OrdinaryDiffEqNewmark
-import OrdinaryDiffEqNordsieck
-import OrdinaryDiffEqPDIRK
-import OrdinaryDiffEqPRK
-import OrdinaryDiffEqQPRK
-import OrdinaryDiffEqRKIP
-import OrdinaryDiffEqRKN
-import OrdinaryDiffEqRosenbrock
-import OrdinaryDiffEqSDC
-import OrdinaryDiffEqSDIRK
-import OrdinaryDiffEqSIMDRK
-import OrdinaryDiffEqSSPRK
-import OrdinaryDiffEqStabilizedIRK
-import OrdinaryDiffEqStabilizedRK
-import OrdinaryDiffEqSymplecticRK
-import OrdinaryDiffEqTaylorSeries
-import OrdinaryDiffEqTsit5
-import OrdinaryDiffEqVerner
+function import_solver_modules(project)
+    dependencies = keys(parsefile(project)["deps"])
+    packages = sort!([name for name in dependencies if startswith(name, "OrdinaryDiffEq")])
+    return map(packages) do package
+        name = Symbol(package)
+        return @eval begin
+            import $name
+            $name
+        end
+    end
+end
 
-const method_families = (
-    OrdinaryDiffEqAMF => :amf,
-    OrdinaryDiffEqAdamsBashforthMoulton => :adams,
-    OrdinaryDiffEqBDF => :bdf,
-    OrdinaryDiffEqDefault => :composite,
-    OrdinaryDiffEqExplicitRK => :explicit_rk,
-    OrdinaryDiffEqExponentialRK => :exponential,
-    OrdinaryDiffEqExtrapolation => :extrapolation,
-    OrdinaryDiffEqFIRK => :firk,
-    OrdinaryDiffEqFeagin => :explicit_rk,
-    OrdinaryDiffEqFunctionMap => :discrete,
-    OrdinaryDiffEqHighOrderRK => :explicit_rk,
-    OrdinaryDiffEqIMEXMultistep => :imex,
-    OrdinaryDiffEqLinear => :linear,
-    OrdinaryDiffEqLowOrderRK => :explicit_rk,
-    OrdinaryDiffEqLowStorageRK => :low_storage_rk,
-    OrdinaryDiffEqMultirate => :multirate,
-    OrdinaryDiffEqNewmark => :newmark,
-    OrdinaryDiffEqNordsieck => :nordsieck,
-    OrdinaryDiffEqPDIRK => :pdirk,
-    OrdinaryDiffEqPRK => :partitioned_rk,
-    OrdinaryDiffEqQPRK => :explicit_rk,
-    OrdinaryDiffEqRKIP => :exponential,
-    OrdinaryDiffEqRKN => :rkn,
-    OrdinaryDiffEqRosenbrock => :rosenbrock,
-    OrdinaryDiffEqSDC => :sdc,
-    OrdinaryDiffEqSDIRK => :sdirk,
-    OrdinaryDiffEqSIMDRK => :simd_rk,
-    OrdinaryDiffEqSSPRK => :ssprk,
-    OrdinaryDiffEqStabilizedIRK => :imex,
-    OrdinaryDiffEqStabilizedRK => :stabilized_rk,
-    OrdinaryDiffEqSymplecticRK => :symplectic,
-    OrdinaryDiffEqTaylorSeries => :taylor_series,
-    OrdinaryDiffEqTsit5 => :explicit_rk,
-    OrdinaryDiffEqVerner => :explicit_rk,
+const solver_modules = import_solver_modules(Base.active_project())
+
+const method_families = Dict(
+    :OrdinaryDiffEqAMF => :amf,
+    :OrdinaryDiffEqAdamsBashforthMoulton => :adams,
+    :OrdinaryDiffEqBDF => :bdf,
+    :OrdinaryDiffEqCore => :composite,
+    :OrdinaryDiffEqDefault => :composite,
+    :OrdinaryDiffEqExplicitRK => :explicit_rk,
+    :OrdinaryDiffEqExponentialRK => :exponential,
+    :OrdinaryDiffEqExtrapolation => :extrapolation,
+    :OrdinaryDiffEqFIRK => :firk,
+    :OrdinaryDiffEqFeagin => :explicit_rk,
+    :OrdinaryDiffEqFunctionMap => :discrete,
+    :OrdinaryDiffEqHighOrderRK => :explicit_rk,
+    :OrdinaryDiffEqIMEXMultistep => :imex,
+    :OrdinaryDiffEqLinear => :linear,
+    :OrdinaryDiffEqLowOrderRK => :explicit_rk,
+    :OrdinaryDiffEqLowStorageRK => :low_storage_rk,
+    :OrdinaryDiffEqMultirate => :multirate,
+    :OrdinaryDiffEqNewmark => :newmark,
+    :OrdinaryDiffEqNordsieck => :nordsieck,
+    :OrdinaryDiffEqPDIRK => :pdirk,
+    :OrdinaryDiffEqPRK => :parallel_rk,
+    :OrdinaryDiffEqQPRK => :explicit_rk,
+    :OrdinaryDiffEqRKIP => :exponential,
+    :OrdinaryDiffEqRKN => :rkn,
+    :OrdinaryDiffEqRosenbrock => :rosenbrock,
+    :OrdinaryDiffEqSDC => :sdc,
+    :OrdinaryDiffEqSDIRK => :sdirk,
+    :OrdinaryDiffEqSIMDRK => :simd_rk,
+    :OrdinaryDiffEqSSPRK => :ssprk,
+    :OrdinaryDiffEqStabilizedIRK => :imex,
+    :OrdinaryDiffEqStabilizedRK => :stabilized_rk,
+    :OrdinaryDiffEqSymplecticRK => :symplectic,
+    :OrdinaryDiffEqTaylorSeries => :taylor_series,
+    :OrdinaryDiffEqTsit5 => :explicit_rk,
+    :OrdinaryDiffEqVerner => :explicit_rk,
 )
 
-# Some public solver constructors are functions returning another algorithm type.
-const constructor_functions = (
-    OrdinaryDiffEqBDF => (:QBDF1, :QBDF2, :QBDF, :SBDF2, :SBDF3, :SBDF4, :IMEXEuler, :IMEXEulerARK),
-    OrdinaryDiffEqDefault => (:DefaultODEAlgorithm, :DefaultImplicitODEAlgorithm),
-    OrdinaryDiffEqLowOrderRK => (:AutoDP5,),
-    OrdinaryDiffEqNordsieck => (:JVODE_Adams, :JVODE_BDF),
-    OrdinaryDiffEqRosenbrock => (:Tsit5DA,),
-    OrdinaryDiffEqTsit5 => (:AutoTsit5,),
-    OrdinaryDiffEqVerner => (:AutoVern6, :AutoVern7, :AutoVern8, :AutoVern9),
+const factory_names = (
+    :AutoAlgSwitch, :AutoDP5, :AutoTsit5, :AutoVern6, :AutoVern7, :AutoVern8, :AutoVern9,
+    :DefaultImplicitODEAlgorithm, :DefaultODEAlgorithm, :IMEXEuler, :IMEXEulerARK,
+    :JVODE_Adams, :JVODE_BDF, :QBDF, :QBDF1, :QBDF2, :SBDF2, :SBDF3, :SBDF4, :Tsit5DA,
 )
 
 function is_solver_type(value)
-    return value isa Type && value <: AbstractDEAlgorithm && !isabstracttype(value)
+    return isstructtype(value) && value <: AbstractDEAlgorithm
 end
 
 function inventory()
-    aliases = Dict(constructor_functions)
-    methods = NamedTuple[]
-    for (mod, family) in method_families
-        exported_types = filter(names(mod)) do name
-            isdefined(mod, name) || return false
-            value = getproperty(mod, name)
-            return is_solver_type(value) && parentmodule(value) === mod
-        end
-        for name in union(exported_types, get(aliases, mod, ()))
-            push!(methods, (; name, family, constructor = getproperty(mod, name)))
-        end
+    methods = Dict{Symbol, NamedTuple}()
+    for mod in solver_modules, name in names(mod)
+        isdefined(mod, name) || continue
+        constructor = getproperty(mod, name)
+        is_solver_type(constructor) || (constructor isa Function && name in factory_names) || continue
+        parentmodule(constructor) === mod || continue
+        haskey(methods, name) && error("Ambiguous solver constructor $name")
+        methods[name] = (; name, family = method_families[nameof(mod)], constructor)
     end
-    return sort!(methods; by = method -> method.name)
+    missing_factories = setdiff(factory_names, keys(methods))
+    isempty(missing_factories) || error("Missing solver factories: $missing_factories")
+    return sort!(collect(values(methods)); by = method -> method.name)
 end
 
 const split_only_names = (
@@ -231,7 +207,7 @@ const split_only_names = (
 )
 
 function solver_formulation(method)
-    if method.family in (:newmark, :partitioned_rk, :rkn, :symplectic)
+    if method.family in (:newmark, :rkn, :symplectic)
         return :partitioned
     elseif method.family == :simd_rk
         return :static
@@ -267,7 +243,11 @@ end
 
 function make_algorithm(method)
     (; name, constructor) = method
-    if startswith(string(name), "Auto")
+    if name == :AutoAlgSwitch
+        return constructor(OrdinaryDiffEqTsit5.Tsit5(), Rodas5P())
+    elseif name == :CompositeAlgorithm
+        return constructor((OrdinaryDiffEqTsit5.Tsit5(), Rodas5P()), integrator -> integrator.dt < 0.001 ? 2 : 1)
+    elseif startswith(string(name), "Auto")
         return constructor(Rodas5P())
     elseif name in (:LawsonEuler, :NorsettEuler, :ETDRK2, :ETDRK3, :ETDRK4, :HochOst4, :Friedli)
         return constructor(; krylov = true)
@@ -289,14 +269,23 @@ function study_family(method)
 end
 
 function method_tags(method, alg)
-    family = study_family(method)
+    family = method.name == :JVODE_BDF ? :bdf : study_family(method)
     tags = auto_tags(alg)
+    if method.name in (:QNDF, :QBDF, :FBDF, :NordsieckBDF, :JVODE, :JVODE_Adams, :JVODE_BDF)
+        filter!(tag -> !startswith(string(tag), "order_"), tags)
+        push!(tags, :variable_order)
+    end
+    if method.name == :JVODE_BDF
+        filter!(tag -> tag ∉ (:adams, :explicit), tags)
+        push!(tags, :nordsieck, :implicit)
+    end
+    method.name in split_only_names && family == :bdf && push!(tags, :imex)
     formulation = solver_formulation(method)
     formulation in (:split, :semilinear, :stabilized_split) && push!(tags, :split)
     formulation == :static && push!(tags, :static)
     stiff = family in (:bdf, :exponential, :firk, :imex, :newmark, :pdirk, :rosenbrock, :sdirk, :stabilized_rk) ||
         (family in (:extrapolation, :sdc) && :implicit in tags) ||
-        method.name in (:DefaultImplicitODEAlgorithm, :JVODE_BDF)
+        method.name == :DefaultImplicitODEAlgorithm
     stiffness = family == :composite && !stiff ? (:stiff, :nonstiff) :
         stiff ? (:stiff,) : (:nonstiff,)
     order_tag = findfirst(tag -> startswith(string(tag), "order_"), tags)
@@ -304,6 +293,8 @@ function method_tags(method, alg)
     order_group = isnothing(order) ? () : order <= 3 ? (:low_order,) : (:high_order,)
     return unique!([family; stiffness...; order_group...; tags])
 end
+
+refinement_counts(start) = start .* (2 .^ (0:3))
 
 function benchmark_setups(methods, study, formulations)
     setups = Dict(formulation => Dict{Symbol, Any}[] for formulation in formulations)
@@ -334,8 +325,13 @@ function benchmark_setups(methods, study, formulations)
         if method.name == :GeneralizedAlpha
             setup[:dt] = 0.1
         elseif !isadaptive(alg)
-            setup[:dts] = study == :robertson ? 0.1 ./ (512 .* 2.0 .^ (0:3)) :
-                1.0 ./ (32 .* 2.0 .^ (0:3))
+            setup[:dts] = if study == :robertson
+                0.1 ./ refinement_counts(512)
+            elseif study == :oscillator
+                1.0 ./ refinement_counts(4)
+            else
+                0.5 ./ refinement_counts(16)
+            end
         end
         push!(setups[required], setup)
     end
@@ -345,11 +341,19 @@ end
 const abstols = 10.0 .^ (-6:-1:-9)
 const reltols = 10.0 .^ (-4:-1:-7)
 
-function reference(prob, alg)
-    sol = solve(prob, alg; abstol = 2.0e-14, reltol = 2.0e-14, dense = false, save_everystep = false)
-    successful_retcode(sol) && sol.t[end] == last(prob.tspan) ||
+function reference(prob, alg; tol = 2.0e-14)
+    sol = solve(prob, alg; abstol = tol, reltol = tol, dense = false, save_everystep = false)
+    successful_retcode(sol) && sol.t[end] == last(prob.tspan) && all(isfinite, sol.u[end]) ||
         error("Reference solve failed with $(sol.retcode)")
     return sol
+end
+
+function robertson_reference(prob)
+    endpoint = setprecision(BigFloat, 256) do
+        precise = remake(prob; u0 = BigFloat.(prob.u0), tspan = BigFloat.(prob.tspan))
+        return reference(precise, OrdinaryDiffEqFIRK.RadauIIA9(); tol = parse(BigFloat, "1e-24")).u[end]
+    end
+    return TestSolution([last(prob.tspan)], [eltype(prob.u0).(endpoint)])
 end
 
 function study(problem, reference_solution, setups)
@@ -374,32 +378,93 @@ usable_points(wp) = findall(eachindex(wp.times)) do i
     return isfinite(error) && error > 0 && isfinite(wp.times[i]) && wp.times[i] > 0
 end
 
-function measured_order(wp, points)
-    length(points) >= 2 || return "—"
-    interval = last(wp.prob.tspan) - first(wp.prob.tspan)
-    steps = isnothing(wp.dts) ? [interval / wp.stats[i].naccept for i in points] : wp.dts[points]
-    all(isfinite, steps) && all(>(0), steps) && !allequal(steps) || return "—"
-    log_steps, log_errors = log.(steps), log.(wp.errors.final[points])
-    centered = log_steps .- sum(log_steps) / length(log_steps)
-    return @sprintf "%.2f" sum(centered .* log_errors) / sum(abs2, centered)
+function refinement_rate(steps, errors, error_floor)
+    for i in (length(steps) - 2):-1:1
+        h = steps[i:(i + 2)]
+        e = errors[i:(i + 2)]
+        all(x -> isfinite(x) && x > error_floor, e) || continue
+        h[1] > 0 && 0 < h[2] <= 0.8 * h[1] && 0 < h[3] <= 0.8 * h[2] || continue
+        log_steps, log_errors = log.(h), log.(e)
+        slopes = diff(log_errors) ./ diff(log_steps)
+        all(>(0), slopes) && abs(slopes[1] - slopes[2]) <= max(0.25, 0.15 * minimum(slopes)) || continue
+        return @sprintf "%.2f" (last(log_errors) - first(log_errors)) / (last(log_steps) - first(log_steps))
+    end
+    return "—"
 end
 
-function print_work_table(wps)
+function measured_order(wp, points, error_floor)
+    isnothing(wp.dts) && return "—"
+    interval = last(wp.prob.tspan) - first(wp.prob.tspan)
+    errors = fill(NaN, length(wp.dts))
+    for i in points
+        expected = round(Int, interval / wp.dts[i])
+        stats = wp.stats[i]
+        if stats.naccept == expected && stats.nreject == 0
+            errors[i] = wp.errors.final[i]
+        end
+    end
+    return refinement_rate(wp.dts, errors, error_floor)
+end
+
+function adaptive_step_rate(wp, points, error_floor)
+    :adaptive in wp.tags || return "—"
+    interval = last(wp.prob.tspan) - first(wp.prob.tspan)
+    steps = fill(NaN, wp.N)
+    for i in points
+        wp.stats[i].naccept > 0 || continue
+        steps[i] = interval / wp.stats[i].naccept
+    end
+    return refinement_rate(steps, wp.errors.final, error_floor)
+end
+
+function controlled_order(prob, alg, counts, endpoint, error_floor)
+    interval = last(prob.tspan) - first(prob.tspan)
+    steps = interval ./ counts
+    errors = map(counts, steps) do count, dt
+        sol = solve(
+            prob, alg; adaptive = false, dt, abstol = 1.0e-14, reltol = 1.0e-12,
+            save_everystep = false, dense = false, verbose = None(),
+        )
+        if successful_retcode(sol) && sol.t[end] == last(prob.tspan) &&
+                sol.stats.naccept == count && sol.stats.nreject == 0
+            return sum(abs, sol.u[end] - endpoint) / length(endpoint)
+        end
+        return NaN
+    end
+    return refinement_rate(steps, errors, error_floor)
+end
+
+function oscillator_orders()
+    return setprecision(BigFloat, 256) do
+        precise = SecondOrderODEProblem(oscillator!, BigFloat[0], BigFloat[1], (BigFloat(0), BigFloat(1)))
+        endpoint = copy(precise.u0)
+        endpoint[1], endpoint[2] = -sin(BigFloat(1)), cos(BigFloat(1))
+        algorithms = (DPRKN8 = OrdinaryDiffEqRKN.DPRKN8(), DPRKN12 = OrdinaryDiffEqRKN.DPRKN12())
+        return Dict(
+            string(name) => controlled_order(precise, alg, refinement_counts(4), endpoint, 16 * eps(BigFloat(1)))
+                for (name, alg) in pairs(algorithms)
+        )
+    end
+end
+
+function print_work_table(wps, error_floor; orders = Dict{String, String}())
     io = IOBuffer()
-    println(io, "| Algorithm | Tags | Usable points | Observed order | Best error | Time (s) | RHS calls | Accepted steps |")
-    println(io, "|:--|:--|--:|--:|--:|--:|--:|--:|")
+    println(io, "| Algorithm | Tags | Usable points | Observed order | Adaptive-step rate | Best error | Time (s) | RHS calls | Accepted steps |")
+    println(io, "|:--|:--|--:|--:|--:|--:|--:|--:|--:|")
     for wp in wps[:]
         points = usable_points(wp)
         tags = join(wp.tags, ", ")
+        order = get(() -> measured_order(wp, points, error_floor), orders, wp.name)
+        rate = adaptive_step_rate(wp, points, error_floor)
         if isempty(points)
-            println(io, "| $(wp.name) | $tags | 0/$(wp.N) | — | — | — | — | — |")
+            println(io, "| $(wp.name) | $tags | 0/$(wp.N) | $order | $rate | — | — | — | — |")
             continue
         end
         i = points[argmin(wp.errors.final[points])]
         stats = wp.stats[i]
         println(
             io,
-            "| $(wp.name) | $tags | $(length(points))/$(wp.N) | $(measured_order(wp, points)) | ",
+            "| $(wp.name) | $tags | $(length(points))/$(wp.N) | $order | $rate | ",
             @sprintf("%.3g | %.3g | %d | %d |", wp.errors.final[i], wp.times[i], stats.nf + stats.nf2, stats.naccept),
         )
     end
@@ -452,16 +517,22 @@ const methods = inventory()
 const pdf_dir = mkpath(normpath(@__DIR__, "..", "..", "pdf", "OrdinaryDiffEqMethods"));
 ```
 
-The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. Observed order is the slope of log error versus log step size over usable points. Adaptive runs use the interval length divided by the number of accepted steps as their step-size proxy, so their slopes are empirical rates, especially for variable-order and switching algorithms. Zero errors and nonfinite measurements are counted in the usable-point denominator. The order tags group nominal orders up to 3 and above 3. Group plots overlay one baseline method when it has usable data.
+The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
+
+A rate is reported over the finest three consecutive points with step sizes shrinking by at least 20% and decreasing errors above the resolution threshold. The two adjacent slopes may differ by at most 0.25 or 15% of the smaller slope, whichever is larger. The resolution thresholds are `2e-12` for Lorenz, accounting for the numerical reference, and 16 spacings at unit scale for Robertson and the oscillator in the working precision. An em dash indicates that the grid did not resolve a rate. The order tags group fixed nominal orders up to 3 and above 3. Group plots overlay one baseline method when it has usable data.
 
 ## Lorenz
 
 ```julia; echo=false
+lorenz_reference = reference(lorenz, Vern9())
 lorenz_wp, lorenz_exclusions = benchmark_problem(
-    :lorenz, reference(lorenz, Vern9()),
+    :lorenz, lorenz_reference,
     (ordinary = lorenz, split = split_lorenz, semilinear = semilinear_lorenz, static = static_lorenz),
 )
-print_work_table(lorenz_wp)
+@assert any(wp -> wp.name == "KuttaPRK2p5" && :parallel_rk in wp.tags && :explicit in wp.tags, lorenz_wp[:])
+lorenz_floor = 2.0e-12
+lorenz_order = controlled_order(lorenz, OrdinaryDiffEqTsit5.Tsit5(), refinement_counts(64), lorenz_reference.u[end], lorenz_floor)
+print_work_table(lorenz_wp, lorenz_floor; orders = Dict("Tsit5" => lorenz_order))
 ```
 
 ### Excluded methods
@@ -477,11 +548,12 @@ plot_family(lorenz_wp, :lorenz, pdf_dir)
 ## Robertson
 
 ```julia; echo=false
+robertson_endpoint = robertson_reference(robertson)
 robertson_wp, robertson_exclusions = benchmark_problem(
-    :robertson, reference(robertson, OrdinaryDiffEqFIRK.RadauIIA9()),
+    :robertson, robertson_endpoint,
     (ordinary = robertson, stabilized_split = split_robertson, static = static_robertson),
 )
-print_work_table(robertson_wp)
+print_work_table(robertson_wp, 16 * eps(Float64))
 ```
 
 ### Excluded methods
@@ -503,7 +575,7 @@ oscillator_reference = TestSolution([1.0], [oscillator_end])
 oscillator_wp, oscillator_exclusions = benchmark_problem(
     :oscillator, oscillator_reference, (partitioned = oscillator,),
 )
-print_work_table(oscillator_wp)
+print_work_table(oscillator_wp, 16 * eps(Float64); orders = oscillator_orders())
 ```
 
 ### Excluded methods
