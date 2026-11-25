@@ -6,6 +6,9 @@ if [[ -z "$sshd" ]]; then
     echo 'Skipping publish output test: sshd is unavailable.'
     exit 0
 fi
+if [[ "$sshd" != /* ]]; then
+    sshd="$PWD/$sshd"
+fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 fixture=$(mktemp -d)
