@@ -467,3 +467,5 @@ end
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
+
+include("weave_worker.jl")

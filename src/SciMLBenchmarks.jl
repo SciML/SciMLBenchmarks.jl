@@ -55,9 +55,10 @@ function _weave_subprocess(folder, file, build_list, use_benchmark_project = _us
             threads = "$threads,$interactive"
         end
     end
+    gc_flags = VERSION >= v"1.10" ? `--gcthreads=$(Threads.ngcthreads())` : ``
     outputs = string.(collect(build_list))
     run(
-        `$(Base.julia_cmd()) --startup-file=no --threads=$threads --project=$project $worker $folder $file $caller_project $use_benchmark_project $outputs`
+        `$(Base.julia_cmd()) --startup-file=no --threads=$threads $gc_flags --project=$project $worker $folder $file $caller_project $use_benchmark_project $(length(outputs)) $outputs $LOAD_PATH`
     )
     return :notebook ∈ build_list ? _notebook_path(folder, file) : nothing
 end

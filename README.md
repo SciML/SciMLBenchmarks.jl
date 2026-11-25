@@ -331,6 +331,11 @@ To generate all of the files in a folder, for example, run:
 SciMLBenchmarks.weave_folder(joinpath(pkgdir(SciMLBenchmarks),"benchmarks","NonStiffODE"))
 ```
 
+Weave workers inherit the caller's Julia thread pools and use its total GC thread
+count for marking. Set `JULIA_NUM_GC_THREADS` before starting Julia to configure
+that count. Use `julia --gcthreads=N,M --project=. benchmark.jl <file>` to run an
+individual benchmark with separate mark and sweep thread settings.
+
 To generate all of the notebooks, do:
 
 ```julia
