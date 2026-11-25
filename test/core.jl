@@ -260,6 +260,28 @@ end
     end
 end
 
+@testset "publish output without sshd" begin
+    script = joinpath(dirname(@__DIR__), ".github", "scripts", "test-publish-benchmark-output.sh")
+    mktemp() do probe, io
+        write(
+            io, raw"""
+            command() {
+                if [[ "$#" == 2 && "$1" == -v && ( "$2" == sshd || "$2" == /usr/sbin/sshd ) ]]; then
+                    return 1
+                fi
+                builtin command "$@"
+            }
+            """
+        )
+        close(io)
+        output = IOBuffer()
+        cmd = addenv(`bash $script`, "BASH_ENV" => probe)
+        process = run(pipeline(ignorestatus(cmd); stdout = output))
+        @test process.exitcode == 0
+        @test String(take!(output)) == "Skipping publish output test: sshd is unavailable.\n"
+    end
+end
+
 @testset "root test workflow" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "test.yml"), String)
     test_job = match(r"(?ms)^  test:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow)
