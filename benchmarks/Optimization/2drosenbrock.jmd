@@ -160,6 +160,129 @@ prob = Optimization.OptimizationProblem(rosenbrock, x0, _p, lb = [-1.0, -1.0],
 @btime sol = solve(prob, BBO_adaptive_de_rand_1_bin()) # -1.0 ≤ x[1] ≤ 0.8, 0.2 ≤ x[2] ≤ 0.43
 ```
 
+## SimpleBFGS vs. Optim BFGS
+
+Both solvers use the unconstrained Rosenbrock objective above, `Vector{Float64}` inputs,
+the same parameters, `AutoForwardDiff()`, and a 1,000-iteration budget. The analytic
+minimum is zero at `(1, 1)` because both squared terms vanish there. We set the
+absolute gradient infinity-norm tolerance to `tol` via `abstol` for SimpleBFGS and
+`g_abstol` for Optim BFGS. Optim's step and objective change tolerances are disabled.
+A run meets the common target when the final objective error and gradient infinity
+norm are both at most `tol`. The accuracy table reports this check alongside the solver's return code.
+
+The reference run used Julia 1.11.9 with single-threaded ILP64 OpenBLAS 0.3.27
+(ZEN kernel). The OpenBLAS kernel can affect timing, SimpleBFGS iteration counts,
+and whether SimpleBFGS reaches the target.
+
+The timing is the median over warmed `solve` calls, with a fresh starting vector prepared
+outside each sample. Allocation counts and bytes come from the same BenchmarkTools trial.
+A separate solve counts every call to the objective, including calls on ForwardDiff dual
+inputs. Each dual call evaluates the full two-variable gradient and contributes to both
+counts. The final accuracy check runs separately. SimpleBFGS uses SimpleBroyden without
+a line search, with one initial gradient evaluation and one per iteration. Its iteration
+count comes from those calls.
+Optim BFGS uses its default line search and supplies its own iteration count.
+[SimpleBFGS implementation](https://github.com/SciML/Optimization.jl/blob/SimpleOptimization-v2.0.2/lib/SimpleOptimization/src/SimpleOptimization.jl)
+[SimpleBroyden implementation](https://github.com/SciML/NonlinearSolve.jl/blob/SimpleNonlinearSolve-v2.14.3/lib/SimpleNonlinearSolve/src/broyden.jl)
+
+```julia, wrap = false
+using SimpleOptimization: SimpleBFGS
+using Printf: @printf, @sprintf
+
+function measure_rosenbrock_bfgs(start, p, solver, options, tol, minimum_value)
+    maxiters = 1000
+    ad = Optimization.AutoForwardDiff()
+    prob = OptimizationProblem(OptimizationFunction(rosenbrock, ad), copy(start), p)
+    sol = solve(prob, solver; maxiters, options...)
+    trial = @benchmark solve(sample_prob, $solver; maxiters = $maxiters, $options...) setup = (
+        sample_prob = remake($prob; u0 = copy($start))
+    ) evals = 1 seconds = 0.25
+    timing = BenchmarkTools.median(trial)
+
+    objective_evals, gradient_evals = Ref(0), Ref(0)
+    function counted_objective(x, p)
+        objective_evals[] += 1
+        if eltype(x) <: ForwardDiff.Dual
+            gradient_evals[] += 1
+        end
+        return rosenbrock(x, p)
+    end
+    counted_f = OptimizationFunction(counted_objective, ad)
+    counted_prob = OptimizationProblem(counted_f, copy(start), p)
+    counted_sol = solve(counted_prob, solver; maxiters, options...)
+    @assert isequal(sol.u, counted_sol.u) && sol.retcode == counted_sol.retcode
+
+    iterations = solver isa SimpleBFGS ? gradient_evals[] - 1 : sol.stats.iterations
+    value = rosenbrock(sol.u, p)
+    gradient_norm = maximum(abs, ForwardDiff.gradient(x -> rosenbrock(x, p), sol.u))
+    return (;
+        start = Tuple(start), tol, solver = nameof(typeof(solver)), sol.retcode,
+        meets_target = abs(value - minimum_value) <= tol && gradient_norm <= tol,
+        iterations, objective_evals = objective_evals[], gradient_evals = gradient_evals[],
+        value, gradient_norm, time_us = timing.time / 1000, timing.allocs, timing.memory,
+    )
+end
+
+rosenbrock_minimizer = [1.0, 1.0]
+rosenbrock_minimum = 0.0
+@assert rosenbrock(rosenbrock_minimizer, _p) == rosenbrock_minimum
+
+bfgs_starts = (x0, [-1.2, 1.0], [0.8, 0.64], [1.2, 1.2])
+bfgs_cases = [(; start, tol) for start in bfgs_starts for tol in (1.0e-6, 1.0e-10)]
+bfgs_results = [
+    measure_rosenbrock_bfgs(start, _p, solver, options, tol, rosenbrock_minimum)
+        for (; start, tol) in bfgs_cases for (solver, options) in (
+            (SimpleBFGS(), (; abstol = tol)),
+            (Optim.BFGS(), (; g_abstol = tol, x_abstol = NaN, x_reltol = NaN, f_abstol = NaN, f_reltol = NaN)),
+        )
+]
+
+@printf(
+    "%11s %6s %10s %8s %4s %10s %10s\n",
+    "Start", "Target", "Solver", "Retcode", "Met?", "f(x)", "‖∇f‖∞"
+)
+for row in bfgs_results
+    @printf(
+        "%11s %6.0e %10s %8s %4s %10.3e %10.3e\n",
+        string(row.start), row.tol, row.solver, row.retcode, row.meets_target ? "yes" : "no",
+        row.value, row.gradient_norm
+    )
+end
+
+println()
+@printf(
+    "%11s %6s %10s %5s %6s %7s %9s %6s %6s\n",
+    "Start", "Target", "Solver", "Iters", "f eval", "∇f eval", "Median μs", "Allocs", "Bytes"
+)
+for row in bfgs_results
+    @printf(
+        "%11s %6.0e %10s %5d %6d %7d %9.3f %6d %6d\n",
+        string(row.start), row.tol, row.solver, row.iterations, row.objective_evals, row.gradient_evals,
+        row.time_us, row.allocs, row.memory
+    )
+end
+```
+
+The plot includes timings for every returned solve. Use the target check and return
+code in the accuracy table to interpret the cost of runs that stalled or missed the target.
+
+```julia
+using Plots: Plots, scatter, scatter!
+
+case_positions = 1:length(bfgs_cases)
+case_labels = [@sprintf("%s\n%.0e", string(Tuple(start)), tol) for (; start, tol) in bfgs_cases]
+time_plot = scatter(;
+    xticks = (case_positions, case_labels), xlabel = "Starting point and tolerance",
+    ylabel = "Median solve time (μs)", yscale = :log10, size = (820, 380), legend = :topright,
+    left_margin = 5Plots.mm, bottom_margin = 5Plots.mm,
+)
+for (solver, offset, marker) in ((:SimpleBFGS, -0.08, :circle), (:BFGS, 0.08, :diamond))
+    times = [row.time_us for row in bfgs_results if row.solver == solver]
+    scatter!(time_plot, case_positions .+ offset, times; label = string(solver), markershape = marker)
+end
+time_plot
+```
+
 ```julia
 Threads.nthreads()
 ```
