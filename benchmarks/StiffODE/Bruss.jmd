@@ -537,6 +537,93 @@ plot(wp)
 In the latest run, `ROCK4` and `NordsieckBDF` with KLU are the fastest methods at moderate tolerances,
 while `TSRKC3` reaches the smallest errors of all the methods in this comparison.
 
+## Rodas4PW Jacobian reuse
+
+All three configurations use the hand-written $8 \times 8$ periodic model
+(`prob`), its sparse Jacobian prototype, and the same KLU solver. The prototype
+has four periodic diffusion neighbors per row and a local two-species reaction
+block. The solves mark the forcing switch at $t = 1.1$ as a derivative
+discontinuity and save on the same grid from 0 to 11.5 in increments of 0.05.
+
+```julia
+using OrdinaryDiffEqRosenbrock: Rodas4PW
+using BenchmarkTools: @benchmark, median
+using Markdown: Markdown
+using Printf: @printf
+
+bruss_jac = prob.f.jac_prototype
+@printf(
+    "Sparse Jacobian prototype: %d × %d, %d stored entries\n",
+    size(bruss_jac)..., nnz(bruss_jac)
+)
+spy(bruss_jac; title = "Brusselator Jacobian sparsity", label = false)
+```
+
+The achieved error is the largest absolute component error over all saved
+states against a CVODE_BDF reference at `abstol = reltol = 1e-13`. A second
+CVODE_BDF run at `1e-12` gives a check on reference accuracy. Wall time is the
+median of ten warmed solves, including initialization and saving on the output
+grid.
+
+```julia
+function bruss_grid_error(sol, ref)
+    return maximum(norm(u - v, Inf) for (u, v) in zip(sol.u, ref.u))
+end
+
+function check_bruss_grid(sol, grid, label)
+    successful_retcode(sol) && sol.t == grid ||
+        error("$label did not complete the requested output grid ($(sol.retcode))")
+    return sol
+end
+
+reuse_grid = range(prob.tspan...; length = 231)
+reuse_options = (; saveat = reuse_grid, save_everystep = false, d_discontinuities = [1.1])
+reuse_reference = check_bruss_grid(
+    solve(prob, CVODE_BDF(); reuse_options..., abstol = 1.0e-13, reltol = 1.0e-13),
+    reuse_grid, "CVODE_BDF (1e-13)"
+)
+reference_check = check_bruss_grid(
+    solve(prob, CVODE_BDF(); reuse_options..., abstol = 1.0e-12, reltol = 1.0e-12),
+    reuse_grid, "CVODE_BDF (1e-12)"
+)
+@printf "Maximum difference between reference solves: %.3e\n" bruss_grid_error(reference_check, reuse_reference)
+
+reuse_klu = KLUFactorization()
+reuse_methods = (
+    "Rodas4PW (default)" => Rodas4PW(linsolve = reuse_klu),
+    "Rodas4PW (fresh)" => Rodas4PW(linsolve = reuse_klu, max_jac_age = 1),
+    "Rodas5P" => Rodas5P(linsolve = reuse_klu),
+)
+
+reuse_table = IOBuffer()
+println(
+    reuse_table, "| Method | Abs/rel tol | Max error | Time (ms) | Jacobian builds |",
+    " W refreshes | W with reused J | Accepted | Rejected |"
+)
+println(reuse_table, "| :-- | --: | --: | --: | --: | --: | --: | --: | --: |")
+for tol in (1.0e-4, 1.0e-6, 1.0e-8), (label, alg) in reuse_methods
+    options = (; reuse_options..., abstol = tol, reltol = tol)
+    reuse_sol = check_bruss_grid(solve(prob, alg; options...), reuse_grid, "$label ($tol)")
+    trial = @benchmark solve($prob, $alg; $options...) samples = 10 evals = 1
+    stats = reuse_sol.stats
+    @printf(
+        reuse_table, "| %s | %.0e | %.3e | %.3f | %d | %d | %d | %d | %d |\n",
+        label, tol, bruss_grid_error(reuse_sol, reuse_reference), median(trial).time / 1.0e6,
+        stats.njacs, stats.nw, stats.nw - stats.njacs, stats.naccept, stats.nreject
+    )
+end
+display(Markdown.parse(String(take!(reuse_table))))
+```
+
+`max_jac_age = 1` is the fresh-Jacobian control. The table uses the solver's
+`njacs` and `nw` counters for Jacobian builds and stage-matrix refreshes.
+`W with reused J` counts refreshes of the step-size-dependent stage matrix $W$
+that use a cached Jacobian. Rodas5P can also retain a Jacobian when retrying a
+rejected step. Each refreshed $W$ is supplied to KLU for numerical
+factorization or refactorization. KLU can reuse its symbolic analysis of the
+fixed pattern. KLU may perform extra numerical work internally, such as
+retrying a refactorization with new pivots.
+
 ```julia, echo = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
