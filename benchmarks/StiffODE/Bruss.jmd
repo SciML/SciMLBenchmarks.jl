@@ -595,29 +595,36 @@ reuse_methods = (
     "Rodas5P" => Rodas5P(linsolve = reuse_klu),
 )
 
-reuse_table = IOBuffer()
+performance_table = IOBuffer()
+println(performance_table, "| Method | Abs/rel tol | Max error | Time (ms) |")
+println(performance_table, "| :-- | --: | --: | --: |")
+
+work_table = IOBuffer()
 println(
-    reuse_table, "| Method | Abs/rel tol | Max error | Time (ms) | Jacobian builds |",
-    " W refreshes | W with reused J | Accepted | Rejected |"
+    work_table, "| Method | Tol. | J builds | W refreshes | Reused J | Accepted | Rejected |"
 )
-println(reuse_table, "| :-- | --: | --: | --: | --: | --: | --: | --: | --: |")
+println(work_table, "| :-- | --: | --: | --: | --: | --: | --: |")
 for tol in (1.0e-4, 1.0e-6, 1.0e-8), (label, alg) in reuse_methods
     options = (; reuse_options..., abstol = tol, reltol = tol)
     reuse_sol = check_bruss_grid(solve(prob, alg; options...), reuse_grid, "$label ($tol)")
     trial = @benchmark solve($prob, $alg; $options...) samples = 10 evals = 1
     stats = reuse_sol.stats
     @printf(
-        reuse_table, "| %s | %.0e | %.3e | %.3f | %d | %d | %d | %d | %d |\n",
-        label, tol, bruss_grid_error(reuse_sol, reuse_reference), median(trial).time / 1.0e6,
-        stats.njacs, stats.nw, stats.nw - stats.njacs, stats.naccept, stats.nreject
+        performance_table, "| %s | %.0e | %.3e | %.3f |\n",
+        label, tol, bruss_grid_error(reuse_sol, reuse_reference), median(trial).time / 1.0e6
+    )
+    @printf(
+        work_table, "| %s | %.0e | %d | %d | %d | %d | %d |\n",
+        label, tol, stats.njacs, stats.nw, stats.nw - stats.njacs, stats.naccept, stats.nreject
     )
 end
-display(Markdown.parse(String(take!(reuse_table))))
+display(Markdown.parse(String(take!(performance_table))))
+display(Markdown.parse(String(take!(work_table))))
 ```
 
-`max_jac_age = 1` is the fresh-Jacobian control. The table uses the solver's
-`njacs` and `nw` counters for Jacobian builds and stage-matrix refreshes.
-`W with reused J` counts refreshes of the step-size-dependent stage matrix $W$
+`max_jac_age = 1` is the fresh-Jacobian control. The work table uses the solver's
+`njacs` and `nw` counters for `J builds` and `W refreshes`.
+`Reused J` counts refreshes of the step-size-dependent stage matrix $W$
 that use a cached Jacobian. Rodas5P can also retain a Jacobian when retrying a
 rejected step. Each refreshed $W$ is supplied to KLU for numerical
 factorization or refactorization. KLU can reuse its symbolic analysis of the
