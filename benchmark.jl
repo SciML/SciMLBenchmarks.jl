@@ -11,10 +11,8 @@ elseif isfile(target)
     file = basename(target)
     println("Benchmarking $(folder)/$(file)")
     if isfile(joinpath(folder, "Project.toml"))
-        caller_project = something(Base.active_project(), @__DIR__)
-        include("src/weave_bootstrap.jl")
-        Pkg.activate(abspath(folder))
-        _bootstrap_weave(folder, file, (:script, :github), caller_project, true)
+        include("src/weave_subprocess.jl")
+        _weave_subprocess(folder, file, (:script, :github), true)
     else
         using SciMLBenchmarks
         SciMLBenchmarks.weave_file(folder, file)

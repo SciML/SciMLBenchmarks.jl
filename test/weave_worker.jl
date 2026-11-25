@@ -11,6 +11,7 @@ using Test: @test, @testset
         support = mkpath(joinpath(package_directory, "WeaveLoadPathFixture", "src"))
         write(
             joinpath(support, "WeaveLoadPathFixture.jl"), """
+            __precompile__(false)
             module WeaveLoadPathFixture
             const MESSAGE = "Loaded from the caller's package directory."
             end
@@ -42,7 +43,7 @@ using Test: @test, @testset
             )
             write(
                 joinpath(package, "src", "WeaveProjectFixture.jl"),
-                "module WeaveProjectFixture\nconst VERSION_LABEL = \"$version\"\nend\n"
+                "__precompile__(false)\nmodule WeaveProjectFixture\nconst VERSION_LABEL = \"$version\"\nend\n"
             )
         end
 
@@ -59,7 +60,9 @@ using Test: @test, @testset
                 println(io, Threads.nthreads())
                 println(io, VERSION >= v"1.9" ? Threads.nthreads(:interactive) : 0)
                 println(io, VERSION >= v"1.10" ? Threads.ngcthreads() : 0)
+                println(io, VERSION >= v"1.10" ? Base.JLOptions().nsweepthreads : 0)
             end
+            println("Benchmark resolved ", WeaveProjectFixture.VERSION_LABEL)
             ```
 
             ```julia, echo = false
@@ -88,37 +91,60 @@ using Test: @test, @testset
                 )
                 render()
                 @test Base.active_project() == joinpath(caller, "Project.toml")
-                project, version, load_path, threads, interactive, gc_threads = readlines(state)
+                project, version, load_path, threads, interactive, gc_threads, sweep_threads = readlines(state)
                 @test project == joinpath(benchmark, "Project.toml")
                 @test version == "2.0.0"
                 @test load_path == repr(["@"; LOAD_PATH])
                 @test threads == string(Threads.nthreads())
                 @test interactive == string(VERSION >= v"1.9" ? Threads.nthreads(:interactive) : 0)
-                @test gc_threads == string(VERSION >= v"1.10" ? Threads.ngcthreads() : 0)
+                sweep = VERSION >= v"1.10" ? Base.JLOptions().nsweepthreads : 0
+                mark = VERSION >= v"1.10" ? Threads.ngcthreads() - sweep : 0
+                @test parse(Int, gc_threads) - parse(Int, sweep_threads) == mark
+                @test parse(Int, sweep_threads) == sweep
                 @test occursin("Loaded from the caller's package directory.", read(output, String))
                 rm(state)
                 rm(output)
+            end
+
+            @testset "CLI isolates preloaded packages" begin
+                preload = joinpath(directory, "preload.jl")
+                write(
+                    preload, """
+                    import WeaveProjectFixture
+                    println("CLI preload resolved ", WeaveProjectFixture.VERSION_LABEL)
+                    """
+                )
+                entrypoint = joinpath(dirname(@__DIR__), "benchmark.jl")
+                page = joinpath(benchmark, "environment.jmd")
+                command = `$(Base.julia_cmd()) --startup-file=no --project=$caller -L $preload $entrypoint $page`
+                command = addenv(command, "JULIA_LOAD_PATH" => join(LOAD_PATH, Sys.iswindows() ? ';' : ':'))
+                stdout = IOBuffer()
+                @test success(pipeline(command; stdout))
+                @test occursin("CLI preload resolved 1.0.0", String(take!(stdout)))
+                @test occursin("Benchmark resolved 2.0.0", read(output, String))
             end
         finally
             append!(empty!(LOAD_PATH), original_load_path)
             Pkg.activate(original_project)
             rm(dirname(output); recursive = true, force = true)
+            rm(joinpath(dirname(@__DIR__), "script", basename(benchmark)); recursive = true, force = true)
         end
     end
 end
 
 if VERSION >= v"1.10"
-    @testset "single-file CLI thread settings" begin
+    @testset "Weave thread settings" begin
         mktempdir() do directory
             write(joinpath(directory, "Project.toml"), "[deps]\n")
             page = joinpath(directory, "threads.jmd")
             write(
                 page, """
-                # CLI thread settings
+                # Weave thread settings
 
                 ```julia, echo = false
-                print("CLI thread settings: ", (Threads.nthreads(), Threads.nthreads(:interactive),
-                    Threads.ngcthreads(), Base.JLOptions().nsweepthreads))
+                sweep = Int(Base.JLOptions().nsweepthreads)
+                mark = Threads.ngcthreads() - sweep
+                print("Weave thread settings: ", (Threads.nthreads(), Threads.nthreads(:interactive), mark, sweep))
                 ```
                 """
             )
@@ -127,10 +153,21 @@ if VERSION >= v"1.10"
             output = joinpath(root, "markdown", basename(directory), "threads.md")
             script = joinpath(root, "script", basename(directory))
             try
-                run(
-                    `$(Base.julia_cmd()) --startup-file=no --threads=3,1 --gcthreads=1,1 --project=$(Base.active_project()) $entrypoint $page`
-                )
-                @test occursin("CLI thread settings: (3, 1, 2, 1)", read(output, String))
+                for (gc_threads, sweep) in (("1", 0), ("1,1", 1))
+                    julia = `$(Base.julia_cmd()) --startup-file=no --threads=3,1 --gcthreads=$gc_threads --project=$(Base.active_project())`
+                    for (entry, command) in (
+                            ("single-file CLI", `$julia $entrypoint $page`),
+                            ("folder CLI", `$julia $entrypoint $directory`),
+                            ("weave_file", `$julia -e 'using SciMLBenchmarks; SciMLBenchmarks.weave_file(ARGS[1], "threads.jmd", (:github,))' $directory`),
+                            ("weave_folder", `$julia -e 'using SciMLBenchmarks; SciMLBenchmarks.weave_folder(ARGS[1], (:github,))' $directory`),
+                        )
+                        @testset "$entry with --gcthreads=$gc_threads" begin
+                            run(command)
+                            @test occursin("Weave thread settings: (3, 1, 1, $sweep)", read(output, String))
+                            rm(output)
+                        end
+                    end
+                end
             finally
                 rm(dirname(output); recursive = true, force = true)
                 rm(script; recursive = true, force = true)

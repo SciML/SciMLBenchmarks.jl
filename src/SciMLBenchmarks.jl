@@ -7,6 +7,7 @@ using Weave: Weave, tangle, weave
 using PrecompileTools: @compile_workload, @setup_workload
 
 include("weave.jl")
+include("weave_subprocess.jl")
 
 macro subprocess(ex, wait = true)
     return quote
@@ -37,30 +38,11 @@ end
 
 function weave_file(folder, file, build_list = (:script, :github))
     if _uses_benchmark_project(folder, build_list)
-        return _weave_subprocess(folder, file, build_list, true)
+        _weave_subprocess(folder, file, build_list, true)
+        return :notebook ∈ build_list ? _notebook_path(folder, file) : nothing
     end
     @info("Weaving $(joinpath(folder, file))")
     return _render_file(folder, file, build_list)
-end
-
-function _weave_subprocess(folder, file, build_list, use_benchmark_project = _uses_benchmark_project(folder, build_list))
-    caller_project = something(Base.active_project(), repo_directory)
-    project = use_benchmark_project ? abspath(folder) : caller_project
-    worker = joinpath(@__DIR__, "weave_worker.jl")
-    threads = string(Threads.nthreads())
-    if VERSION >= v"1.9"
-        interactive = Threads.nthreads(:interactive)
-        # Julia 1.12 accepts an explicit zero for the interactive pool.
-        if interactive > 0 || VERSION >= v"1.12"
-            threads = "$threads,$interactive"
-        end
-    end
-    gc_flags = VERSION >= v"1.10" ? `--gcthreads=$(Threads.ngcthreads())` : ``
-    outputs = string.(collect(build_list))
-    run(
-        `$(Base.julia_cmd()) --startup-file=no --threads=$threads $gc_flags --project=$project $worker $folder $file $caller_project $use_benchmark_project $(length(outputs)) $outputs $LOAD_PATH`
-    )
-    return :notebook ∈ build_list ? _notebook_path(folder, file) : nothing
 end
 
 function weave_all(build_list = (:script, :github))
@@ -86,7 +68,7 @@ function weave_folder(folder, build_list = (:script, :github))
     failures = Tuple{String, String}[]
     for file in weave_files
         try
-            _weave_subprocess(folder, file, build_list)
+            _weave_subprocess(folder, file, build_list, _uses_benchmark_project(folder, build_list))
         catch e
             @show folder, file
             @error(e)
