@@ -168,7 +168,11 @@ minimum is zero at `(1, 1)` because both squared terms vanish there. We set the
 absolute gradient infinity-norm tolerance to `tol` via `abstol` for SimpleBFGS and
 `g_abstol` for Optim BFGS. Optim's step and objective change tolerances are disabled.
 A run meets the common target when the final objective error and gradient infinity
-norm are both at most `tol`. The table reports this check alongside the solver's return code.
+norm are both at most `tol`. The accuracy table reports this check alongside the solver's return code.
+
+The reference run used Julia 1.11.9 with single-threaded ILP64 OpenBLAS 0.3.27
+(ZEN kernel). The OpenBLAS kernel can affect timing, SimpleBFGS iteration counts,
+and whether SimpleBFGS reaches the target.
 
 The timing is the median over warmed `solve` calls, with a fresh starting vector prepared
 outside each sample. Allocation counts and bytes come from the same BenchmarkTools trial.
@@ -234,22 +238,33 @@ bfgs_results = [
 ]
 
 @printf(
-    "%14s %7s %10s %9s %6s %5s %7s %7s %11s %11s %10s %6s %8s\n",
-    "Start", "Target", "Solver", "Retcode", "Met?", "Iters", "f eval", "∇f eval", "f(x)",
-    "‖∇f‖∞", "Median μs", "Allocs", "Bytes"
+    "%11s %6s %10s %8s %4s %10s %10s\n",
+    "Start", "Target", "Solver", "Retcode", "Met?", "f(x)", "‖∇f‖∞"
 )
 for row in bfgs_results
     @printf(
-        "%14s %7.0e %10s %9s %6s %5d %7d %7d %11.3e %11.3e %10.3f %6d %8d\n",
+        "%11s %6.0e %10s %8s %4s %10.3e %10.3e\n",
         string(row.start), row.tol, row.solver, row.retcode, row.meets_target ? "yes" : "no",
-        row.iterations, row.objective_evals, row.gradient_evals, row.value, row.gradient_norm,
+        row.value, row.gradient_norm
+    )
+end
+
+println()
+@printf(
+    "%11s %6s %10s %5s %6s %7s %9s %6s %6s\n",
+    "Start", "Target", "Solver", "Iters", "f eval", "∇f eval", "Median μs", "Allocs", "Bytes"
+)
+for row in bfgs_results
+    @printf(
+        "%11s %6.0e %10s %5d %6d %7d %9.3f %6d %6d\n",
+        string(row.start), row.tol, row.solver, row.iterations, row.objective_evals, row.gradient_evals,
         row.time_us, row.allocs, row.memory
     )
 end
 ```
 
 The plot includes timings for every returned solve. Use the target check and return
-code in the table to interpret the cost of runs that stalled or missed the target.
+code in the accuracy table to interpret the cost of runs that stalled or missed the target.
 
 ```julia
 using Plots: Plots, scatter, scatter!
