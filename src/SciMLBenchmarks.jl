@@ -3,6 +3,7 @@ module SciMLBenchmarks
 using InteractiveUtils: InteractiveUtils
 using Markdown: Markdown, @md_str
 using Pkg: Pkg
+using TOML: TOML
 using Weave: Weave, tangle, weave
 using PrecompileTools: @compile_workload, @setup_workload
 
@@ -31,6 +32,28 @@ function _benchmark_priority(path)
     end
 end
 
+function _build_conda(folder)
+    minor = "$(VERSION.major).$(VERSION.minor)"
+    manifests = if VERSION >= v"1.10.8"
+        ("JuliaManifest-v$minor.toml", "Manifest-v$minor.toml", "JuliaManifest.toml", "Manifest.toml")
+    else
+        ("JuliaManifest.toml", "Manifest.toml")
+    end
+    conda_uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
+    for name in manifests
+        path = joinpath(folder, name)
+        isfile(path) || continue
+        # Pkg.dependencies() requires a source path even for unrelated manifest entries.
+        manifest = TOML.parsefile(path)
+        dependencies = get(manifest, "deps", manifest)
+        if any(dep -> dep["uuid"] == conda_uuid, get(dependencies, "Conda", ()))
+            Pkg.build(Pkg.PackageSpec(; uuid = conda_uuid))
+        end
+        break
+    end
+    return
+end
+
 function weave_file(folder, file, build_list = (:script, :github))
     Weave.set_chunk_defaults!(:error => false)
     target = joinpath(folder, file)
@@ -41,6 +64,7 @@ function weave_file(folder, file, build_list = (:script, :github))
         Pkg.activate(folder)
         withenv("JULIA_PKG_PRECOMPILE_AUTO" => "0") do
             Pkg.instantiate()
+            _build_conda(folder)
         end
         Pkg.precompile()
     end

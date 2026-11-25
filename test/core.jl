@@ -1,4 +1,5 @@
 using SciMLBenchmarks
+using Pkg: Pkg
 using Test
 
 @testset "documentation workflow consistency" begin
@@ -301,6 +302,11 @@ end
     @test occursin("CUDA = \"5\"", project)
     @test occursin("cuDNN = \"=1.4.4\"", project)
     @test occursin("Reactant = \"=0.2.171\"", project)
+    @test occursin("GPUCompiler = \"=1.9.1\"", project)
+    # CI reads the minor Julia version from the manifest's julia_version field;
+    # Reactant 0.2.171 does not support Julia 1.12, so the manifest must stay
+    # resolved under 1.11.
+    @test occursin(r"julia_version = \"1\.11\.", manifest)
     @test occursin(
         r"(?s)\[\[deps\.CUDNN_jll\]\].*?version = \"9\.10\.0\+0\"", manifest
     )
@@ -464,4 +470,60 @@ end
     output = joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md")
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
+end
+
+@testset "weave_file repairs stale Conda state" begin
+    mktempdir() do folder
+        conda_uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
+        other_uuid = "1a881dbe-075b-44eb-a937-bacd68b4a599"
+        prefix = joinpath(folder, "prefix")
+        unexpected_build = joinpath(folder, "unexpected-build")
+        packages = (
+            (
+                "Conda", conda_uuid,
+                "include(\"../deps/deps.jl\"); isdir(PREFIX) || error(\"Missing Conda prefix\")",
+                "include(\"deps.jl\"); mkpath(PREFIX)",
+            ),
+            (
+                "OtherBuild", other_uuid, "",
+                "touch($(repr(unexpected_build)))",
+            ),
+        )
+        write(
+            joinpath(folder, "Project.toml"), """
+            [deps]
+            Conda = "$conda_uuid"
+            OtherBuild = "$other_uuid"
+            """
+        )
+        open(joinpath(folder, "Manifest.toml"), "w") do manifest
+            println(manifest, "manifest_format = \"2.0\"")
+            for (name, uuid, source, build) in packages
+                package = joinpath(folder, name)
+                mkpath(joinpath(package, "src"))
+                mkpath(joinpath(package, "deps"))
+                write(joinpath(package, "Project.toml"), "name = \"$name\"\nuuid = \"$uuid\"\n")
+                write(joinpath(package, "src", "$name.jl"), "module $name\n$source\nend\n")
+                write(joinpath(package, "deps", "build.jl"), build)
+                println(manifest, "\n[[deps.$name]]\npath = \"$name\"\nuuid = \"$uuid\"")
+            end
+        end
+        write(joinpath(folder, "Conda", "deps", "deps.jl"), "const PREFIX = $(repr(prefix))\n")
+
+        project = Base.active_project()
+        try
+            @test !isdir(prefix)
+            SciMLBenchmarks.weave_file(folder, "fixture.jmd", ())
+            @test isdir(prefix)
+            @test !isfile(unexpected_build)
+
+            sentinel = joinpath(prefix, "installed")
+            write(sentinel, "keep")
+            SciMLBenchmarks.weave_file(folder, "fixture.jmd", ())
+            @test read(sentinel, String) == "keep"
+            @test !isfile(unexpected_build)
+        finally
+            Pkg.activate(dirname(project))
+        end
+    end
 end
