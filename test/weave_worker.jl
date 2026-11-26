@@ -347,6 +347,26 @@ end
             @test !ispath(missing_target)
         end
 
+        @testset "dangling file link at the destination" begin
+            missing_file = joinpath(directory, "missing_file.jl")
+            destination = joinpath(script_directory, "dangling_file.jl")
+            symlink(missing_file, destination)
+            declare_companion("dangling_file.jl")
+            @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            @test islink(destination)
+            @test !ispath(missing_file)
+        end
+
+        @testset "live file link at the destination" begin
+            destination = joinpath(script_directory, "live_file.jl")
+            symlink(marker, destination)
+            declare_companion("live_file.jl")
+            render()
+            @test read(marker, String) == "original\n"
+            @test !islink(destination)
+            @test read(destination, String) == "staged\n"
+        end
+
         @testset "directories inside the tree" begin
             shared = mkpath(joinpath(output_root, "script", "shared"))
             symlink(shared, joinpath(script_directory, "inward"))

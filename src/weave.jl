@@ -50,7 +50,8 @@ function _stage_script_includes(folder, script, script_root)
         isfile(source) || continue
         destination = normpath(dirname(script), path)
         if first(splitpath(relpath(destination, script_root))) in (".", "..") ||
-                !_directory_resolves_inside(dirname(destination), script_root)
+                !_directory_resolves_inside(dirname(destination), script_root) ||
+                (islink(destination) && !ispath(destination))
             @warn "Not staging an include that resolves outside the script tree" script path destination
             continue
         end
