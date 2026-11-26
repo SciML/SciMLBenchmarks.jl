@@ -7,7 +7,8 @@ trap 'rm -rf "${TEST_ROOT}"' EXIT
 
 FIXTURE="${TEST_ROOT}/fixture"
 mkdir -p "${FIXTURE}/.github/scripts" "${FIXTURE}/benchmarks/Alpha" \
-    "${FIXTURE}/benchmarks/Beta" "${TEST_ROOT}/bin"
+    "${FIXTURE}/benchmarks/Beta" "${FIXTURE}/benchmarks/NonStiffODE" \
+    "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods" "${TEST_ROOT}/bin"
 cp "${REPO_ROOT}/.github/scripts/detect-changed-benchmarks.sh" \
     "${REPO_ROOT}/.github/scripts/read-benchmark-config.sh" "${FIXTURE}/.github/scripts/"
 cp "${REPO_ROOT}/.github/benchmark_defaults.toml" "${FIXTURE}/.github/"
@@ -16,6 +17,13 @@ printf '[deps]\n' > "${FIXTURE}/benchmarks/Alpha/Project.toml"
 printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/Alpha/Manifest.toml"
 printf '[deps]\n' > "${FIXTURE}/benchmarks/Beta/Project.toml"
 printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/Beta/Manifest.toml"
+printf '[deps]\n' > "${FIXTURE}/benchmarks/NonStiffODE/Project.toml"
+printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/NonStiffODE/Manifest.toml"
+printf '# Linear work precision\n' > "${FIXTURE}/benchmarks/NonStiffODE/linear_wpd.jmd"
+printf '[deps]\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/Project.toml"
+printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/Manifest.toml"
+printf '# All methods\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/all_methods.jmd"
+printf '# shared helper\n' > "${FIXTURE}/benchmarks/workprecision_table.jl"
 
 git -C "${FIXTURE}" init -q -b master
 git -C "${FIXTURE}" config user.name "Detector Test"
@@ -131,6 +139,14 @@ assert_detection() {
         exit 1
     fi
 }
+
+printf '\n' >> "${FIXTURE}/benchmarks/workprecision_table.jl"
+HELPER_TARGETS=$'benchmarks/NonStiffODE/linear_wpd.jmd\nbenchmarks/OrdinaryDiffEqMethods/all_methods.jmd'
+assert_detection "${HELPER_TARGETS}"
+
+printf '\n' >> "${FIXTURE}/benchmarks/workprecision_table.jl"
+printf '\n' >> "${FIXTURE}/benchmarks/NonStiffODE/Project.toml"
+assert_detection $'benchmarks/NonStiffODE\nbenchmarks/OrdinaryDiffEqMethods/all_methods.jmd'
 
 printf '# First page\n' > "${FIXTURE}/benchmarks/Alpha/first.jmd"
 printf '# Second page\n' > "${FIXTURE}/benchmarks/Alpha/second.jmd"

@@ -55,6 +55,23 @@ else
     CHANGED_FILES=$(git diff --name-only HEAD~1 -- 'benchmarks/' 2>/dev/null || true)
 fi
 
+declare -A SHARED_FILE_CONSUMERS=(
+    ["benchmarks/workprecision_table.jl"]="benchmarks/OrdinaryDiffEqMethods/all_methods.jmd benchmarks/NonStiffODE/linear_wpd.jmd"
+)
+
+EXPANDED_CHANGED_FILES=""
+while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    if [[ -n "${SHARED_FILE_CONSUMERS[$f]+x}" ]]; then
+        for consumer in ${SHARED_FILE_CONSUMERS[$f]}; do
+            EXPANDED_CHANGED_FILES+="${consumer}"$'\n'
+        done
+    else
+        EXPANDED_CHANGED_FILES+="${f}"$'\n'
+    fi
+done <<< "${CHANGED_FILES}"
+CHANGED_FILES="${EXPANDED_CHANGED_FILES}"
+
 declare -A FILES     # .jmd file -> its project directory
 declare -A PROJECTS  # project directories that need full rebuild
 

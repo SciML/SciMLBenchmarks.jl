@@ -284,6 +284,10 @@ timeout = 12000
 | CPU | `["self-hosted", "benchmark"]` | amdci1, amdci3 (AMD EPYC, stable hardware) | Most benchmarks. Stable hardware for regression checking. |
 | GPU | `["self-hosted", "gpu", "exclusive"]` | demeter3 (AMD EPYC + 2x Tesla V100) | NeuralPDE/PINN benchmarks and other GPU workloads. |
 
+#### Shared Benchmark Helpers
+
+A `.jmd` page can declare a shared Julia companion with a literal relative include such as `include(joinpath(@__DIR__, "..", "workprecision_table.jl"))`. Script generation copies each declared companion into the same relative position under `script/`, so copying the generated `script/` tree preserves the layout needed to execute the tangled script. Shared helpers that live outside any benchmark project do not by themselves belong to a folder environment: register every consuming page in `SHARED_FILE_CONSUMERS` in `.github/scripts/detect-changed-benchmarks.sh`. A helper-only change then schedules those consumers through the normal file and project coalescing rules. When a solver wrapper cannot report accepted-step counts, include `:accepted_steps_unavailable` in that setup's tags; the shared work-precision table renders an em dash for the unavailable count while preserving measured zeros.
+
 #### Setup Scripts (`setup.sh`)
 
 If a benchmark directory contains an executable `setup.sh`, it runs before `Pkg.instantiate()` and the benchmark itself. Use this for installing system dependencies, configuring package registries, downloading data, etc.
