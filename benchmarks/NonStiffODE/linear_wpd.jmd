@@ -24,9 +24,11 @@ rapid development has its advantages.
 
 ```julia
 using OrdinaryDiffEq, OrdinaryDiffEqCore, Sundials, DiffEqDevTools, Plots, ODEInterfaceDiffEq, LSODA
+using OrdinaryDiffEq: successful_retcode
 using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, OrdinaryDiffEqHighOrderRK, OrdinaryDiffEqLowOrderRK, OrdinaryDiffEqVerner
 using Polyester
 using SciMLLogging
+using SciMLLogging: None
 using Random
 Random.seed!(123)
 gr()
@@ -163,7 +165,7 @@ setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
           Dict(:alg=>dop853(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
           Dict(:alg=>odex(), :tags=>LINEAR_ODEINTERFACE_EXTRAPOLATION_TAGS)
           Dict(:alg=>lsoda(), :tags=>LINEAR_LSODA_TAGS)
-          Dict(:alg=>ddeabm(), :tags=>LINEAR_ODEINTERFACE_MULTISTEP_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[LINEAR_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
           Dict(:alg=>ARKODE(Sundials.Explicit(), order = 8), :tags=>LINEAR_SUNDIALS_RK_TAGS)
           Dict(:alg=>CVODE_Adams(), :tags=>LINEAR_SUNDIALS_MULTISTEP_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], save_everystep = false, numruns = 100)
@@ -207,8 +209,11 @@ plot(wp)
 
 ## Comparison with Fixed Timestep RK4
 
-Let's run the first benchmark but add some fixed timestep RK4 methods to see
-the difference:
+Let's run the first benchmark but add RK4 to see the difference. The plotted
+RK4 curve preserves the original adaptive defect-controlled measurement, with
+`dts` supplying the initial step for each tolerance. Its observed order in the
+table comes from a separate fixed-step refinement compared with the analytic
+linear solution:
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (3:13)
@@ -216,15 +221,37 @@ reltols = 1.0 ./ 10.0 .^ (0:10);
 dts = [1, 1/2, 1/4, 1/10, 1/20, 1/40, 1/60, 1/80, 1/100, 1/140, 1/240]
 setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
           Dict(:alg=>dopri5(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
-          Dict(:alg=>RK4(), :dts=>dts, :adaptive=>false, :auto_tags=>false,
-              :tags=>[:ordinarydiffeq, :explicit_rk, :fixed_step, :order_4, :nonstiff])
+          Dict(:alg=>RK4(), :dts=>dts, :tags=>LINEAR_ODE_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
 solnames = ["DifferentialEquations"; "ODEInterface"; "DifferentialEquations RK4";
             "DifferentialEquations Tsit5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
-print_work_table(wp, LINEAR_ERROR_FLOOR)
+rk4_order = controlled_order(
+    prob, RK4(), 160 .* (2 .^ (0:3)), f_analytic(prob.u0, nothing, last(tspan)), LINEAR_ERROR_FLOOR,
+)
+print_work_table(wp, LINEAR_ERROR_FLOOR; orders = Dict("DifferentialEquations RK4" => rk4_order))
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+rk4_series = only(filter(series -> series.name == "DifferentialEquations RK4", wp[:]))
+@assert :adaptive in rk4_series.tags
+@assert :fixed_step ∉ rk4_series.tags
+expected_rk4_steps = [8, 13, 21, 35, 58, 99, 170, 298, 524, 927, 1646]
+@assert [rk4_series.stats[i].naccept for i in 1:rk4_series.N] == expected_rk4_steps
+@assert [rk4_series.stats[i].nreject for i in 1:rk4_series.N] == zeros(Int, rk4_series.N)
+expected_rk4_errors = [
+    1114.165963710718, 276.80982407780095, 54.253363239543695, 8.271387059544928,
+    1.0471346073797405, 0.12111083520167935, 0.01313968615174443, 0.001382417307160334,
+    0.00014204815933591215, 1.4441217671473971e-5, 1.4568882005790761e-6,
+]
+actual_rk4_errors = collect(rk4_series.errors.final)
+@assert length(actual_rk4_errors) == length(expected_rk4_errors)
+@assert all(i -> isapprox(actual_rk4_errors[i], expected_rk4_errors[i]; rtol = 1.0e-8), eachindex(expected_rk4_errors))
+rk4_order_value = tryparse(Float64, rk4_order)
+@assert !isnothing(rk4_order_value)
+@assert abs(rk4_order_value - 4) < 0.05
 ```
 
 ## Comparison with Non-RK methods

@@ -21,9 +21,24 @@ function refinement_rate(steps, errors, error_floor)
     return "—"
 end
 
-function measured_order(wp, points, error_floor)
+function _setup_value(setup, key)
+    setup === nothing && return nothing
+    if setup isa AbstractDict
+        return haskey(setup, key) ? setup[key] : nothing
+    end
+    return hasproperty(setup, key) ? getproperty(setup, key) : nothing
+end
+
+function _effective_problem(wp, setup = nothing)
+    prob = wp.prob
+    prob isa AbstractArray || return prob
+    choice = something(_setup_value(setup, :prob_choice), 1)
+    return prob[choice]
+end
+
+function measured_order(wp, points, error_floor, prob = _effective_problem(wp))
     isnothing(wp.dts) && return "—"
-    interval = last(wp.prob.tspan) - first(wp.prob.tspan)
+    interval = last(prob.tspan) - first(prob.tspan)
     errors = fill(NaN, length(wp.dts))
     for i in points
         expected = round(Int, interval / wp.dts[i])
@@ -35,9 +50,10 @@ function measured_order(wp, points, error_floor)
     return refinement_rate(wp.dts, errors, error_floor)
 end
 
-function adaptive_step_rate(wp, points, error_floor)
+function adaptive_step_rate(wp, points, error_floor, prob = _effective_problem(wp))
     :adaptive in wp.tags || return "—"
-    interval = last(wp.prob.tspan) - first(wp.prob.tspan)
+    :accepted_steps_unavailable in wp.tags && return "—"
+    interval = last(prob.tspan) - first(prob.tspan)
     steps = fill(NaN, wp.N)
     for i in points
         stats = wp.stats[i]
@@ -65,15 +81,36 @@ function controlled_order(prob, alg, counts, endpoint, error_floor)
     return refinement_rate(steps, errors, error_floor)
 end
 
-function work_table_markdown(wps, error_floor; orders = Dict{String, String}())
+function _work_setup(wps, setups, index)
+    source = setups
+    if source === nothing && hasproperty(wps, :setups)
+        source = wps.setups
+    end
+    source isa AbstractVector && length(source) >= index || return nothing
+    return source[index]
+end
+
+"""
+    work_table_markdown(wps, error_floor; orders = Dict(), setups = nothing)
+
+Render endpoint work-precision measurements as a Markdown table. `orders` overrides
+measured fixed-step orders by series name. Array-valued problems use the corresponding
+setup's `:prob_choice`, defaulting to the first problem as `WorkPrecisionSet` does.
+Tag a setup with `:accepted_steps_unavailable` when its solver wrapper does not report
+accepted-step counts; the table then displays an em dash while preserving genuine
+measured zero counts.
+"""
+function work_table_markdown(wps, error_floor; orders = Dict{String, String}(), setups = nothing)
     io = IOBuffer()
     println(io, "| Algorithm | Tags | Usable points | Observed order | Adaptive-step rate | Best error | Time (s) | RHS calls | Accepted steps |")
     println(io, "|:--|:--|--:|--:|--:|--:|--:|--:|--:|")
-    for wp in wps[:]
+    for (index, wp) in enumerate(wps[:])
+        setup = _work_setup(wps, setups, index)
+        prob = _effective_problem(wp, setup)
         points = usable_points(wp)
         tags = join(wp.tags, ", ")
-        order = get(() -> measured_order(wp, points, error_floor), orders, wp.name)
-        rate = adaptive_step_rate(wp, points, error_floor)
+        order = get(() -> measured_order(wp, points, error_floor, prob), orders, wp.name)
+        rate = adaptive_step_rate(wp, points, error_floor, prob)
         if isempty(points)
             println(io, "| $(wp.name) | $tags | 0/$(wp.N) | $order | $rate | — | — | — | — |")
             continue
@@ -82,7 +119,7 @@ function work_table_markdown(wps, error_floor; orders = Dict{String, String}())
         stats = wp.stats[i]
         rhs_calls = isnothing(stats) || wp.name == "PDIRK44" ? "—" :
             iszero(stats.nf + stats.nf2) ? "—" : string(stats.nf + stats.nf2)
-        accepted = isnothing(stats) ? "—" : string(stats.naccept)
+        accepted = isnothing(stats) || :accepted_steps_unavailable in wp.tags ? "—" : string(stats.naccept)
         println(
             io,
             "| $(wp.name) | $tags | $(length(points))/$(wp.N) | $order | $rate | ",
@@ -98,26 +135,79 @@ function print_work_table(wps, error_floor; kwargs...)
 end
 
 function assert_work_table_markdown_fixture()
+    prob = (tspan = (0.0, 1.0),)
     fixtures = (
-        ("PDIRK44", 1384, 32, "—"), ("KuttaPRK2p5", 0, 128, "—"),
-        ("Tsit5", 441, 73, "441"), ("lsoda", nothing, nothing, "—"),
+        (name = "PDIRK44", calls = 1384, steps = 32, rhs = "—", accepted = "32", tags = ()),
+        (name = "KuttaPRK2p5", calls = 0, steps = 128, rhs = "—", accepted = "128", tags = ()),
+        (name = "Tsit5", calls = 441, steps = 73, rhs = "441", accepted = "73", tags = ()),
+        (name = "lsoda", calls = nothing, steps = nothing, rhs = "—", accepted = "—", tags = [:adaptive]),
+        (
+            name = "UnavailableSteps", calls = 210, steps = 0, rhs = "210", accepted = "—",
+            tags = [:adaptive, :accepted_steps_unavailable],
+        ),
+        (
+            name = "MeasuredZero", calls = 210, steps = 0, rhs = "210", accepted = "0",
+            tags = [:adaptive],
+        ),
     )
-    wps = map(fixtures) do (name, calls, steps, _)
-        stats = isnothing(calls) ? nothing : (nf = calls, nf2 = 0, naccept = steps)
+    wps = map(fixtures) do fixture
+        stats = isnothing(fixture.calls) ? nothing :
+            (nf = fixture.calls, nf2 = 0, naccept = fixture.steps)
         return (
-            name = name, times = [1.0], errors = (final = [0.01],), tags = (),
-            dts = nothing, N = 1, stats = [stats],
+            name = fixture.name, prob, times = [1.0], errors = (final = [0.01],),
+            tags = fixture.tags, dts = nothing, N = 1, stats = [stats],
         )
     end
     rows = split(chomp(work_table_markdown(collect(wps), 0.0)), '\n')[3:end]
     @assert length(rows) == length(fixtures)
-    for (row, (name, _, steps, expected_rhs)) in zip(rows, fixtures)
+    for (row, fixture) in zip(rows, fixtures)
         columns = strip.(split(row, '|'; keepempty = false))
-        @assert columns[1] == name
+        @assert columns[1] == fixture.name
         rhs, accepted = columns[8:9]
-        expected_accepted = isnothing(steps) ? "—" : string(steps)
-        @assert rhs == expected_rhs "$name RHS calls should be $expected_rhs, got $rhs"
-        @assert accepted == expected_accepted "$name accepted steps should be $expected_accepted, got $accepted"
+        @assert rhs == fixture.rhs "$(fixture.name) RHS calls should be $(fixture.rhs), got $rhs"
+        @assert accepted == fixture.accepted "$(fixture.name) accepted steps should be $(fixture.accepted), got $accepted"
+    end
+    lsoda = only(row for row in rows if startswith(row, "| lsoda |"))
+    lsoda_columns = strip.(split(lsoda, '|'; keepempty = false))
+    @assert lsoda_columns[5] == "—" "lsoda adaptive-step rate should be —, got $(lsoda_columns[5])"
+
+    array_probs = [(tspan = (0.0, 2.0),), (tspan = (0.0, 8.0),)]
+    dts = [0.5, 0.25, 0.125]
+    errors = [0.08, 0.04, 0.02]
+    function fixed_array_wp(name, choice)
+        interval = last(array_probs[choice].tspan) - first(array_probs[choice].tspan)
+        stats = map(dts) do dt
+            return (nf = 1, nf2 = 0, naccept = round(Int, interval / dt), nreject = 0)
+        end
+        return (
+            name, prob = array_probs, times = ones(3), errors = (final = copy(errors),),
+            tags = [:fixed_step], dts, N = 3, stats,
+        )
+    end
+    function adaptive_array_wp(name)
+        stats = map((20, 40, 80)) do naccept
+            return (nf = naccept, nf2 = 0, naccept, nreject = 0)
+        end
+        return (
+            name, prob = array_probs, times = ones(3), errors = (final = copy(errors),),
+            tags = [:adaptive], dts = nothing, N = 3, stats,
+        )
+    end
+    array_wps = [
+        fixed_array_wp("ArrayFixedDefault", 1), fixed_array_wp("ArrayFixedExplicit", 2),
+        adaptive_array_wp("ArrayAdaptiveDefault"), adaptive_array_wp("ArrayAdaptiveExplicit"),
+    ]
+    array_setups = [Dict{Symbol, Any}(), Dict(:prob_choice => 2), Dict{Symbol, Any}(), Dict(:prob_choice => 2)]
+    array_rows = split(
+        chomp(work_table_markdown(array_wps, 0.0; setups = array_setups)), '\n'
+    )[3:end]
+    @assert length(array_rows) == length(array_wps)
+    @assert _effective_problem(array_wps[1], array_setups[1]).tspan == (0.0, 2.0)
+    @assert _effective_problem(array_wps[2], array_setups[2]).tspan == (0.0, 8.0)
+    for (row, order, rate) in zip(array_rows, ("1.00", "1.00", "—", "—"), ("—", "—", "1.00", "1.00"))
+        columns = strip.(split(row, '|'; keepempty = false))
+        @assert columns[4] == order "array-problem order should be $order, got $(columns[4])"
+        @assert columns[5] == rate "array-problem adaptive rate should be $rate, got $(columns[5])"
     end
     return nothing
 end
