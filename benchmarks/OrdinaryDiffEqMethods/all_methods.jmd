@@ -467,7 +467,7 @@ function print_work_table(wps, error_floor; orders = Dict{String, String}())
             io,
             "| $(wp.name) | $tags | $(length(points))/$(wp.N) | $order | $rate | ",
             @sprintf("%.3g | %.3g | ", wp.errors.final[i], wp.times[i]),
-            iszero(rhs_calls) ? "—" : rhs_calls, " | ", stats.naccept, " |",
+            wp.name == "PDIRK44" || iszero(rhs_calls) ? "—" : rhs_calls, " | ", stats.naccept, " |",
         )
     end
     return display("text/markdown", String(take!(io)))
@@ -519,7 +519,7 @@ const methods = inventory()
 const pdf_dir = mkpath(normpath(@__DIR__, "..", "..", "pdf", "OrdinaryDiffEqMethods"));
 ```
 
-The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. A zero reported RHS count is shown as an em dash. Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
+The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. An em dash indicates a zero reported RHS total or an unavailable count for threaded PDIRK44, whose stages update shared counters without synchronization. Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
 
 A rate is reported over the finest three consecutive points with step sizes shrinking by at least 20% and decreasing errors above the resolution threshold. The two adjacent slopes may differ by at most 0.25 or 15% of the smaller slope, whichever is larger. The resolution thresholds are `2e-12` for Lorenz, accounting for the numerical reference, and 16 spacings at unit scale for Robertson and the oscillator in the working precision. An em dash indicates that the grid did not resolve a rate. The order tags group fixed nominal orders up to 3 and above 3. Group plots overlay one baseline method when it has usable data.
 
