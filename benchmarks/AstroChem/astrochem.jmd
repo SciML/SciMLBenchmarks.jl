@@ -362,7 +362,10 @@ ssys = structural_simplify(sys)
 ```
 
 ```julia
-oprob = ODEProblem(ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan)
+# LSODA rejects the empty callback set added by automatic specialization.
+oprob = ODEProblem{true, SciMLBase.FullSpecialize}(
+    ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan
+)
 println("ODEProblem created successfully.")
 sol = solve(oprob, Rodas5()) # Rodas5()) # Tsit5()
 
@@ -466,7 +469,9 @@ sys = ode_model(complete(system))
 
 ssys = structural_simplify(sys)
 
-oprob = ODEProblem(ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan)
+oprob = ODEProblem{true, SciMLBase.FullSpecialize}(
+    ssys, merge(Dict{Any, Any}(u0), Dict{Any, Any}(params)), tspan
+)
 println("ODEProblem created successfully.")
 refsol = solve(oprob, Rodas5P(), abstol = 1e-14, reltol = 1e-14)
 ```
