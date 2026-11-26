@@ -132,6 +132,55 @@ using Test: @test, @testset
     end
 end
 
+
+@testset "generated scripts stage shared includes" begin
+    mktempdir() do directory
+        source_parent = joinpath(directory, "source")
+        folder = mkpath(joinpath(source_parent, "SharedInclude"))
+        write(
+            joinpath(source_parent, "workprecision_table.jl"), """
+            const SHARED_INCLUDE_MESSAGE = "shared helper executed"
+            shared_include_message() = SHARED_INCLUDE_MESSAGE
+            """
+        )
+        write(
+            joinpath(folder, "shared_include.jmd"), """
+            # Shared include
+
+            ```julia
+            include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+            println(shared_include_message())
+            ```
+            """
+        )
+
+        root = dirname(@__DIR__)
+        script_tree = joinpath(root, "script")
+        generated_dir = joinpath(script_tree, basename(folder))
+        generated_script = joinpath(generated_dir, "shared_include.jl")
+        generated_helper = joinpath(script_tree, "workprecision_table.jl")
+        markdown_dir = joinpath(root, "markdown", basename(folder))
+        try
+            SciMLBenchmarks.weave_file(folder, "shared_include.jmd", (:script, :github))
+            @test isfile(generated_script)
+
+            isolated_script = mkpath(joinpath(directory, "isolated", "script"))
+            cp(generated_dir, joinpath(isolated_script, basename(folder)))
+            isfile(generated_helper) &&
+                cp(generated_helper, joinpath(isolated_script, "workprecision_table.jl"))
+            command = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) $(joinpath(isolated_script, basename(folder), "shared_include.jl"))`
+            output = IOBuffer()
+            process = run(pipeline(ignorestatus(command); stdout = output, stderr = output))
+            @test success(process)
+            @test occursin("shared helper executed", String(take!(output)))
+        finally
+            rm(generated_dir; recursive = true, force = true)
+            rm(generated_helper; force = true)
+            rm(markdown_dir; recursive = true, force = true)
+        end
+    end
+end
+
 if VERSION >= v"1.10"
     @testset "Weave thread settings" begin
         mktempdir() do directory
