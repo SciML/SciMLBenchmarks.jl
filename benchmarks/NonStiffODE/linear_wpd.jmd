@@ -30,6 +30,18 @@ using SciMLLogging
 using Random
 Random.seed!(123)
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const LINEAR_ODE_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const LINEAR_ODE_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const LINEAR_ODE_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const LINEAR_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const LINEAR_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const LINEAR_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const LINEAR_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const LINEAR_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
+const LINEAR_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
+
 # 2D Linear ODE
 function f(du, u, p, t)
     @inbounds for i in eachindex(u)
@@ -44,7 +56,21 @@ prob = ODEProblem(ODEFunction{true, SciMLBase.FullSpecialize}(f, analytic = f_an
 
 abstols = 1.0 ./ 10.0 .^ (3:13)
 reltols = 1.0 ./ 10.0 .^ (0:10);
+
+const LINEAR_ERROR_FLOOR = 16 * eps(Float64) *
+    sum(abs, f_analytic(prob.u0, nothing, last(tspan))) / length(prob.u0)
 ```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
+```
+
+Each sweep requests only the error metrics needed for its measurement with
+`error_estimates` and attaches solver metadata tags to the results. The table
+with each work-precision figure reports the best endpoint error, that point's
+timing, right-hand-side calls, accepted steps, and a computed refinement rate
+when the tolerance or fixed-step grid resolves one. An em dash means that the
+rate or counter is unavailable or unresolved.
 
 ### Speed Baseline
 
@@ -55,27 +81,29 @@ and tuning. First we will test with all extra saving features turned off to
 put DifferentialEquations.jl in "speed mode".
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>dopri5())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5))
-          Dict(:alg=>Tsit5())]
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5), :tags=>LINEAR_SUNDIALS_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
 solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
 wp = WorkPrecisionSet(
-    prob, abstols, reltols, setups; names = solnames, save_everystep = false, numruns = 100)
+    prob, abstols, reltols, setups; error_estimates = [:final], names = solnames, save_everystep = false, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
 ### Full Saving
 
 ```julia
-setups = [Dict(:alg=>DP5(), :dense=>false)
-          Dict(:alg=>dopri5()) # dense=false by default: no nonlinear interpolation
-          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5), :dense=>false)
-          Dict(:alg=>Tsit5(), :dense=>false)]
+setups = [Dict(:alg=>DP5(), :dense=>false, :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS) # dense=false by default: no nonlinear interpolation
+          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5), :dense=>false, :tags=>LINEAR_SUNDIALS_RK_TAGS)
+          Dict(:alg=>Tsit5(), :dense=>false, :tags=>LINEAR_ODE_RK_TAGS)]
 solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames, numruns = 100)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -85,13 +113,14 @@ Now we include continuous output. This has a large overhead because at every
 timepoint the matrix of rates `k` has to be deep copied.
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>dopri5())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5))
-          Dict(:alg=>Tsit5())]
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), etable = Sundials.DORMAND_PRINCE_7_4_5), :tags=>LINEAR_SUNDIALS_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
 solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames, numruns = 100)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -102,11 +131,12 @@ we will test it with all overheads off. Let's do the Order 5 (and the 2/3 pair)
 algorithms:
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>BS3())
-          Dict(:alg=>BS5())
-          Dict(:alg=>Tsit5())]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; save_everystep = false, numruns = 100)
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>BS3(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>BS5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], save_everystep = false, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -115,14 +145,15 @@ plot(wp)
 Now let's see how OrdinaryDiffEq.jl fares with some higher order algorithms:
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>TanYam7())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>DP8())
-          Dict(:alg=>Vern9())]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; save_everystep = false, numruns = 100)
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>TanYam7(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>DP8(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LINEAR_ODE_RK_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], save_everystep = false, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -131,15 +162,16 @@ plot(wp)
 Now we test OrdinaryDiffEq against the high order methods of the other packages:
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>dop853())
-          Dict(:alg=>odex())
-          Dict(:alg=>lsoda())
-          Dict(:alg=>ddeabm())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 8))
-          Dict(:alg=>CVODE_Adams())]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; save_everystep = false, numruns = 100)
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>dop853(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>odex(), :tags=>LINEAR_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>lsoda(), :tags=>LINEAR_LSODA_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>LINEAR_ODEINTERFACE_MULTISTEP_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 8), :tags=>LINEAR_SUNDIALS_RK_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>LINEAR_SUNDIALS_MULTISTEP_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], save_everystep = false, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -151,11 +183,12 @@ not part of this benchmark's environment, so only the DifferentialEquations.jl
 methods are compared. First the order 4/5 comparison:
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
           #Dict(:alg=>ode45())
-          Dict(:alg=>Tsit5())]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :L2,
+          Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :L2, error_estimates = [:final, :l2, :L2],
     dense_errors = true, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -166,12 +199,13 @@ interpolations, which are as fast as a Hermite interpolation while
 being of higher order. At higher order:
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>Vern7())
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LINEAR_ODE_RK_TAGS)
           #Dict(:alg=>ode78())
           ]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :L2,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimate = :L2, error_estimates = [:final, :l2, :L2],
     dense_errors = true, numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -184,14 +218,16 @@ the difference:
 abstols = 1.0 ./ 10.0 .^ (3:13)
 reltols = 1.0 ./ 10.0 .^ (0:10);
 dts = [1, 1/2, 1/4, 1/10, 1/20, 1/40, 1/60, 1/80, 1/100, 1/140, 1/240]
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>dopri5())
-          Dict(:alg=>RK4(), :dts=>dts)
-          Dict(:alg=>Tsit5())]
+setups = [Dict(:alg=>DP5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>RK4(), :dts=>dts, :adaptive=>false, :auto_tags=>false,
+              :tags=>[:ordinarydiffeq, :explicit_rk, :fixed_step, :order_4, :nonstiff])
+          Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)]
 solnames = ["DifferentialEquations"; "ODEInterface"; "DifferentialEquations RK4";
             "DifferentialEquations Tsit5"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -201,54 +237,57 @@ Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
 Adams-Bashforth-Moulton:
 
 ```julia
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>LINEAR_ODE_MULTISTEP_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "VCABM", "AitkenNeville",
     "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -256,18 +295,19 @@ plot(wp)
 abstols = 1.0 ./ 10.0 .^ (12:15)
 reltols = 1.0 ./ 10.0 .^ (9:12)
 
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
+setups = [Dict(:alg=>Tsit5(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LINEAR_ODE_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>LINEAR_ODE_MULTISTEP_TAGS)
           #Dict(:alg=>AitkenNeville(threading = OrdinaryDiffEqCore.PolyesterThreads()))
-          Dict(:alg=>ExtrapolationMidpointDeuflhard(threading = OrdinaryDiffEqCore.PolyesterThreads()))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(threading = OrdinaryDiffEqCore.PolyesterThreads()))
-          Dict(:alg=>odex())
-          Dict(:alg=>dop853())
-          Dict(:alg=>CVODE_Adams())]
+          Dict(:alg=>ExtrapolationMidpointDeuflhard(threading = OrdinaryDiffEqCore.PolyesterThreads()), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(threading = OrdinaryDiffEqCore.PolyesterThreads()), :tags=>LINEAR_ODE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>odex(), :tags=>LINEAR_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>dop853(), :tags=>LINEAR_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>LINEAR_SUNDIALS_MULTISTEP_TAGS)]
 
-wp = WorkPrecisionSet(prob, abstols, reltols, setups;
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
 

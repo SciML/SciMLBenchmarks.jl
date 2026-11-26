@@ -28,7 +28,7 @@ function measured_order(wp, points, error_floor)
     for i in points
         expected = round(Int, interval / wp.dts[i])
         stats = wp.stats[i]
-        if stats.naccept == expected && stats.nreject == 0
+        if !isnothing(stats) && stats.naccept == expected && stats.nreject == 0
             errors[i] = wp.errors.final[i]
         end
     end
@@ -40,8 +40,10 @@ function adaptive_step_rate(wp, points, error_floor)
     interval = last(wp.prob.tspan) - first(wp.prob.tspan)
     steps = fill(NaN, wp.N)
     for i in points
-        wp.stats[i].naccept > 0 || continue
-        steps[i] = interval / wp.stats[i].naccept
+        stats = wp.stats[i]
+        isnothing(stats) && continue
+        stats.naccept > 0 || continue
+        steps[i] = interval / stats.naccept
     end
     return refinement_rate(steps, wp.errors.final, error_floor)
 end
@@ -78,12 +80,14 @@ function work_table_markdown(wps, error_floor; orders = Dict{String, String}())
         end
         i = points[argmin(wp.errors.final[points])]
         stats = wp.stats[i]
-        rhs_calls = stats.nf + stats.nf2
+        rhs_calls = isnothing(stats) || wp.name == "PDIRK44" ? "—" :
+            iszero(stats.nf + stats.nf2) ? "—" : string(stats.nf + stats.nf2)
+        accepted = isnothing(stats) ? "—" : string(stats.naccept)
         println(
             io,
             "| $(wp.name) | $tags | $(length(points))/$(wp.N) | $order | $rate | ",
             @sprintf("%.3g | %.3g | ", wp.errors.final[i], wp.times[i]),
-            wp.name == "PDIRK44" || iszero(rhs_calls) ? "—" : rhs_calls, " | ", stats.naccept, " |",
+            rhs_calls, " | ", accepted, " |",
         )
     end
     return String(take!(io))
@@ -94,11 +98,15 @@ function print_work_table(wps, error_floor; kwargs...)
 end
 
 function assert_work_table_markdown_fixture()
-    fixtures = (("PDIRK44", 1384, 32, "—"), ("KuttaPRK2p5", 0, 128, "—"), ("Tsit5", 441, 73, "441"))
+    fixtures = (
+        ("PDIRK44", 1384, 32, "—"), ("KuttaPRK2p5", 0, 128, "—"),
+        ("Tsit5", 441, 73, "441"), ("lsoda", nothing, nothing, "—"),
+    )
     wps = map(fixtures) do (name, calls, steps, _)
+        stats = isnothing(calls) ? nothing : (nf = calls, nf2 = 0, naccept = steps)
         return (
             name = name, times = [1.0], errors = (final = [0.01],), tags = (),
-            dts = nothing, N = 1, stats = [(nf = calls, nf2 = 0, naccept = steps)],
+            dts = nothing, N = 1, stats = [stats],
         )
     end
     rows = split(chomp(work_table_markdown(collect(wps), 0.0)), '\n')[3:end]
@@ -107,8 +115,9 @@ function assert_work_table_markdown_fixture()
         columns = strip.(split(row, '|'; keepempty = false))
         @assert columns[1] == name
         rhs, accepted = columns[8:9]
+        expected_accepted = isnothing(steps) ? "—" : string(steps)
         @assert rhs == expected_rhs "$name RHS calls should be $expected_rhs, got $rhs"
-        @assert accepted == string(steps) "$name accepted steps should be $steps, got $accepted"
+        @assert accepted == expected_accepted "$name accepted steps should be $expected_accepted, got $accepted"
     end
     return nothing
 end
