@@ -16,7 +16,7 @@ function _literal_include_path(argument)
 end
 
 function _collect_include_paths!(paths, ex)
-    ex isa Expr || return paths
+    ex isa Expr && ex.head !== :quote || return paths
     if Meta.isexpr(ex, :call, 2) && ex.args[1] === :include
         path = _literal_include_path(ex.args[2])
         path === nothing || push!(paths, path)
@@ -36,12 +36,21 @@ function _script_include_paths(script)
     return unique!(paths)
 end
 
+function _directory_resolves_inside(directory, root)
+    while !islink(directory) && !ispath(directory)
+        directory = dirname(directory)
+    end
+    ispath(directory) || return false
+    return first(splitpath(relpath(realpath(directory), realpath(root)))) != ".."
+end
+
 function _stage_script_includes(folder, script, script_root)
     for path in _script_include_paths(script)
         source = normpath(folder, path)
         isfile(source) || continue
         destination = normpath(dirname(script), path)
-        if first(splitpath(relpath(destination, script_root))) in (".", "..")
+        if first(splitpath(relpath(destination, script_root))) in (".", "..") ||
+                !_directory_resolves_inside(dirname(destination), script_root)
             @warn "Not staging an include that resolves outside the script tree" script path destination
             continue
         end

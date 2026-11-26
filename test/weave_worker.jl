@@ -247,7 +247,8 @@ end
     mktempdir() do directory
         source = mkpath(joinpath(directory, "source"))
         folder = mkpath(joinpath(source, "benchmarks", "Containment"))
-        output_root = mkpath(joinpath(directory, "output"))
+        output_root = joinpath(directory, "output")
+        symlink(mkpath(joinpath(directory, "published")), output_root)
         marker = joinpath(output_root, "marker.jl")
         write(joinpath(source, "marker.jl"), "staged\n")
         page = joinpath(folder, "page.jmd")
@@ -291,6 +292,73 @@ end
             succeeded, log = run_isolated_script(output_root, "Containment", "page.jl")
             @test succeeded
             @test occursin("literal ran, joined ran", log)
+        end
+
+        @testset "quoted includes are not staged" begin
+            write(joinpath(source, "benchmarks", "quoted.jl"), "error(\"quoted companion ran\")\n")
+            write(joinpath(source, "benchmarks", "direct.jl"), "direct_message() = \"direct ran\"\n")
+            write(
+                page, """
+                ```julia
+                println(:(include("../quoted.jl")))
+                println(quote
+                    include(joinpath(@__DIR__, "..", "quoted.jl"))
+                end)
+                include("../direct.jl")
+                println(direct_message())
+                ```
+                """
+            )
+            render()
+            @test !ispath(joinpath(output_root, "script", "quoted.jl"))
+            succeeded, log = run_isolated_script(output_root, "Containment", "page.jl")
+            @test succeeded
+            @test occursin("direct ran", log)
+        end
+
+        script_directory = joinpath(output_root, "script", "Containment")
+        function declare_companion(path)
+            companion = joinpath(folder, path)
+            mkpath(dirname(companion))
+            write(companion, "staged\n")
+            return write(page, "```julia\ninclude(\"$path\")\n```\n")
+        end
+
+        @testset "directory link leaving the tree" begin
+            external = mkpath(joinpath(directory, "external"))
+            external_marker = joinpath(external, "helper.jl")
+            write(external_marker, "original\n")
+            symlink(external, joinpath(script_directory, "outward"))
+            for path in ("outward/helper.jl", "outward/new/helper.jl")
+                declare_companion(path)
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            end
+            @test read(external_marker, String) == "original\n"
+            @test !ispath(joinpath(external, "new"))
+        end
+
+        @testset "dangling directory link" begin
+            missing_target = joinpath(directory, "missing")
+            symlink(missing_target, joinpath(script_directory, "dangling"))
+            for path in ("dangling/helper.jl", "dangling/new/helper.jl")
+                declare_companion(path)
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            end
+            @test !ispath(missing_target)
+        end
+
+        @testset "directories inside the tree" begin
+            shared = mkpath(joinpath(output_root, "script", "shared"))
+            symlink(shared, joinpath(script_directory, "inward"))
+            for (path, staged) in (
+                    ("inward/helper.jl", joinpath(shared, "helper.jl")),
+                    ("inward/new/helper.jl", joinpath(shared, "new", "helper.jl")),
+                    ("fresh/nested/helper.jl", joinpath(script_directory, "fresh", "nested", "helper.jl")),
+                )
+                declare_companion(path)
+                render()
+                @test read(staged, String) == "staged\n"
+            end
         end
     end
 end
