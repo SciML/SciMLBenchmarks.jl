@@ -447,7 +447,7 @@ function oscillator_orders()
     end
 end
 
-function print_work_table(wps, error_floor; orders = Dict{String, String}())
+function work_table_markdown(wps, error_floor; orders = Dict{String, String}())
     io = IOBuffer()
     println(io, "| Algorithm | Tags | Usable points | Observed order | Adaptive-step rate | Best error | Time (s) | RHS calls | Accepted steps |")
     println(io, "|:--|:--|--:|--:|--:|--:|--:|--:|--:|")
@@ -470,7 +470,11 @@ function print_work_table(wps, error_floor; orders = Dict{String, String}())
             wp.name == "PDIRK44" || iszero(rhs_calls) ? "—" : rhs_calls, " | ", stats.naccept, " |",
         )
     end
-    return display("text/markdown", String(take!(io)))
+    return String(take!(io))
+end
+
+function print_work_table(wps, error_floor; kwargs...)
+    return display("text/markdown", work_table_markdown(wps, error_floor; kwargs...))
 end
 
 function print_exclusions(excluded, wps)
@@ -517,6 +521,26 @@ end
 
 const methods = inventory()
 const pdf_dir = mkpath(normpath(@__DIR__, "..", "..", "pdf", "OrdinaryDiffEqMethods"));
+```
+
+```julia; echo=false; results="hidden"; error=false
+let fixtures = (("PDIRK44", 1384, 32, "—"), ("KuttaPRK2p5", 0, 128, "—"), ("Tsit5", 441, 73, "441"))
+    wps = map(fixtures) do (name, calls, steps, _)
+        return (
+            name = name, times = [1.0], errors = (final = [0.01],), tags = (),
+            dts = nothing, N = 1, stats = [(nf = calls, nf2 = 0, naccept = steps)],
+        )
+    end
+    rows = split(chomp(work_table_markdown(collect(wps), 0.0)), '\n')[3:end]
+    @assert length(rows) == length(fixtures)
+    for (row, (name, _, steps, expected_rhs)) in zip(rows, fixtures)
+        columns = strip.(split(row, '|'; keepempty = false))
+        @assert columns[1] == name
+        rhs, accepted = columns[8:9]
+        @assert rhs == expected_rhs "$name RHS calls should be $expected_rhs, got $rhs"
+        @assert accepted == string(steps) "$name accepted steps should be $steps, got $accepted"
+    end
+end
 ```
 
 The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. An em dash indicates a zero reported RHS total or an unavailable count for threaded PDIRK44, whose stages update shared counters without synchronization. Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
