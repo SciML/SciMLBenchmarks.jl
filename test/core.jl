@@ -498,9 +498,13 @@ end
 
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
+    caller_project = Base.active_project()
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
+    @test Base.active_project() == caller_project
 
     output = joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md")
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
+
+include("weave_worker.jl")
