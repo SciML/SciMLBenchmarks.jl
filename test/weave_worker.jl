@@ -181,6 +181,138 @@ end
     end
 end
 
+function with_repository_directory(f, directory)
+    original = SciMLBenchmarks.repo_directory
+    Core.eval(SciMLBenchmarks, :(repo_directory = $directory))
+    return try
+        f()
+    finally
+        Core.eval(SciMLBenchmarks, :(repo_directory = $original))
+    end
+end
+
+function run_isolated_script(output_root, folder_name, file)
+    return mktempdir() do directory
+        isolated = joinpath(directory, "script")
+        cp(joinpath(output_root, "script"), isolated)
+        command = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) $(joinpath(isolated, folder_name, file))`
+        command = addenv(command, "JULIA_LOAD_PATH" => join(("@", "@stdlib"), Sys.iswindows() ? ';' : ':'))
+        output = IOBuffer()
+        process = run(pipeline(ignorestatus(command); stdout = output, stderr = output))
+        return success(process), String(take!(output))
+    end
+end
+
+@testset "tangled scripts emit shared work tables" begin
+    mktempdir() do directory
+        folder = mkpath(joinpath(directory, "benchmarks", "WorkTable"))
+        cp(
+            joinpath(dirname(@__DIR__), "benchmarks", "workprecision_table.jl"),
+            joinpath(directory, "benchmarks", "workprecision_table.jl")
+        )
+        write(
+            joinpath(folder, "work_table.jmd"), """
+            # Work table
+
+            ```julia
+            include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+            wp = (
+                name = "Tsit5", prob = (tspan = (0.0, 1.0),), times = [0.5], errors = (final = [0.01],),
+                tags = [:order_5, :explicit_rk], dts = nothing, N = 1,
+                stats = [(nf = 441, nf2 = 0, naccept = 73)],
+            )
+            print_work_table([wp], 0.0)
+            ```
+            """
+        )
+        row = "| Tsit5 | order_5, explicit_rk | 1/1 | — | — | 0.01 | 0.5 | 441 | 73 |"
+        output_root = mkpath(joinpath(directory, "output"))
+        push!(LOAD_PATH, "@stdlib")
+        try
+            with_repository_directory(output_root) do
+                SciMLBenchmarks.weave_file(folder, "work_table.jmd", (:script, :github))
+            end
+        finally
+            pop!(LOAD_PATH)
+        end
+        @test occursin(row, read(joinpath(output_root, "markdown", "WorkTable", "work_table.md"), String))
+
+        succeeded, log = run_isolated_script(output_root, "WorkTable", "work_table.jl")
+        @test succeeded
+        @test occursin(row, log)
+    end
+end
+
+@testset "script staging stays inside the script tree" begin
+    mktempdir() do directory
+        source = mkpath(joinpath(directory, "source"))
+        folder = mkpath(joinpath(source, "benchmarks", "Containment"))
+        output_root = mkpath(joinpath(directory, "output"))
+        marker = joinpath(output_root, "marker.jl")
+        write(joinpath(source, "marker.jl"), "staged\n")
+        page = joinpath(folder, "page.jmd")
+        function render()
+            write(marker, "original\n")
+            return with_repository_directory(output_root) do
+                SciMLBenchmarks.weave_file(folder, "page.jmd", (:script,))
+            end
+        end
+
+        @testset "prose is not staged" begin
+            write(page, "Write `include(joinpath(@__DIR__, \"..\", \"..\", \"marker.jl\"))` in code.\n")
+            render()
+            @test read(marker, String) == "original\n"
+        end
+
+        for call in (
+                "include(joinpath(@__DIR__, \"..\", \"..\", \"marker.jl\"))",
+                "include(\"../../marker.jl\")",
+            )
+            @testset "outside destination: $call" begin
+                write(page, "```julia\n$call\n```\n")
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+                @test read(marker, String) == "original\n"
+            end
+        end
+
+        @testset "parent-relative companions execute" begin
+            write(joinpath(source, "benchmarks", "literal.jl"), "literal_message() = \"literal ran\"\n")
+            write(joinpath(source, "benchmarks", "joined.jl"), "joined_message() = \"joined ran\"\n")
+            write(
+                page, """
+                ```julia
+                include("../literal.jl")
+                include(joinpath(@__DIR__, "..", "joined.jl"))
+                println(literal_message(), ", ", joined_message())
+                ```
+                """
+            )
+            render()
+            succeeded, log = run_isolated_script(output_root, "Containment", "page.jl")
+            @test succeeded
+            @test occursin("literal ran, joined ran", log)
+        end
+    end
+end
+
+@testset "bulk generation skips root-level helpers" begin
+    mktempdir() do directory
+        name = "BulkGeneration_" * basename(directory)
+        folder = mkpath(joinpath(directory, "benchmarks", name))
+        write(joinpath(directory, "benchmarks", "workprecision_table.jl"), "helper() = nothing\n")
+        write(joinpath(folder, "page.jmd"), "# Page\n\n```julia\n1 + 1\n```\n")
+        notebooks = joinpath(dirname(@__DIR__), "notebook", name)
+        try
+            with_repository_directory(directory) do
+                SciMLBenchmarks.weave_all((:notebook,))
+            end
+            @test isfile(joinpath(notebooks, "page.ipynb"))
+        finally
+            rm(notebooks; recursive = true, force = true)
+        end
+    end
+end
+
 if VERSION >= v"1.10"
     @testset "Weave thread settings" begin
         mktempdir() do directory

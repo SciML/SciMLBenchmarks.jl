@@ -130,8 +130,17 @@ function work_table_markdown(wps, error_floor; orders = Dict{String, String}(), 
     return String(take!(io))
 end
 
+struct MarkdownSource
+    source::String
+end
+
+Base.show(io::IO, ::MIME"text/markdown", markdown::MarkdownSource) = print(io, markdown.source)
+
+# `Markdown.parse` would turn underscores in solver tags into emphasis.
+display_markdown(source) = display("text/markdown", MarkdownSource(source))
+
 function print_work_table(wps, error_floor; kwargs...)
-    return display("text/markdown", work_table_markdown(wps, error_floor; kwargs...))
+    return display_markdown(work_table_markdown(wps, error_floor; kwargs...))
 end
 
 function assert_work_table_markdown_fixture()
