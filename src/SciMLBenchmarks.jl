@@ -84,11 +84,11 @@ function _package_status(mode = Pkg.PKGMODE_PROJECT)
         return sprint(io -> Pkg.status(; io = io, mode = mode))
     else
         project = Base.active_project()
+        project === nothing && return Pkg.status(; mode = mode)
         mode_name = mode == Pkg.PKGMODE_MANIFEST ? "PKGMODE_MANIFEST" : "PKGMODE_PROJECT"
-        code = "using Pkg; Pkg.status(mode=Pkg.$mode_name)"
+        code = "empty!(LOAD_PATH); push!(LOAD_PATH, \"@stdlib\"); using Pkg; Pkg.status(mode=Pkg.$mode_name)"
         julia = joinpath(Sys.BINDIR, Sys.iswindows() ? "julia.exe" : "julia")
-        cmd = project === nothing ? `$julia --startup-file=no -e $code` :
-            `$julia --startup-file=no --project=$project -e $code`
+        cmd = `$julia --startup-file=no --project=$project -e $code`
         return read(cmd, String)
     end
 end
@@ -183,12 +183,12 @@ end
         vinfo = sprint(InteractiveUtils.versioninfo)
 
         # Precompile Pkg.status operations (used in bench_footer)
-        proj_status = _package_status()
-        manifest_status = _package_status(Pkg.PKGMODE_MANIFEST)
-
-        # Precompile string operations commonly used
-        chomp(proj_status)
-        chomp(manifest_status)
+        @static if VERSION >= v"1.4"
+            proj_status = _package_status()
+            manifest_status = _package_status(Pkg.PKGMODE_MANIFEST)
+            chomp(proj_status)
+            chomp(manifest_status)
+        end
     end
 end
 

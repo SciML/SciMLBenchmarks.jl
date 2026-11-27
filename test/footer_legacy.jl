@@ -78,3 +78,5 @@ Base.display(capture::FooterCapture, ::MIME"text/markdown", x) =
         @test Base.active_project() == previous_project
     end
 end
+
+include("footer_process.jl")
