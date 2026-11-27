@@ -99,6 +99,7 @@ setup's `:prob_choice`, defaulting to the first problem as `WorkPrecisionSet` do
 Tag a setup with `:accepted_steps_unavailable` when its solver wrapper does not report
 accepted-step counts; the table then displays an em dash while preserving genuine
 measured zero counts.
+Tag `:rhs_calls_unavailable` if the RHS count's unit is ambiguous (SIMD) to show an em dash.
 """
 function work_table_markdown(wps, error_floor; orders = Dict{String, String}(), setups = nothing)
     io = IOBuffer()
@@ -117,7 +118,7 @@ function work_table_markdown(wps, error_floor; orders = Dict{String, String}(), 
         end
         i = points[argmin(wp.errors.final[points])]
         stats = wp.stats[i]
-        rhs_calls = isnothing(stats) || wp.name == "PDIRK44" ? "—" :
+        rhs_calls = isnothing(stats) || wp.name == "PDIRK44" || :rhs_calls_unavailable in wp.tags ? "—" :
             iszero(stats.nf + stats.nf2) ? "—" : string(stats.nf + stats.nf2)
         accepted = isnothing(stats) || :accepted_steps_unavailable in wp.tags ? "—" : string(stats.naccept)
         println(
@@ -158,6 +159,10 @@ function assert_work_table_markdown_fixture()
             name = "MeasuredZero", calls = 210, steps = 0, rhs = "210", accepted = "0",
             tags = [:adaptive],
         ),
+        (
+            name = "UnavailableRHS", calls = 2007, steps = 167, rhs = "—", accepted = "167",
+            tags = [:adaptive, :rhs_calls_unavailable],
+        ),
     )
     wps = map(fixtures) do fixture
         stats = isnothing(fixture.calls) ? nothing :
@@ -175,6 +180,12 @@ function assert_work_table_markdown_fixture()
         rhs, accepted = columns[8:9]
         @assert rhs == fixture.rhs "$(fixture.name) RHS calls should be $(fixture.rhs), got $rhs"
         @assert accepted == fixture.accepted "$(fixture.name) accepted steps should be $(fixture.accepted), got $accepted"
+    end
+    for expected in (
+            "| Tsit5 |  | 1/1 | — | — | 0.01 | 1 | 441 | 73 |",
+            "| UnavailableRHS | adaptive, rhs_calls_unavailable | 1/1 | — | — | 0.01 | 1 | — | 167 |",
+        )
+        @assert expected in rows "missing fixture row: $expected"
     end
     lsoda = only(row for row in rows if startswith(row, "| lsoda |"))
     lsoda_columns = strip.(split(lsoda, '|'; keepempty = false))
