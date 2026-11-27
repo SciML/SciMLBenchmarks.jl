@@ -524,26 +524,35 @@ reach $t_{end}$ has no error value and is left out of the diagrams, so the retur
 each tolerance are printed first.
 
 ```julia
+final_errors = Dict{Tuple{String, Float64}, Union{Missing, Float64}}()
 for tol in 1.0 ./ 10.0 .^ (1:3),
     (name, alg, save_everystep) in [("IDA", IDA(), false), ("DASKR", DASKR.daskr(), false),
                                     ("DASKR, save_everystep = true", DASKR.daskr(), true)]
     sol = solve(daeprob, alg; abstol = tol, reltol = tol, save_everystep,
                 maxiters = Int(1e5), dt = 1e-15, tstops = disc_times)
+    completed = sol.retcode == ReturnCode.Success && sol.t[end] == tspan[end]
+    err = completed ? abs(sol.u[end][9] - exact_u(tspan[end])[9]) : missing
+    final_errors[(name, tol)] = err
     println(rpad(name, 29), " tol = $tol: retcode = $(sol.retcode), t_final = $(sol.t[end]), ",
-            "saved points = $(length(sol.t)), final error in y[9] = $(abs(sol.u[end][9] - u_end[9]))")
+            "saved points = $(length(sol.t)), final error in y[9] = $err")
 end
+@assert final_errors[("DASKR", 0.1)] === missing
+@assert all(e -> e === missing || isfinite(e), values(final_errors))
 ```
 
-IDA reaches $t_{end}$ at $10^{-1}$ and $10^{-2}$. At $10^{-3}$ the outcome depends on the
-platform: on some machines it stops with `ConvergenceFailure` just before $t_{end}$, at
-$t \approx 1.19990 \times 10^{-6}$, and on others it reaches $t_{end}$ (the printout above
-shows which happened in this build).
+```julia
+for tol in 1.0 ./ 10.0 .^ (1:3)
+    done = [name for name in ("IDA", "DASKR") if final_errors[(name, tol)] !== missing]
+    println("tol = $tol: reached t_end = ", isempty(done) ? "none" : join(done, ", "))
+end
+e_ida, e_daskr = final_errors[("IDA", 1e-2)], final_errors[("DASKR", 1e-2)]
+println("tol = 0.01: IDA / DASKR final error in y[9] = ",
+        e_ida === missing || e_daskr === missing ? missing : e_ida / e_daskr)
+```
 
-- At $10^{-1}$, DASKR stops with `ConvergenceFailure` at $t \approx 1.01 \times 10^{-6}$
-  (`ABS(H)=HMIN`). It fails there with `save_everystep = true` as well, so this is a genuine
-  solver failure at that tolerance.
-- At $10^{-2}$ and $10^{-3}$, DASKR reaches $t_{end}$ with and without `save_everystep`, with
-  final errors in `y[9]` of about $2.6 \times 10^{-4}$ and $6.4 \times 10^{-6}$.
+The summary above lists which solvers reach $t_{end}$ at each tolerance and, at $10^{-2}$,
+the ratio of IDA's final error in `y[9]` to DASKR's. A run that stops early has a missing
+error and no point in the final-value diagram.
 
 ### Loose Tolerances (Final-Value Error)
 
@@ -584,10 +593,8 @@ plot(wp, title = "Charge Pump DAE — Loose Tolerances (L₂ Timeseries)")
 
 ### Conclusion
 
-IDA reaches $t_{end}$ at tolerances $10^{-1}$ and $10^{-2}$; at $10^{-3}$ it fails just
-before $t_{end}$ on some platforms and finishes on others. DASKR fails at $10^{-1}$ and
-reaches $t_{end}$ at $10^{-2}$ and $10^{-3}$. At $10^{-2}$ its final error in `y[9]` is
-about ten times smaller than IDA's.
+The diagnostic above gives, for each tolerance, which of IDA and DASKR reach $t_{end}$ and
+how their final errors in `y[9]` compare.
 
 ```julia, echo = false
 using SciMLBenchmarks
