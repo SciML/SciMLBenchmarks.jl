@@ -132,6 +132,275 @@ using Test: @test, @testset
     end
 end
 
+
+@testset "generated scripts stage shared includes" begin
+    mktempdir() do directory
+        source_parent = joinpath(directory, "source")
+        folder = mkpath(joinpath(source_parent, "SharedInclude"))
+        write(
+            joinpath(source_parent, "workprecision_table.jl"), """
+            const SHARED_INCLUDE_MESSAGE = "shared helper executed"
+            shared_include_message() = SHARED_INCLUDE_MESSAGE
+            """
+        )
+        write(
+            joinpath(folder, "shared_include.jmd"), """
+            # Shared include
+
+            ```julia
+            include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+            println(shared_include_message())
+            ```
+            """
+        )
+
+        root = dirname(@__DIR__)
+        script_tree = joinpath(root, "script")
+        generated_dir = joinpath(script_tree, basename(folder))
+        generated_script = joinpath(generated_dir, "shared_include.jl")
+        generated_helper = joinpath(script_tree, "workprecision_table.jl")
+        markdown_dir = joinpath(root, "markdown", basename(folder))
+        try
+            SciMLBenchmarks.weave_file(folder, "shared_include.jmd", (:script, :github))
+            @test isfile(generated_script)
+
+            isolated_script = mkpath(joinpath(directory, "isolated", "script"))
+            cp(generated_dir, joinpath(isolated_script, basename(folder)))
+            isfile(generated_helper) &&
+                cp(generated_helper, joinpath(isolated_script, "workprecision_table.jl"))
+            command = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) $(joinpath(isolated_script, basename(folder), "shared_include.jl"))`
+            output = IOBuffer()
+            process = run(pipeline(ignorestatus(command); stdout = output, stderr = output))
+            @test success(process)
+            @test occursin("shared helper executed", String(take!(output)))
+        finally
+            rm(generated_dir; recursive = true, force = true)
+            rm(generated_helper; force = true)
+            rm(markdown_dir; recursive = true, force = true)
+        end
+    end
+end
+
+function with_repository_directory(f, directory)
+    original = SciMLBenchmarks.repo_directory
+    Core.eval(SciMLBenchmarks, :(repo_directory = $directory))
+    return try
+        f()
+    finally
+        Core.eval(SciMLBenchmarks, :(repo_directory = $original))
+    end
+end
+
+function run_isolated_script(output_root, folder_name, file)
+    return mktempdir() do directory
+        isolated = joinpath(directory, "script")
+        cp(joinpath(output_root, "script"), isolated)
+        command = `$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) $(joinpath(isolated, folder_name, file))`
+        command = addenv(command, "JULIA_LOAD_PATH" => join(("@", "@stdlib"), Sys.iswindows() ? ';' : ':'))
+        output = IOBuffer()
+        process = run(pipeline(ignorestatus(command); stdout = output, stderr = output))
+        return success(process), String(take!(output))
+    end
+end
+
+@testset "tangled scripts emit shared work tables" begin
+    mktempdir() do directory
+        folder = mkpath(joinpath(directory, "benchmarks", "WorkTable"))
+        cp(
+            joinpath(dirname(@__DIR__), "benchmarks", "workprecision_table.jl"),
+            joinpath(directory, "benchmarks", "workprecision_table.jl")
+        )
+        write(
+            joinpath(folder, "work_table.jmd"), """
+            # Work table
+
+            ```julia
+            include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+            wp = (
+                name = "Tsit5", prob = (tspan = (0.0, 1.0),), times = [0.5], errors = (final = [0.01],),
+                tags = [:order_5, :explicit_rk], dts = nothing, N = 1,
+                stats = [(nf = 441, nf2 = 0, naccept = 73)],
+            )
+            print_work_table([wp], 0.0)
+            ```
+            """
+        )
+        row = "| Tsit5 | order_5, explicit_rk | 1/1 | — | — | 0.01 | 0.5 | 441 | 73 |"
+        output_root = mkpath(joinpath(directory, "output"))
+        push!(LOAD_PATH, "@stdlib")
+        try
+            with_repository_directory(output_root) do
+                SciMLBenchmarks.weave_file(folder, "work_table.jmd", (:script, :github))
+            end
+        finally
+            pop!(LOAD_PATH)
+        end
+        @test occursin(row, read(joinpath(output_root, "markdown", "WorkTable", "work_table.md"), String))
+
+        succeeded, log = run_isolated_script(output_root, "WorkTable", "work_table.jl")
+        @test succeeded
+        @test occursin(row, log)
+    end
+end
+
+@testset "script staging stays inside the script tree" begin
+    mktempdir() do directory
+        source = mkpath(joinpath(directory, "source"))
+        folder = mkpath(joinpath(source, "benchmarks", "Containment"))
+        output_root = joinpath(directory, "output")
+        symlink(mkpath(joinpath(directory, "published")), output_root)
+        marker = joinpath(output_root, "marker.jl")
+        write(joinpath(source, "marker.jl"), "staged\n")
+        page = joinpath(folder, "page.jmd")
+        function render()
+            write(marker, "original\n")
+            return with_repository_directory(output_root) do
+                SciMLBenchmarks.weave_file(folder, "page.jmd", (:script,))
+            end
+        end
+
+        @testset "prose is not staged" begin
+            write(page, "Write `include(joinpath(@__DIR__, \"..\", \"..\", \"marker.jl\"))` in code.\n")
+            render()
+            @test read(marker, String) == "original\n"
+        end
+
+        for call in (
+                "include(joinpath(@__DIR__, \"..\", \"..\", \"marker.jl\"))",
+                "include(\"../../marker.jl\")",
+            )
+            @testset "outside destination: $call" begin
+                write(page, "```julia\n$call\n```\n")
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+                @test read(marker, String) == "original\n"
+            end
+        end
+
+        @testset "parent-relative companions execute" begin
+            write(joinpath(source, "benchmarks", "literal.jl"), "literal_message() = \"literal ran\"\n")
+            write(joinpath(source, "benchmarks", "joined.jl"), "joined_message() = \"joined ran\"\n")
+            write(
+                page, """
+                ```julia
+                include("../literal.jl")
+                include(joinpath(@__DIR__, "..", "joined.jl"))
+                println(literal_message(), ", ", joined_message())
+                ```
+                """
+            )
+            render()
+            succeeded, log = run_isolated_script(output_root, "Containment", "page.jl")
+            @test succeeded
+            @test occursin("literal ran, joined ran", log)
+        end
+
+        @testset "quoted includes are not staged" begin
+            write(joinpath(source, "benchmarks", "quoted.jl"), "error(\"quoted companion ran\")\n")
+            write(joinpath(source, "benchmarks", "direct.jl"), "direct_message() = \"direct ran\"\n")
+            write(
+                page, """
+                ```julia
+                println(:(include("../quoted.jl")))
+                println(quote
+                    include(joinpath(@__DIR__, "..", "quoted.jl"))
+                end)
+                include("../direct.jl")
+                println(direct_message())
+                ```
+                """
+            )
+            render()
+            @test !ispath(joinpath(output_root, "script", "quoted.jl"))
+            succeeded, log = run_isolated_script(output_root, "Containment", "page.jl")
+            @test succeeded
+            @test occursin("direct ran", log)
+        end
+
+        script_directory = joinpath(output_root, "script", "Containment")
+        function declare_companion(path)
+            companion = joinpath(folder, path)
+            mkpath(dirname(companion))
+            write(companion, "staged\n")
+            return write(page, "```julia\ninclude(\"$path\")\n```\n")
+        end
+
+        @testset "directory link leaving the tree" begin
+            external = mkpath(joinpath(directory, "external"))
+            external_marker = joinpath(external, "helper.jl")
+            write(external_marker, "original\n")
+            symlink(external, joinpath(script_directory, "outward"))
+            for path in ("outward/helper.jl", "outward/new/helper.jl")
+                declare_companion(path)
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            end
+            @test read(external_marker, String) == "original\n"
+            @test !ispath(joinpath(external, "new"))
+        end
+
+        @testset "dangling directory link" begin
+            missing_target = joinpath(directory, "missing")
+            symlink(missing_target, joinpath(script_directory, "dangling"))
+            for path in ("dangling/helper.jl", "dangling/new/helper.jl")
+                declare_companion(path)
+                @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            end
+            @test !ispath(missing_target)
+        end
+
+        @testset "dangling file link at the destination" begin
+            missing_file = joinpath(directory, "missing_file.jl")
+            destination = joinpath(script_directory, "dangling_file.jl")
+            symlink(missing_file, destination)
+            declare_companion("dangling_file.jl")
+            @test_logs (:warn, r"outside the script tree") match_mode = :any render()
+            @test islink(destination)
+            @test !ispath(missing_file)
+        end
+
+        @testset "live file link at the destination" begin
+            destination = joinpath(script_directory, "live_file.jl")
+            symlink(marker, destination)
+            declare_companion("live_file.jl")
+            render()
+            @test read(marker, String) == "original\n"
+            @test !islink(destination)
+            @test read(destination, String) == "staged\n"
+        end
+
+        @testset "directories inside the tree" begin
+            shared = mkpath(joinpath(output_root, "script", "shared"))
+            symlink(shared, joinpath(script_directory, "inward"))
+            for (path, staged) in (
+                    ("inward/helper.jl", joinpath(shared, "helper.jl")),
+                    ("inward/new/helper.jl", joinpath(shared, "new", "helper.jl")),
+                    ("fresh/nested/helper.jl", joinpath(script_directory, "fresh", "nested", "helper.jl")),
+                )
+                declare_companion(path)
+                render()
+                @test read(staged, String) == "staged\n"
+            end
+        end
+    end
+end
+
+@testset "bulk generation skips root-level helpers" begin
+    mktempdir() do directory
+        name = "BulkGeneration_" * basename(directory)
+        folder = mkpath(joinpath(directory, "benchmarks", name))
+        write(joinpath(directory, "benchmarks", "workprecision_table.jl"), "helper() = nothing\n")
+        write(joinpath(folder, "page.jmd"), "# Page\n\n```julia\n1 + 1\n```\n")
+        notebooks = joinpath(dirname(@__DIR__), "notebook", name)
+        try
+            with_repository_directory(directory) do
+                SciMLBenchmarks.weave_all((:notebook,))
+            end
+            @test isfile(joinpath(notebooks, "page.ipynb"))
+        finally
+            rm(notebooks; recursive = true, force = true)
+        end
+    end
+end
+
 if VERSION >= v"1.10"
     @testset "Weave thread settings" begin
         mktempdir() do directory

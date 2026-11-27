@@ -46,9 +46,8 @@ function weave_file(folder, file, build_list = (:script, :github))
 end
 
 function weave_all(build_list = (:script, :github))
-    for folder in readdir(joinpath(repo_directory, "benchmarks"))
-        folder == "test.jmd" && continue
-        weave_folder(joinpath(repo_directory, "benchmarks", folder), build_list)
+    for folder in filter(isdir, readdir(joinpath(repo_directory, "benchmarks"); join = true))
+        weave_folder(folder, build_list)
     end
     return
 end
