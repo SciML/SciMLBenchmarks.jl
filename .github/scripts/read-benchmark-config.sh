@@ -31,6 +31,7 @@ resolve_benchmark_config() {
         runner isa AbstractVector || (runner = Any[runner])
         all(label -> label isa AbstractString, runner) ||
             error("runner for $(target) must be a string or an array of strings")
+        all(isvalid, runner) || error("runner labels for $(target) must be valid UTF-8")
         any(label -> occursin("\n", label) || occursin("\r", label), runner) &&
             error("runner labels for $(target) must not contain line breaks")
         any(label -> occursin("\0", label), runner) &&

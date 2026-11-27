@@ -222,6 +222,16 @@ if ! jq -e '.[0] | .runner == ["self-hosted", "cpu|fast"]
     exit 1
 fi
 
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "a\ufffdz"]
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+if ! jq -e '.[0].runner == ["self-hosted", "a\ufffdz"]' <<<"${MATRIX}"; then
+    echo 'A runner label containing U+FFFD must round-trip.' >&2
+    exit 1
+fi
+
 assert_rejected() {
     local config="$1" diagnostic="$2" target output_file error_log
     printf '%s\n' "${config}" > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml"
@@ -251,5 +261,7 @@ assert_rejected 'runner = ["self-hosted", ""]' 'must not be empty or contain emp
 assert_rejected 'runner = []' 'must not be empty or contain empty labels'
 assert_rejected 'runner = ["self-hosted", "\u0000"]' 'must not contain NUL bytes'
 assert_rejected 'runner = ["self-hosted", "gp\u0000u"]' 'must not contain NUL bytes'
+printf -v invalid_runner 'runner = ["self-hosted", "a\377z"]'
+assert_rejected "${invalid_runner}" 'must be valid UTF-8'
 
 echo 'Split and normal folders, file coalescing, config inheritance, and manual targets passed.'
