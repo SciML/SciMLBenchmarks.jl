@@ -272,11 +272,68 @@ end
 assert_work_table_markdown_fixture()
 ```
 
+```julia; echo=false; results="hidden"; error=false; tangle=false
+if get(ENV, "SCIMLBENCHMARKS_SKIP_ARTIFACT_REGRESSION", "") != "1"
+    mktempdir() do tmp
+        repo_root = normpath(@__DIR__, "..", "..")
+        stage = joinpath(tmp, "repo")
+        stage_folder = mkpath(joinpath(stage, "benchmarks", "NonStiffODE"))
+        for name in ("benchmark.jl", "Project.toml")
+            cp(joinpath(repo_root, name), joinpath(stage, name))
+        end
+        manifest = joinpath(repo_root, "Manifest.toml")
+        isfile(manifest) && cp(manifest, joinpath(stage, "Manifest.toml"))
+        cp(joinpath(repo_root, "src"), joinpath(stage, "src"))
+        cp(joinpath(repo_root, "benchmarks", "workprecision_table.jl"),
+            joinpath(stage, "benchmarks", "workprecision_table.jl"))
+        for name in ("Project.toml", "Manifest.toml", "FitzhughNagumo_wpd.jmd")
+            cp(joinpath(@__DIR__, name), joinpath(stage_folder, name))
+        end
+
+        weave_cmd = Cmd(
+            `$(Base.julia_cmd()) --startup-file=no --threads=auto --project=$stage $(joinpath(stage, "benchmark.jl")) $(joinpath(stage_folder, "FitzhughNagumo_wpd.jmd"))`;
+            dir = stage,
+        )
+        weave_cmd = addenv(
+            weave_cmd,
+            "SCIMLBENCHMARKS_SKIP_ARTIFACT_REGRESSION" => "1",
+            "GKSwstype" => get(ENV, "GKSwstype", "100"),
+            "JULIA_PKG_PRECOMPILE_AUTO" => "0",
+        )
+        weave_out = IOBuffer()
+        weave_proc = run(pipeline(ignorestatus(weave_cmd); stdout = weave_out, stderr = weave_out))
+        weave_log = String(take!(weave_out))
+        @assert success(weave_proc) "Artifact regression weave failed:\n$weave_log"
+
+        isolated_script = joinpath(tmp, "isolated", "script")
+        mkpath(dirname(isolated_script))
+        cp(joinpath(stage, "script"), isolated_script)
+        script_path = joinpath(isolated_script, "NonStiffODE", "FitzhughNagumo_wpd.jl")
+        @assert isfile(script_path) "Missing tangled script: $script_path"
+
+        script_cmd = addenv(
+            `$(Base.julia_cmd()) --startup-file=no --project=$stage_folder $script_path`,
+            "GKSwstype" => get(ENV, "GKSwstype", "100"),
+            "JULIA_LOAD_PATH" => join(("@", "@stdlib"), Sys.iswindows() ? ';' : ':'),
+        )
+        script_out = IOBuffer()
+        script_proc = run(pipeline(ignorestatus(script_cmd); stdout = script_out, stderr = script_out))
+        script_log = String(take!(script_out))
+        @assert success(script_proc) "Isolated FitzhughNagumo_wpd.jl failed:\n$script_log"
+        @assert occursin("| Algorithm | Tags | Usable points |", script_log) "Standalone script did not print a work-table heading"
+
+        markdown_path = joinpath(stage, "markdown", "NonStiffODE", "FitzhughNagumo_wpd.md")
+        @assert isfile(markdown_path) "Missing woven Markdown: $markdown_path"
+        @assert occursin("## Appendix", read(markdown_path, String)) "Woven Markdown missing ## Appendix"
+    end
+end
+```
+
 ## Conclusion
 
 In the latest run, the OrdinaryDiffEq.jl methods are several times faster than the ODEInterface Hairer codes (`dopri5` and `dop853`) at every tolerance. The interpolation comparisons include only OrdinaryDiffEq.jl methods, since ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
 
-```julia, echo = false
+```julia, echo = false, tangle = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
