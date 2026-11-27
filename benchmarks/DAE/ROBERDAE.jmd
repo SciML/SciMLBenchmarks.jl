@@ -180,9 +180,19 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
+The timeseries error below is measured on a shared grid that resolves the early transient.
+
 ```julia
+ts_l2 = [0.0; 10.0 .^ range(-5, 5, length = 105)]
+sol = solve(daeprob, DASKR.daskr(); abstol = 1e-12, reltol = 1e-9, saveat = ts_l2,
+            maxiters = Int(1e5))
+errs = reduce(vcat, sol.u .- ref_sol.(sol.t))
+manual_l2 = sqrt(sum(abs2, errs) / length(errs))
+@assert sol.t == ts_l2
+@assert isapprox(appxtrue(sol, ref_sol).errors[:l2], manual_l2; rtol = 1e-8)
+
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 10)
+    saveat = ts_l2, appxsol = refs, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
 
