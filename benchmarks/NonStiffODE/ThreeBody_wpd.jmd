@@ -10,6 +10,19 @@ using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, Ordinary
 using SciMLLogging
 using Plots;
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const THREE_BODY_ERROR_FLOOR = 1.0e-14
+const THREE_BODY_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const THREE_BODY_IMPLICIT_RK_TAGS = [:ordinarydiffeq, :implicit_rk, :nonstiff]
+const THREE_BODY_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const THREE_BODY_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const THREE_BODY_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const THREE_BODY_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const THREE_BODY_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const THREE_BODY_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const THREE_BODY_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const THREE_BODY_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
 
 ## Define the ThreeBody Problem
 const threebody_μ = parse(Float64, "0.012277471")
@@ -57,19 +70,28 @@ prob = ODEProblem{true, SciMLBase.FullSpecialize}(
 probstatic = ODEProblem{false}(
     f, SA[0.994, 0.0, 0.0, parse(Float64, "-2.00158510637908252240537862224")], tspan)
 
-sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
-sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+sol_endpoint = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
+sol2_endpoint = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
 probs = [prob, probstatic]
-test_sol = [sol, sol2];
+test_sol = [sol_endpoint, sol2_endpoint];
 
 abstols = 1.0 ./ 10.0 .^ (3:13);
 reltols = 1.0 ./ 10.0 .^ (0:10);
 ```
 
+Each sweep requests only the endpoint error with `error_estimates = [:final]` and
+attaches solver metadata tags to the results. The table accompanying each existing
+work-precision figure reports the best endpoint error, that point's timing,
+right-hand-side calls, accepted steps, and the computed refinement rate over mean
+accepted step sizes. The existing solvers are adaptive, so the fixed-step observed
+order is unavailable. Rate calculations exclude errors at or below `1e-14`, the
+tolerance used to construct each numerical endpoint reference; an em dash means the
+grid did not resolve a rate or a counter is unavailable.
+
 See that it's periodic in the chosen timespan:
 
 ```julia
-sol = solve(prob, Vern9(), abstol = 1e-14, reltol = 1e-14)
+sol = solve(prob, Vern9(), abstol = 1e-14, reltol = 1e-14, save_everystep = false, dense = false)
 @show sol.u[1] - sol.u[end]
 @show sol.u[end] - prob.u0;
 ```
@@ -79,44 +101,49 @@ This three-body problem is known to be a tough problem. Let's see how the algori
 ### 5th Order Runge-Kutta Methods
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>THREE_BODY_RK_TAGS)
           #Dict(:alg=>ode45()) #fails
-          Dict(:alg=>BS5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+          Dict(:alg=>BS5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>THREE_BODY_ODEINTERFACE_RK_TAGS)];
+low_order_setups = setups
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+low_order_wp = wp
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 #### Full save, but no dense
 
 ```julia
-setups = [Dict(:alg=>DP5(), :dense=>false)
+setups = [Dict(:alg=>DP5(), :dense=>false, :tags=>THREE_BODY_RK_TAGS)
           #Dict(:alg=>ode45()) # Fails
-          Dict(:alg=>BS5(), :dense=>false)
-          Dict(:alg=>Tsit5(), :dense=>false)
-          Dict(:alg=>RadauIIA5(), :dense=>false)
-          Dict(:alg=>Tsit5(), :dense=>false, :prob_choice => 2)
-          Dict(:alg=>RadauIIA5(), :dense=>false, :prob_choice => 2)
-          Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, numruns = 100)
+          Dict(:alg=>BS5(), :dense=>false, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Tsit5(), :dense=>false, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>RadauIIA5(), :dense=>false, :tags=>THREE_BODY_IMPLICIT_RK_TAGS)
+          Dict(:alg=>Tsit5(), :dense=>false, :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>RadauIIA5(), :dense=>false, :prob_choice => 2, :tags=>THREE_BODY_IMPLICIT_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>THREE_BODY_ODEINTERFACE_RK_TAGS)];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 #### Dense
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>THREE_BODY_RK_TAGS)
           #Dict(:alg=>ode45()) #fails
-          Dict(:alg=>BS5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>dopri5())];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100)
+          Dict(:alg=>BS5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>THREE_BODY_ODEINTERFACE_RK_TAGS)];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -125,33 +152,36 @@ In these tests the OrdinaryDiffEq.jl 5th order methods (`DP5`, `BS5` and `Tsit5`
 ### Higher Order Algorithms
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>TanYam7())
-          Dict(:alg=>DP8())
-          Dict(:alg=>dop853())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+setups = [Dict(:alg=>DP5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>TanYam7(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>DP8(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>dop853(), :tags=>THREE_BODY_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     dense = false, numruns = 100, verbose = SciMLLogging.None())
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100)
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -169,17 +199,18 @@ ODE.jl is not included, and Sundials' `CVODE_Adams` is left out since it fails a
 ```
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>lsoda())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>ddeabm())
-          Dict(:alg=>odex())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))];
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+setups = [Dict(:alg=>DP5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>lsoda(), :tags=>THREE_BODY_LSODA_TAGS)
+          Dict(:alg=>Vern8(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[THREE_BODY_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
+          Dict(:alg=>odex(), :tags=>THREE_BODY_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>THREE_BODY_SUNDIALS_RK_TAGS)];
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -193,61 +224,90 @@ Adams-Bashforth-Moulton:
 ```julia
 abstols = 1.0 ./ 10.0 .^ (3:13);
 reltols = 1.0 ./ 10.0 .^ (0:10);
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern9(), :prob_choice => 2)
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>THREE_BODY_IRKGL_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>THREE_BODY_RK_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "IRKGL16", "IRKGL16 SIMD",
     "Vern9 Static",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>THREE_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, THREE_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    for w in low_order_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "low-order $(w.name) stores a finite $metric error"
+    end
+    @assert length(sol_endpoint.t) == 2
+    @assert length(sol2_endpoint.t) == 2
+    @assert !sol_endpoint.dense
+    @assert !sol2_endpoint.dense
+    dense_sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+    dense_sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+    dense_wp = WorkPrecisionSet(probs, abstols, reltols, low_order_setups; appxsol = [dense_sol, dense_sol2],
+        error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 1)
+    for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "low-order $(w.name) $field differs"
+        end
+    end
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
 ```
 
 ### Conclusion
