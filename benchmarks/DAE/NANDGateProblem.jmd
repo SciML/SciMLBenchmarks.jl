@@ -300,17 +300,7 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp, title="NAND Gate DAE - Work-Precision (High Tolerances)")
 ```
 
-DASKR prints `DASKR-- AT CURRENT T (=R1) 500 STEPS … TAKEN ON THIS CALL
-BEFORE REACHING TOUT` during this sweep and the other sweeps below.
-DDASKR returns to its Julia wrapper every 500 internal steps
-(`IDID = -1`); the DASKR.jl version used here ends the solve at that point
-instead of continuing, so every DASKR solve that needs more than 500 steps
-returns `MaxIters` with only the initial point saved and contributes no
-point to the diagram. The `dae_ref_sol` reference above is unaffected: it
-is solved with `save_everystep = true`, where the wrapper resumes after
-every step.
-[SciML/DASKR.jl#122](https://github.com/SciML/DASKR.jl/pull/122) is a
-draft fix.
+Every DASKR solve in the final-value sweeps on this page reaches $t = 80$.
 
 ```julia
 abstols = 1.0 ./ 10.0 .^ (6:8)
@@ -351,7 +341,7 @@ setups = [
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
-                      save_everystep=false, appxsol=refs, 
+                      saveat=0.0:0.25:80.0, appxsol=refs, 
                       maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Timeseries Errors (High Tolerances)")
@@ -372,7 +362,7 @@ setups = [
 ]
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
-                      save_everystep=false, appxsol=refs, 
+                      saveat=0.0:0.25:80.0, appxsol=refs, 
                       maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Timeseries Errors (Medium Tolerances)")
@@ -407,7 +397,7 @@ plot(wp, title="NAND Gate DAE - Work-Precision (Low Tolerances)")
 
 ```julia
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate=:l2,
-                      save_everystep=false, appxsol=refs, 
+                      saveat=0.0:0.25:80.0, appxsol=refs, 
                       maxiters=Int(1e5), numruns=10,
                       tstops=0.0:5.0:80.0)
 plot(wp, title="NAND Gate DAE - Timeseries Errors (Low Tolerances)")

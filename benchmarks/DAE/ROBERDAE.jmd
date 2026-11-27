@@ -105,15 +105,10 @@ plot(wp)
 ```
 
 DASKR prints `DASKR-- AT CURRENT T (=R1) 500 STEPS … TAKEN ON THIS CALL
-BEFORE REACHING TOUT` during the low-tolerance sweep below.
-DDASKR returns to its Julia wrapper every 500 internal steps
-(`IDID = -1`); the DASKR.jl version used here ends the solve at that point
-instead of continuing, so every DASKR solve that needs more than 500 steps
-returns `MaxIters` with only the initial point saved and contributes no
-point to the diagram. Here that is the three tightest tolerance pairs;
-the looser pairs complete in fewer than 500 steps.
-[SciML/DASKR.jl#122](https://github.com/SciML/DASKR.jl/pull/122) is a
-draft fix.
+BEFORE REACHING TOUT` during some of the sweeps below. DDASKR returns to its
+Julia wrapper every 500 internal steps (`IDID = -1`), and the wrapper
+continues the solve, so the message is informational: every DASKR solve in the
+final-value sweeps reaches the final time.
 
 ### Timeseries Errors
 
@@ -185,9 +180,19 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups;
 plot(wp)
 ```
 
+The timeseries error below is measured on a shared grid that resolves the early transient.
+
 ```julia
+ts_l2 = [0.0; 10.0 .^ range(-5, 5, length = 105)]
+sol = solve(daeprob, DASKR.daskr(); abstol = 1e-12, reltol = 1e-9, saveat = ts_l2,
+            maxiters = Int(1e5))
+errs = reduce(vcat, sol.u .- ref_sol.(sol.t))
+manual_l2 = sqrt(sum(abs2, errs) / length(errs))
+@assert sol.t == ts_l2
+@assert isapprox(appxtrue(sol, ref_sol).errors[:l2], manual_l2; rtol = 1e-8)
+
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; error_estimate = :l2,
-    save_everystep = false, appxsol = refs, maxiters = Int(1e5), numruns = 10)
+    saveat = ts_l2, appxsol = refs, maxiters = Int(1e5), numruns = 10)
 plot(wp)
 ```
 

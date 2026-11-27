@@ -138,7 +138,8 @@ function water_rhs!(f, y, p, t)
         p_i   = y[NODE_TO_YIDX[i_node]]
         p_j   = y[NODE_TO_YIDX[j_node]]
 
-        rtla = sqrt(lam_k)
+        # NaN makes the solver reject a trial step with a negative friction factor
+        rtla = lam_k < 0 ? oftype(lam_k, NaN) : sqrt(lam_k)
         r    = abs(phi_k * DPIPE / (NU * APIPE))
 
         if r > RCRIT
@@ -484,6 +485,13 @@ setups = [
     Dict(:prob_choice => 3, :alg => Rodas5P()),
 ]
 labels = ["Rodas5P (MM)" "Rodas4P (MM)" "FBDF (MM)" "QNDF (MM)" "NordsieckBDF (MM)" "rodas (MM)" "IDA (DAE)" "DFBDF (DAE)" "DNordsieckBDF (DAE)" "Rodas5P (MTK)"]
+
+for (atol_, rtol_) in zip(abstols, reltols)
+    s = solve(prob_mm, QNDF(); abstol = atol_, reltol = rtol_,
+              save_everystep = false, maxiters = Int(1e6))
+    @assert s.retcode == ReturnCode.Success && s.t[end] == tspan[2] &&
+            all(>(0), s.u[end][19:36]) "QNDF at ($atol_, $rtol_): $(s.retcode) at t = $(s.t[end])"
+end
 
 wp = WorkPrecisionSet(probs, abstols, reltols, setups;
     names = labels, appxsol = refs, save_everystep = false,

@@ -524,27 +524,35 @@ reach $t_{end}$ has no error value and is left out of the diagrams, so the retur
 each tolerance are printed first.
 
 ```julia
+final_errors = Dict{Tuple{String, Float64}, Union{Missing, Float64}}()
 for tol in 1.0 ./ 10.0 .^ (1:3),
     (name, alg, save_everystep) in [("IDA", IDA(), false), ("DASKR", DASKR.daskr(), false),
                                     ("DASKR, save_everystep = true", DASKR.daskr(), true)]
     sol = solve(daeprob, alg; abstol = tol, reltol = tol, save_everystep,
                 maxiters = Int(1e5), dt = 1e-15, tstops = disc_times)
+    completed = sol.retcode == ReturnCode.Success && sol.t[end] == tspan[end]
+    err = completed ? abs(sol.u[end][9] - exact_u(tspan[end])[9]) : missing
+    final_errors[(name, tol)] = err
     println(rpad(name, 29), " tol = $tol: retcode = $(sol.retcode), t_final = $(sol.t[end]), ",
-            "saved points = $(length(sol.t)), final error in y[9] = $(abs(sol.u[end][9] - u_end[9]))")
+            "saved points = $(length(sol.t)), final error in y[9] = $err")
 end
+@assert final_errors[("DASKR", 0.1)] === missing
+@assert all(e -> e === missing || isfinite(e), values(final_errors))
 ```
 
-IDA completes every tolerance. DASKR does not produce a single point in the final-value
-diagram:
+```julia
+for tol in 1.0 ./ 10.0 .^ (1:3)
+    done = [name for name in ("IDA", "DASKR") if final_errors[(name, tol)] !== missing]
+    println("tol = $tol: reached t_end = ", isempty(done) ? "none" : join(done, ", "))
+end
+e_ida, e_daskr = final_errors[("IDA", 1e-2)], final_errors[("DASKR", 1e-2)]
+println("tol = 0.01: IDA / DASKR final error in y[9] = ",
+        e_ida === missing || e_daskr === missing ? missing : e_ida / e_daskr)
+```
 
-- At $10^{-1}$, DASKR stops with `ConvergenceFailure` at $t \approx 1.01 \times 10^{-6}$
-  (`ABS(H)=HMIN`). It fails there with `save_everystep = true` as well, so this is a genuine
-  solver failure at that tolerance.
-- At $10^{-2}$ and $10^{-3}$, DASKR returns `MaxIters` with only the initial point saved. With
-  `save_everystep = false`, each DDASKR call integrates to $t_{end}$, and DDASKR returns after 500
-  internal steps expecting to be called again. The DASKR.jl wrapper (v3.2.0) treats that return
-  as final. With `save_everystep = true`, the same solves reach $t_{end}$. The timeseries diagram
-  below saves every step, so it contains these two DASKR points.
+The summary above lists which solvers reach $t_{end}$ at each tolerance and, at $10^{-2}$,
+the ratio of IDA's final error in `y[9]` to DASKR's. A run that stops early has a missing
+error and no point in the final-value diagram.
 
 ### Loose Tolerances (Final-Value Error)
 
@@ -585,12 +593,8 @@ plot(wp, title = "Charge Pump DAE — Loose Tolerances (L₂ Timeseries)")
 
 ### Conclusion
 
-Against the exact solution, IDA's final-value error drops from about $2 \times 10^{-2}$ at
-tolerances $10^{-1}$ and $10^{-2}$ to below $10^{-6}$ at $10^{-3}$. DASKR fails at $10^{-1}$
-and, with `save_everystep = false`, stops at the first 500-step return at $10^{-2}$ and
-$10^{-3}$. In the timeseries diagram, where every step is saved, DASKR reaches $t_{end}$ at
-$10^{-2}$ and $10^{-3}$, with smaller errors than IDA at the same tolerances and longer run
-times.
+The diagnostic above gives, for each tolerance, which of IDA and DASKR reach $t_{end}$ and
+how their final errors in `y[9]` compare.
 
 ```julia, echo = false
 using SciMLBenchmarks
