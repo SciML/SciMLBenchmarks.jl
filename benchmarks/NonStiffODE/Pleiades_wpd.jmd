@@ -40,11 +40,39 @@ reltols = 1.0 ./ 10.0 .^ (3:6);
 
 using Plots;
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const PLEIADES_ERROR_FLOOR = 1.0e-9
+const PLEIADES_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const PLEIADES_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const PLEIADES_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const PLEIADES_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const PLEIADES_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const PLEIADES_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const PLEIADES_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const PLEIADES_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const PLEIADES_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
+const PLEIADES_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
+const PLEIADES_SDC_TAGS = [:ordinarydiffeq, :sdc, :nonstiff]
 ```
+
+Each sweep requests only the error metrics needed for its measurement with
+`error_estimates` and attaches solver metadata tags to the results. The table
+with each work-precision figure reports the best endpoint error, that point's
+timing, right-hand-side calls, accepted steps, and a computed refinement rate
+when the tolerance grid resolves one. Rate calculations exclude errors at or
+below `1e-9`, a conservative bound above the measured final-point gap between
+the reference and a tighter solve; an em dash means that the rate or counter is
+unavailable or unresolved. The plotted reference trajectory retains dense output
+because the figure and interpolation-error references consume it; the endpoint
+reference uses endpoint-only output.
 
 ```julia
 sol = solve(prob, Vern8(), abstol = 1/10^12, reltol = 1/10^10, maxiters = 1000000)
-test_sol = TestSolution(sol);
+sol_endpoint = solve(prob, Vern8(), abstol = 1/10^12, reltol = 1/10^10, maxiters = 1000000,
+    save_everystep = false, dense = false)
+test_sol_dense = sol
+test_sol = sol_endpoint
 plot(sol)
 ```
 
@@ -59,27 +87,32 @@ ODE.jl is not part of this benchmark's environment; its setups are left commente
 ```
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>dopri5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))]
+setups = [Dict(:alg=>DP5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>dopri5(), :tags=>PLEIADES_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+low_order_setups = setups
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 10000)
+low_order_wp = wp
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
 ### Interpolation
 
 ```julia
-setups = [Dict(:alg=>DP5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100,
+setups = [Dict(:alg=>DP5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], verbose = SciMLLogging.None(), numruns = 100,
     maxiters = 10000, error_estimate = :L2, dense_errors = true)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -94,47 +127,52 @@ ODE.jl is again left out.
 ```
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>dop853())]
+setups = [Dict(:alg=>DP8(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>dop853(), :tags=>PLEIADES_ODEINTERFACE_RK_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 1000)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
-setups = [Dict(:alg=>odex())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>lsoda())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>ddeabm())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))]
+setups = [Dict(:alg=>odex(), :tags=>PLEIADES_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>Vern7(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>PLEIADES_SUNDIALS_MULTISTEP_TAGS)
+          Dict(:alg=>lsoda(), :tags=>PLEIADES_LSODA_TAGS)
+          Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[PLEIADES_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>PLEIADES_SUNDIALS_RK_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 20)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
 ### Interpolations
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, verbose = SciMLLogging.None(), numruns = 100,
+setups = [Dict(:alg=>DP8(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], verbose = SciMLLogging.None(), numruns = 100,
     maxiters = 1000, error_estimate = :L2, dense_errors = true)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -144,56 +182,59 @@ Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
 Adams-Bashforth-Moulton:
 
 ```julia
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>PLEIADES_MULTISTEP_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "VCABM", "IRKGL16", "IRKGL16 SIMD",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -222,13 +263,14 @@ value, which already reaches the same order-7 cap, so both updates are order
 [embedded update](https://github.com/SciML/OrdinaryDiffEq.jl/blob/OrdinaryDiffEqSDC-v1.0.0/lib/OrdinaryDiffEqSDC/src/sdc_perform_step.jl#L271-L287).
 
 ```julia
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 4))
-          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 7))]
+setups = [Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
+          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 4), :tags=>PLEIADES_SDC_TAGS)
+          Dict(:alg=>SDC(sweeper = SDCSweeper.FE, num_nodes = 4, num_sweeps = 7), :tags=>PLEIADES_SDC_TAGS)]
 solnames = ["Tsit5", "Vern9", "SDC-FE (4 nodes, 4 sweeps)", "SDC-FE (4 nodes, 7 sweeps)"]
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -240,7 +282,7 @@ order of magnitude of that gap is marked reference-limited.
 ```julia
 using Statistics
 tighter_ref = solve(prob, Vern9(), abstol = 1 / 10^14, reltol = 1 / 10^12,
-    maxiters = 1000000)
+    maxiters = 1000000, save_everystep = false, dense = false)
 ref_floor = mean(abs.(sol.u[end] - tighter_ref.u[end]))
 println("Final-point gap between the reference and a tighter solve: ", ref_floor)
 for (name, setup) in zip(solnames[3:4], setups[3:4])
@@ -272,11 +314,36 @@ every accuracy level — the repeated first-order sweeps spend more evaluations
 per unit of accuracy than a purpose-built high-order Runge–Kutta step on this
 smooth non-stiff problem.
 
+
+```julia; echo=false; results="hidden"; error=false
+let
+    for w in low_order_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "low-order $(w.name) stores a finite $metric error"
+    end
+    @assert length(sol_endpoint.t) == 2
+    @assert !sol_endpoint.dense
+    @assert length(tighter_ref.t) == 2
+    @assert !tighter_ref.dense
+    dense_wp = WorkPrecisionSet(prob, abstols, reltols, low_order_setups; appxsol = test_sol_dense,
+        error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
+    for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "low-order $(w.name) $field differs"
+        end
+    end
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
+```
+
 ## Conclusion
 
 The OrdinaryDiffEq.jl algorithms come out as faster in each case than the ODEInterface algorithms. Overall, the Verner methods have a really good showing once again. The `CVODE_Adams` method does really well here when the tolerances are higher.
 
-```julia, echo = false
+```julia, echo = false, tangle = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
