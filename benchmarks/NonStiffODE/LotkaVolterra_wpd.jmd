@@ -26,11 +26,42 @@ abstols = 1.0 ./ 10.0 .^ (6:13)
 reltols = 1.0 ./ 10.0 .^ (3:10);
 sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
 sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+sol_endpoint = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14,
+    save_everystep = false, dense = false)
+sol2_endpoint = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14,
+    save_everystep = false, dense = false)
 probs = [prob, probstatic]
-test_sol = [sol, sol2];
+test_sol_dense = [sol, sol2]
+test_sol = [sol_endpoint, sol2_endpoint];
 using Plots;
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const LOTKA_VOLTERRA_ERROR_FLOOR = 1.0e-14
+const LOTKA_VOLTERRA_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const LOTKA_VOLTERRA_SIMD_RK_TAGS = [:ordinarydiffeq, :simd_rk, :explicit_rk, :nonstiff, :rhs_calls_unavailable]
+const LOTKA_VOLTERRA_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const LOTKA_VOLTERRA_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const LOTKA_VOLTERRA_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const LOTKA_VOLTERRA_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const LOTKA_VOLTERRA_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const LOTKA_VOLTERRA_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const LOTKA_VOLTERRA_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const LOTKA_VOLTERRA_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
+const LOTKA_VOLTERRA_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
 ```
+
+Each sweep requests only the error metrics needed for its measurement with
+`error_estimates` and attaches solver metadata tags to the results. The table
+with each work-precision figure reports the best endpoint error, that point's
+timing, right-hand-side calls, accepted steps, and a computed refinement rate
+when the tolerance grid resolves one. Rate calculations exclude errors at or
+below `1e-14`, the tolerance used to construct each numerical endpoint reference;
+an em dash means that the rate or counter is unavailable or unresolved. Under RHS
+calls, the dash in SIMD-RK rows means "RHS-call count not reported: SIMD invocation
+unit is ambiguous". The plotted reference trajectories retain dense output because
+the figures and interpolation-error references consume them; the endpoint references
+use endpoint-only output.
 
 ```julia
 plot(sol)
@@ -39,20 +70,26 @@ plot(sol)
 ### Low Order
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           #Dict(:alg=>ode45()) # fail
-          Dict(:alg=>dopri5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>MER5v2(), :prob_choice => 2)
-          Dict(:alg=>MER6v2(), :prob_choice => 2)
-          Dict(:alg=>RK6v4(), :prob_choice => 2)]
+          Dict(:alg=>dopri5(), :tags=>LOTKA_VOLTERRA_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>MER5v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)
+          Dict(:alg=>MER6v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)
+          Dict(:alg=>RK6v4(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)]
+low_order_setups = setups
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), maxiters = 10000, numruns = 100)
+low_order_wp = wp
+low_order_abstols = abstols
+low_order_reltols = reltols
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -63,17 +100,18 @@ Here we see the OrdinaryDiffEq.jl algorithms once again far in the lead.
 Since the problem is periodic, the real measure of error is the error throughout the solution.
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           #Dict(:alg=>ode45())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)]
+          Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, maxiters = 10000,
+    probs, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], maxiters = 10000,
     error_estimate = :L2, dense_errors = true, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -82,62 +120,67 @@ Here we see the power of algorithm-specific interpolations: the OrdinaryDiffEq.j
 ## Higher Order
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>dop853())
+setups = [Dict(:alg=>DP8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>dop853(), :tags=>LOTKA_VOLTERRA_ODEINTERFACE_RK_TAGS)
           #Dict(:alg=>ode78()) # fails
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)]
+          Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
-setups = [Dict(:alg=>odex())
-          Dict(:alg=>ddeabm())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)
-          Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>lsoda())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))]
+setups = [Dict(:alg=>odex(), :tags=>LOTKA_VOLTERRA_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[LOTKA_VOLTERRA_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
+          Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>LOTKA_VOLTERRA_SUNDIALS_MULTISTEP_TAGS)
+          Dict(:alg=>lsoda(), :tags=>LOTKA_VOLTERRA_LSODA_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>LOTKA_VOLTERRA_SUNDIALS_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+    error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
 Again we look at interpolations:
 
 ```julia
-setups = [Dict(:alg=>DP8())
+setups = [Dict(:alg=>DP8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           #Dict(:alg=>ode78())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, dense = true,
+          Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], dense = true,
     maxiters = 1000, error_estimate = :L2, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -151,70 +194,126 @@ Adams-Bashforth-Moulton:
 ```julia
 abstols = 1.0 ./ 10.0 .^ (8:13)
 reltols = 1.0 ./ 10.0 .^ (8:13)
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern9(), :prob_choice => 2)
-          Dict(:alg=>VCABM(), :prob_choice => 2)
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>LOTKA_VOLTERRA_MULTISTEP_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>VCABM(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_MULTISTEP_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "VCABM", "IRKGL16", "IRKGL16 SIMD",
     "Vern9 Static", "VCABM Static",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
+```
+
+
+```julia; echo=false; results="hidden"; error=false
+let
+    series = Dict(wp.name => wp for wp in low_order_wp[:])
+    table = work_table_markdown(low_order_wp, LOTKA_VOLTERRA_ERROR_FLOOR)
+    rows = Dict(
+        map(split(chomp(table), '\n')[3:end]) do row
+            columns = strip.(split(row, '|'; keepempty = false))
+            return columns[1] => columns
+        end
+    )
+    simd_names = ("MER5v2", "MER6v2", "RK6v4")
+    @assert Set(wp.name for wp in low_order_wp[:] if :simd_rk in wp.tags) == Set(simd_names)
+    for name in simd_names
+        wp = series[name]
+        points = usable_points(wp)
+        @assert !isempty(points) "$name has no usable points"
+        rhs, accepted = rows[name][8:9]
+        @assert rhs == "—" "$name RHS calls should be —, got $rhs"
+        @assert :rhs_calls_unavailable in wp.tags "$name lacks :rhs_calls_unavailable"
+        selected = wp.stats[points[argmin(wp.errors.final[points])]].naccept
+        @assert accepted == string(selected) "$name accepted steps should be $selected, got $accepted"
+    end
+    @assert :rhs_calls_unavailable ∉ series["Tsit5"].tags
+    @assert !isnothing(tryparse(Int, rows["Tsit5"][8])) "Tsit5 RHS calls should be numeric"
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    for w in low_order_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "low-order $(w.name) stores a finite $metric error"
+    end
+    @assert length(sol_endpoint.t) == 2
+    @assert length(sol2_endpoint.t) == 2
+    @assert !sol_endpoint.dense
+    @assert !sol2_endpoint.dense
+    dense_wp = WorkPrecisionSet(probs, low_order_abstols, low_order_reltols, low_order_setups;
+        appxsol = test_sol_dense, error_estimates = [:final], save_everystep = false,
+        verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
+    for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "low-order $(w.name) $field differs"
+        end
+    end
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
 ```
 
 ## Conclusion
 
 The OrdinaryDiffEq.jl explicit Runge-Kutta methods are quicker than `dopri5`, `dop853` and `IRKGL16` at every tolerance, and the gap in accuracy is largest when the interpolations are involved. ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
 
-```julia, echo = false
+```julia, echo = false, tangle = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
