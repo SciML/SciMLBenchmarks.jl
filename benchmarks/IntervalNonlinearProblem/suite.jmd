@@ -479,9 +479,10 @@ function rank_algorithms(all_results)
 
     println("="^78)
     println("Combined = 0.4 × success + 0.3 × speed + 0.3 × accuracy (each term in [0, 1])")
+    return algorithm_rankings
 end
 
-rank_algorithms(all_results)
+algorithm_rankings = rank_algorithms(all_results)
 ```
 
 ## Conclusion
@@ -504,15 +505,22 @@ The benchmark compares algorithms from both `BracketingNonlinearSolve.jl` and `S
   - **Accuracy**: Precision of the found roots
   - **Reliability**: Success rates across diverse test cases
 
-In the latest run, every method finds an accurate root of all eight functions except `Alefeld`
-from `BracketingNonlinearSolve.jl`, which fails on `x·sin(1/x) - 0.1` with a `DomainError`:
-on its first iteration it evaluates the function at `x = 0`, outside the bracket
-([NonlinearSolve.jl#1317](https://github.com/SciML/NonlinearSolve.jl/pull/1317)). Absolute
-timings and the middle of the ranking depend on the machine, because speed carries a
-30% weight. What holds up across runs is that `ModAB` ranks first,
-`Roots.jl` is as accurate as the best methods but several times slower than the fastest method
-on most functions, and that `Falsi` (from both packages) and `Alefeld` form the bottom three.
-`Falsi` is also by far the slowest method on `exp(x) - 1 - x - x²/2`.
+The verdict for this run, computed from the results above (absolute timings and the middle
+of the ranking depend on the machine, because speed carries a 30% weight):
+
+```julia
+failures = [(r.name, f.func_name) for f in all_results for r in f.results if !r.success]
+if isempty(failures)
+    println("Every method found a root of all eight functions.")
+else
+    for (alg, func) in failures
+        println("$alg failed on $func")
+    end
+end
+ranked = [r.name for r in algorithm_rankings]
+println("Top three: ", join(ranked[1:3], ", "))
+println("Bottom three: ", join(ranked[(end - 2):end], ", "))
+```
 
 ```julia, echo = false
 using SciMLBenchmarks
