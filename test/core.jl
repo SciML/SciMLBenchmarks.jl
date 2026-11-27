@@ -1,6 +1,8 @@
 using SciMLBenchmarks
 using Test
 
+include("footer_legacy.jl")
+
 @testset "documentation workflow consistency" begin
     repository_root = dirname(@__DIR__)
     @test !isfile(joinpath(repository_root, ".github", "workflows", "DocPreviewCleanup.yml"))

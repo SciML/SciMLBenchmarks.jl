@@ -79,6 +79,20 @@ function weave_folder(folder, build_list = (:script, :github))
     return
 end
 
+function _package_status(mode = Pkg.PKGMODE_PROJECT)
+    @static if VERSION >= v"1.4"
+        return sprint(io -> Pkg.status(; io = io, mode = mode))
+    else
+        project = Base.active_project()
+        project === nothing && return Pkg.status(; mode = mode)
+        mode_name = mode == Pkg.PKGMODE_MANIFEST ? "PKGMODE_MANIFEST" : "PKGMODE_PROJECT"
+        code = "empty!(LOAD_PATH); push!(LOAD_PATH, \"@stdlib\"); using Pkg; Pkg.status(mode=Pkg.$mode_name)"
+        julia = joinpath(Sys.BINDIR, Sys.iswindows() ? "julia.exe" : "julia")
+        cmd = `$julia --startup-file=no --project=$project -e $code`
+        return read(cmd, String)
+    end
+end
+
 function bench_footer(folder = nothing, file = nothing)
     display(
         md"""
@@ -118,8 +132,8 @@ function bench_footer(folder = nothing, file = nothing)
         """
     )
 
-    proj = sprint(io -> Pkg.status(io = io))
-    mani = sprint(io -> Pkg.status(io = io, mode = Pkg.PKGMODE_MANIFEST))
+    proj = _package_status()
+    mani = _package_status(Pkg.PKGMODE_MANIFEST)
 
     md = """
     ```
@@ -169,12 +183,12 @@ end
         vinfo = sprint(InteractiveUtils.versioninfo)
 
         # Precompile Pkg.status operations (used in bench_footer)
-        proj_status = sprint(io -> Pkg.status(io = io))
-        manifest_status = sprint(io -> Pkg.status(io = io, mode = Pkg.PKGMODE_MANIFEST))
-
-        # Precompile string operations commonly used
-        chomp(proj_status)
-        chomp(manifest_status)
+        @static if VERSION >= v"1.4"
+            proj_status = _package_status()
+            manifest_status = _package_status(Pkg.PKGMODE_MANIFEST)
+            chomp(proj_status)
+            chomp(manifest_status)
+        end
     end
 end
 
