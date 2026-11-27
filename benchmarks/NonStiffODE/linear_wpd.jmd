@@ -87,6 +87,7 @@ solnames = ["OrdinaryDiffEq"; "ODEInterface"; "Sundials ARKODE";
             "OrdinaryDiffEq Tsit5"]
 wp = WorkPrecisionSet(
     prob, abstols, reltols, setups; error_estimates = [:final], names = solnames, save_everystep = false, numruns = 100)
+speed_baseline_wp = wp
 print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
 ```
@@ -332,6 +333,27 @@ wp = WorkPrecisionSet(prob, abstols, reltols, setups; error_estimates = [:final]
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
 print_work_table(wp, LINEAR_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    expected_tags = Dict(
+        "OrdinaryDiffEq" => (:ordinarydiffeq, :explicit_rk, :nonstiff),
+        "ODEInterface" => (:odeinterface, :explicit_rk, :nonstiff),
+        "Sundials ARKODE" => (:sundials, :explicit_rk, :nonstiff),
+        "OrdinaryDiffEq Tsit5" => (:ordinarydiffeq, :explicit_rk, :nonstiff),
+    )
+    for (name, tags) in expected_tags
+        series = only(filter(wp -> wp.name == name, speed_baseline_wp[:]))
+        for tag in tags
+            @assert tag in series.tags "$name lacks $tag"
+        end
+    end
+    @assert available_errors(speed_baseline_wp) == [:final]
+    for w in speed_baseline_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "speed baseline $(w.name) stores a finite $metric error"
+    end
+end
 ```
 
 ```julia; echo=false; results="hidden"; error=false

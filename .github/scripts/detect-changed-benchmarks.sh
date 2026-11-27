@@ -56,7 +56,7 @@ else
 fi
 
 declare -A SHARED_FILE_CONSUMERS=(
-    ["benchmarks/workprecision_table.jl"]="benchmarks/OrdinaryDiffEqMethods/all_methods.jmd benchmarks/NonStiffODE/linear_wpd.jmd"
+    ["benchmarks/workprecision_table.jl"]="benchmarks/OrdinaryDiffEqMethods/all_methods.jmd benchmarks/NonStiffODE/linear_wpd.jmd benchmarks/NonStiffODE/FitzhughNagumo_wpd.jmd"
 )
 
 EXPANDED_CHANGED_FILES=""
