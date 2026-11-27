@@ -210,4 +210,44 @@ for index in "${!EXPECTED_LABELS[@]}"; do
     fi
 done
 
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "cpu|fast"]
+timeout = 90
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+if ! jq -e '.[0] | .runner == ["self-hosted", "cpu|fast"]
+    and .timeout == 90 and .julia_version == "1.11"' <<<"${MATRIX}"; then
+    echo 'A pipe label must round-trip with its timeout and Julia version.' >&2
+    exit 1
+fi
+
+assert_rejected() {
+    local config="$1" diagnostic="$2" target output_file error_log
+    printf '%s\n' "${config}" > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml"
+    output_file="${TEST_ROOT}/rejected-github-output"
+    error_log="${TEST_ROOT}/rejected-error.log"
+    for target in benchmarks/Beta benchmarks/Beta/page.jmd; do
+        : > "${output_file}"
+        if (cd "${FIXTURE}" && GITHUB_OUTPUT="${output_file}" \
+            .github/scripts/detect-changed-benchmarks.sh "${target}" 2> "${error_log}"); then
+            printf 'Accepted for %s: %s\n' "${target}" "${config}" >&2
+            exit 1
+        fi
+        if ! grep -F "${diagnostic}" "${error_log}"; then
+            cat "${error_log}" >&2
+            exit 1
+        fi
+        if grep -q '^matrix=' "${output_file}"; then
+            printf 'Emitted a matrix for %s: %s\n' "${target}" "${config}" >&2
+            exit 1
+        fi
+    done
+}
+
+assert_rejected 'timeout = true' 'Expected a positive integer timeout for benchmarks/Beta'
+assert_rejected 'timeout = false' 'Expected a positive integer timeout for benchmarks/Beta'
+assert_rejected 'runner = ["self-hosted", ""]' 'must not be empty or contain empty labels'
+assert_rejected 'runner = []' 'must not be empty or contain empty labels'
+
 echo 'Split and normal folders, file coalescing, config inheritance, and manual targets passed.'

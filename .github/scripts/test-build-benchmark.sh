@@ -5,11 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/read-benchmark-config.sh"
 BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_benchmark.sh}"
 FIXTURE="$(mktemp -d)"
-trap 'rm -rf "${FIXTURE}"' EXIT
+trap 'rm -rf "${FIXTURE}" "${BENCHMARK_CONFIG_CACHE_DIR}"' EXIT
 
 mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" \
     "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/benchmarks/Underscore" \
-    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/benchmarks/Matrix" "${FIXTURE}/bin"
+    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/benchmarks/Matrix" \
+    "${FIXTURE}/benchmarks/Pipe" "${FIXTURE}/benchmarks/BooleanThreads" "${FIXTURE}/bin"
 mkdir -p "${FIXTURE}/.github"
 printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
     > "${FIXTURE}/.github/benchmark_defaults.toml"
@@ -25,10 +26,17 @@ threads = 16
 split = true
 TOML
 printf '[deps]\n' > "${FIXTURE}/benchmarks/Matrix/Project.toml"
+printf 'runner = ["self-hosted", "cpu|fast"]\ntimeout = 90\n' \
+    > "${FIXTURE}/benchmarks/Pipe/benchmark_config.toml"
 (
     cd "${FIXTURE}"
     if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
         echo "get_runner_config should return runner and timeout only" >&2
+        exit 1
+    fi
+    config=$(get_runner_config benchmarks/Pipe)
+    if [[ "${config}" != '["self-hosted", "cpu\u007cfast"]|90' ]]; then
+        echo "A pipe in a runner label must not split the config fields, got ${config}" >&2
         exit 1
     fi
 )
@@ -141,6 +149,20 @@ check_folder_allocations "${FIXTURE}"
             exit 1
         fi
     done
+    for key in threads timeout; do
+        case "${key}" in
+            threads) diagnostic='Expected a positive integer thread count' ;;
+            timeout) diagnostic='Expected a positive integer timeout' ;;
+        esac
+        for invalid in true false; do
+            printf '%s = %s\n' "${key}" "${invalid}" > benchmarks/Default/benchmark_config.toml
+            if get_benchmark_config benchmarks/Default 2> config-error.log; then
+                echo "Accepted boolean ${key}: ${invalid}" >&2
+                exit 1
+            fi
+            grep -F "${diagnostic} for benchmarks/Default, got ${invalid}" config-error.log
+        done
+    done
 )
 
 echo "build_benchmark.sh tests passed"
@@ -185,5 +207,34 @@ for target in benchmarks/Example benchmarks/Example/page.jmd; do
 done
 
 echo 'Folder and file builds both run shared setup, propagate its environment, and preserve Project/Manifest.'
+
+cat > "${FIXTURE}/benchmarks/BooleanThreads/setup.sh" <<'SETUP'
+#!/bin/bash
+set -euo pipefail
+printf 'export SHARED_SETUP=ready\n' >> "${BENCHMARK_ENV_FILE}"
+printf 'setup\n' >> "${FAKE_SETUP_LOG}"
+SETUP
+chmod +x "${FIXTURE}/benchmarks/BooleanThreads/setup.sh"
+for invalid in true false; do
+    printf 'threads = %s\n' "${invalid}" \
+        > "${FIXTURE}/benchmarks/BooleanThreads/benchmark_config.toml"
+    : > "${FIXTURE}/julia.log"
+    : > "${FIXTURE}/setup.log"
+    if (
+        cd "${FIXTURE}"
+        PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+            FAKE_SETUP_LOG="${FIXTURE}/setup.log" \
+            "${BUILD_SCRIPT}" benchmarks/BooleanThreads 2> config-error.log
+    ); then
+        echo "Built with a boolean thread count: ${invalid}" >&2
+        exit 1
+    fi
+    grep -F "Expected a positive integer thread count for benchmarks/BooleanThreads, got ${invalid}" \
+        "${FIXTURE}/config-error.log"
+    test ! -s "${FIXTURE}/setup.log"
+    test ! -s "${FIXTURE}/julia.log"
+done
+
+echo 'A boolean thread count fails the build before setup and instantiation.'
 
 bash "${SCRIPT_DIR}/test-globaloptimization-setup.sh"

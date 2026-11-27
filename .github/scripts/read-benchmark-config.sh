@@ -33,13 +33,15 @@ resolve_benchmark_config() {
             error("runner for $(target) must be a string or an array of strings")
         any(label -> occursin("\n", label) || occursin("\r", label), runner) &&
             error("runner labels for $(target) must not contain line breaks")
+        (isempty(runner) || any(isempty, runner)) &&
+            error("runner for $(target) must not be empty or contain empty labels")
 
         timeout = pick("timeout", 12000)
-        timeout isa Integer && timeout >= 1 ||
+        timeout isa Integer && !(timeout isa Bool) && timeout >= 1 ||
             error("Expected a positive integer timeout for $(target), got $(repr(timeout))")
 
         threads = pick("threads", 32)
-        threads isa Integer && threads >= 1 ||
+        threads isa Integer && !(threads isa Bool) && threads >= 1 ||
             error("Expected a positive integer thread count for $(target), got $(repr(threads))")
 
         split = pick("split", false)
@@ -106,12 +108,14 @@ parse_benchmark_config() {
 
 # Serialize raw runner labels to a JSON array in the same ["a", "b"]
 # spelling the workflow matrix embeds. jq does the escaping, so labels may
-# contain $, quotes, backslashes and other JSON-special characters.
+# contain $, quotes, backslashes and other JSON-special characters. Pipes
+# are escaped so that callers can split the |-delimited config string.
 runner_labels_json() {
     if (($# == 0)); then
         printf '[]\n'
     else
-        printf '%s\n' "$@" | jq -Rrn '[inputs] | "[" + (map(@json) | join(", ")) + "]"'
+        printf '%s\n' "$@" | jq -Rrn \
+            '[inputs] | "[" + (map(@json | split("|") | join("\\u007c")) | join(", ")) + "]"'
     fi
 }
 
