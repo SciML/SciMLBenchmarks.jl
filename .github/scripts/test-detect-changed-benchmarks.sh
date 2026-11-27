@@ -20,6 +20,7 @@ printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/Beta/Manifest.toml"
 printf '[deps]\n' > "${FIXTURE}/benchmarks/NonStiffODE/Project.toml"
 printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/NonStiffODE/Manifest.toml"
 printf '# Linear work precision\n' > "${FIXTURE}/benchmarks/NonStiffODE/linear_wpd.jmd"
+printf '# Enright-Pryce work precision\n' > "${FIXTURE}/benchmarks/NonStiffODE/EnrightPryce_wpd.jmd"
 printf '[deps]\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/Project.toml"
 printf 'julia_version = "1.11.9"\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/Manifest.toml"
 printf '# All methods\n' > "${FIXTURE}/benchmarks/OrdinaryDiffEqMethods/all_methods.jmd"
@@ -141,7 +142,7 @@ assert_detection() {
 }
 
 printf '\n' >> "${FIXTURE}/benchmarks/workprecision_table.jl"
-HELPER_TARGETS=$'benchmarks/NonStiffODE/linear_wpd.jmd\nbenchmarks/OrdinaryDiffEqMethods/all_methods.jmd'
+HELPER_TARGETS=$'benchmarks/NonStiffODE/EnrightPryce_wpd.jmd\nbenchmarks/NonStiffODE/linear_wpd.jmd\nbenchmarks/OrdinaryDiffEqMethods/all_methods.jmd'
 assert_detection "${HELPER_TARGETS}"
 
 printf '\n' >> "${FIXTURE}/benchmarks/workprecision_table.jl"
