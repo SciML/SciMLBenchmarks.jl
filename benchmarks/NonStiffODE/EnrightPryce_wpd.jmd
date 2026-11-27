@@ -13,21 +13,35 @@ using OrdinaryDiffEq, ParameterizedFunctions, ODEInterface,
       StaticArrays, OrdinaryDiffEqSIMDRK
 using Plots
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
 
 # Load the problems from the Enright-Pryce suite
 include(joinpath(@__DIR__, "enright_pryce.jl"))
 
 abstols = 1.0 ./ 10.0 .^ (6:13)
 reltols = 1.0 ./ 10.0 .^ (3:10)
+const ENRIGHT_PRYCE_ERROR_FLOOR = 1.0e-14
+const ENRIGHT_PRYCE_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const ENRIGHT_PRYCE_SIMD_RK_TAGS = [:ordinarydiffeq, :simd_rk, :explicit_rk, :nonstiff, :rhs_calls_unavailable]
 ```
+
+Each sweep requests only the endpoint error with `error_estimates = [:final]` and
+attaches solver metadata tags to the results. The table accompanying each existing
+work-precision figure reports the best endpoint error, that point's timing,
+right-hand-side calls, accepted steps, and the computed convergence rate over mean
+accepted step sizes. The existing solvers are adaptive, so the fixed-step observed
+order is unavailable. Rate calculations exclude errors at or below `1e-14`, the
+tolerance used to construct each numerical endpoint reference; an em dash means the
+grid did not resolve a rate or a counter is unavailable. Under RHS calls, the dash in
+SIMD-RK rows means "RHS-call count not reported: SIMD invocation unit is ambiguous".
 
 ### SIMD Algorithms
 
 ```julia
 simdrkalgs = [
-    Dict(:alg=>MER5v2()),
-    Dict(:alg=>MER6v2()),
-    Dict(:alg=>RK6v4())
+    Dict(:alg=>MER5v2(), :tags=>ENRIGHT_PRYCE_SIMD_RK_TAGS),
+    Dict(:alg=>MER6v2(), :tags=>ENRIGHT_PRYCE_SIMD_RK_TAGS),
+    Dict(:alg=>RK6v4(), :tags=>ENRIGHT_PRYCE_SIMD_RK_TAGS)
 ]
 ```
 
@@ -35,10 +49,10 @@ simdrkalgs = [
 
 ```julia
 setups = [
-    Dict(:alg=>Tsit5()),
-    Dict(:alg=>Vern6()),
-    Dict(:alg=>Vern7()),
-    Dict(:alg=>Vern9()),
+    Dict(:alg=>Tsit5(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern6(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern7(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern9(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
     simdrkalgs...
 ]
 ```
@@ -49,8 +63,10 @@ setups = [
 
 ```julia
 prob = NA_PROBLEMS[1]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+na1_wp = wp
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NA1")
 ```
 
@@ -58,8 +74,9 @@ plot(wp; title="NA1")
 
 ```julia
 prob = NA_PROBLEMS[2]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NA2")
 ```
 
@@ -67,8 +84,9 @@ plot(wp; title="NA2")
 
 ```julia
 prob = NA_PROBLEMS[4]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NA4")
 ```
 
@@ -76,8 +94,9 @@ plot(wp; title="NA4")
 
 ```julia
 prob = NA_PROBLEMS[5]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NA5")
 ```
 
@@ -87,8 +106,9 @@ plot(wp; title="NA5")
 
 ```julia
 prob = NB_PROBLEMS[1]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NB1")
 ```
 
@@ -96,8 +116,9 @@ plot(wp; title="NB1")
 
 ```julia
 prob = NB_PROBLEMS[2]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NB2")
 ```
 
@@ -105,8 +126,9 @@ plot(wp; title="NB2")
 
 ```julia
 prob = NB_PROBLEMS[3]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NB3")
 ```
 
@@ -114,8 +136,9 @@ plot(wp; title="NB3")
 
 ```julia
 prob = NB_PROBLEMS[5]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NB5")
 ```
 
@@ -125,8 +148,9 @@ plot(wp; title="NB5")
 
 ```julia
 prob = NC_PROBLEMS[1]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NC1")
 ```
 
@@ -134,8 +158,9 @@ plot(wp; title="NC1")
 
 ```julia
 prob = NC_PROBLEMS[2]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NC2")
 ```
 
@@ -143,8 +168,9 @@ plot(wp; title="NC2")
 
 ```julia
 prob = NC_PROBLEMS[3]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NC3")
 ```
 
@@ -152,8 +178,9 @@ plot(wp; title="NC3")
 
 ```julia
 prob = NC_PROBLEMS[4]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="NC4")
 ```
 
@@ -165,10 +192,10 @@ Use the non-SIMD subset of `setups` for these problems.
 
 ```julia
 setups_nd = [
-    Dict(:alg=>Tsit5()),
-    Dict(:alg=>Vern6()),
-    Dict(:alg=>Vern7()),
-    Dict(:alg=>Vern9())
+    Dict(:alg=>Tsit5(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern6(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern7(), :tags=>ENRIGHT_PRYCE_RK_TAGS),
+    Dict(:alg=>Vern9(), :tags=>ENRIGHT_PRYCE_RK_TAGS)
 ]
 ```
 
@@ -176,8 +203,9 @@ setups_nd = [
 
 ```julia
 prob = ND_PROBLEMS[1]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="ND1")
 ```
 
@@ -185,8 +213,9 @@ plot(wp; title="ND1")
 
 ```julia
 prob = ND_PROBLEMS[2]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="ND2")
 ```
 
@@ -194,8 +223,9 @@ plot(wp; title="ND2")
 
 ```julia
 prob = ND_PROBLEMS[3]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="ND3")
 ```
 
@@ -203,8 +233,9 @@ plot(wp; title="ND3")
 
 ```julia
 prob = ND_PROBLEMS[4]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="ND4")
 ```
 
@@ -212,9 +243,31 @@ plot(wp; title="ND4")
 
 ```julia
 prob = ND_PROBLEMS[5]
-test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
-wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, save_everystep=false, numruns=100)
+test_sol = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14, save_everystep=false, dense=false)
+wp = WorkPrecisionSet(prob, abstols, reltols, setups_nd; appxsol=test_sol, error_estimates=[:final], save_everystep=false, numruns=100)
+print_work_table(wp, ENRIGHT_PRYCE_ERROR_FLOOR)
 plot(wp; title="ND5")
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
+```
+
+```julia; echo=false; results="hidden"; error=false
+let prob = NA_PROBLEMS[1]
+    for w in na1_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "NA1 $(w.name) stores a finite $metric error"
+    end
+    # An interpolating reference must give the same endpoint errors and solver counters.
+    dense_ref = solve(prob, Vern9(), abstol=1/10^14, reltol=1/10^14)
+    dense_wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol=dense_ref, error_estimates=[:final], save_everystep=false, numruns=1)
+    for (w, d) in zip(na1_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "NA1 $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "NA1 $(w.name) $field differs"
+        end
+    end
+end
 ```
 
 ```julia{echo=false}
