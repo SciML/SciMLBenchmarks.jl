@@ -284,6 +284,7 @@ function method_tags(method, alg)
     formulation = solver_formulation(method)
     formulation in (:split, :semilinear, :stabilized_split) && push!(tags, :split)
     formulation == :static && push!(tags, :static)
+    family == :simd_rk && push!(tags, :rhs_calls_unavailable)
     stiff = family in (:bdf, :exponential, :firk, :imex, :newmark, :pdirk, :rosenbrock, :sdirk, :stabilized_rk) ||
         (family in (:extrapolation, :sdc) && :implicit in tags) ||
         method.name == :DefaultImplicitODEAlgorithm
@@ -411,7 +412,7 @@ function plot_family(wps, problem, pdf_dir)
         wp.name == reference_name && push!(wp.tags, :reference)
     end
     for tag in (:all, unique_tags(wps)...)
-        tag in (:unplottable, :reference, :ordinarydiffeq) && continue
+        tag in (:unplottable, :reference, :ordinarydiffeq, :rhs_calls_unavailable) && continue
         matching = tag == :all ? wps : filter_by_tags(wps, tag)
         n = count(wp -> :unplottable ∉ wp.tags, matching[:])
         n == 0 && continue
@@ -437,7 +438,7 @@ const pdf_dir = mkpath(normpath(@__DIR__, "..", "..", "pdf", "OrdinaryDiffEqMeth
 assert_work_table_markdown_fixture()
 ```
 
-The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. An em dash indicates a zero reported RHS total or an unavailable count for threaded PDIRK44, whose stages update shared counters without synchronization. Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
+The work tables report the minimum measured endpoint error and that point's time, total right-hand-side calls, and accepted steps. An em dash indicates a zero reported RHS total or an unavailable count for threaded PDIRK44, whose stages update shared counters without synchronization. On SIMD rows the em dash means "RHS-call count not reported: SIMD invocation unit is ambiguous". Observed order uses verified fixed-step refinements. Tsit5 on Lorenz has a separate fixed-step run. The oscillator fixed-step grid begins at a step size of 0.25, and the separate DPRKN8 and DPRKN12 refinements use 256-bit arithmetic. Adaptive-step rate describes how the endpoint error changes with the mean accepted step size across the tolerance sweep.
 
 A rate is reported over the finest three consecutive points with step sizes shrinking by at least 20% and decreasing errors above the resolution threshold. The two adjacent slopes may differ by at most 0.25 or 15% of the smaller slope, whichever is larger. The resolution thresholds are `2e-12` for Lorenz, accounting for the numerical reference, and 16 spacings at unit scale for Robertson and the oscillator in the working precision. An em dash indicates that the grid did not resolve a rate. The order tags group fixed nominal orders up to 3 and above 3. Group plots overlay one baseline method when it has usable data.
 
@@ -453,6 +454,33 @@ lorenz_wp, lorenz_exclusions = benchmark_problem(
 lorenz_floor = 2.0e-12
 lorenz_order = controlled_order(lorenz, OrdinaryDiffEqTsit5.Tsit5(), refinement_counts(64), lorenz_reference.u[end], lorenz_floor)
 print_work_table(lorenz_wp, lorenz_floor; orders = Dict("Tsit5" => lorenz_order))
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    series = Dict(wp.name => wp for wp in lorenz_wp[:])
+    table = work_table_markdown(lorenz_wp, lorenz_floor)
+    rows = Dict(
+        map(split(chomp(table), '\n')[3:end]) do row
+            columns = strip.(split(row, '|'; keepempty = false))
+            return columns[1] => columns
+        end
+    )
+    simd_names = ("MER5v2", "MER6v2", "RK6v4")
+    @assert Set(wp.name for wp in lorenz_wp[:] if :simd_rk in wp.tags) == Set(simd_names)
+    for name in simd_names
+        wp = series[name]
+        points = usable_points(wp)
+        @assert !isempty(points) "$name has no usable points"
+        rhs, accepted = rows[name][8:9]
+        @assert rhs == "—" "$name RHS calls should be —, got $rhs"
+        @assert :rhs_calls_unavailable in wp.tags "$name lacks :rhs_calls_unavailable"
+        selected = wp.stats[points[argmin(wp.errors.final[points])]].naccept
+        @assert accepted == string(selected) "$name accepted steps should be $selected, got $accepted"
+    end
+    @assert :rhs_calls_unavailable ∉ series["Tsit5"].tags
+    @assert !isnothing(tryparse(Int, rows["Tsit5"][8])) "Tsit5 RHS calls should be numeric"
+end
 ```
 
 ### Excluded methods
