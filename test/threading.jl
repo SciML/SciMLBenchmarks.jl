@@ -40,8 +40,8 @@
                     else
                         `$(Base.julia_cmd()) --threads=2 --project=$(Base.active_project()) $entrypoint $target`
                     end
-                    # A caller-set JULIA_NUM_THREADS propagates to worker
-                    # processes; without it they inherit the running pool.
+                    # The Weave worker gets the caller's pool; its children get
+                    # JULIA_NUM_THREADS, defaulting to that pool's size.
                     for (setting, worker_threads) in (("3", "3"), (nothing, "2"))
                         rm(probe; force = true)
                         withenv(
@@ -50,10 +50,9 @@
                         ) do
                             run(addenv(command, inherited_environment...))
                         end
-                        weaver_threads = label == "page" ? "2" : worker_threads
                         @test read(probe, String) == join(
                             (
-                                weaver_threads, worker_threads, worker_threads, "1",
+                                "2", worker_threads, worker_threads, "1",
                                 "kept", "outer", inherited_tmpdir, inherited_blas_threads,
                                 ENV["PATH"],
                             ),

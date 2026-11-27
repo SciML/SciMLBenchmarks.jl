@@ -262,6 +262,45 @@ include("threading.jl")
     end
 end
 
+@testset "publish output without sshd" begin
+    script = joinpath(dirname(@__DIR__), ".github", "scripts", "test-publish-benchmark-output.sh")
+    mktemp() do probe, io
+        write(
+            io, raw"""
+            command() {
+                if [[ "$#" == 2 && "$1" == -v && ( "$2" == sshd || "$2" == /usr/sbin/sshd ) ]]; then
+                    return 1
+                fi
+                builtin command "$@"
+            }
+            """
+        )
+        close(io)
+        output = IOBuffer()
+        cmd = addenv(`bash $script`, "BASH_ENV" => probe)
+        process = run(pipeline(ignorestatus(cmd); stdout = output))
+        @test process.exitcode == 0
+        @test String(take!(output)) == "Skipping publish output test: sshd is unavailable.\n"
+    end
+end
+
+@testset "publish output with sshd on a relative PATH" begin
+    script = joinpath(dirname(@__DIR__), ".github", "scripts", "test-publish-benchmark-output.sh")
+    mktempdir() do directory
+        shim_dir = "path shims"
+        mkdir(joinpath(directory, shim_dir))
+        sshd = joinpath(directory, shim_dir, "sshd")
+        write(sshd, "#!/bin/sh\necho 'Relative PATH sshd was invoked.' >&2\nexit 1\n")
+        chmod(sshd, 0o755)
+
+        cmd = addenv(Cmd(`bash $script`; dir = directory), "PATH" => "$(shim_dir):$(ENV["PATH"])")
+        output = IOBuffer()
+        process = run(pipeline(ignorestatus(cmd); stderr = output))
+        @test process.exitcode == 128
+        @test "Relative PATH sshd was invoked." in split(String(take!(output)), '\n')
+    end
+end
+
 @testset "root test workflow" begin
     workflow = read(joinpath(dirname(@__DIR__), ".github", "workflows", "test.yml"), String)
     test_job = match(r"(?ms)^  test:\n(?<body>.*?)(?=^  [a-zA-Z][a-zA-Z0-9_-]*:\n|\z)", workflow)
@@ -461,9 +500,13 @@ end
 
 @testset "weave_file" begin
     benchmarks_dir = joinpath(dirname(@__DIR__), "benchmarks")
+    caller_project = Base.active_project()
     SciMLBenchmarks.weave_file(joinpath(benchmarks_dir, "Testing"), "test.jmd")
+    @test Base.active_project() == caller_project
 
     output = joinpath(dirname(@__DIR__), "markdown", "Testing", "test.md")
     @test isfile(output)
     @test occursin("To locally run this benchmark", read(output, String))
 end
+
+include("weave_worker.jl")

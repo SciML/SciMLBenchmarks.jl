@@ -185,3 +185,5 @@ for target in benchmarks/Example benchmarks/Example/page.jmd; do
 done
 
 echo 'Folder and file builds both run shared setup, propagate its environment, and preserve Project/Manifest.'
+
+bash "${SCRIPT_DIR}/test-globaloptimization-setup.sh"

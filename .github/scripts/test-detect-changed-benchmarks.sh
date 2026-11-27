@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+export LC_ALL=C
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/detect-changed-benchmarks.XXXXXX")
