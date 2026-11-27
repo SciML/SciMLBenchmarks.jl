@@ -15,6 +15,19 @@ using OrdinaryDiffEqAdamsBashforthMoulton, OrdinaryDiffEqExtrapolation, Ordinary
 using SciMLLogging
 using Plots;
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const FITZHUGH_NAGUMO_ERROR_FLOOR = 1.0e-14
+const FITZHUGH_NAGUMO_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const FITZHUGH_NAGUMO_SIMD_RK_TAGS = [:ordinarydiffeq, :simd_rk, :explicit_rk, :nonstiff, :rhs_calls_unavailable]
+const FITZHUGH_NAGUMO_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const FITZHUGH_NAGUMO_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const FITZHUGH_NAGUMO_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const FITZHUGH_NAGUMO_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const FITZHUGH_NAGUMO_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const FITZHUGH_NAGUMO_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
+const FITZHUGH_NAGUMO_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
 
 f = @ode_def FitzhughNagumo begin
     dv = v - v^3/3 - w + l
@@ -30,9 +43,22 @@ reltols = 1.0 ./ 10.0 .^ (3:10);
 
 sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
 sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+test_sol_dense = [sol, sol2]
+sol_endpoint = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
+sol2_endpoint = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
 probs = [prob, probstatic]
-test_sol = [sol, sol2];
+test_sol = [sol_endpoint, sol2_endpoint];
 ```
+
+Each sweep requests only the error metrics needed for its measurement with
+`error_estimates` and attaches solver metadata tags to the results. The table
+with each work-precision figure reports the best endpoint error, that point's
+timing, right-hand-side calls, accepted steps, and a computed refinement rate
+when the tolerance grid resolves one. Rate calculations exclude errors at or
+below `1e-14`, the tolerance used to construct each numerical endpoint reference;
+an em dash means that the rate or counter is unavailable or unresolved. Under RHS
+calls, the dash in SIMD-RK rows means "RHS-call count not reported: SIMD invocation
+unit is ambiguous".
 
 ```julia
 plot(sol)
@@ -41,85 +67,92 @@ plot(sol)
 ## Low Order
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
           #Dict(:alg=>ode45()) #fails
-          Dict(:alg=>dopri5())
-          Dict(:alg=>BS5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>MER5v2(), :prob_choice => 2)
-          Dict(:alg=>MER6v2(), :prob_choice => 2)
-          Dict(:alg=>RK6v4(), :prob_choice => 2)]
+          Dict(:alg=>dopri5(), :tags=>FITZHUGH_NAGUMO_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>BS5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>MER5v2(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_SIMD_RK_TAGS)
+          Dict(:alg=>MER6v2(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_SIMD_RK_TAGS)
+          Dict(:alg=>RK6v4(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_SIMD_RK_TAGS)]
+low_order_setups = setups
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100, maxiters = 1000)
+    error_estimates = [:final], save_everystep = false, numruns = 100, maxiters = 1000)
+low_order_wp = wp
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ### Interpolation
 
 ```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
           #Dict(:alg=>ode45()) # fails
-          Dict(:alg=>BS5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, numruns = 100,
-    maxiters = 10000, error_estimate = :L2, dense_errors = true)
+          Dict(:alg=>BS5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol_dense, numruns = 100,
+    maxiters = 10000, error_estimate = :L2, error_estimates = [:final, :l2, :L2], dense_errors = true)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ## Higher Order
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>dop853())
+setups = [Dict(:alg=>DP8(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>dop853(), :tags=>FITZHUGH_NAGUMO_ODEINTERFACE_RK_TAGS)
           #Dict(:alg=>ode78()) # fails
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)]
+          Dict(:alg=>Vern6(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100, maxiters = 1000)
+    error_estimates = [:final], save_everystep = false, numruns = 100, maxiters = 1000)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))
-          Dict(:alg=>lsoda())
-          Dict(:alg=>odex())
-          Dict(:alg=>ddeabm())]
+setups = [Dict(:alg=>DP8(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>FITZHUGH_NAGUMO_SUNDIALS_MULTISTEP_TAGS)
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>FITZHUGH_NAGUMO_SUNDIALS_RK_TAGS)
+          Dict(:alg=>lsoda(), :tags=>FITZHUGH_NAGUMO_LSODA_TAGS)
+          Dict(:alg=>odex(), :tags=>FITZHUGH_NAGUMO_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[FITZHUGH_NAGUMO_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
-    save_everystep = false, numruns = 100, maxiters = 1000)
+    error_estimates = [:final], save_everystep = false, numruns = 100, maxiters = 1000)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ### Interpolation
 
 ```julia
-setups = [Dict(:alg=>DP8())
+setups = [Dict(:alg=>DP8(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
           #Dict(:alg=>ode78()) # fails
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, numruns = 100,
-    maxiters = 1000, error_estimate = :L2, dense_errors = true)
+          Dict(:alg=>Vern6(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol_dense, numruns = 100,
+    maxiters = 1000, error_estimate = :L2, error_estimates = [:final, :l2, :L2], dense_errors = true)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
@@ -129,60 +162,114 @@ Now let's test Tsit5 and Vern9 against parallel extrapolation methods and an
 Adams-Bashforth-Moulton:
 
 ```julia
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
-          Dict(:alg=>Vern9(), :prob_choice => 2)
-          Dict(:alg=>VCABM(), :prob_choice => 2)
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>FITZHUGH_NAGUMO_MULTISTEP_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_RK_TAGS)
+          Dict(:alg=>VCABM(), :prob_choice => 2, :tags=>FITZHUGH_NAGUMO_MULTISTEP_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "VCABM", "Vern9 Static", "VCABM Static",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
-    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+    error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
-    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+    error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>FITZHUGH_NAGUMO_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
-    save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+    error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    series = Dict(wp.name => wp for wp in low_order_wp[:])
+    table = work_table_markdown(low_order_wp, FITZHUGH_NAGUMO_ERROR_FLOOR)
+    rows = Dict(
+        map(split(chomp(table), '\n')[3:end]) do row
+            columns = strip.(split(row, '|'; keepempty = false))
+            return columns[1] => columns
+        end
+    )
+    simd_names = ("MER5v2", "MER6v2", "RK6v4")
+    @assert Set(wp.name for wp in low_order_wp[:] if :simd_rk in wp.tags) == Set(simd_names)
+    for name in simd_names
+        wp = series[name]
+        points = usable_points(wp)
+        @assert !isempty(points) "$name has no usable points"
+        rhs, accepted = rows[name][8:9]
+        @assert rhs == "—" "$name RHS calls should be —, got $rhs"
+        @assert :rhs_calls_unavailable in wp.tags "$name lacks :rhs_calls_unavailable"
+        selected = wp.stats[points[argmin(wp.errors.final[points])]].naccept
+        @assert accepted == string(selected) "$name accepted steps should be $selected, got $accepted"
+    end
+    @assert :rhs_calls_unavailable ∉ series["Tsit5"].tags
+    @assert !isnothing(tryparse(Int, rows["Tsit5"][8])) "Tsit5 RHS calls should be numeric"
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    for w in low_order_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "low-order $(w.name) stores a finite $metric error"
+    end
+    @assert length(sol_endpoint.t) == 2
+    @assert length(sol2_endpoint.t) == 2
+    @assert !sol_endpoint.dense
+    @assert !sol2_endpoint.dense
+    dense_wp = WorkPrecisionSet(probs, abstols, reltols, low_order_setups; appxsol = test_sol_dense,
+        error_estimates = [:final], save_everystep = false, numruns = 1, maxiters = 1000)
+    for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "low-order $(w.name) $field differs"
+        end
+    end
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
 ```
 
 ## Conclusion
