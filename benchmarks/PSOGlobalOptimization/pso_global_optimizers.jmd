@@ -27,7 +27,7 @@ objective below `f_opt + 1e-6`. Two experiments are run:
    heatmap and distance plots. Success rates are pooled over dimensions 3, 5 and 10.
 2. **Time-to-success experiment.** Every optimizer gets 6 s per (function, trial), restarting
    from a fresh random start after each failed run (up to 100,000 iterations per run;
-   `HybridPSO`: 1000 swarm iterations, then L-BFGS). We record when it first hits the target
+   `HybridPSO`: L-BFGS after 100 and after 1000 swarm iterations). We record when it first hits the target
    and plot the fraction of runs solved by each time.
 
 Everything is evaluated in `Float64`: BBOB's `f_opt` is of order 100 and `eps(100f0) ≈ 8e-6`
@@ -67,7 +67,7 @@ const RUN_LENGTH = round.(Int, 10 .^ LinRange(1, 4, 15))   # budget experiment
 const TIME_BUDGET = 6.0         # time-to-success: seconds per (function, trial), restarts included
 const MAX_TTS_ITERS = 100_000   # time-to-success: iterations per restart
 const TTS_CHUNK = 20        # GPU: read back the best cost every this many iterations
-const HYBRID_SWARM_ITERS = 1000  # swarm iterations before L-BFGS in time-to-success
+const HYBRID_LOCAL_AT = (100, 1000)  # time-to-success: L-BFGS after these swarm iterations
 const LOCAL_MAXITERS = 100      # L-BFGS iterations per particle
 # f4, f7, f10 crash the GPU kernels and are excluded.
 suite(D) = filter(f -> nameof(f.f) ∉ (:f4, :f7, :f10), BBOB.bbob_suite(Val(D)))
@@ -82,8 +82,8 @@ Baselines are chained: 90% of the budget to the global method, 10% to a Nelder-M
 optimizer: Metaheuristics' `DE` and `ECA` keep their population between solves, so a reused
 instance carries a 3-dimensional population into the 5- and 10-dimensional problems.
 
-The baselines use library defaults. `HybridPSO` runs 1000 swarm iterations and 100 L-BFGS
-iterations per restart. Its swarm uses competitive learning (`competitive = true`: particles
+The baselines use library defaults. `HybridPSO` runs 1000 swarm iterations per restart, with
+100 L-BFGS iterations from every particle after 100 and after 1000 of them. Its swarm uses competitive learning (`competitive = true`: particles
 meet in random pairs and the loser learns from the winner and the swarm mean), with half of
 the restarts refining winners (`refine = 0.5`); competitive learning needs the longer swarm
 runs. Like the chained baselines, it ends with a Nelder-Mead polish (`NelderMeadPolish()`, the
@@ -233,8 +233,9 @@ optimizers are timed by wrapping the objective to record the first evaluation be
 as in the reference benchmark; the wrapper also ends the run at that hit or once the budget
 has passed. A GPU kernel can't read the clock, so GPU swarms advance in
 chunks of `TTS_CHUNK` iterations, with the best cost checked in between; `HybridPSO` runs
-`HYBRID_SWARM_ITERS` swarm iterations this way, then its L-BFGS phase if the budget has not
-run out. Only the wrapper's own stop is treated as the end of a run; any other solver error
+its swarm this way and runs its L-BFGS phase after each count of swarm iterations in
+`HYBRID_LOCAL_AT`, if the budget has not run out; the early phase starts from a still-diverse
+swarm and leaves the swarm unchanged. Only the wrapper's own stop is treated as the end of a run; any other solver error
 fails the benchmark. `NLopt.GN_DIRECT()`
 ignores the starting point, so restarts can't help it. The clock starts before the
 optimizer's setup and covers every restart. One untimed warm-up per (optimizer, function,
@@ -298,11 +299,16 @@ function timed_run(algo, f::BBOBFunction, target, t0, iters = MAX_TTS_ITERS)
         return until_stopped(() -> pso_solve(opt, pso_problem(g, f), iters), hit, stopped)
     elseif opt isa HybridPSO
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
-        t = chunked!(cache.pso_cache, target, t0, HYBRID_SWARM_ITERS)   # PSO phase
-        isfinite(t) && return t
-        clock() - t0 > TIME_BUDGET && return Inf                       # no time left for L-BFGS
-        sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8)
-        return _to_f64(sol.objective) < target ? clock() - t0 : Inf   # L-BFGS phase only
+        done = 0
+        for at in HYBRID_LOCAL_AT
+            t = chunked!(cache.pso_cache, target, t0, at - done)   # PSO phase
+            done = at
+            isfinite(t) && return t
+            clock() - t0 > TIME_BUDGET && return Inf                # no time left for L-BFGS
+            sol = SciMLBase.solve!(cache; maxiters = 0, local_maxiters = LOCAL_MAXITERS, abstol = 1.0e-8, reltol = 1.0e-8)
+            _to_f64(sol.objective) < target && return clock() - t0
+        end
+        return Inf
     else
         cache = SciMLBase.init(pso_problem(x -> pso_objective(f, x), f), opt)
         return chunked!(cache, target, t0, iters)
