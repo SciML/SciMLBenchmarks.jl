@@ -118,7 +118,7 @@ setup = Dict(
     ),
 )
 
-const LABELS = collect(keys(setup))
+const LABELS = ["HybridPSO_LBFGS", "NelderMead"]  # temporary: HybridPSO-only CI run
 const PSO_KEYS = Set(["SerialPSO", "PSOKernel", "SyncPSOKernel", "HybridPSO_LBFGS"])
 particles_of(algo) = algo == "SerialPSO" ? SERIAL_PARTICLES :
     algo == "HybridPSO_LBFGS" ? HYBRID_PARTICLES : NUM_PARTICLES
@@ -332,6 +332,8 @@ function time_to_success(algo)
         for _ in 1:NTRIALS
             push!(times, time_to_success_one(algo, f))
         end
+        algo == "HybridPSO_LBFGS" && println("TTS ", nameof(f.f), " D=", length(f.x_opt), ": ",
+            count(isfinite, @view(times[(end - NTRIALS + 1):end])), "/", NTRIALS)   # temporary
     end
     return times
 end
