@@ -2,40 +2,168 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/read-benchmark-config.sh"
 BUILD_SCRIPT="${BUILD_SCRIPT:-${SCRIPT_DIR}/build_benchmark.sh}"
 FIXTURE="$(mktemp -d)"
-trap 'rm -rf "${FIXTURE}"' EXIT
+trap 'rm -rf "${FIXTURE}" "${BENCHMARK_CONFIG_CACHE_DIR}"' EXIT
 
-mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/bin"
+mkdir -p "${FIXTURE}/benchmarks/Example" "${FIXTURE}/benchmarks/Default" \
+    "${FIXTURE}/benchmarks/Custom" "${FIXTURE}/benchmarks/Underscore" \
+    "${FIXTURE}/benchmarks/TableKey" "${FIXTURE}/benchmarks/Matrix" \
+    "${FIXTURE}/benchmarks/Pipe" "${FIXTURE}/benchmarks/BooleanThreads" "${FIXTURE}/bin"
+mkdir -p "${FIXTURE}/.github"
+printf 'runner = ["self-hosted", "benchmark"]\ntimeout = 12000\nthreads = 32\n' \
+    > "${FIXTURE}/.github/benchmark_defaults.toml"
+printf 'threads = 128  # page and folder jobs\n' > "${FIXTURE}/benchmarks/Example/benchmark_config.toml"
+printf 'threads = 1_6\n' > "${FIXTURE}/benchmarks/Underscore/benchmark_config.toml"
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Underscore/Project.toml"
+printf '[metadata]\n  threads = 11\n' > "${FIXTURE}/benchmarks/TableKey/benchmark_config.toml"
+cat > "${FIXTURE}/benchmarks/Matrix/benchmark_config.toml" <<'TOML'
+matrix = [
+  ["os", "julia"],
+]
+threads = 16
+split = true
+TOML
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Matrix/Project.toml"
+printf 'runner = ["self-hosted", "cpu|fast"]\ntimeout = 90\n' \
+    > "${FIXTURE}/benchmarks/Pipe/benchmark_config.toml"
+(
+    cd "${FIXTURE}"
+    if [[ "$(get_runner_config benchmarks/Example)" != '["self-hosted", "benchmark"]|12000' ]]; then
+        echo "get_runner_config should return runner and timeout only" >&2
+        exit 1
+    fi
+    config=$(get_runner_config benchmarks/Pipe)
+    if [[ "${config}" != '["self-hosted", "cpu\u007cfast"]|90' ]]; then
+        echo "A pipe in a runner label must not split the config fields, got ${config}" >&2
+        exit 1
+    fi
+)
 printf 'julia_version = "1.11.9"\n[[deps.StyledStrings]]\n' > "${FIXTURE}/Manifest.toml"
-printf '%s\n' \
-    '#!/bin/bash' \
-    'set -euo pipefail' \
-    "printf \"%s\\n\" \"\$*\" >> \"\${FAKE_JULIA_LOG}\"" \
-    "if [[ \"\$*\" == *\"Pkg.instantiate\"* && -f Manifest.toml ]]; then" \
-    '    echo "ERROR: Could not locate the source code for the StyledStrings package." >&2' \
-    '    exit 1' \
-    'fi' \
-    "if [[ \"\$*\" == *\"Pkg.instantiate\"* ]]; then" \
-    "    printf 'julia_version = \"1.10.11\"\\n' > Manifest.toml" \
-    'fi' > "${FIXTURE}/bin/julia"
+export SCIML_REAL_JULIA="$(command -v julia)"
+cat > "${FIXTURE}/bin/julia" <<'JULIA'
+#!/bin/bash
+set -euo pipefail
+if [[ "$*" == *"TOML.parsefile"* ]]; then
+    exec "${SCIML_REAL_JULIA}" "$@"
+fi
+printf '%s\n' "$*" >> "${FAKE_JULIA_LOG}"
+printf '%s|%s\n' "$JULIA_NUM_THREADS" "$SCIMLBENCHMARKS_BUILD_SENTINEL" >> "$FAKE_JULIA_ENV_LOG"
+if [[ "$*" == *"Pkg.instantiate"* && -f Manifest.toml ]]; then
+    echo "ERROR: Could not locate the source code for the StyledStrings package." >&2
+    exit 1
+fi
+if [[ "$*" == *"Pkg.instantiate"* ]]; then
+    printf 'julia_version = "1.10.11"\n' > Manifest.toml
+fi
+JULIA
 chmod +x "${FIXTURE}/bin/julia"
 
 (
     cd "${FIXTURE}"
+    export JULIA_NUM_THREADS=3 SCIMLBENCHMARKS_BUILD_SENTINEL=kept
+    export FAKE_JULIA_ENV_LOG="${FIXTURE}/environment.log"
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Default
     PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
         "${BUILD_SCRIPT}" benchmarks/Example
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Underscore
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/TableKey
+    PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+        "${BUILD_SCRIPT}" benchmarks/Matrix
 )
 
 grep -Fq 'julia_version = "1.10.11"' "${FIXTURE}/Manifest.toml"
 if grep -Fq 'StyledStrings' "${FIXTURE}/Manifest.toml"; then
     exit 1
 fi
-test "$(wc -l < "${FIXTURE}/julia.log")" -eq 2
+test "$(wc -l < "${FIXTURE}/julia.log")" -eq 10
 grep -Fq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' \
     "${FIXTURE}/julia.log"
-grep -Fq -- '--threads=auto --project=. benchmark.jl benchmarks/Example' \
-    "${FIXTURE}/julia.log"
+grep -F 'benchmark.jl' "${FIXTURE}/julia.log" > "${FIXTURE}/benchmark-commands"
+printf '%s\n' '--threads=32 --project=. benchmark.jl benchmarks/Default' \
+    '--threads=128 --project=. benchmark.jl benchmarks/Example' \
+    '--threads=16 --project=. benchmark.jl benchmarks/Underscore' \
+    '--threads=32 --project=. benchmark.jl benchmarks/TableKey' \
+    '--threads=16 --project=. benchmark.jl benchmarks/Matrix' > "${FIXTURE}/expected-commands"
+diff -u "${FIXTURE}/expected-commands" "${FIXTURE}/benchmark-commands"
+printf '%s\n' '32|kept' '32|kept' '128|kept' '128|kept' '16|kept' '16|kept' \
+    '32|kept' '32|kept' '16|kept' '16|kept' > "${FIXTURE}/expected-environment.log"
+diff -u "${FIXTURE}/expected-environment.log" "${FIXTURE}/environment.log"
+
+check_folder_allocations() {
+    (
+        cd "$1"
+        shopt -s nullglob dotglob
+        default_threads=$(read_toml_key ".github/benchmark_defaults.toml" "threads")
+        default_threads=${default_threads:-32}
+        for project in benchmarks/*/Project.toml; do
+            folder=${project%/*}
+            case "${folder##*/}" in
+                AdaptiveSDE|AstroChem|BayesianInference|Bio|ComplicatedPDE|GlobalOptimization|\
+                Jumps|LinearSolve|MethodOfLinesPDE|NonStiffBVP|NonStiffODE|NonStiffSDE|\
+                NonlinearProblem|Optimization|ParameterEstimation|StiffODE|StiffSDE|Testing)
+                    expected=128 ;;
+                DiffEqGPU|LinearSolveGPU)
+                    expected=58 ;;
+                *)
+                    expected=
+                    if [[ -f "${folder}/benchmark_config.toml" ]]; then
+                        expected=$(read_toml_key "${folder}/benchmark_config.toml" "threads")
+                    fi
+                    expected=${expected:-${default_threads}}
+                    ;;
+            esac
+            for target in "${folder}" "${folder}"/*.jmd; do
+                config=$(get_benchmark_config "${target}")
+                if [[ "${config##*|}" -ne "${expected}" ]]; then
+                    echo "${target}: expected ${expected} threads, got ${config##*|}" >&2
+                    exit 1
+                fi
+            done
+        done
+    )
+}
+
+check_folder_allocations "${SCRIPT_DIR}/../.."
+
+printf '[deps]\n' > "${FIXTURE}/benchmarks/Custom/Project.toml"
+printf 'threads = 64\n' > "${FIXTURE}/benchmarks/Custom/benchmark_config.toml"
+check_folder_allocations "${FIXTURE}"
+
+(
+    cd "${FIXTURE}"
+    printf 'threads = 7\n' > .github/benchmark_defaults.toml
+    config=$(get_benchmark_config benchmarks/Default)
+    [[ "${config##*|}" == 7 ]]
+    printf '  threads = 11\n' > benchmarks/Default/benchmark_config.toml
+    config=$(get_benchmark_config benchmarks/Default)
+    [[ "${config##*|}" == 11 ]]
+    for invalid in 0 -1 auto 2,2; do
+        printf 'threads = %s\n' "${invalid}" > benchmarks/Default/benchmark_config.toml
+        if get_benchmark_config benchmarks/Default; then
+            echo "Accepted invalid thread count: ${invalid}" >&2
+            exit 1
+        fi
+    done
+    for key in threads timeout; do
+        case "${key}" in
+            threads) diagnostic='Expected a positive integer thread count' ;;
+            timeout) diagnostic='Expected a positive integer timeout' ;;
+        esac
+        for invalid in true false; do
+            printf '%s = %s\n' "${key}" "${invalid}" > benchmarks/Default/benchmark_config.toml
+            if get_benchmark_config benchmarks/Default 2> config-error.log; then
+                echo "Accepted boolean ${key}: ${invalid}" >&2
+                exit 1
+            fi
+            grep -F "${diagnostic} for benchmarks/Default, got ${invalid}" config-error.log
+        done
+    done
+)
 
 echo "build_benchmark.sh tests passed"
 
@@ -46,6 +174,7 @@ cp "${FIXTURE}/benchmarks/Example/Manifest.toml" "${FIXTURE}/expected-manifest"
 cat > "${FIXTURE}/benchmarks/Example/setup.sh" <<'SETUP'
 #!/bin/bash
 set -euo pipefail
+[[ "${JULIA_NUM_THREADS}" == 128 ]]
 printf 'export SHARED_SETUP=ready\n' >> "${BENCHMARK_ENV_FILE}"
 printf 'setup\n' >> "${FAKE_SETUP_LOG}"
 SETUP
@@ -53,6 +182,9 @@ chmod +x "${FIXTURE}/benchmarks/Example/setup.sh"
 cat > "${FIXTURE}/bin/julia" <<'JULIA'
 #!/bin/bash
 set -euo pipefail
+if [[ "$*" == *"TOML.parsefile"* ]]; then
+    exec "${SCIML_REAL_JULIA}" "$@"
+fi
 [[ "${SHARED_SETUP}" == ready ]]
 printf '%s\n' "$*" >> "${FAKE_JULIA_LOG}"
 JULIA
@@ -69,11 +201,40 @@ for target in benchmarks/Example benchmarks/Example/page.jmd; do
     test "$(wc -l < "${FIXTURE}/setup.log")" -eq 1
     test "$(wc -l < "${FIXTURE}/julia.log")" -eq 2
     grep -Fxq -- '--project=. -e using Pkg; Pkg.instantiate(); Pkg.build()' "${FIXTURE}/julia.log"
-    grep -Fxq -- "--threads=auto --project=. benchmark.jl ${target}" "${FIXTURE}/julia.log"
+    grep -Fxq -- "--threads=128 --project=. benchmark.jl ${target}" "${FIXTURE}/julia.log"
     cmp "${FIXTURE}/expected-project" "${FIXTURE}/benchmarks/Example/Project.toml"
     cmp "${FIXTURE}/expected-manifest" "${FIXTURE}/benchmarks/Example/Manifest.toml"
 done
 
 echo 'Folder and file builds both run shared setup, propagate its environment, and preserve Project/Manifest.'
+
+cat > "${FIXTURE}/benchmarks/BooleanThreads/setup.sh" <<'SETUP'
+#!/bin/bash
+set -euo pipefail
+printf 'export SHARED_SETUP=ready\n' >> "${BENCHMARK_ENV_FILE}"
+printf 'setup\n' >> "${FAKE_SETUP_LOG}"
+SETUP
+chmod +x "${FIXTURE}/benchmarks/BooleanThreads/setup.sh"
+for invalid in true false; do
+    printf 'threads = %s\n' "${invalid}" \
+        > "${FIXTURE}/benchmarks/BooleanThreads/benchmark_config.toml"
+    : > "${FIXTURE}/julia.log"
+    : > "${FIXTURE}/setup.log"
+    if (
+        cd "${FIXTURE}"
+        PATH="${FIXTURE}/bin:${PATH}" FAKE_JULIA_LOG="${FIXTURE}/julia.log" \
+            FAKE_SETUP_LOG="${FIXTURE}/setup.log" \
+            "${BUILD_SCRIPT}" benchmarks/BooleanThreads 2> config-error.log
+    ); then
+        echo "Built with a boolean thread count: ${invalid}" >&2
+        exit 1
+    fi
+    grep -F "Expected a positive integer thread count for benchmarks/BooleanThreads, got ${invalid}" \
+        "${FIXTURE}/config-error.log"
+    test ! -s "${FIXTURE}/setup.log"
+    test ! -s "${FIXTURE}/julia.log"
+done
+
+echo 'A boolean thread count fails the build before setup and instantiation.'
 
 bash "${SCRIPT_DIR}/test-globaloptimization-setup.sh"

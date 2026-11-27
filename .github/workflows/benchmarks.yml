@@ -53,6 +53,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
       - name: Test changed benchmark detection
         run: bash .github/scripts/test-detect-changed-benchmarks.sh
       - name: Test benchmark build setup
@@ -75,6 +78,9 @@ jobs:
       has_changes: ${{ steps.manual.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
       - name: Set manual target
         id: manual
         run: .github/scripts/detect-changed-benchmarks.sh "$BENCHMARK_TARGET"
@@ -99,8 +105,6 @@ jobs:
         include: ${{ fromJson(needs.detect-changes.outputs.matrix || needs.manual-matrix.outputs.matrix) }}
       fail-fast: false
     timeout-minutes: ${{ matrix.timeout }}
-    env:
-      JULIA_NUM_THREADS: auto
     steps:
       - uses: actions/checkout@v7
 

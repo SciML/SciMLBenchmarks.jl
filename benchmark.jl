@@ -1,3 +1,4 @@
+ENV["JULIA_NUM_THREADS"] = get(ENV, "JULIA_NUM_THREADS", string(Threads.nthreads()))
 target = ARGS[1]
 if isdir(target)
     if !isfile(joinpath(target, "Project.toml"))

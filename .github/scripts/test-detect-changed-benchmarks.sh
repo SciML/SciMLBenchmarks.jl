@@ -137,8 +137,15 @@ printf '# First page\n' > "${FIXTURE}/benchmarks/Alpha/first.jmd"
 printf '# Second page\n' > "${FIXTURE}/benchmarks/Alpha/second.jmd"
 printf '# Normal page\n' > "${FIXTURE}/benchmarks/Beta/page.jmd"
 printf '\n' >> "${FIXTURE}/benchmarks/Beta/Project.toml"
-printf 'split = true\nrunner = ["split-test"]\ntimeout = 90\n' \
-    > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml"
+cat > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml" <<'TOML'
+matrix = [
+  ["self-hosted", "benchmark"],
+]
+threads = 16
+split = true
+runner = ["split-test"]
+timeout = 90
+TOML
 SPLIT_TARGETS=$'benchmarks/Alpha/first.jmd\nbenchmarks/Alpha/second.jmd'
 assert_detection "${SPLIT_TARGETS}"$'\nbenchmarks/Beta'
 if [[ $(grep -o '"runner":\["split-test"\],"timeout":90,"julia_version":"1.11"' \
@@ -159,6 +166,7 @@ assert_detection 'benchmarks/Alpha/first.jmd'
 
 assert_detection "${SPLIT_TARGETS}" benchmarks/Alpha
 assert_detection 'benchmarks/Alpha/first.jmd' benchmarks/Alpha/first.jmd
+printf 'threads = 1_6\n' > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml"
 assert_detection 'benchmarks/Beta' benchmarks/Beta
 
 printf 'split = false\n' > "${FIXTURE}/benchmarks/Alpha/benchmark_config.toml"
@@ -180,5 +188,80 @@ if (cd "${FIXTURE}" && .github/scripts/detect-changed-benchmarks.sh benchmarks/M
     echo 'An invalid manual target must fail.' >&2
     exit 1
 fi
+
+# The matrix JSON must round-trip runner labels byte-for-byte through jq —
+# including $, quotes and backslashes — or fromJson cannot schedule the job.
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "cost$center", "quo\"te", "back\\slash"]
+threads = 16
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+EXPECTED_LABELS=('self-hosted' 'cost$center' 'quo"te' 'back\slash')
+for index in "${!EXPECTED_LABELS[@]}"; do
+    if ! decoded=$(jq -er ".[0].runner[${index}]" <<<"${MATRIX}"); then
+        echo 'The matrix JSON must decode cleanly for jq and fromJson.' >&2
+        exit 1
+    fi
+    if [[ "${decoded}" != "${EXPECTED_LABELS[${index}]}" ]]; then
+        printf 'Runner label %s decoded to %s, expected %s.\n' \
+            "${index}" "${decoded}" "${EXPECTED_LABELS[${index}]}" >&2
+        exit 1
+    fi
+done
+
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "cpu|fast"]
+timeout = 90
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+if ! jq -e '.[0] | .runner == ["self-hosted", "cpu|fast"]
+    and .timeout == 90 and .julia_version == "1.11"' <<<"${MATRIX}"; then
+    echo 'A pipe label must round-trip with its timeout and Julia version.' >&2
+    exit 1
+fi
+
+cat > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml" <<'TOML'
+runner = ["self-hosted", "a\ufffdz"]
+TOML
+assert_detection 'benchmarks/Beta' benchmarks/Beta
+MATRIX=$(sed -n 's/^matrix=//p' "${TEST_ROOT}/case-github-output")
+if ! jq -e '.[0].runner == ["self-hosted", "a\ufffdz"]' <<<"${MATRIX}"; then
+    echo 'A runner label containing U+FFFD must round-trip.' >&2
+    exit 1
+fi
+
+assert_rejected() {
+    local config="$1" diagnostic="$2" target output_file error_log
+    printf '%s\n' "${config}" > "${FIXTURE}/benchmarks/Beta/benchmark_config.toml"
+    output_file="${TEST_ROOT}/rejected-github-output"
+    error_log="${TEST_ROOT}/rejected-error.log"
+    for target in benchmarks/Beta benchmarks/Beta/page.jmd; do
+        : > "${output_file}"
+        if (cd "${FIXTURE}" && GITHUB_OUTPUT="${output_file}" \
+            .github/scripts/detect-changed-benchmarks.sh "${target}" 2> "${error_log}"); then
+            printf 'Accepted for %s: %s\n' "${target}" "${config}" >&2
+            exit 1
+        fi
+        if ! grep -F "${diagnostic}" "${error_log}"; then
+            cat "${error_log}" >&2
+            exit 1
+        fi
+        if grep -q '^matrix=' "${output_file}"; then
+            printf 'Emitted a matrix for %s: %s\n' "${target}" "${config}" >&2
+            exit 1
+        fi
+    done
+}
+
+assert_rejected 'timeout = true' 'Expected a positive integer timeout for benchmarks/Beta'
+assert_rejected 'timeout = false' 'Expected a positive integer timeout for benchmarks/Beta'
+assert_rejected 'runner = ["self-hosted", ""]' 'must not be empty or contain empty labels'
+assert_rejected 'runner = []' 'must not be empty or contain empty labels'
+assert_rejected 'runner = ["self-hosted", "\u0000"]' 'must not contain NUL bytes'
+assert_rejected 'runner = ["self-hosted", "gp\u0000u"]' 'must not contain NUL bytes'
+printf -v invalid_runner 'runner = ["self-hosted", "a\377z"]'
+assert_rejected "${invalid_runner}" 'must be valid UTF-8'
 
 echo 'Split and normal folders, file coalescing, config inheritance, and manual targets passed.'

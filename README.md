@@ -265,9 +265,9 @@ Benchmarks run on self-hosted GitHub Actions runners. Each benchmark directory c
 
 #### Runner Configuration (`benchmark_config.toml`)
 
-Each benchmark directory can contain a `benchmark_config.toml` to specify which runner to use and the job timeout. If absent, defaults from `.github/benchmark_defaults.toml` apply.
+Each benchmark directory can contain a `benchmark_config.toml` to specify the runner, job timeout, and number of Julia threads. Set `threads` to a positive integer to override the default of 32 for every page in the directory. If absent, defaults from `.github/benchmark_defaults.toml` apply.
 
-Set `split = true` to run each `.jmd` file in a separate job when a shared file changes or the folder is selected manually. The default is a single folder job. Changes confined to `.jmd` files select only those files. Each job uses the folder's runner, timeout, Julia version, `setup.sh`, and Project/Manifest environment, and publishes to the same output paths.
+Set `split = true` to run each `.jmd` file in a separate job when a shared file changes or the folder is selected manually. The default is a single folder job. Changes confined to `.jmd` files select only those files. Each job uses the folder's runner, timeout, thread count, Julia version, `setup.sh`, and Project/Manifest environment, and publishes to the same output paths.
 
 ```toml
 # CPU benchmark (default — no config file needed)

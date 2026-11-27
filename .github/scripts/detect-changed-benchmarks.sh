@@ -92,9 +92,9 @@ BUILD_TARGETS=()
 
 if [[ ${#PROJECTS[@]} -gt 0 ]]; then
     for proj in "${!PROJECTS[@]}"; do
-        split=$(read_toml_key "${proj}/benchmark_config.toml" "split")
-        split=${split%%#*}
-        if [[ "${split//[[:space:]]/}" == true ]]; then
+        records=$(benchmark_config_records "${proj}")
+        parse_benchmark_config "${records}"
+        if [[ "${CFG_SPLIT}" == true ]]; then
             shopt -s nullglob dotglob
             for f in "${proj}"/*.jmd; do
                 [[ -f "${f}" ]] || continue

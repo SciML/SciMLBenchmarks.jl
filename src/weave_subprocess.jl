@@ -19,7 +19,7 @@ function _weave_subprocess(folder, file, build_list, use_benchmark_project)
         ``
     end
     outputs = string.(collect(build_list))
-    return run(
-        `$(Base.julia_cmd()) --startup-file=no --threads=$threads $gc_flags --project=$project $worker $folder $file $caller_project $use_benchmark_project $(length(outputs)) $outputs $LOAD_PATH`
-    )
+    command = `$(Base.julia_cmd()) --startup-file=no --threads=$threads $gc_flags --project=$project $worker $folder $file $caller_project $use_benchmark_project $(length(outputs)) $outputs $LOAD_PATH`
+    inherited_threads = get(ENV, "JULIA_NUM_THREADS", string(Threads.nthreads()))
+    return run(addenv(command, "JULIA_NUM_THREADS" => inherited_threads))
 end
