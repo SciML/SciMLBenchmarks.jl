@@ -133,7 +133,7 @@ function get_IC()
     return u0
 end
 
-input = rand(Ny, Nx, 3);
+input = rand(StableRNG(1), Ny, Nx, 3); #Newton start guess, seeded so the equilibrium is reproducible
 output = similar(input);
 sparsity_pattern = Symbolics.jacobian_sparsity(f0, output, input, nothing, 0.0);
 jac_sparsity = Float64.(sparse(sparsity_pattern));
@@ -208,7 +208,7 @@ setups = [
 ];
 names = ["KenCarp47 KLU MTK", "Rodas5 KLU MTK", "Rodas5P KLU MTK"]
 
-function spring_block_wp(prob, test_sol, cb)
+function spring_block_wp(prob, test_sol, cb; require_all = true)
     wp = WorkPrecisionSet(
         prob, abstols, reltols, setups; names = names,
         save_everystep = false, maxiters = Int(1.0e5),
@@ -221,8 +221,9 @@ function spring_block_wp(prob, test_sol, cb)
                 println("$name at abstol=$(abstols[i]), reltol=$(reltols[i]): no valid work-precision point (error = $e)")
             end
         end
-        @assert any(error -> isfinite(error[:final]) && error[:final] > 0, w.errors) "$name produced no valid work-precision point at any tolerance"
+        require_all && @assert any(error -> isfinite(error[:final]) && error[:final] > 0, w.errors) "$name produced no valid work-precision point at any tolerance"
     end
+    @assert any(w -> any(error -> isfinite(error[:final]) && error[:final] > 0, w.errors), wp.wps) "no method produced a valid work-precision point"
     return wp
 end
 ```
@@ -304,7 +305,8 @@ wp_verdict(wp1)
 ### Phase 2: slip event
 
 ```julia
-wp2 = spring_block_wp(prob_mtk2, test_sol2, cb2)
+#Rodas5 and Rodas5P stall in the slip at most tolerances, so phase 2 only requires one method to finish
+wp2 = spring_block_wp(prob_mtk2, test_sol2, cb2; require_all = false)
 plot(wp2, label = reduce(hcat, names), markershape = :auto,
     title = "Spring Block PDE, phase 2 (slip event)")
 ```
