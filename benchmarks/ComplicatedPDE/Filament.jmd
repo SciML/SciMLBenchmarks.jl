@@ -311,7 +311,7 @@ stiffness_matrix!(f)
 filament_jac! = let f = f
     (J, u, p, t) -> (mul!(J, f.P.P, f.A); nothing)
 end
-prob = ODEProblem(ODEFunction(f, jac = filament_jac!), r0, (0.0, 0.01))
+prob = ODEProblem(ODEFunction{true, SciMLBase.FullSpecialize}(f, jac = filament_jac!), r0, (0.0, 0.01))
 
 sol = solve(prob, Vern9(), reltol = 1e-14, abstol = 1e-14)
 test_sol = TestSolution(sol);
@@ -699,7 +699,7 @@ N=20
 f = FilamentCache(N, Solver = SolverDiffEq)
 r0 = initialize!(:StraightX, f)
 stiffness_matrix!(f)
-prob = ODEProblem(ODEFunction(f, jac = nothing), r0, (0.0, 0.01))
+prob = ODEProblem(ODEFunction{true, SciMLBase.FullSpecialize}(f, jac = nothing), r0, (0.0, 0.01))
 
 sol = solve(prob, Vern9(), reltol = 1e-14, abstol = 1e-14)
 test_sol = TestSolution(sol.t, sol.u);
