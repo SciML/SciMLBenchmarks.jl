@@ -249,5 +249,7 @@ assert_rejected 'timeout = true' 'Expected a positive integer timeout for benchm
 assert_rejected 'timeout = false' 'Expected a positive integer timeout for benchmarks/Beta'
 assert_rejected 'runner = ["self-hosted", ""]' 'must not be empty or contain empty labels'
 assert_rejected 'runner = []' 'must not be empty or contain empty labels'
+assert_rejected 'runner = ["self-hosted", "\u0000"]' 'must not contain NUL bytes'
+assert_rejected 'runner = ["self-hosted", "gp\u0000u"]' 'must not contain NUL bytes'
 
 echo 'Split and normal folders, file coalescing, config inheritance, and manual targets passed.'

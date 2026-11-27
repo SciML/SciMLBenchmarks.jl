@@ -33,6 +33,8 @@ resolve_benchmark_config() {
             error("runner for $(target) must be a string or an array of strings")
         any(label -> occursin("\n", label) || occursin("\r", label), runner) &&
             error("runner labels for $(target) must not contain line breaks")
+        any(label -> occursin("\0", label), runner) &&
+            error("runner labels for $(target) must not contain NUL bytes")
         (isempty(runner) || any(isempty, runner)) &&
             error("runner for $(target) must not be empty or contain empty labels")
 
