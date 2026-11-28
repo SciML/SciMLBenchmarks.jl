@@ -23,31 +23,74 @@ probstatic = ODEProblem{false}(g, SA[1.0; 0.0; 0.9], (0.0, 10.0), p)
 
 abstols = 1.0 ./ 10.0 .^ (6:13)
 reltols = 1.0 ./ 10.0 .^ (3:10);
-sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
-sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+sol_plot = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+sol_endpoint = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
+sol2_endpoint = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14, save_everystep = false, dense = false)
 probs = [prob, probstatic]
-test_sol = [sol, sol2];
+test_sol = [sol_endpoint, sol2_endpoint];
 using Plots;
 gr()
+include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
+
+const RIGID_BODY_ERROR_FLOOR = 1.0e-14
+const RIGID_BODY_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
+const RIGID_BODY_DYNAMIC_RK_TAGS = [RIGID_BODY_RK_TAGS..., :dynamic]
+const RIGID_BODY_STATIC_RK_TAGS = [RIGID_BODY_RK_TAGS..., :static]
+const RIGID_BODY_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const RIGID_BODY_IRKGL_SCALAR_TAGS = [RIGID_BODY_IRKGL_TAGS..., :scalar]
+const RIGID_BODY_IRKGL_SIMD_TAGS = [RIGID_BODY_IRKGL_TAGS..., :simd]
+const RIGID_BODY_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
+const RIGID_BODY_DYNAMIC_MULTISTEP_TAGS = [RIGID_BODY_MULTISTEP_TAGS..., :dynamic]
+const RIGID_BODY_STATIC_MULTISTEP_TAGS = [RIGID_BODY_MULTISTEP_TAGS..., :static]
+const RIGID_BODY_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
+const RIGID_BODY_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
+const RIGID_BODY_ODEINTERFACE_MULTISTEP_TAGS = [:odeinterface, :adams, :multistep, :nonstiff]
+const RIGID_BODY_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapolation, :nonstiff]
+const RIGID_BODY_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
+const RIGID_BODY_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
+const RIGID_BODY_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
+```
+
+```julia; echo=false; results="hidden"; error=false
+work_table_sweeps = Any[]
+```
+
+Each sweep requests only the endpoint error with `error_estimates = [:final]` and
+attaches solver metadata tags to the results. The table accompanying each existing
+work-precision figure reports the best endpoint error, that point's timing,
+right-hand-side calls, accepted steps, and the computed refinement rate over mean
+accepted step sizes. The existing solvers are adaptive, so the fixed-step observed
+order is unavailable. Rate calculations exclude errors at or below `1e-14`, the
+tolerance used to construct each numerical endpoint reference; an em dash means the
+grid did not resolve a rate or a counter is unavailable. The plotted reference
+trajectory retains dense output because the figure consumes it.
+
+```julia
+plot(sol_plot)
 ```
 
 ```julia
-plot(sol)
-```
-
-```julia
-setups = [Dict(:alg=>DP5())
+setups = [Dict(:alg=>DP5(), :tags=>RIGID_BODY_RK_TAGS)
           #Dict(:alg=>ode45()) # fails
-          Dict(:alg=>dopri5())
-          Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern6())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Tsit5(), :prob_choice => 2)
-          Dict(:alg=>Vern6(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+          Dict(:alg=>dopri5(), :tags=>RIGID_BODY_ODEINTERFACE_RK_TAGS)
+          Dict(:alg=>Tsit5(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern6(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>RIGID_BODY_IRKGL_SCALAR_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>RIGID_BODY_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)]
+low_order_setups = setups
+low_order_abstols = abstols
+low_order_reltols = reltols
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = true, verbose = SciMLLogging.None(), numruns = 100, maxiters = 10000)
+low_order_wp = wp
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
 ```
 
 The DifferentialEquations.jl algorithms once again pull ahead. `dopri5` does surprisingly badly in this test. ODE.jl is not part of this benchmark's environment; its setups are left commented out for reference.
@@ -55,37 +98,47 @@ The DifferentialEquations.jl algorithms once again pull ahead. `dopri5` does sur
 ## Higher Order
 
 ```julia
-setups = [Dict(:alg=>DP8())
-          Dict(:alg=>dop853())
+setups = [Dict(:alg=>DP8(), :tags=>RIGID_BODY_RK_TAGS)
+          Dict(:alg=>dop853(), :tags=>RIGID_BODY_ODEINTERFACE_RK_TAGS)
           #Dict(:alg=>ode78()) # fails
-          Dict(:alg=>Vern6())
-          Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>IRKGL16(simd = false))
-          Dict(:alg=>IRKGL16(simd = true))
-          Dict(:alg=>Vern6(), :prob_choice => 2)
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>Vern9(), :prob_choice => 2)]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+          Dict(:alg=>Vern6(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = false), :tags=>RIGID_BODY_IRKGL_SCALAR_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>RIGID_BODY_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 1000)
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
 ```
 
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
+```
+
 ```julia
-setups = [Dict(:alg=>Vern7())
-          Dict(:alg=>Vern8())
-          Dict(:alg=>Vern7(), :prob_choice => 2)
-          Dict(:alg=>Vern8(), :prob_choice => 2)
-          Dict(:alg=>odex())
-          Dict(:alg=>CVODE_Adams())
-          Dict(:alg=>lsoda())
-          Dict(:alg=>ddeabm())
-          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6))]
-wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
+setups = [Dict(:alg=>Vern7(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>odex(), :tags=>RIGID_BODY_ODEINTERFACE_EXTRAPOLATION_TAGS)
+          Dict(:alg=>CVODE_Adams(), :tags=>RIGID_BODY_SUNDIALS_MULTISTEP_TAGS)
+          Dict(:alg=>lsoda(), :tags=>RIGID_BODY_LSODA_TAGS)
+          Dict(:alg=>ddeabm(), :tags=>[RIGID_BODY_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
+          Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>RIGID_BODY_SUNDIALS_RK_TAGS)]
+wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = false, numruns = 100, maxiters = 1000)
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
 ```
 
 ## Comparison with Non-RK methods
@@ -96,67 +149,163 @@ Adams-Bashforth-Moulton:
 ```julia
 abstols = 1.0 ./ 10.0 .^ (8:13)
 reltols = 1.0 ./ 10.0 .^ (8:13)
-setups = [Dict(:alg=>Tsit5())
-          Dict(:alg=>Vern9())
-          Dict(:alg=>VCABM())
-          Dict(:alg=>Vern9(), :prob_choice => 2)
-          Dict(:alg=>VCABM(), :prob_choice => 2)
-          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true))
+setups = [Dict(:alg=>Tsit5(), :tags=>RIGID_BODY_RK_TAGS)
+          Dict(:alg=>Vern9(), :tags=>RIGID_BODY_DYNAMIC_RK_TAGS)
+          Dict(:alg=>VCABM(), :tags=>RIGID_BODY_DYNAMIC_MULTISTEP_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_RK_TAGS)
+          Dict(:alg=>VCABM(), :prob_choice => 2, :tags=>RIGID_BODY_STATIC_MULTISTEP_TAGS)
+          Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 4, threading = true))
+              min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))]
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["Tsit5", "Vern9", "VCABM", "Vern9 Static", "VCABM Static",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
-              min_order = 1, max_order = 9, init_order = 9, threading = false))
+              min_order = 1, max_order = 9, init_order = 9, threading = false), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = false))
+              min_order = 2, max_order = 11, init_order = 4, threading = false), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
-          Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4,
-              sequence = :romberg, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
               min_order = 2, max_order = 11, init_order = 4,
-              sequence = :bulirsch, threading = true))]
+              sequence = :romberg, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
+          Dict(:alg=>ExtrapolationMidpointHairerWanner(
+              min_order = 2, max_order = 11, init_order = 4,
+              sequence = :bulirsch, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
 ```
 
 ```julia
 setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 10, threading = true))
+              min_order = 2, max_order = 11, init_order = 10, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 11, init_order = 4, threading = true))
+              min_order = 2, max_order = 11, init_order = 4, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 11, init_order = 10, threading = true))
+              min_order = 5, max_order = 11, init_order = 10, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 2, max_order = 15, init_order = 10, threading = true))
+              min_order = 2, max_order = 15, init_order = 10, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointHairerWanner(
-              min_order = 5, max_order = 7, init_order = 6, threading = true))]
+              min_order = 5, max_order = 7, init_order = 6, threading = true), :tags=>RIGID_BODY_EXTRAPOLATION_TAGS)]
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(
-    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames,
+    probs, abstols, reltols, setups; appxsol = test_sol, names = solnames, error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+print_work_table(wp, RIGID_BODY_ERROR_FLOOR)
 plot(wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+push!(work_table_sweeps, wp)
+```
+
+```julia; echo=false; results="hidden"; error=false
+function assert_work_table_identities(wps, error_floor)
+    table = work_table_markdown(wps, error_floor)
+    rows = split(chomp(table), '\n')[3:end]
+    @assert length(rows) == length(wps.wps) == length(wps.setups)
+    printed_identities = Tuple{String, String}[]
+    parsed_tags = Vector{Vector{String}}(undef, length(rows))
+    for (index, (row, wp)) in enumerate(zip(rows, wps.wps))
+        columns = strip.(split(row, '|'; keepempty = false))
+        @assert length(columns) == 9 "expected 9 columns in row $index, got $(length(columns))"
+        @assert columns[1] == wp.name "row $index algorithm $(columns[1]) != $(wp.name)"
+        expected_tags = join(wp.tags, ", ")
+        @assert columns[2] == expected_tags "row $index tags $(columns[2]) != $expected_tags"
+        push!(printed_identities, (String(columns[1]), String(columns[2])))
+        parsed_tags[index] = isempty(columns[2]) ? String[] : split(columns[2], ", ")
+    end
+    @assert length(Set(printed_identities)) == length(rows) "duplicate printed (Algorithm, Tags) pair in work table"
+
+    for (index, (setup, wp, row_tags)) in enumerate(zip(wps.setups, wps.wps, parsed_tags))
+        alg = setup[:alg]
+        choice = get(setup, :prob_choice, 1)
+        paired_repr = any(s -> isequal(s[:alg], alg) && get(s, :prob_choice, 1) != choice, wps.setups)
+        if choice == 2
+            @assert :static in wp.tags && "static" in row_tags "static setup $index ($(wp.name)) lacks :static"
+            @assert :dynamic ∉ wp.tags && "dynamic" ∉ row_tags "static setup $index ($(wp.name)) has :dynamic"
+        elseif paired_repr
+            @assert :dynamic in wp.tags && "dynamic" in row_tags "dynamic setup $index ($(wp.name)) lacks :dynamic"
+            @assert :static ∉ wp.tags && "static" ∉ row_tags "dynamic setup $index ($(wp.name)) has :static"
+        else
+            @assert :static ∉ wp.tags && "static" ∉ row_tags "non-static setup $index ($(wp.name)) has :static"
+            @assert :dynamic ∉ wp.tags && "dynamic" ∉ row_tags "unpaired setup $index ($(wp.name)) unexpectedly has :dynamic"
+        end
+        if isequal(alg, IRKGL16(simd = true))
+            @assert :simd in wp.tags && "simd" in row_tags "SIMD IRKGL16 setup $index lacks :simd"
+            @assert :scalar ∉ wp.tags && "scalar" ∉ row_tags "SIMD IRKGL16 setup $index has :scalar"
+        elseif isequal(alg, IRKGL16(simd = false))
+            @assert :scalar in wp.tags && "scalar" in row_tags "scalar IRKGL16 setup $index lacks :scalar"
+            @assert :simd ∉ wp.tags && "simd" ∉ row_tags "scalar IRKGL16 setup $index has :simd"
+        end
+    end
+    for tag in (:dynamic, :static, :scalar, :simd, :accepted_steps_unavailable)
+        @assert tag_kind(tag) !== :family "$tag must not change plot-family grouping"
+    end
+    return nothing
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+let
+    for w in low_order_wp.wps, metric in propertynames(w.errors)
+        metric === :final || @assert !any(isfinite, getproperty(w.errors, metric)) "low-order $(w.name) stores a finite $metric error"
+    end
+    @assert length(sol_endpoint.t) == 2
+    @assert length(sol2_endpoint.t) == 2
+    @assert !sol_endpoint.dense
+    @assert !sol2_endpoint.dense
+    dense_sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+    dense_sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
+    dense_wp = WorkPrecisionSet(probs, low_order_abstols, low_order_reltols, low_order_setups; appxsol = [dense_sol, dense_sol2],
+        error_estimates = [:final], save_everystep = true, verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
+    assert_work_table_identities(dense_wp, RIGID_BODY_ERROR_FLOOR)
+    for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
+        @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
+        for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
+            @assert isequal(getfield(a, field), getfield(b, field)) "low-order $(w.name) $field differs"
+        end
+    end
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+@assert length(work_table_sweeps) == 6 "expected 6 RigidBody sweeps, got $(length(work_table_sweeps))"
+for sweep in work_table_sweeps
+    assert_work_table_identities(sweep, RIGID_BODY_ERROR_FLOOR)
+end
+```
+
+```julia; echo=false; results="hidden"; error=false
+assert_work_table_markdown_fixture()
 ```
 
 ### Conclusion
 
 Once again, the OrdinaryDiffEq.jl methods pull far ahead in terms of speed at a given accuracy.
 
-```julia, echo = false
+```julia, echo = false, tangle = false
 using SciMLBenchmarks
 SciMLBenchmarks.bench_footer(WEAVE_ARGS[:folder], WEAVE_ARGS[:file])
 ```
