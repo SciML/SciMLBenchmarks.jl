@@ -70,6 +70,8 @@ setups = [Dict(:alg=>DP5(), :tags=>RIGID_BODY_RK_TAGS)
           Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>RIGID_BODY_RK_TAGS)
           Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>RIGID_BODY_RK_TAGS)]
 low_order_setups = setups
+low_order_abstols = abstols
+low_order_reltols = reltols
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final],
     save_everystep = true, verbose = SciMLLogging.None(), numruns = 100, maxiters = 10000)
 low_order_wp = wp
@@ -195,7 +197,7 @@ let
     @assert !sol2_endpoint.dense
     dense_sol = solve(prob, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
     dense_sol2 = solve(probstatic, Vern7(), abstol = 1/10^14, reltol = 1/10^14)
-    dense_wp = WorkPrecisionSet(probs, abstols, reltols, low_order_setups; appxsol = [dense_sol, dense_sol2],
+    dense_wp = WorkPrecisionSet(probs, low_order_abstols, low_order_reltols, low_order_setups; appxsol = [dense_sol, dense_sol2],
         error_estimates = [:final], save_everystep = true, verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
     for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
         @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
