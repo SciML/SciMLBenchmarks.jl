@@ -41,6 +41,7 @@ const LOTKA_VOLTERRA_ERROR_FLOOR = 1.0e-14
 const LOTKA_VOLTERRA_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
 const LOTKA_VOLTERRA_SIMD_RK_TAGS = [:ordinarydiffeq, :simd_rk, :explicit_rk, :nonstiff, :rhs_calls_unavailable]
 const LOTKA_VOLTERRA_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const LOTKA_VOLTERRA_IRKGL_SIMD_TAGS = [LOTKA_VOLTERRA_IRKGL_TAGS..., :simd]
 const LOTKA_VOLTERRA_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
 const LOTKA_VOLTERRA_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
 const LOTKA_VOLTERRA_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
@@ -49,6 +50,35 @@ const LOTKA_VOLTERRA_ODEINTERFACE_EXTRAPOLATION_TAGS = [:odeinterface, :extrapol
 const LOTKA_VOLTERRA_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
 const LOTKA_VOLTERRA_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
 const LOTKA_VOLTERRA_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
+const LOTKA_VOLTERRA_STATIC_RK_TAGS = [LOTKA_VOLTERRA_RK_TAGS..., :static]
+const LOTKA_VOLTERRA_STATIC_MULTISTEP_TAGS = [LOTKA_VOLTERRA_MULTISTEP_TAGS..., :static]
+const LOTKA_VOLTERRA_STATIC_SIMD_RK_TAGS = [LOTKA_VOLTERRA_SIMD_RK_TAGS..., :static]
+
+function assert_work_table_identities(wps)
+    @assert length(wps.wps) == length(wps.setups)
+    for i in eachindex(wps.wps), j in 1:(i - 1)
+        duplicate = isequal(wps.wps[i].name, wps.wps[j].name) &&
+            isequal(wps.wps[i].tags, wps.wps[j].tags)
+        @assert !duplicate "duplicate (Algorithm, Tags) pair in work-table rows $j and $i"
+    end
+    for (setup, wp) in zip(wps.setups, wps.wps)
+        alg = setup[:alg]
+        if isequal(alg, IRKGL16(simd = true))
+            @assert :simd in wp.tags "SIMD IRKGL16 lacks the :simd variant tag"
+        elseif isequal(alg, IRKGL16(simd = false))
+            @assert :simd ∉ wp.tags "scalar IRKGL16 unexpectedly has the :simd variant tag"
+        end
+        if get(setup, :prob_choice, nothing) == 2
+            @assert :static in wp.tags "static setup lacks the :static variant tag"
+        else
+            @assert :static ∉ wp.tags "dynamic setup unexpectedly has the :static variant tag"
+        end
+    end
+    for tag in (:simd, :static, :rhs_calls_unavailable)
+        @assert tag_kind(tag) !== :family "$tag must not change plot-family grouping"
+    end
+    return nothing
+end
 ```
 
 Each sweep requests only the error metrics needed for its measurement with
@@ -76,12 +106,12 @@ setups = [Dict(:alg=>DP5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>MER5v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)
-          Dict(:alg=>MER6v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)
-          Dict(:alg=>RK6v4(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_SIMD_RK_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>MER5v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_SIMD_RK_TAGS)
+          Dict(:alg=>MER6v2(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_SIMD_RK_TAGS)
+          Dict(:alg=>RK6v4(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_SIMD_RK_TAGS)]
 low_order_setups = setups
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
@@ -89,6 +119,7 @@ wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
 low_order_wp = wp
 low_order_abstols = abstols
 low_order_reltols = reltols
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -105,12 +136,13 @@ setups = [Dict(:alg=>DP5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern6(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Tsit5(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], maxiters = 10000,
     error_estimate = :L2, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -128,14 +160,15 @@ setups = [Dict(:alg=>DP8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -148,17 +181,18 @@ setups = [Dict(:alg=>odex(), :tags=>LOTKA_VOLTERRA_ODEINTERFACE_EXTRAPOLATION_TA
           Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
           Dict(:alg=>CVODE_Adams(), :tags=>LOTKA_VOLTERRA_SUNDIALS_MULTISTEP_TAGS)
           Dict(:alg=>lsoda(), :tags=>LOTKA_VOLTERRA_LSODA_TAGS)
           Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>LOTKA_VOLTERRA_SUNDIALS_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), maxiters = 1000, numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -173,13 +207,14 @@ setups = [Dict(:alg=>DP8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern8(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Vern6(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern7(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern8(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)]
 wp = WorkPrecisionSet(probs, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], dense = true,
     maxiters = 1000, error_estimate = :L2, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -198,9 +233,9 @@ setups = [Dict(:alg=>Tsit5(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>LOTKA_VOLTERRA_RK_TAGS)
           Dict(:alg=>VCABM(), :tags=>LOTKA_VOLTERRA_MULTISTEP_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_TAGS)
-          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_RK_TAGS)
-          Dict(:alg=>VCABM(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_MULTISTEP_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>LOTKA_VOLTERRA_IRKGL_SIMD_TAGS)
+          Dict(:alg=>Vern9(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_RK_TAGS)
+          Dict(:alg=>VCABM(), :prob_choice => 2, :tags=>LOTKA_VOLTERRA_STATIC_MULTISTEP_TAGS)
           Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
               min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>LOTKA_VOLTERRA_EXTRAPOLATION_TAGS)
@@ -212,6 +247,7 @@ solnames = ["Tsit5", "Vern9", "VCABM", "IRKGL16", "IRKGL16 SIMD",
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -233,6 +269,7 @@ solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -252,6 +289,7 @@ solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(
     probs, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, LOTKA_VOLTERRA_ERROR_FLOOR)
 plot(wp)
 ```
@@ -259,28 +297,34 @@ plot(wp)
 
 ```julia; echo=false; results="hidden"; error=false
 let
-    series = Dict(wp.name => wp for wp in low_order_wp[:])
+    series = collect(low_order_wp[:])
     table = work_table_markdown(low_order_wp, LOTKA_VOLTERRA_ERROR_FLOOR)
-    rows = Dict(
-        map(split(chomp(table), '\n')[3:end]) do row
-            columns = strip.(split(row, '|'; keepempty = false))
-            return columns[1] => columns
-        end
-    )
-    simd_names = ("MER5v2", "MER6v2", "RK6v4")
-    @assert Set(wp.name for wp in low_order_wp[:] if :simd_rk in wp.tags) == Set(simd_names)
-    for name in simd_names
-        wp = series[name]
-        points = usable_points(wp)
-        @assert !isempty(points) "$name has no usable points"
-        rhs, accepted = rows[name][8:9]
-        @assert rhs == "—" "$name RHS calls should be —, got $rhs"
-        @assert :rhs_calls_unavailable in wp.tags "$name lacks :rhs_calls_unavailable"
-        selected = wp.stats[points[argmin(wp.errors.final[points])]].naccept
-        @assert accepted == string(selected) "$name accepted steps should be $selected, got $accepted"
+    table_rows = split(chomp(table), '\n')[3:end]
+    @assert length(table_rows) == length(series)
+    rows = map(table_rows) do row
+        return strip.(split(row, '|'; keepempty = false))
     end
-    @assert :rhs_calls_unavailable ∉ series["Tsit5"].tags
-    @assert !isnothing(tryparse(Int, rows["Tsit5"][8])) "Tsit5 RHS calls should be numeric"
+    simd_names = ("MER5v2", "MER6v2", "RK6v4")
+    @assert Set(wp.name for wp in series if :simd_rk in wp.tags) == Set(simd_names)
+    for (index, (wp, columns)) in zip(eachindex(series), zip(series, rows))
+        @assert columns[1] == wp.name "work-table row $index is not keyed to its setup position"
+        if wp.name in simd_names
+            points = usable_points(wp)
+            @assert !isempty(points) "$(wp.name) has no usable points"
+            rhs, accepted = columns[8:9]
+            @assert rhs == "—" "$(wp.name) RHS calls should be —, got $rhs"
+            @assert :rhs_calls_unavailable in wp.tags "$(wp.name) lacks :rhs_calls_unavailable"
+            selected = wp.stats[points[argmin(wp.errors.final[points])]].naccept
+            @assert accepted == string(selected) "$(wp.name) accepted steps should be $selected, got $accepted"
+        end
+    end
+    tsit5_rows = findall(wp -> wp.name == "Tsit5", series)
+    @assert length(tsit5_rows) == 2 "expected both dynamic and static Tsit5 configurations"
+    for index in tsit5_rows
+        wp = series[index]
+        @assert :rhs_calls_unavailable ∉ wp.tags
+        @assert !isnothing(tryparse(Int, rows[index][8])) "Tsit5 setup $index RHS calls should be numeric"
+    end
 end
 ```
 
@@ -296,6 +340,7 @@ let
     dense_wp = WorkPrecisionSet(probs, low_order_abstols, low_order_reltols, low_order_setups;
         appxsol = test_sol_dense, error_estimates = [:final], save_everystep = false,
         verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
+    assert_work_table_identities(dense_wp)
     for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
         @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
         for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))

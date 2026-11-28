@@ -45,6 +45,7 @@ include(joinpath(@__DIR__, "..", "workprecision_table.jl"))
 const PLEIADES_ERROR_FLOOR = 1.0e-9
 const PLEIADES_RK_TAGS = [:ordinarydiffeq, :explicit_rk, :nonstiff]
 const PLEIADES_IRKGL_TAGS = [:irkgl, :implicit_rk, :nonstiff]
+const PLEIADES_IRKGL_SIMD_TAGS = [PLEIADES_IRKGL_TAGS..., :simd]
 const PLEIADES_MULTISTEP_TAGS = [:ordinarydiffeq, :adams, :multistep, :nonstiff]
 const PLEIADES_EXTRAPOLATION_TAGS = [:ordinarydiffeq, :extrapolation, :nonstiff]
 const PLEIADES_ODEINTERFACE_RK_TAGS = [:odeinterface, :explicit_rk, :nonstiff]
@@ -54,6 +55,25 @@ const PLEIADES_SUNDIALS_RK_TAGS = [:sundials, :explicit_rk, :nonstiff]
 const PLEIADES_SUNDIALS_MULTISTEP_TAGS = [:sundials, :adams, :multistep, :nonstiff]
 const PLEIADES_LSODA_TAGS = [:lsoda, :multistep, :nonstiff]
 const PLEIADES_SDC_TAGS = [:ordinarydiffeq, :sdc, :nonstiff]
+
+function assert_work_table_identities(wps)
+    @assert length(wps.wps) == length(wps.setups)
+    for i in eachindex(wps.wps), j in 1:(i - 1)
+        duplicate = isequal(wps.wps[i].name, wps.wps[j].name) &&
+            isequal(wps.wps[i].tags, wps.wps[j].tags)
+        @assert !duplicate "duplicate (Algorithm, Tags) pair in work-table rows $j and $i"
+    end
+    for (setup, wp) in zip(wps.setups, wps.wps)
+        alg = setup[:alg]
+        if isequal(alg, IRKGL16(simd = true))
+            @assert :simd in wp.tags "SIMD IRKGL16 lacks the :simd variant tag"
+        elseif isequal(alg, IRKGL16(simd = false))
+            @assert :simd ∉ wp.tags "scalar IRKGL16 unexpectedly has the :simd variant tag"
+        end
+    end
+    @assert tag_kind(:simd) !== :family ":simd must not change plot-family grouping"
+    return nothing
+end
 ```
 
 Each sweep requests only the error metrics needed for its measurement with
@@ -92,12 +112,13 @@ setups = [Dict(:alg=>DP5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)]
 low_order_setups = setups
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 10000)
 low_order_wp = wp
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -109,9 +130,10 @@ setups = [Dict(:alg=>DP5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], verbose = SciMLLogging.None(), numruns = 100,
     maxiters = 10000, error_estimate = :L2)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -133,11 +155,12 @@ setups = [Dict(:alg=>DP8(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern8(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)
           Dict(:alg=>dop853(), :tags=>PLEIADES_ODEINTERFACE_RK_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100, maxiters = 1000)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -150,12 +173,13 @@ setups = [Dict(:alg=>odex(), :tags=>PLEIADES_ODEINTERFACE_EXTRAPOLATION_TAGS)
           Dict(:alg=>Vern6(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)
           Dict(:alg=>ddeabm(), :tags=>[PLEIADES_ODEINTERFACE_MULTISTEP_TAGS..., :accepted_steps_unavailable])
           Dict(:alg=>ARKODE(Sundials.Explicit(), order = 6), :tags=>PLEIADES_SUNDIALS_RK_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol,
     error_estimates = [:final],
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 20)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -169,9 +193,10 @@ setups = [Dict(:alg=>DP8(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern8(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)]
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol_dense, error_estimates = [:final, :l2, :L2], verbose = SciMLLogging.None(), numruns = 100,
     maxiters = 1000, error_estimate = :L2)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -186,7 +211,7 @@ setups = [Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>Vern9(), :tags=>PLEIADES_RK_TAGS)
           Dict(:alg=>VCABM(), :tags=>PLEIADES_MULTISTEP_TAGS)
           Dict(:alg=>IRKGL16(simd = false), :tags=>PLEIADES_IRKGL_TAGS)
-          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_TAGS)
+          Dict(:alg=>IRKGL16(simd = true), :tags=>PLEIADES_IRKGL_SIMD_TAGS)
           Dict(:alg=>AitkenNeville(min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
           Dict(:alg=>ExtrapolationMidpointDeuflhard(
               min_order = 1, max_order = 9, init_order = 4, threading = true), :tags=>PLEIADES_EXTRAPOLATION_TAGS)
@@ -196,6 +221,7 @@ solnames = ["Tsit5", "Vern9", "VCABM", "IRKGL16", "IRKGL16 SIMD",
     "AitkenNeville", "Midpoint Deuflhard", "Midpoint Hairer Wanner"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -216,6 +242,7 @@ setups = [Dict(:alg=>ExtrapolationMidpointDeuflhard(
 solnames = ["Deuflhard", "No threads", "standard", "Romberg", "Bulirsch"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -234,6 +261,7 @@ setups = [Dict(:alg=>ExtrapolationMidpointHairerWanner(
 solnames = ["1", "2", "3", "4", "5"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -270,6 +298,7 @@ setups = [Dict(:alg=>Tsit5(), :tags=>PLEIADES_RK_TAGS)
 solnames = ["Tsit5", "Vern9", "SDC-FE (4 nodes, 4 sweeps)", "SDC-FE (4 nodes, 7 sweeps)"]
 wp = WorkPrecisionSet(prob, abstols, reltols, setups; appxsol = test_sol, error_estimates = [:final], names = solnames,
     save_everystep = false, verbose = SciMLLogging.None(), numruns = 100)
+assert_work_table_identities(wp)
 print_work_table(wp, PLEIADES_ERROR_FLOOR)
 plot(wp)
 ```
@@ -326,6 +355,7 @@ let
     @assert !tighter_ref.dense
     dense_wp = WorkPrecisionSet(prob, abstols, reltols, low_order_setups; appxsol = sol,
         error_estimates = [:final], save_everystep = false, verbose = SciMLLogging.None(), numruns = 1, maxiters = 10000)
+    assert_work_table_identities(dense_wp)
     for (w, d) in zip(low_order_wp.wps, dense_wp.wps)
         @assert isequal(w.errors.final, d.errors.final) "low-order $(w.name) endpoint errors differ"
         for (a, b) in zip(w.stats, d.stats), field in fieldnames(typeof(a))
